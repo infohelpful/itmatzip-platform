@@ -1,0 +1,10 @@
+# 에이전트 서버 실행에 필요한 Python 패키지 목록입니다.
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+requests>=2.31.0
+python-multipart>=0.0.9
+pillow>=10.0.0
+
+# 실행 파일 패키징(PyInstaller)용 — 배포 빌드 시에만 필요할 수 있습니다.
+pyinstaller>=6.0.0

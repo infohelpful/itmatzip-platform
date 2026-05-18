@@ -1,0 +1,7 @@
+﻿    a('        <div class="logo-area">')
+    a('          <span class="badge">AI Powered</span>')
+    a('          <h1>Silence <span class="accent">Detector</span></h1>')
+    a("        </div>")
+    a('        <div class="header-status-col">')
+    a(f'          <motion id="connection-status" class="status-dot">{e(L["conn_fail"])}</motion>')
+

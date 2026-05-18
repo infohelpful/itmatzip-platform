@@ -1,0 +1,34 @@
+"""개발 모드 / PyInstaller exe 공통 경로·서브프로세스 헬퍼."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def agent_root() -> Path:
+    """에이전트 소스(또는 exe에 번들된 _MEIPASS) 루트."""
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent
+
+
+def pick_script_path() -> Path:
+    return agent_root() / "scripts" / "pick_media_dialog.py"
+
+
+def pick_file_command() -> list[str]:
+    """파일 선택 대화상자용 subprocess argv (exe는 --pick-file 모드)."""
+    if is_frozen():
+        return [sys.executable, "--pick-file"]
+    return [sys.executable, str(pick_script_path())]
+
+
+def pick_file_available() -> bool:
+    if is_frozen():
+        return True
+    return pick_script_path().is_file()

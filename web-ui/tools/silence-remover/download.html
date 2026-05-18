@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EDL Download</title>
+  <link rel="stylesheet" href="download.css?v=2">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+</head>
+<body>
+  <div class="dl-page">
+    <div class="dl-ad" id="dl-ad-top" aria-label="Advertisement"></div>
+    <div class="dl-card">
+      <h1 id="dl-title">EDL Download</h1>
+      <p class="dl-status" id="dl-status"></p>
+      <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
+      <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
+      <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
+      <div class="dl-actions">
+        <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled>Download now</button>
+        <button type="button" class="dl-btn dl-btn-secondary" id="dl-btn-retry-agent" disabled>Check agent</button>
+        <button type="button" class="dl-btn dl-btn-back" id="dl-btn-back" disabled>Back to editor</button>
+      </div>
+    </div>
+
+    <section class="dl-guides" aria-label="EDL 사용 가이드 및 FAQ">
+      <article class="dl-info-card">
+        <header class="dl-info-card__head">
+          <span class="dl-info-card__icon" aria-hidden="true">🎬</span>
+          <div>
+            <h2 class="dl-info-card__title">주요 편집 프로그램별 EDL 불러오기 가이드</h2>
+            <p class="dl-info-card__subtitle">💡 3초 만에 끝내는 NLE 프로그램별 EDL 로드 방법</p>
+          </div>
+        </header>
+
+        <ul class="dl-nle-list">
+          <li class="dl-nle-item">
+            <div class="dl-nle-item__brand">
+              <span class="dl-nle-item__logo dl-nle-item__logo--pr" aria-hidden="true">Pr</span>
+              <h3 class="dl-nle-item__name">Adobe Premiere Pro</h3>
+            </div>
+            <p class="dl-nle-item__steps">
+              <span class="dl-step">File</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">Import</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">.edl 파일 선택</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step dl-step--highlight">생성된 시퀀스 더블 클릭!</span>
+            </p>
+          </li>
+          <li class="dl-nle-item">
+            <div class="dl-nle-item__brand">
+              <span class="dl-nle-item__logo dl-nle-item__logo--dr" aria-hidden="true">DR</span>
+              <h3 class="dl-nle-item__name">DaVinci Resolve</h3>
+            </div>
+            <p class="dl-nle-item__steps">
+              <span class="dl-step">File</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">Import</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">Timeline</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">.edl 파일 선택</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step"> Automatically set projects 체크</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step dl-step--highlight"> OK 클릭</span>
+            </p>
+          </li>
+          <li class="dl-nle-item">
+            <div class="dl-nle-item__brand">
+              <span class="dl-nle-item__logo dl-nle-item__logo--fcp" aria-hidden="true">FCP</span>
+              <h3 class="dl-nle-item__name">Final Cut Pro</h3>
+            </div>
+            <p class="dl-nle-item__steps">
+              <span class="dl-step">File</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">Import</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step dl-step--highlight">XML… (EDL 변환 후 로드)</span>
+            </p>
+          </li>
+        </ul>
+
+        <aside class="dl-callout">
+          <span class="dl-callout__icon" aria-hidden="true">📌</span>
+          <p>
+            <strong>주의:</strong> 편집 프로그램에서 미디어를 불러올 때, 원본 영상 파일과
+            <strong>동일한 프레임 레이트(FPS)</strong>를 설정해 주셔야 싱크가 밀리지 않습니다.
+          </p>
+        </aside>
+      </article>
+
+      <article class="dl-info-card">
+        <header class="dl-info-card__head">
+          <span class="dl-info-card__icon" aria-hidden="true">❓</span>
+          <div>
+            <h2 class="dl-info-card__title">팁 &amp; 자주 묻는 질문</h2>
+            <p class="dl-info-card__subtitle">🛠️ 다운로드 관련 문제가 발생하셨나요?</p>
+          </div>
+        </header>
+
+        <dl class="dl-faq">
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q">Q. 다운로드가 자동으로 시작되지 않아요.</dt>
+            <dd class="dl-faq__a">
+              상단의 <strong>[지금 다운로드]</strong> 버튼을 직접 클릭해 주세요. 브라우저 팝업 차단 설정 때문일 수 있습니다.
+            </dd>
+          </div>
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q">Q. 에이전트 프로그램 오류가 떠요.</dt>
+            <dd class="dl-faq__a">
+              작업 표시줄 트레이 아이콘에서 에이전트가 정상 실행 중인지 확인하시거나, 방화벽 허용 상태를 체크해 주세요.
+            </dd>
+          </div>
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q">Q. 편집하던 데이터가 날아갔을까 봐 불안해요.</dt>
+            <dd class="dl-faq__a">
+              걱정 마세요! <strong class="dl-faq__back-ref">[편집 화면으로 돌아가기]</strong>를 누르시면 안전하게 저장된 이전 작업 상태로 즉시 복원됩니다.
+            </dd>
+          </div>
+        </dl>
+      </article>
+    </section>
+
+    <div class="dl-ad" id="dl-ad-bottom" aria-label="Advertisement"></div>
+  </div>
+  <script type="module" src="download.js?v=3"></script>
+</body>
+</html>
