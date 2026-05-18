@@ -1,0 +1,86 @@
+# ============================================
+# ItMatZip — Git 업로드 제외 목록
+# ============================================
+
+# ——— Python ———
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist-info/
+pip-log.txt
+pip-delete-this-directory.txt
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+
+# 가상환경
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+
+# ——— PyInstaller / 에이전트 빌드 ———
+agent/build/
+agent/dist/
+*.spec.bak
+
+# ——— 배포 바이너리 (GitHub Releases 등에만 업로드) ———
+*.exe
+*.msi
+*.dmg
+*.app
+*.zip
+!agent/agent-update-manifest.json
+
+# 에이전트 중첩 git·로컬 venv
+agent/.git/
+agent/.venv-build/
+
+# ——— 로컬·임시·개인 메모 ———
+*.log
+.env
+.env.*
+!.env.example
+rest.txt
+**/_write_fix.js
+*.tmp
+*.temp
+*.bak
+*~
+
+# ——— OS ———
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# ——— IDE / 에디터 ———
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+
+# ——— Node (웹 도구 추가 시) ———
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ——— FFmpeg 로컬 캐시 (사용자 PC, 소스 아님) ———
+# %APPDATA%\ItMatZip\ — 에이전트 런타임 전용
