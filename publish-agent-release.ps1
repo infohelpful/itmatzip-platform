@@ -59,7 +59,7 @@ Write-Host "manifest 저장: $ManifestPath" -ForegroundColor Green
 Write-Host "version: $($manifest.version)"
 Write-Host "sha256:  $($manifest.sha256)"
 Write-Host ""
-Write-Host "다음 단계:" -ForegroundColor Cyan
-Write-Host "  1) GitHub Release v$Version 에 itmatzip-agent.exe 업로드"
-Write-Host "  2) agent/agent-update-manifest.json 을 main 브랜치에 push (또는 Release asset으로 동일 URL 제공)"
-Write-Host "  3) common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 이 manifest raw URL 과 일치하는지 확인"
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1) Upload itmatzip-agent.exe to GitHub Release v$Version"
+Write-Host "  2) git push agent/agent-update-manifest.json to main"
+Write-Host "  3) Check update_config.py DEFAULT_UPDATE_MANIFEST_URL matches raw manifest URL"
