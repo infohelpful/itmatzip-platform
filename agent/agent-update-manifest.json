@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
-  "published_at": "2026-05-15",
-  "download_url": "https://github.com/itmatzip/itmatzip-platform/releases/download/v0.1.0/itmatzip-agent.exe",
+  "published_at": "2026-05-18",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.0/itmatzip-agent.exe",
   "sha256": "",
   "mandatory": false,
   "release_notes": "초기 배포"

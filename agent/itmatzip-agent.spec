@@ -1,9 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec — agent 폴더에서 실행: pyinstaller itmatzip-agent.spec
 
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 block_cipher = None
+
+_SPEC_DIR = Path(SPECPATH)
+_ICON_FILE = _SPEC_DIR / "assets" / "itmatzip-agent.ico"
+_APP_ICON = str(_ICON_FILE.resolve()) if _ICON_FILE.is_file() else None
 
 hiddenimports = [
     "runtime_paths",
@@ -87,4 +93,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=_APP_ICON,
 )

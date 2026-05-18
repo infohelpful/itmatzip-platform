@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import os
 
-# 예: https://raw.githubusercontent.com/<USER>/<REPO>/main/itmatzip-platform/agent/agent-update-manifest.json
-# 또는 GitHub Releases에 manifest.json 을 올려도 됩니다.
+# ┌─────────────────────────────────────────────────────────────────────────┐
+# │ update_config.py  → manifest JSON 주소만 (버전·exe 링크는 그 안에 있음)   │
+# │ agent-update-manifest.json → version, download_url(exe), sha256         │
+# └─────────────────────────────────────────────────────────────────────────┘
+#
+# manifest는 Git main에 두는 방식 (권장): push 후 raw URL
+# exe는 Releases에만 올리고, download_url은 manifest.json에 적습니다.
 DEFAULT_UPDATE_MANIFEST_URL = (
-    "https://raw.githubusercontent.com/itmatzip/itmatzip-platform/main/"
-    "itmatzip-platform/agent/agent-update-manifest.json"
+    "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/"
+    "agent/agent-update-manifest.json"
 )
 
 UPDATE_MANIFEST_URL = os.environ.get(

@@ -31,7 +31,27 @@ cd "e:\Develop Program\2. itmatzip-platform\web-Tool\itmatzip-platform"
 
 (본인 PC의 실제 경로로 바꿉니다.)
 
-### 2단계: 빌드 스크립트 실행
+### 2단계: exe 아이콘 준비 (선택, 권장)
+
+Windows exe 아이콘은 **`.ico`** 형식이어야 합니다.
+
+1. 만든 아이콘을 아래 경로에 **`itmatzip-agent.ico`** 이름으로 저장:
+
+   ```
+   agent\assets\itmatzip-agent.ico
+   ```
+
+2. PNG만 있으면 [ICO 변환 사이트](https://convertio.co/ko/png-ico/) 등으로 `.ico` 변환 (256×256 포함 권장).
+
+3. 다른 경로에 있으면 빌드 시 복사:
+
+   ```powershell
+   .\build-agent.ps1 -IconPath "D:\내아이콘.ico"
+   ```
+
+`.ico`가 없으면 Python 기본 아이콘으로 빌드됩니다.
+
+### 3단계: 빌드 스크립트 실행
 
 ```powershell
 .\build-agent.ps1
@@ -43,13 +63,13 @@ cd "e:\Develop Program\2. itmatzip-platform\web-Tool\itmatzip-platform"
 - `requirements.txt` 설치 (FastAPI, uvicorn, PyInstaller 등)
 - PyInstaller로 `itmatzip-agent.exe` 생성
 
-### 3단계: 결과 확인
+### 4단계: 결과 확인
 
 ```powershell
 dir agent\dist\itmatzip-agent.exe
 ```
 
-### 4단계: exe 실행
+### 5단계: exe 실행
 
 ```powershell
 .\agent\dist\itmatzip-agent.exe
@@ -63,7 +83,7 @@ dir agent\dist\itmatzip-agent.exe
 ItMatZip Agent (exe) — http://127.0.0.1:8000
 ```
 
-### 5단계: 동작 확인
+### 6단계: 동작 확인
 
 브라우저에서:
 
