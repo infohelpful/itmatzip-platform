@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
+from common.subprocess_util import run_hidden
 from engines import silence_remover
 from runtime_paths import pick_file_available, pick_file_command
 
@@ -304,7 +305,7 @@ def post_pick_local_file(_: SilenceRemoverReady) -> dict[str, str]:
             detail="파일 선택 스크립트를 찾을 수 없습니다. exe를 다시 빌드하거나 agent/scripts를 확인하세요.",
         )
     try:
-        proc = subprocess.run(
+        proc = run_hidden(
             pick_file_command(),
             capture_output=True,
             text=True,

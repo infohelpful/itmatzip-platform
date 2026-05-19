@@ -34,7 +34,7 @@ body {
 }
 
 .dl-ad {
-  min-height: 200px;
+  min-height: 280px;
   margin: 0;
   border-radius: var(--radius);
   background: #0a0c10;
@@ -47,16 +47,16 @@ body {
 .dl-ad .adsbygoogle {
   display: block;
   width: 100%;
-  min-height: 200px;
+  min-height: 280px;
   line-height: normal;
 }
 
 .dl-ad:not(:has(.adsbygoogle)) {
-  min-height: 200px;
+  min-height: 280px;
 }
 
 .dl-ad[data-adsense-empty="1"] {
-  min-height: 200px;
+  min-height: 280px;
   display: flex;
   align-items: center;
   justify-content: center;

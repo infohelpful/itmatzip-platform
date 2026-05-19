@@ -49,6 +49,15 @@ let _installDialog = null;
 /** @type {(() => void) | null} */
 let _installPendingResolve = null;
 
+/** @type {InstallDialogOptions | null} */
+let _installDialogOptions = null;
+
+/** @type {boolean} */
+let _installDialogHandlersBound = false;
+
+/** 사용자가 닫기 누른 뒤 자동 팝업 억제 (ms, Date.now 기준) */
+let _installAutoShowSuppressedUntil = 0;
+
 /**
  * @typedef {{
  *   origin?: string,
@@ -82,10 +91,61 @@ export function setAgentOrigin(origin) {
   _origin = origin.replace(/\/+$/, "");
 }
 
+/** @type {boolean | null} */
+let _targetAddressSpaceSupported = null;
+
+function supportsTargetAddressSpace() {
+  if (_targetAddressSpaceSupported != null) return _targetAddressSpaceSupported;
+  if (typeof Request === "undefined") {
+    _targetAddressSpaceSupported = false;
+    return false;
+  }
+  try {
+    new Request("http://127.0.0.1/", { targetAddressSpace: "local" });
+    _targetAddressSpaceSupported = true;
+  } catch {
+    _targetAddressSpaceSupported = false;
+  }
+  return _targetAddressSpaceSupported;
+}
+
 /**
- * @param {AbortSignal} [signal]
- * @returns {Promise<{ ok: boolean, status?: number, latencyMs?: number, error?: string }>}
+ * Chrome Local Network Access — loopback·사설망 fetch 대상 공간
+ * @param {string} [url]
+ * @returns {"local" | "private" | undefined}
  */
+function targetAddressSpaceForUrl(url) {
+  if (!supportsTargetAddressSpace()) return undefined;
+  if (!url) return "local";
+  try {
+    const { hostname } = new URL(url);
+    const h = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "local";
+    if (
+      /^10\./.test(h) ||
+      /^192\.168\./.test(h) ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+    ) {
+      return "private";
+    }
+  } catch {
+    /* ignore */
+  }
+  return "local";
+}
+
+/**
+ * 로컬 에이전트용 fetch (Chrome `targetAddressSpace` 적용)
+ * @param {string} url
+ * @param {RequestInit} [init]
+ * @returns {Promise<Response>}
+ */
+export function fetchAgent(url, init = {}) {
+  const space = targetAddressSpaceForUrl(url);
+  if (!space) return fetch(url, init);
+  return fetch(url, { ...init, targetAddressSpace: space });
+}
+
 /**
  * @param {string} origin
  * @param {AbortSignal | undefined} signal
@@ -97,7 +157,7 @@ async function pingAgentOrigin(origin, signal) {
   const merged = mergeSignals(signal, ctrl.signal);
   const started = performance.now();
   try {
-    const res = await fetch(url, {
+    const res = await fetchAgent(url, {
       method: "GET",
       cache: "no-store",
       credentials: "omit",
@@ -172,10 +232,18 @@ export function startConnectionMonitor(opts = {}) {
   let stopped = false;
   let lastOk = /** @type {boolean | null} */ (null);
   let firstTick = true;
+  let failStreak = 0;
 
   async function tick() {
     const detail = await checkAgentConnection();
     if (stopped) return;
+    if (detail.ok) {
+      failStreak = 0;
+      _installAutoShowSuppressedUntil = 0;
+      if (_installDialog?.open) dismissInstallAgentDialog();
+    } else {
+      failStreak += 1;
+    }
     const changed = lastOk !== detail.ok;
     if (firstTick || changed) {
       const wasFirstCheck = lastOk === null;
@@ -185,7 +253,12 @@ export function startConnectionMonitor(opts = {}) {
       opts.onChange?.(detail.ok, detail);
       if (!detail.ok) {
         opts.onDisconnected?.(detail);
-        if (opts.autoShowInstallDialog && (wasFirstCheck || wasConnected)) {
+        // 분석 중 일시 타임아웃·첫 실패로 설치 팝업이 깜빡이지 않게 2회 연속 실패 후에만 표시
+        const showInstall =
+          opts.autoShowInstallDialog &&
+          failStreak >= 2 &&
+          (wasConnected || (wasFirstCheck && failStreak >= 2));
+        if (showInstall && Date.now() >= _installAutoShowSuppressedUntil && !_installDialog?.open) {
           void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
             showInstallAgentDialog(dialogOpts),
           );
@@ -220,16 +293,114 @@ export function startConnectionMonitor(opts = {}) {
  * @param {InstallDialogOptions} [options]
  * @returns {Promise<void>} 닫힐 때 resolve
  */
-export function showInstallAgentDialog(options = {}) {
+function _finishInstallDialogPromise() {
   if (_installPendingResolve) {
     const finish = _installPendingResolve;
     _installPendingResolve = null;
     finish();
   }
-  if (_installDialog?.open) _installDialog.close();
+}
+
+function _closeInstallDialogElement() {
+  const dlg = _installDialog;
+  if (!dlg?.open) return;
+  try {
+    dlg.close();
+  } catch {
+    dlg.removeAttribute("open");
+  }
+}
+
+function _closeInstallDialogByUser() {
+  _installAutoShowSuppressedUntil = Date.now() + 120_000;
+  _finishInstallDialogPromise();
+  _closeInstallDialogElement();
+}
+
+async function _retryInstallDialogConnection() {
+  const dlg = _installDialog;
+  const opts = _installDialogOptions;
+  if (!dlg || !opts) return;
+
+  const statusEl = dlg.querySelector("[data-install-status]");
+  const retryBtn = dlg.querySelector('button[data-act="retry"]');
+  if (retryBtn instanceof HTMLButtonElement) retryBtn.disabled = true;
+  if (statusEl) {
+    statusEl.textContent = "연결 확인 중…";
+    statusEl.className = "itz-install__status";
+  }
+
+  try {
+    let detail = await Promise.resolve(opts.onPrimary?.());
+    if (!detail || typeof detail !== "object" || !("ok" in detail)) {
+      detail = await checkAgentConnection();
+    }
+    if (detail?.ok) {
+      _installAutoShowSuppressedUntil = 0;
+      if (statusEl) {
+        statusEl.textContent = "연결되었습니다.";
+        statusEl.className = "itz-install__status is-ok";
+      }
+      _finishInstallDialogPromise();
+      _closeInstallDialogElement();
+      return;
+    }
+    const err = detail?.error || "연결할 수 없습니다.";
+    if (statusEl) {
+      statusEl.textContent = `아직 연결되지 않았습니다. (${err})`;
+      statusEl.className = "itz-install__status is-err";
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (statusEl) {
+      statusEl.textContent = `확인 실패: ${msg}`;
+      statusEl.className = "itz-install__status is-err";
+    }
+  } finally {
+    if (retryBtn instanceof HTMLButtonElement) retryBtn.disabled = false;
+  }
+}
+
+function _bindInstallDialogHandlersOnce() {
+  const dlg = _installDialog;
+  if (!dlg || _installDialogHandlersBound) return;
+  _installDialogHandlersBound = true;
+
+  dlg.addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest("button[data-act]");
+    if (!btn || !dlg.contains(btn)) return;
+    const act = btn.getAttribute("data-act");
+    if (act === "close") {
+      ev.preventDefault();
+      _closeInstallDialogByUser();
+    } else if (act === "retry") {
+      ev.preventDefault();
+      void _retryInstallDialogConnection();
+    }
+  });
+
+  dlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    _closeInstallDialogByUser();
+  });
+
+  dlg.addEventListener("close", () => {
+    _finishInstallDialogPromise();
+  });
+}
+
+export function showInstallAgentDialog(options = {}) {
+  if (Date.now() < _installAutoShowSuppressedUntil) {
+    return Promise.resolve();
+  }
 
   ensureInstallDialog();
   const dlg = /** @type {HTMLDialogElement} */ (_installDialog);
+  _bindInstallDialogHandlersOnce();
+  _installDialogOptions = options;
+  const alreadyOpen = Boolean(dlg.open);
   const title = options.title ?? "로컬 에이전트에 연결할 수 없습니다";
   const body =
     options.bodyHtml ??
@@ -240,7 +411,10 @@ export function showInstallAgentDialog(options = {}) {
       <header class="itz-install__head">
         <h2 class="itz-install__title">${escapeHtml(title)}</h2>
       </header>
-      <div class="itz-install__body">${body}</div>
+      <div class="itz-install__body">
+        ${body}
+        <p class="itz-install__status" data-install-status aria-live="polite"></p>
+      </div>
       <footer class="itz-install__foot">
         <button type="button" class="itz-install__btn itz-install__btn--ghost" data-act="close">닫기</button>
         <button type="button" class="itz-install__btn itz-install__btn--primary" data-act="retry">${escapeHtml(
@@ -252,32 +426,14 @@ export function showInstallAgentDialog(options = {}) {
 
   return new Promise((resolve) => {
     _installPendingResolve = resolve;
-
-    /** @param {Event} ev */
-    function onClick(ev) {
-      const t = /** @type {HTMLElement} */ (ev.target);
-      const act = t.closest("button")?.getAttribute("data-act");
-      if (act === "close") {
-        dlg.close();
-      }
-      if (act === "retry") {
-        void Promise.resolve(options.onPrimary?.()).finally(() => dlg.close());
+    if (!alreadyOpen) {
+      try {
+        if (typeof dlg.showModal === "function") dlg.showModal();
+        else dlg.setAttribute("open", "");
+      } catch {
+        dlg.setAttribute("open", "");
       }
     }
-    dlg.addEventListener("click", onClick);
-    dlg.addEventListener(
-      "close",
-      () => {
-        dlg.removeEventListener("click", onClick);
-        if (_installPendingResolve === resolve) {
-          _installPendingResolve = null;
-        }
-        resolve();
-      },
-      { once: true }
-    );
-    if (typeof dlg.showModal === "function") dlg.showModal();
-    else dlg.setAttribute("open", "");
     requestAnimationFrame(() => {
       options.onShown?.();
     });
@@ -285,7 +441,8 @@ export function showInstallAgentDialog(options = {}) {
 }
 
 export function dismissInstallAgentDialog() {
-  if (_installDialog?.open) _installDialog.close();
+  _finishInstallDialogPromise();
+  _closeInstallDialogElement();
 }
 
 /**
@@ -319,7 +476,7 @@ export async function requestAgent(opts) {
     init.body = JSON.stringify(opts.json);
   }
 
-  const res = await fetch(url, init);
+  const res = await fetchAgent(url, init);
 
   if (res.status === 202) {
     const body = await safeJson(res);
@@ -364,7 +521,7 @@ async function pollJobUntilDone(jobId, onProgress, outer) {
     const t = setTimeout(() => ctrl.abort(), _connectTimeoutMs);
     let res;
     try {
-      res = await fetch(statusUrl, {
+      res = await fetchAgent(statusUrl, {
         method: "GET",
         cache: "no-store",
         headers: { Accept: "application/json" },
@@ -449,6 +606,23 @@ function ensureInstallDialogStyles() {
       padding: 1.35rem 2rem 1.5rem;
       font-size: 0.95rem;
       color: #94a3b8;
+    }
+    .itz-install__status {
+      margin: 0.85rem 0 0;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #94a3b8;
+      min-height: 1.35em;
+    }
+    .itz-install__status.is-ok {
+      color: #86efac;
+    }
+    .itz-install__status.is-err {
+      color: #fca5a5;
+    }
+    .itz-install__btn--primary:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
     }
     .itz-install__intro p {
       margin: 0 0 0.85rem;
@@ -590,6 +764,7 @@ function ensureInstallDialog() {
   const root = document.body ?? document.documentElement;
   root.appendChild(dlg);
   _installDialog = dlg;
+  _bindInstallDialogHandlersOnce();
 }
 
 /**
@@ -662,6 +837,7 @@ const Bridge = {
   configureBridge,
   getAgentOrigin,
   setAgentOrigin,
+  fetchAgent,
   checkAgentConnection,
   startConnectionMonitor,
   showInstallAgentDialog,

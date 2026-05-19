@@ -121,7 +121,7 @@ def _detached_child_flags() -> int:
 
 
 def _list_agent_pids() -> list[int]:
-    """실행 중인 itmatzip-agent.exe PID 목록."""
+    """실행 중인 itmatzip-agent.exe PID 목록 (설치 경로 외 진단용)."""
     if not is_windows():
         return []
     try:
@@ -130,8 +130,9 @@ def _list_agent_pids() -> list[int]:
             creationflags=_no_window_flags(),
             text=True,
             errors="replace",
+            timeout=5.0,
         )
-    except (subprocess.CalledProcessError, OSError):
+    except (subprocess.CalledProcessError, OSError, subprocess.TimeoutExpired):
         return []
     pids: list[int] = []
     for line in out.strip().splitlines():
@@ -151,27 +152,36 @@ def _list_agent_pids() -> list[int]:
 def stop_running_agent_processes(*, exclude_current_process: bool = True) -> int:
     """
     itmatzip-agent.exe 프로세스를 종료합니다 (설치·업데이트 전).
-    exclude_current_process: True 면 지금 실행 중인 설치 프로그램 PID 는 남깁니다.
-    Returns 종료 시도한 프로세스 수.
+    PyInstaller 설치 스텁: subprocess.run(taskkill) 이 멈출 수 있어 비동기 cmd 로만 시도.
     """
     if not is_windows():
         return 0
-    skip = os.getpid() if exclude_current_process else None
 
-    stopped = 0
-    for pid in _list_agent_pids():
-        if skip is not None and pid == skip:
-            continue
-        subprocess.run(
-            ["taskkill", "/PID", str(pid), "/F", "/T"],
-            capture_output=True,
+    if not agent_health_ok(timeout_sec=0.35):
+        _install_log("stop: health already down, skip taskkill")
+        return 0
+
+    cmd = ["taskkill", "/F", "/T", "/IM", _AGENT_IMAGE]
+    if exclude_current_process:
+        cmd.extend(["/FI", f"PID ne {os.getpid()}"])
+
+    try:
+        subprocess.Popen(
+            ["cmd.exe", "/c", *cmd],
             creationflags=_no_window_flags(),
-            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
-        stopped += 1
-    if stopped:
-        time.sleep(1.2)
-    return stopped
+        _install_log("stop: async taskkill spawned")
+    except OSError as e:
+        _install_log(f"stop: taskkill spawn failed: {e!r}")
+        return 0
+
+    time.sleep(1.5)
+    wait_for_agent_down(timeout_sec=8.0)
+    return 1
 
 
 def wait_for_agent_down(timeout_sec: float = 10.0) -> None:
@@ -183,30 +193,85 @@ def wait_for_agent_down(timeout_sec: float = 10.0) -> None:
         time.sleep(0.2)
 
 
+def _spawn_serve_process(target: Path) -> int | None:
+    """
+    Windows: 설치 스텁이 끝나도 --serve 자식이 살아 있도록 기동.
+    PyInstaller onefile 부모 종료 시 Job 에 묶이지 않게 breakaway + cmd start 폴백.
+    """
+    cwd = str(target.parent)
+    cmd = [str(target), SERVE_ARG]
+    _install_log(f"spawn serve: {' '.join(cmd)}")
+
+    if os.name == "nt":
+        try:
+            proc = subprocess.Popen(
+                ["cmd.exe", "/c", "start", "", "/b", str(target), SERVE_ARG],
+                cwd=cwd,
+                creationflags=_no_window_flags(),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+            _install_log(f"spawn via cmd start pid={proc.pid}")
+            return proc.pid
+        except OSError as e:
+            _install_log(f"spawn cmd start failed: {e!r}")
+
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE
+            proc = subprocess.Popen(
+                cmd,
+                cwd=cwd,
+                creationflags=_detached_child_flags(),
+                startupinfo=si,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+            )
+            _install_log(f"spawn direct pid={proc.pid}")
+            return proc.pid
+        except OSError as e:
+            _install_log(f"spawn direct failed: {e!r}")
+            raise
+
+    proc = subprocess.Popen(cmd, cwd=cwd, close_fds=True)
+    _install_log(f"spawn unix pid={proc.pid}")
+    return proc.pid
+
+
 def start_server_process(exe: Path | None = None) -> None:
     """백그라운드 API 서버 프로세스 기동 (--serve)."""
     target = (exe or installed_exe_path()).resolve()
     if not target.is_file():
         raise FileNotFoundError(f"에이전트 없음: {target}")
-    subprocess.Popen(
-        [str(target), SERVE_ARG],
-        cwd=str(target.parent),
-        creationflags=_detached_child_flags(),
-        close_fds=False,
-    )
+    _spawn_serve_process(target)
 
 
-def ensure_installed_agent_running(*, wait_sec: float = 15.0) -> bool:
+def wait_for_agent_health(*, wait_sec: float = 12.0) -> bool:
+    """/health 응답까지 대기 (짧은 폴링)."""
+    t0 = time.monotonic()
+    if agent_health_ok(timeout_sec=0.2):
+        _install_log(f"health ok ({time.monotonic() - t0:.1f}s)")
+        return True
+    while time.monotonic() - t0 < wait_sec:
+        if agent_health_ok(timeout_sec=0.25):
+            _install_log(f"health ok ({time.monotonic() - t0:.1f}s)")
+            return True
+        time.sleep(0.12)
+    _install_log(f"health timeout after {wait_sec:.0f}s")
+    return False
+
+
+def ensure_installed_agent_running(*, wait_sec: float = 12.0) -> bool:
     """서버가 떠 있을 때까지 기동·대기."""
-    if agent_health_ok(timeout_sec=0.5):
+    if agent_health_ok(timeout_sec=0.2):
         return True
     start_server_process()
-    deadline = time.monotonic() + wait_sec
-    while time.monotonic() < deadline:
-        if agent_health_ok(timeout_sec=0.5):
-            return True
-        time.sleep(0.35)
-    return False
+    return wait_for_agent_health(wait_sec=wait_sec)
 
 
 _SERVER_MUTEX_NAME = "Global\\ItMatZipAgentServer_v1"
@@ -240,35 +305,74 @@ def prepare_server_instance() -> None:
         return
     if agent_health_ok(timeout_sec=1.0):
         sys.exit(0)
-    for _ in range(20):
-        time.sleep(0.25)
-        if agent_health_ok(timeout_sec=0.4):
+
+    # 뮤텍스만 남고 서버는 죽은 좀비 상태 → 기존 프로세스 정리 후 재시도
+    stop_running_agent_processes(exclude_current_process=True)
+    wait_for_agent_down(timeout_sec=3.0)
+
+    for _ in range(16):
+        if agent_health_ok(timeout_sec=0.25):
             sys.exit(0)
         if try_acquire_server_lock():
             return
+        time.sleep(0.15)
+
     show_message_box(
         "ItMatZip Agent",
         "다른 에이전트 인스턴스가 실행 중이거나 이전 실행이 정리되지 않았습니다.\n"
-        "작업 관리자에서 itmatzip-agent.exe 를 모두 종료한 뒤 다시 실행해 주세요.",
+        "작업 관리자에서 itmatzip-agent.exe 를 모두 종료한 뒤 다시 실행해 주세요.\n\n"
+        f"(로그: %TEMP%\\itmatzip-agent-serve.log)",
     )
     sys.exit(1)
 
 
+def _copy_bundle_dir(source_dir: Path, dest_dir: Path) -> None:
+    """onedir 폴더 전체를 AppData 로 복사."""
+    src = source_dir.resolve()
+    dst = dest_dir.resolve()
+    if not src.is_dir():
+        raise FileNotFoundError(f"설치 원본 폴더 없음: {src}")
+    dst.mkdir(parents=True, exist_ok=True)
+    last_err: Exception | None = None
+    for attempt in range(4):
+        try:
+            for child in list(dst.iterdir()):
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+            shutil.copytree(src, dst, dirs_exist_ok=True)
+            return
+        except OSError as e:
+            last_err = e
+            _install_log(f"bundle copy attempt {attempt + 1} failed: {e!r}")
+            time.sleep(0.4)
+    if last_err is not None:
+        raise last_err
+
+
 def _deploy_installed_exe(source: Path, *, exclude_current_process: bool = True) -> Path:
-    """기존 에이전트 종료 → 설치 경로에 exe 복사 → 시작 프로그램 등록."""
+    """기존 에이전트 종료 → 설치 경로에 복사 → 시작 프로그램 등록."""
+    from runtime_paths import frozen_bundle_dir
+
     src = source.resolve()
     if not src.is_file():
         raise FileNotFoundError(f"설치 원본 없음: {src}")
 
     stop_running_agent_processes(exclude_current_process=exclude_current_process)
-    wait_for_agent_down()
+    wait_for_agent_down(timeout_sec=4.0)
 
     dest_dir = _appdata_root()
-    dest_dir.mkdir(parents=True, exist_ok=True)
     dest = installed_exe_path()
+    bundle = frozen_bundle_dir(src)
 
-    if src != dest.resolve():
+    if bundle is not None and bundle.resolve() != dest_dir.resolve():
+        _install_log(f"install onedir bundle {bundle} -> {dest_dir}")
+        _copy_bundle_dir(bundle, dest_dir)
+    elif src != dest.resolve():
+        dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
+        _install_log(f"install onefile exe -> {dest}")
 
     _set_run_key(dest)
     return dest
@@ -286,7 +390,9 @@ def install_agent(
     if not is_windows():
         raise RuntimeError("Windows 전용 기능입니다.")
 
-    src = Path(source_exe or sys.executable).resolve()
+    from runtime_paths import user_launch_exe
+
+    src = Path(source_exe or user_launch_exe()).resolve()
     dest = _deploy_installed_exe(src)
 
     if start_if_down:
@@ -297,6 +403,96 @@ def install_agent(
             ensure_installed_agent_running()
 
     return dest
+
+
+_EMBEDDED_BUNDLE_ZIP = "agent-bundle.zip"
+
+
+def _embedded_bundle_zip_path() -> Path | None:
+    """배포용 단일 setup exe 안에 포함된 onedir zip."""
+    from runtime_paths import is_frozen
+
+    if not is_frozen():
+        return None
+    root = Path(getattr(sys, "_MEIPASS", ""))
+    if not root.is_dir():
+        return None
+    candidate = root / _EMBEDDED_BUNDLE_ZIP
+    return candidate if candidate.is_file() else None
+
+
+def run_embedded_installer() -> int:
+    """
+    단일 배포 exe — zip 을 AppData 에 풀고 onedir 서버 기동 (사용자는 zip 을 보지 않음).
+    """
+    if not is_windows():
+        _install_log("embedded install: not windows")
+        return 1
+
+    from runtime_paths import is_frozen
+
+    if not is_frozen():
+        return 1
+
+    zip_path = _embedded_bundle_zip_path()
+    if zip_path is None:
+        show_message_box(
+            "ItMatZip Agent",
+            "설치 번들이 exe 안에 없습니다.\nagent 를 build-agent.ps1 로 다시 빌드해 주세요.",
+        )
+        return 1
+
+    dest_dir = _appdata_root()
+    dest_exe = installed_exe_path()
+    was_new = not dest_exe.is_file()
+    t0 = time.monotonic()
+    _install_log(f"embedded install zip={zip_path} -> {dest_dir}")
+
+    try:
+        if not was_new:
+            stop_running_agent_processes(exclude_current_process=True)
+
+        import zipfile
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for child in list(dest_dir.iterdir()):
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(dest_dir)
+        _install_log(f"embedded extract ok ({time.monotonic() - t0:.1f}s)")
+
+        if not dest_exe.is_file():
+            raise FileNotFoundError(f"설치 후 실행 파일 없음: {dest_exe}")
+
+        _set_run_key(dest_exe)
+        start_server_process(dest_exe)
+        if not wait_for_agent_health(wait_sec=12.0):
+            show_message_box(
+                "ItMatZip Agent 시작 실패",
+                f"파일은 설치했지만 서버가 응답하지 않습니다.\n{dest_exe}\n\n"
+                f"(로그: %TEMP%\\itmatzip-agent-install.log)",
+            )
+            return 1
+
+        _install_log(f"embedded install ok ({time.monotonic() - t0:.1f}s)")
+        title = "ItMatZip Agent 설치 완료" if was_new else "ItMatZip Agent 업데이트 완료"
+        show_message_box(
+            title,
+            f"설치 위치:\n{dest_exe}\n\n"
+            "에이전트가 백그라운드에서 실행 중입니다.\n"
+            "Windows 로그인 시 자동 실행됩니다.",
+        )
+        return 0
+    except Exception as e:
+        _install_log(f"embedded install error: {e!r}")
+        show_message_box(
+            "ItMatZip Agent 설치 실패" if was_new else "ItMatZip Agent 업데이트 실패",
+            f"{e}\n\n(로그: %TEMP%\\itmatzip-agent-install.log)",
+        )
+        return 1
 
 
 def _install_log(msg: str) -> None:
@@ -319,16 +515,16 @@ def run_installer_stub() -> None:
         _install_log("not windows")
         return
 
-    from runtime_paths import is_frozen
+    from runtime_paths import is_frozen, user_launch_exe
 
     if not is_frozen():
         return
 
-    current = Path(sys.executable).resolve()
+    current = user_launch_exe()
     dest = installed_exe_path()
-    _install_log(f"installer current={current} dest={dest}")
+    _install_log(f"installer launch={current} dest={dest} argv={sys.argv!r}")
 
-    if current.resolve() == dest.resolve():
+    if current == dest:
         import main as agent_main
 
         prepare_server_instance()
@@ -336,27 +532,41 @@ def run_installer_stub() -> None:
         return
 
     was_new = not dest.is_file()
+    t_install = time.monotonic()
+    _install_log(f"install begin was_new={was_new}")
     try:
         if not was_new:
+            _install_log("stopping old agents…")
             stop_running_agent_processes(exclude_current_process=True)
-            wait_for_agent_down()
+            _install_log("stop_running done")
 
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        _install_log(f"mkdir ok {dest.parent}")
-        shutil.copy2(current, dest)
-        _install_log(f"copy ok -> {dest}")
+        from runtime_paths import frozen_bundle_dir
+
+        bundle = frozen_bundle_dir(current)
+        if bundle is not None and bundle.resolve() != dest.parent.resolve():
+            _install_log(f"copy onedir {bundle} -> {dest.parent}")
+            _copy_bundle_dir(bundle, dest.parent)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(current, dest)
+            _install_log(f"copy onefile -> {dest}")
+
         _set_run_key(dest)
+        _install_log(f"files ready ({time.monotonic() - t_install:.1f}s)")
 
         start_server_process(dest)
-        if not ensure_installed_agent_running(wait_sec=25):
+        if not wait_for_agent_health(wait_sec=12.0):
             show_message_box(
                 "ItMatZip Agent 시작 실패",
                 f"설치 폴더는 만들었지만 서버가 응답하지 않습니다.\n\n"
                 f"{dest}\n\n"
-                "위 파일을 직접 실행하거나, 백신·방화벽을 확인해 주세요.\n"
-                f"(로그: %TEMP%\\itmatzip-agent-install.log)",
+                f'수동 실행: "{dest}" {SERVE_ARG}\n\n'
+                "백신·방화벽을 확인해 주세요.\n"
+                f"(로그: %TEMP%\\itmatzip-agent-install.log , itmatzip-agent-serve.log)",
             )
             raise SystemExit(1)
+
+        _install_log(f"install+serve ok ({time.monotonic() - t_install:.1f}s)")
 
         if was_new:
             show_message_box(
@@ -366,12 +576,14 @@ def run_installer_stub() -> None:
             )
         else:
             show_message_box("ItMatZip Agent 업데이트 완료", f"설치 위치:\n{dest}")
-    except Exception as e:
+    except BaseException as e:
         _install_log(f"error: {e!r}")
-        title = "ItMatZip Agent 설치 실패" if was_new else "ItMatZip Agent 업데이트 실패"
-        show_message_box(title, f"{e}\n\n(로그: %TEMP%\\itmatzip-agent-install.log)")
-        raise SystemExit(1) from e
+        if not isinstance(e, SystemExit):
+            title = "ItMatZip Agent 설치 실패" if was_new else "ItMatZip Agent 업데이트 실패"
+            show_message_box(title, f"{e}\n\n(로그: %TEMP%\\itmatzip-agent-install.log)")
+        raise
 
+    time.sleep(0.5)
     raise SystemExit(0)
 
 

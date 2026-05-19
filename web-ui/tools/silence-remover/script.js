@@ -1,6 +1,7 @@
 import {
   checkAgentConnection,
   configureBridge,
+  fetchAgent,
   getAgentOrigin,
   requestAgent,
   showInstallAgentDialog,
@@ -29,6 +30,9 @@ import {
   DEFAULT_PADDING_MS,
   canExportFromSession,
   clipNameFromVideoPath,
+  getStoredVideoPath,
+  hasRestorableEditorSession,
+  loadStoredSilenceIntervals,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
 } from "../common/edl-export.js";
@@ -273,10 +277,6 @@ function applyStaticUiLabels() {
   );
 }
 
-window.addEventListener("pageshow", () => {
-  resetExportLinkUi();
-});
-
 document.addEventListener("DOMContentLoaded", () => {
   const dropZoneContainer = document.querySelector(".drop-zone");
   const pathInput = document.getElementById("video-path");
@@ -423,7 +423,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
 
     try {
-      const res = await fetch(`${getAgentOrigin()}/api/tools/silence-remover/pick-local-file`, {
+      const res = await fetchAgent(`${getAgentOrigin()}/api/tools/silence-remover/pick-local-file`, {
         method: "POST",
         headers: { Accept: "application/json" },
         signal: ctrl.signal,
@@ -574,6 +574,8 @@ document.addEventListener("DOMContentLoaded", () => {
   let analyzeLoadingHideAfter = 0;
   /** @type {number} 진행 중인 분석 세션 (중복 finally 방지) */
   let analyzeOverlaySessionId = 0;
+  let editorSessionRestoreDone = false;
+  let editorRestoreInFlight = false;
   /** @type {number} */
   let waveformHighlightTimer = 0;
 
@@ -1116,15 +1118,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setWaveformCanvasHidden(false);
       }
       const onWaveform = mode === "waveform";
-      if (onWaveform && waveformAnalyzeProgressBar) {
-        waveformAnalyzeProgressBar.classList.remove("is-determinate");
-        waveformAnalyzeProgressBar.style.width = "45%";
-        if (waveformAnalyzeProgressTrack) {
-          waveformAnalyzeProgressTrack.setAttribute("aria-valuenow", "0");
-        }
-      } else {
-        setAnalyzeProgressBar(12);
-      }
+      setAnalyzeProgressBar(onWaveform ? 18 : 12);
       if (waveformAnalyzeLoading) {
         void waveformAnalyzeLoading.offsetHeight;
       }
@@ -1145,15 +1139,16 @@ document.addEventListener("DOMContentLoaded", () => {
       };
       tick();
       analyzeLoadingTimer = window.setInterval(tick, 400);
-      if (!onWaveform) {
-        const cap = 92;
+      {
+        const cap = onWaveform ? 88 : 92;
+        const step = onWaveform ? 2 : 1;
         analyzeProgressTimer = window.setInterval(() => {
           const track = waveformAnalyzeProgressTrack;
           const cur = track
             ? Number(track.getAttribute("aria-valuenow") || "12")
             : 12;
-          if (cur < cap) setAnalyzeProgressBar(cur + 1);
-        }, 280);
+          if (cur < cap) setAnalyzeProgressBar(cur + step);
+        }, onWaveform ? 220 : 280);
       }
     } else {
       setAnalyzeProgressBar(100);
@@ -1658,6 +1653,47 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
+    const storedPath = getStoredVideoPath();
+    const keepAnalysis =
+      storedPath && mediaPathsEqual(storedPath, p) && canExportFromSession();
+    if (keepAnalysis) {
+      const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
+      const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
+      if (Number.isFinite(durationSec) && durationSec > 0) {
+        probedMediaDurationSec = durationSec;
+        setSummaryCell(summaryDuration, formatDurationClock(durationSec));
+      }
+      const natRat = sessionStorage.getItem(STORAGE_FPS_NATIVE_RATIONAL);
+      if (natRat) {
+        probedFpsRational = natRat;
+        setSummaryCell(summaryFpsNative, natRat);
+      }
+      applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
+      commitAnalyzedSettingsSnapshot({
+        fps: getEditorFpsForExport(),
+        noiseDb: getNoiseDb(),
+        paddingMs: getPaddingMs(),
+        minSilenceSec: getMinSilenceSec(),
+      });
+      const agent = await checkAgentConnection();
+      if (agent.ok) {
+        const fps = getEditorFpsForExport();
+        const estDur = probedMediaDurationSec ?? 0;
+        const pps = peaksPixelsPerSecondForEditorFps(fps, estDur);
+        if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, p)) {
+          await loadWaveformPreview(p, {
+            assumeAgentOk: true,
+            scrollIntoView: false,
+            pixelsPerSecond: pps,
+            useEditorTimeline: true,
+          });
+        }
+        enablePreviewSilenceOverlay();
+      }
+      syncExportLinkState();
+      return;
+    }
+
     resetSilenceAnalysisState();
     probedMediaDurationSec = null;
     probedMeanVolumeDb = null;
@@ -1804,6 +1840,130 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
+  function applyOptionsFromSession() {
+    const rs = sessionStorage.getItem(STORAGE_REMOVE_SILENT);
+    if (optRemoveSilent && rs != null) optRemoveSilent.checked = rs === "true";
+
+    const pad = sessionStorage.getItem(STORAGE_PADDING_MS);
+    if (optPadding && pad != null) {
+      const n = Number(pad);
+      if (Number.isFinite(n) && n >= 0) {
+        optPadding.value = String(n);
+        syncPaddingLabel();
+      }
+    }
+
+    const fps = sessionStorage.getItem(STORAGE_FPS);
+    if (optFps && fps != null) {
+      const n = Number(fps);
+      if (Number.isFinite(n) && n > 0) optFps.value = String(n);
+    }
+
+    const minRaw =
+      sessionStorage.getItem(STORAGE_MIN_SILENCE_SEC) ||
+      sessionStorage.getItem(STORAGE_MIN_SILENCE);
+    if (optMinSilence && minRaw != null) {
+      const n = Number(minRaw);
+      if (Number.isFinite(n) && n >= 0) {
+        optMinSilence.value = String(n);
+        syncMinSilenceLabel();
+        document.querySelectorAll("#duration-chip-list .chip").forEach((c) => {
+          c.classList.toggle("active", c.dataset.val === String(n));
+        });
+      }
+    }
+  }
+
+  async function restoreEditorStateFromSession() {
+    if (editorRestoreInFlight) return false;
+    const videoPath = getStoredVideoPath();
+    if (!videoPath || !looksLikeFullPath(videoPath)) return false;
+
+    const domPath = pathInput.value.trim();
+    if (
+      domPath &&
+      mediaPathsEqual(domPath, videoPath) &&
+      silencePreviewEnabled &&
+      waveformPeaksData
+    ) {
+      syncExportLinkState();
+      return true;
+    }
+
+    editorRestoreInFlight = true;
+    try {
+      pathInput.value = videoPath;
+      pathInput.removeAttribute("placeholder");
+      applyOptionsFromSession();
+
+      if (!hasRestorableEditorSession()) {
+        window.clearTimeout(probeTimer);
+        probeTimer = window.setTimeout(() => void probeMediaFromPath(), 0);
+        return false;
+      }
+
+      const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
+      const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
+      if (Number.isFinite(durationSec) && durationSec > 0) {
+        probedMediaDurationSec = durationSec;
+        setSummaryCell(summaryDuration, formatDurationClock(durationSec));
+      }
+      const natRat = sessionStorage.getItem(STORAGE_FPS_NATIVE_RATIONAL);
+      if (natRat) {
+        probedFpsRational = natRat;
+        setSummaryCell(summaryFpsNative, natRat);
+      }
+
+      applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
+      commitAnalyzedSettingsSnapshot({
+        fps: getEditorFpsForExport(),
+        noiseDb: getNoiseDb(),
+        paddingMs: getPaddingMs(),
+        minSilenceSec: getMinSilenceSec(),
+      });
+
+      const agent = await checkAgentConnection();
+      if (!agent.ok) {
+        syncExportLinkState();
+        return false;
+      }
+
+      setWaveformSectionVisible(true);
+      const fps = getEditorFpsForExport();
+      const estDur = probedMediaDurationSec ?? 0;
+      const pps = peaksPixelsPerSecondForEditorFps(fps, estDur);
+
+      if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, videoPath)) {
+        await loadWaveformPreview(videoPath, {
+          assumeAgentOk: true,
+          scrollIntoView: false,
+          pixelsPerSecond: pps,
+          useEditorTimeline: true,
+        });
+      }
+      enablePreviewSilenceOverlay();
+      syncExportLinkState();
+      return true;
+    } finally {
+      editorRestoreInFlight = false;
+    }
+  }
+
+  async function maybeRestoreEditorSession() {
+    const videoPath = getStoredVideoPath();
+    if (!videoPath) return;
+    if (
+      editorSessionRestoreDone &&
+      pathInput.value.trim() &&
+      silencePreviewEnabled &&
+      waveformPeaksData
+    ) {
+      return;
+    }
+    const ok = await restoreEditorStateFromSession();
+    if (ok) editorSessionRestoreDone = true;
+  }
+
   /**
    * 3. 무음 분석 요청 (에이전트 통신)
    */
@@ -1848,6 +2008,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const overlaySession = beginAnalyzeOverlay(isReanalyze ? "waveform" : "full");
+    let analyzeProgressFloor = isReanalyze ? 22 : 20;
     await new Promise((resolve) => {
       window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
     });
@@ -1899,6 +2060,23 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         path: "/api/tools/silence-remover/analyze",
         json: analyzeBody,
+        onProgress: (ev) => {
+          if (overlaySession.id !== analyzeOverlaySessionId) return;
+          refreshAnalyzeOverlay(overlaySession, overlaySession.mode);
+          const p = typeof ev.progress === "number" ? ev.progress : null;
+          if (p != null) {
+            setAnalyzeProgressBar(clamp(p, 15, 95));
+            return;
+          }
+          if (ev.phase === "queued") {
+            setAnalyzeProgressBar(30);
+          } else if (ev.phase === "request") {
+            setAnalyzeProgressBar(20);
+          } else if (ev.phase === "running") {
+            analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 3);
+            setAnalyzeProgressBar(analyzeProgressFloor);
+          }
+        },
       });
 
       const edl = data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
@@ -2120,4 +2298,11 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
+
+  window.addEventListener("pageshow", () => {
+    resetExportLinkUi();
+    void maybeRestoreEditorSession();
+  });
+
+  void maybeRestoreEditorSession();
 });

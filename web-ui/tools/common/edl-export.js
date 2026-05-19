@@ -170,6 +170,17 @@ export function canExportFromSession() {
   return Boolean((edl && edl.trim()) || (silences && silences !== "[]"));
 }
 
+/** @returns {string} */
+export function getStoredVideoPath() {
+  return sessionStorage.getItem(STORAGE_VIDEO_PATH)?.trim() || "";
+}
+
+/** 편집 화면 복원에 필요한 최소 데이터가 sessionStorage에 있는지 */
+export function hasRestorableEditorSession() {
+  const videoPath = getStoredVideoPath();
+  return Boolean(videoPath) && canExportFromSession();
+}
+
 /**
  * @returns {{ ok: boolean, message?: string }}
  */

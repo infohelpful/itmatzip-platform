@@ -253,10 +253,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (elBtnBack) {
     elBtnBack.addEventListener("click", () => {
-      if (window.history.length > 1) {
-        window.history.back();
-        return;
-      }
+      // history.back()는 bfcache 미사용 시 편집 화면이 빈 상태로 뜰 수 있음 → 항상 index로 이동 후 session 복원
       window.location.href = EDITOR_PAGE;
     });
   }

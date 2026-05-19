@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# 레거시 — build-agent.ps1 은 itmatzip-agent-bundle.spec + itmatzip-agent-setup.spec 사용
-# 개발용 onedir 만 필요하면: pyinstaller itmatzip-agent-bundle.spec
+# 내부용 onedir 번들 — setup exe 에 zip 으로 포함됨 (직접 배포 X)
 
 from pathlib import Path
 

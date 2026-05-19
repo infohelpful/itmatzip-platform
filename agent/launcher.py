@@ -19,6 +19,29 @@ if str(_AGENT_DIR) not in sys.path:
     sys.path.insert(0, str(_AGENT_DIR))
 
 
+def _enable_frozen_serve_log() -> None:
+    import tempfile
+
+    log_path = Path(tempfile.gettempdir()) / "itmatzip-agent-serve.log"
+    try:
+        fh = log_path.open("a", encoding="utf-8", buffering=1)
+        sys.stdout = fh
+        sys.stderr = fh
+        print(f"\n--- serve start pid={os.getpid()} argv={sys.argv!r} ---", flush=True)
+    except OSError:
+        pass
+
+
+def _log_serve_exception() -> None:
+    import traceback
+
+    try:
+        print("--- serve crashed ---", flush=True)
+        traceback.print_exc()
+    except Exception:
+        pass
+
+
 def _dispatch() -> None:
     from runtime_paths import is_frozen
 
@@ -53,14 +76,35 @@ def _dispatch() -> None:
 
         from common.windows_startup import prepare_server_instance
 
-        prepare_server_instance()
-        agent_main.main()
+        if is_frozen():
+            _enable_frozen_serve_log()
+        try:
+            prepare_server_instance()
+            agent_main.main()
+        except Exception:
+            _log_serve_exception()
+            raise
         return
 
     if is_frozen():
-        from common.windows_startup import run_installer_stub
+        from common.windows_startup import _install_log, installed_exe_path, run_installer_stub
+        from runtime_paths import user_launch_exe
 
-        run_installer_stub()  # 필요 시 SystemExit
+        launch = user_launch_exe()
+        if launch == installed_exe_path() and "--serve" not in args:
+            # AppData 설치본 더블클릭 → 이 프로세스에서 서버 실행
+            _install_log(f"appdata launch serve argv={sys.argv!r}")
+            import main as agent_main
+
+            from common.windows_startup import prepare_server_instance
+
+            if is_frozen():
+                _enable_frozen_serve_log()
+            prepare_server_instance()
+            agent_main.main()
+            return
+
+        run_installer_stub()  # dist 설치 스텁 (필요 시 SystemExit)
         return
 
     import main as agent_main

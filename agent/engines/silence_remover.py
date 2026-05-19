@@ -28,6 +28,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable
+from common.subprocess_util import run_hidden
 
 # Premiere 오디오 트랙 스타일: 녹색 배경 + 흰색 대칭 채움 파형.
 _WAVE_TRACK_BG_RGB = (61, 122, 90)
@@ -1039,7 +1040,7 @@ def _ffmpeg_decode_pcm_to_file(
         "f32le",
         str(out_path),
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -1315,7 +1316,7 @@ def get_video_fps_ffprobe(
         "json",
         str(path),
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         capture_output=True,
         text=True,
@@ -1386,7 +1387,7 @@ def get_format_duration_seconds_ffprobe(
         "default=noprint_wrappers=1:nokey=1",
         str(path),
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         capture_output=True,
         text=True,
@@ -1428,7 +1429,7 @@ def get_audio_stream_info_ffprobe(
         "json",
         str(path),
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         capture_output=True,
         text=True,
@@ -1491,7 +1492,7 @@ def get_video_stream_duration_ffprobe(
         str(path),
     ]
     try:
-        proc = subprocess.run(
+        proc = run_hidden(
             cmd,
             capture_output=True,
             text=True,
@@ -1780,7 +1781,7 @@ def _run_volume_detect_ffmpeg(
         "null",
         "-",
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         capture_output=True,
         text=True,
@@ -2641,18 +2642,15 @@ def _run_ffmpeg_silencedetect_autocutter(
         "null",
         "-",
     ]
-    kwargs: dict[str, object] = {
-        "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "timeout": min(timeout_sec, 3600.0),
-        "check": False,
-    }
-    if os.name == "nt":
-        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
-
-    proc = subprocess.run(cmd, **kwargs)  # type: ignore[arg-type]
+    proc = run_hidden(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=min(timeout_sec, 3600.0),
+        check=False,
+    )
     text = (proc.stderr or "") + (proc.stdout or "")
     if proc.returncode not in (0, 255) and "silence_" not in text:
         tail = text.strip()[-800:] if text.strip() else "(출력 없음)"
@@ -2747,7 +2745,7 @@ def _run_ffmpeg_silencedetect(
         "null",
         "-",
     ]
-    proc = subprocess.run(
+    proc = run_hidden(
         cmd,
         capture_output=True,
         text=True,
@@ -3583,7 +3581,7 @@ def get_video_frame_count_ffprobe(
         str(path),
     ]
     try:
-        proc = subprocess.run(
+        proc = run_hidden(
             cmd,
             capture_output=True,
             text=True,
@@ -3642,7 +3640,7 @@ def probe_media_edl_timing(
         str(path),
     ]
     try:
-        proc = subprocess.run(
+        proc = run_hidden(
             tc_cmd,
             capture_output=True,
             text=True,
