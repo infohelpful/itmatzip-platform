@@ -7,7 +7,7 @@ import {
   requestAgent,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna3";
+} from "../common/bridge.js?v=lna4";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
@@ -2229,18 +2229,28 @@ document.addEventListener("DOMContentLoaded", () => {
           statusDot.title = errText;
         }
       }
-      void checkSilenceToolBinaries();
+      void checkSilenceToolBinaries(ok);
     },
     autoShowInstallDialog: true,
     installDialogOptions: installDialogOpts,
   });
 
-  /** 에이전트 연결 시 FFmpeg readiness 점검 */
-  async function checkSilenceToolBinaries() {
+  /** @param {boolean} [knownOk] 연결 모니터에서 이미 확인한 경우 재요청 생략 */
+  async function checkSilenceToolBinaries(knownOk) {
     const binEl = document.getElementById("bin-readiness");
     if (!binEl) return;
 
-    const agent = await checkAgentConnection();
+    if (knownOk === false) {
+      binEl.hidden = false;
+      binEl.className = "bin-readiness is-warn";
+      binEl.textContent = "에이전트 미연결 → FFmpeg 점검 불가";
+      return;
+    }
+
+    const agent =
+      knownOk === true
+        ? { ok: true }
+        : await checkAgentConnection();
     if (!agent.ok) {
       binEl.hidden = false;
       binEl.className = "bin-readiness is-warn";

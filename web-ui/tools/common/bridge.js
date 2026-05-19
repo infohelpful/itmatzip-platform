@@ -162,15 +162,45 @@ export function formatAgentConnectionError(raw) {
 export async function fetchAgent(url, init = {}) {
   const space = targetAddressSpaceForUrl(url);
   if (!space) return fetch(url, init);
-  try {
-    return await fetch(url, { ...init, targetAddressSpace: space });
-  } catch (e) {
+  return fetch(url, { ...init, targetAddressSpace: space });
+}
+
+/** @param {string} [err] */
+function isLikelyLocalNetworkBlock(err) {
+  const m = err != null ? String(err) : "";
+  return /Failed to fetch|NetworkError|ERR_FAILED|Load failed|address space|blocked/i.test(m);
+}
+
+/** @type {Promise<void> | null} */
+let _lnaPrimePromise = null;
+
+/** Chrome LNA 권한 프롬프트 유도 (세션당 1회) */
+export function primeLocalNetworkAccess() {
+  if (_lnaPrimePromise) return _lnaPrimePromise;
+  _lnaPrimePromise = (async () => {
     try {
-      return await fetch(url, init);
+      if (navigator.permissions?.query) {
+        try {
+          const perm = await navigator.permissions.query(
+            /** @type {PermissionDescriptor} */ (
+              /** @type {unknown} */ ({ name: "local-network-access" })
+            ),
+          );
+          if (perm.state === "granted") return;
+        } catch {
+          /* 미지원 브라우저 */
+        }
+      }
+      const origin = _originFallbacks[0] ?? `http://127.0.0.1:${AGENT_PORT}`;
+      await fetchAgent(`${origin.replace(/\/+$/, "")}${_healthPath}`, {
+        method: "GET",
+        cache: "no-store",
+      });
     } catch {
-      throw e;
+      /* 사용자 거부·에이전트 미실행 */
     }
-  }
+  })();
+  return _lnaPrimePromise;
 }
 
 /**
@@ -205,11 +235,13 @@ async function pingAgentOrigin(origin, signal) {
 }
 
 export async function checkAgentConnection(signal) {
+  await primeLocalNetworkAccess();
   const candidates = [...new Set([_origin, ..._originFallbacks])];
   /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string } | null} */
   let lastFail = null;
 
-  for (const origin of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const origin = candidates[i];
     const detail = await pingAgentOrigin(origin, signal);
     if (detail.ok) {
       _origin = origin.replace(/\/+$/, "");
@@ -221,6 +253,7 @@ export async function checkAgentConnection(signal) {
       latencyMs: detail.latencyMs,
       error: detail.error,
     };
+    if (isLikelyLocalNetworkBlock(detail.error)) break;
   }
 
   const err = lastFail?.error;
@@ -257,11 +290,23 @@ async function resolveInstallDialogOptions(source) {
  * @returns {{ stop: () => void, refresh: () => Promise<void> }}
  */
 export function startConnectionMonitor(opts = {}) {
-  const intervalMs = opts.intervalMs ?? 5000;
+  const baseIntervalMs = opts.intervalMs ?? 5000;
   let stopped = false;
   let lastOk = /** @type {boolean | null} */ (null);
   let firstTick = true;
   let failStreak = 0;
+  let timeoutId = 0;
+
+  function nextDelayMs() {
+    if (failStreak <= 0) return baseIntervalMs;
+    return Math.min(60_000, baseIntervalMs * 2 ** Math.min(failStreak - 1, 3));
+  }
+
+  function scheduleNext() {
+    if (stopped) return;
+    globalThis.clearTimeout(timeoutId);
+    timeoutId = globalThis.setTimeout(() => void tick(), nextDelayMs());
+  }
 
   async function tick() {
     const detail = await checkAgentConnection();
@@ -282,7 +327,6 @@ export function startConnectionMonitor(opts = {}) {
       opts.onChange?.(detail.ok, detail);
       if (!detail.ok) {
         opts.onDisconnected?.(detail);
-        // 분석 중 일시 타임아웃·첫 실패로 설치 팝업이 깜빡이지 않게 2회 연속 실패 후에만 표시
         const showInstall =
           opts.autoShowInstallDialog &&
           failStreak >= 2 &&
@@ -294,16 +338,16 @@ export function startConnectionMonitor(opts = {}) {
         }
       }
     }
+    scheduleNext();
   }
 
-  let id = 0;
   if (opts.immediate !== false) void tick();
-  id = globalThis.setInterval(() => void tick(), intervalMs);
+  else scheduleNext();
 
   return {
     stop() {
       stopped = true;
-      globalThis.clearInterval(id);
+      globalThis.clearTimeout(timeoutId);
     },
     refresh: tick,
   };
@@ -868,6 +912,7 @@ const Bridge = {
   setAgentOrigin,
   fetchAgent,
   formatAgentConnectionError,
+  primeLocalNetworkAccess,
   checkAgentConnection,
   startConnectionMonitor,
   showInstallAgentDialog,

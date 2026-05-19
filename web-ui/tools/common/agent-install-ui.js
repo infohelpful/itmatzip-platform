@@ -111,6 +111,10 @@ export function buildAgentInstallDialogBodyHtml(downloadHref) {
     <p class="itz-install__card-text">
       프로그램이 켜져 있는지 확인하신 후, 하단 <strong>다시 연결 확인</strong>을 눌러 주세요.
     </p>
+    <p class="itz-install__card-text itz-install__card-note">
+      Chrome 사용 시 주소창 왼쪽 <strong>사이트 설정</strong> → <strong>로컬 네트워크</strong>를
+      <strong>허용</strong>해야 연결됩니다. (Issues에 health가 blocked면 권한 문제입니다.)
+    </p>
   </section>
 </div>
 `.trim();

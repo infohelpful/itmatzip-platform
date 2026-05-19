@@ -1,0 +1,4 @@
+# Chrome Local Network Access — HTTPS 사이트에서 로컬 에이전트(127.0.0.1) 호출 허용
+<IfModule mod_headers.c>
+  Header set Permissions-Policy "local-network-access=*"
+</IfModule>

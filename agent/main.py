@@ -56,7 +56,8 @@ def create_app() -> FastAPI:
         version=AGENT_VERSION,
         lifespan=_app_lifespan,
     )
-    # HTTPS 웹 → loopback 에이전트: credentials 끄고 출처 명시(*+credentials 조합은 CORS 실패 유발)
+    # CORS를 바깥(먼저)에 두어 OPTIONS preflight·LNA 헤더가 확실히 처리되게 함
+    app.add_middleware(_PrivateNetworkAccessMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -70,9 +71,9 @@ def create_app() -> FastAPI:
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["*"],
         allow_private_network=True,
     )
-    app.add_middleware(_PrivateNetworkAccessMiddleware)
 
     @app.get("/health")
     async def health() -> dict:
