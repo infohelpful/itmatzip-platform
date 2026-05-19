@@ -1,11 +1,55 @@
 /**
  * 로컬 에이전트 설치 안내 다이얼로그 HTML (편집·다운로드 페이지 공용)
+ * 다운로드 URL은 agent-update-manifest.json 의 download_url 을 사용합니다.
  */
 
 import { showAdSense } from "./adsense.js";
 
-/** 호스팅 경로에 맞게 수정 */
-export const AGENT_DOWNLOAD_HREF = "/downloads/itmatzip-agent.exe";
+/** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 과 동일 */
+export const AGENT_UPDATE_MANIFEST_URL =
+  "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/agent/agent-update-manifest.json";
+
+/** manifest 조회 실패 시 사용 (manifest download_url 과 맞춰 두세요) */
+const FALLBACK_DOWNLOAD_HREF =
+  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.0/itmatzip-agent.exe";
+
+/** @type {string | null} */
+let _downloadHrefCache = null;
+
+/** @type {Promise<string> | null} */
+let _downloadHrefPromise = null;
+
+/**
+ * manifest JSON 에서 download_url 을 읽습니다 (결과 캐시).
+ * @returns {Promise<string>}
+ */
+export async function getAgentDownloadHref() {
+  if (_downloadHrefCache) return _downloadHrefCache;
+  if (_downloadHrefPromise) return _downloadHrefPromise;
+
+  _downloadHrefPromise = (async () => {
+    try {
+      const res = await fetch(AGENT_UPDATE_MANIFEST_URL, {
+        cache: "no-cache",
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
+      const data = await res.json();
+      const url = String(data?.download_url ?? "").trim();
+      if (!url) throw new Error("manifest에 download_url 없음");
+      _downloadHrefCache = url;
+      return url;
+    } catch (e) {
+      console.warn("[agent-install] manifest에서 download_url을 읽지 못해 fallback 사용", e);
+      _downloadHrefCache = FALLBACK_DOWNLOAD_HREF;
+      return FALLBACK_DOWNLOAD_HREF;
+    } finally {
+      _downloadHrefPromise = null;
+    }
+  })();
+
+  return _downloadHrefPromise;
+}
 
 export function escHtml(s) {
   return String(s)
@@ -15,8 +59,11 @@ export function escHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-export function buildAgentInstallDialogBodyHtml() {
-  const href = escHtml(AGENT_DOWNLOAD_HREF);
+/**
+ * @param {string} downloadHref
+ */
+export function buildAgentInstallDialogBodyHtml(downloadHref) {
+  const href = escHtml(downloadHref);
   return `
 <div class="itz-install__intro">
   <p>
@@ -52,10 +99,11 @@ export function buildAgentInstallDialogBodyHtml() {
 }
 
 /** @param {() => Promise<unknown>} onPrimaryCheck */
-export function agentInstallDialogOptions(onPrimaryCheck) {
+export async function agentInstallDialogOptions(onPrimaryCheck) {
+  const downloadHref = await getAgentDownloadHref();
   return {
     title: "로컬 에이전트에 연결할 수 없습니다",
-    bodyHtml: buildAgentInstallDialogBodyHtml(),
+    bodyHtml: buildAgentInstallDialogBodyHtml(downloadHref),
     primaryLabel: "다시 연결 확인",
     onPrimary: onPrimaryCheck,
     onShown: () => {

@@ -1,0 +1,5 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/infohelp/tools.itmatzip.com/
+    - /bin/cp -R web-ui/tools/. $DEPLOYPATH

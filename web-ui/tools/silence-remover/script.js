@@ -173,7 +173,7 @@ async function navigateToEdlDownloadPage(exportLinkEl) {
   try {
     const agent = await checkAgentConnection();
     if (!agent.ok) {
-      await showInstallAgentDialog(installDialogOpts());
+      await showInstallAgentDialog(await installDialogOpts());
       return;
     }
     navigating = true;
@@ -414,7 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function pickLocalFileViaAgent() {
     const agent = await checkAgentConnection();
     if (!agent.ok) {
-      await showInstallAgentDialog(installDialogOpts());
+      await showInstallAgentDialog(await installDialogOpts());
       return;
     }
 
@@ -2064,7 +2064,7 @@ document.addEventListener("DOMContentLoaded", () => {
       void checkSilenceToolBinaries();
     },
     autoShowInstallDialog: true,
-    installDialogOptions: installDialogOpts(),
+    installDialogOptions: installDialogOpts,
   });
 
   /** 에이전트 연결 시 FFmpeg readiness 점검 */

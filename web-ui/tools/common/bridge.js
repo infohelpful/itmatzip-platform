@@ -143,13 +143,24 @@ export async function checkAgentConnection(signal) {
 }
 
 /**
+ * @param {InstallDialogOptions | (() => InstallDialogOptions | Promise<InstallDialogOptions>) | undefined} source
+ * @returns {Promise<InstallDialogOptions>}
+ */
+async function resolveInstallDialogOptions(source) {
+  if (typeof source === "function") {
+    return /** @type {InstallDialogOptions} */ (await source());
+  }
+  return source ?? {};
+}
+
+/**
  * @typedef {{
  *   intervalMs?: number,
  *   immediate?: boolean,
  *   onChange?: (ok: boolean, detail: { ok: boolean, status?: number, latencyMs?: number, error?: string }) => void,
  *   onDisconnected?: (detail: { ok: boolean, error?: string }) => void,
  *   autoShowInstallDialog?: boolean,
- *   installDialogOptions?: InstallDialogOptions,
+ *   installDialogOptions?: InstallDialogOptions | (() => InstallDialogOptions | Promise<InstallDialogOptions>),
  * }} MonitorOptions
  * @param {MonitorOptions} opts
  * @returns {{ stop: () => void, refresh: () => Promise<void> }}
@@ -173,7 +184,9 @@ export function startConnectionMonitor(opts = {}) {
       if (!detail.ok) {
         opts.onDisconnected?.(detail);
         if (opts.autoShowInstallDialog && (wasFirstCheck || wasConnected)) {
-          showInstallAgentDialog(opts.installDialogOptions);
+          void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
+            showInstallAgentDialog(dialogOpts),
+          );
         }
       }
     }

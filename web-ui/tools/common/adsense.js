@@ -12,6 +12,12 @@ let _client = "ca-pub-2088466558007407";
 /** @type {Promise<void> | null} */
 let _scriptLoadPromise = null;
 
+/** 광고 차단·네트워크 실패 등으로 스크립트를 더 이상 시도하지 않음 */
+let _scriptUnavailable = false;
+
+/** @type {boolean} */
+let _blockedLogged = false;
+
 /**
  * @typedef {Object} AdSenseUnit
  * @property {string} slot
@@ -95,6 +101,9 @@ export function configureAdSense(cfg = {}) {
  * @returns {Promise<void>}
  */
 export function ensureAdSenseScript() {
+  if (_scriptUnavailable) {
+    return Promise.reject(new Error("AdSense script unavailable"));
+  }
   if (_scriptLoadPromise) return _scriptLoadPromise;
 
   _scriptLoadPromise = new Promise((resolve, reject) => {
@@ -109,6 +118,7 @@ export function ensureAdSenseScript() {
     s.dataset.itmatzipAdsense = "1";
     s.onload = () => resolve();
     s.onerror = () => {
+      _scriptUnavailable = true;
       _scriptLoadPromise = null;
       reject(new Error("AdSense script load failed"));
     };
@@ -126,6 +136,23 @@ function resolveContainer(target) {
   if (!target) return null;
   if (typeof target === "string") return document.querySelector(target);
   return target;
+}
+
+/**
+ * @param {HTMLElement} el
+ */
+function markAdSlotEmpty(el) {
+  el.setAttribute("data-adsense-empty", "1");
+}
+
+/** @param {unknown} err */
+function logScriptUnavailableOnce(err) {
+  if (_blockedLogged) return;
+  _blockedLogged = true;
+  console.info(
+    "[adsense] 광고 스크립트를 불러오지 못했습니다. (광고 차단 확장·localhost·네트워크일 수 있음)",
+    err,
+  );
 }
 
 /**
@@ -151,7 +178,9 @@ export async function showAdSense(unitKey, container) {
   try {
     await ensureAdSenseScript();
   } catch (e) {
-    console.warn("[adsense] script load failed", e);
+    _scriptUnavailable = true;
+    markAdSlotEmpty(el);
+    logScriptUnavailableOnce(e);
     return false;
   }
 
