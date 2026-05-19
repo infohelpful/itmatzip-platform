@@ -8,10 +8,17 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# PyInstaller windowed(console=False): import 시점부터 stdout/stderr 가 None 일 수 있음
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from agent_config import AGENT_HOST, AGENT_PORT, agent_base_url  # noqa: E402
 from runtime_paths import agent_root, is_frozen  # noqa: E402
 
 _AGENT_ROOT = agent_root()
@@ -37,7 +44,7 @@ def create_app() -> FastAPI:
         version=AGENT_VERSION,
         lifespan=_app_lifespan,
     )
-    # allow_private_network: Chrome 등에서 localhost 웹 → 127.0.0.1:8000 호출 시 필수
+    # allow_private_network: Chrome 등에서 호스팅 웹 → 로컬 에이전트 호출 시 필수
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -80,26 +87,57 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def _ensure_stdio() -> None:
-    """PyInstaller windowed 빌드(console=False)에서는 stdout/stderr 가 None 일 수 있음."""
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+# uvicorn.logging.*Formatter 는 windowed exe 에서 isatty() 크래시 → 표준 Formatter 만 사용
+_UVICORN_LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "format": "%(levelname)s %(name)s: %(message)s",
+            "class": "logging.Formatter",
+        },
+        "access": {
+            "format": '%(levelname)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+            "class": "logging.Formatter",
+        },
+    },
+    "handlers": {
+        "default": {
+            "formatter": "default",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+        },
+        "access": {
+            "formatter": "access",
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"level": "INFO"},
+        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+    },
+}
 
 
 def main() -> None:
-    if is_frozen():
-        _ensure_stdio()
-
     import uvicorn
 
-    host = "127.0.0.1"
-    port = 8000
-    if not is_frozen():
-        print(f"ItMatZip Agent v{AGENT_VERSION} — http://{host}:{port}/health")
+    host = AGENT_HOST
+    port = AGENT_PORT
+    frozen = is_frozen()
+    if not frozen:
+        print(f"ItMatZip Agent v{AGENT_VERSION} — {agent_base_url()}/health")
         print("웹 UI는 https://silence.itmatzip.com 등 호스팅 주소에서 이용하세요. (에이전트는 로컬 API만 제공)")
-    uvicorn.run(app, host=host, port=port, log_level="warning" if is_frozen() else "info")
+    # exe·stdio 없음 환경 모두 plain 로그 (DefaultFormatter 가 isatty 호출하지 않음)
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="warning" if frozen else "info",
+        log_config=_UVICORN_LOG_CONFIG,
+    )
 
 
 def run_pick_file_dialog() -> None:
@@ -112,8 +150,6 @@ if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()
-    if is_frozen():
-        _ensure_stdio()
     if len(sys.argv) >= 2 and sys.argv[1] == "--pick-file":
         run_pick_file_dialog()
     elif len(sys.argv) >= 2 and sys.argv[1] == "--check-update":
@@ -131,7 +167,7 @@ if __name__ == "__main__":
         raise SystemExit(run_uninstall_cli())
     else:
         if is_frozen():
-            from common.windows_startup import ensure_installed_on_first_launch
+            from common.windows_startup import bootstrap_frozen_agent_entry
 
-            ensure_installed_on_first_launch()
+            bootstrap_frozen_agent_entry()  # 설치 스텁이면 SystemExit, --serve 면 main() 계속
         main()

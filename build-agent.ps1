@@ -53,6 +53,7 @@ Write-Host "의존성 설치..."
 & $py -m pip install -q -r requirements.txt
 
 Write-Host "PyInstaller 빌드 (1~3분 소요)..."
+Remove-Item -Recurse -Force (Join-Path $AgentRoot "build"), (Join-Path $AgentRoot "dist") -ErrorAction SilentlyContinue
 & $py -m PyInstaller itmatzip-agent.spec --noconfirm --clean
 
 $exe = Join-Path $AgentRoot "dist\itmatzip-agent.exe"
@@ -65,4 +66,4 @@ Write-Host ""
 Write-Host ""
 Write-Host "완료: $exe ($sizeMb MB)" -ForegroundColor Green
 Write-Host "배포: itmatzip-agent.exe 만 올리면 됩니다. 사용자는 exe 1회 실행 = 설치 + 자동 실행 등록"
-Write-Host "확인: 브라우저에서 http://127.0.0.1:8000/health"
+Write-Host "확인: 브라우저에서 http://127.0.0.1:19876/health"

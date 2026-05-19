@@ -80,14 +80,14 @@ dir agent\dist\itmatzip-agent.exe
 콘솔에 예시:
 
 ```text
-ItMatZip Agent (exe) — http://127.0.0.1:8000
+ItMatZip Agent (exe) — http://127.0.0.1:19876
 ```
 
 ### 6단계: 동작 확인
 
 브라우저에서:
 
-- http://127.0.0.1:8000/health  
+- http://127.0.0.1:19876/health  
   → `{"status":"ok"}` 이면 정상
 
 웹 UI(silence-remover)에서 **에이전트 연결됨**으로 표시되면 완료.
@@ -110,7 +110,7 @@ pyinstaller itmatzip-agent.spec --noconfirm --clean
 
 | 항목 | 설명 |
 |------|------|
-| 포트 | 기본 `127.0.0.1:8000` (로컬만) |
+| 포트 | 기본 `127.0.0.1:19876` (로컬만, `agent_config.py`) |
 | FFmpeg | exe에 포함되지 않음. 첫 사용 시 `%APPDATA%\ItMatZip\bin\`에 자동 다운로드 |
 | 파일 선택 | exe가 `--pick-file` 모드로 tkinter 대화상자 실행 |
 | 설치(자동 실행) | **exe 1회 실행** → `%APPDATA%\ItMatZip\` 복사 + Windows 시작 프로그램 등록 (bat 불필요) |
@@ -131,7 +131,7 @@ exe만 다른 PC로 복사해 실행할 수 있습니다. Python 설치는 **받
 → cmd에서 exe 실행해 오류 메시지 확인
 
 **웹 UI에서 에이전트 연결 안 됨**  
-→ exe 실행 중인지, 방화벽이 127.0.0.1:8000을 막지 않는지 확인
+→ exe 실행 중인지, 방화벽이 127.0.0.1:19876 을 막지 않는지 확인
 
 **PyInstaller 오류**  
 → `pip install --upgrade pyinstaller` 후 `build-agent.ps1` 재실행

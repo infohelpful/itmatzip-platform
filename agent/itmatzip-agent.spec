@@ -12,6 +12,9 @@ _ICON_FILE = _SPEC_DIR / "assets" / "itmatzip-agent.ico"
 _APP_ICON = str(_ICON_FILE.resolve()) if _ICON_FILE.is_file() else None
 
 hiddenimports = [
+    "launcher",
+    "main",
+    "agent_config",
     "runtime_paths",
     "engines.silence_remover",
     "routers.silence_remover",
@@ -56,14 +59,14 @@ for pkg in ("uvicorn", "fastapi", "starlette", "pydantic", "anyio", "sniffio"):
 hiddenimports += collect_submodules("uvicorn")
 
 a = Analysis(
-    ["main.py"],
+    ["launcher.py"],
     pathex=["."],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=["hooks/pyi_rth_stdio.py"],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

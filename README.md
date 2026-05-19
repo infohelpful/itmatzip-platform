@@ -10,7 +10,7 @@
 | 구분 | 설명 |
 |------|------|
 | **웹 UI** | 브라우저에서 영상 경로·옵션 설정 → 무음 분석 → 파형 미리보기 → EDL 다운로드 |
-| **로컬 에이전트** | 사용자 PC에서 FFmpeg·파일 선택·분석·EDL 생성 (`127.0.0.1:8000`) |
+| **로컬 에이전트** | 사용자 PC에서 FFmpeg·파일 선택·분석·EDL 생성 (`127.0.0.1:19876`) |
 | **데이터 처리** | 영상·오디오는 **로컬에서만** 처리, 외부 서버 업로드 없음 |
 | **배포 URL (예)** | `https://silence.itmatzip.com` (웹) + GitHub Releases (exe) |
 
@@ -22,7 +22,7 @@
 [브라우저 — silence.itmatzip.com 또는 로컬 web-ui]
         │  fetch (CORS + Private Network Access)
         ▼
-[로컬 에이전트 — itmatzip-agent.exe / FastAPI :8000]
+[로컬 에이전트 — itmatzip-agent.exe / FastAPI :19876]
         │  FFmpeg / ffprobe (%APPDATA%\ItMatZip\bin\)
         ▼
 [로컬 영상 파일 · 캐시 · EDL 텍스트]
@@ -91,7 +91,7 @@ itmatzip-platform/
 
 | 파일 | 역할 |
 |------|------|
-| `bridge.js` | `127.0.0.1:8000` / `localhost:8080` 폴백, PNA, 연결 모니터, 설치 다이얼로그 |
+| `bridge.js` | `127.0.0.1:19876` / `localhost` 폴백, PNA, 연결 모니터, 설치 다이얼로그 |
 | `edl-export.js` | sessionStorage 키, 분석 스냅샷, `buildEdlViaAgent`, 저장 (`showSaveFilePicker` / anchor) |
 | `agent-install-ui.js` | 설치 안내 HTML, 다운로드 링크 |
 | `adsense.js` | 광고 슬롯 (편집·다운로드·설치 팝업) |
@@ -135,10 +135,10 @@ itmatzip-platform/
 
 | 모드 | 방법 |
 |------|------|
-| **개발** | `start-agent.ps1` → uvicorn `main:app` :8000 |
+| **개발** | `start-agent.ps1` → uvicorn `main:app` :19876 |
 | **배포** | `itmatzip-agent.exe` (PyInstaller, 콘솔 없음) |
 
-- 호스트: `127.0.0.1:8000`
+- 호스트: `127.0.0.1:19876` (`agent/agent_config.py`)
 - CORS `allow_origins=["*"]`, **`allow_private_network=True`** (HTTPS 사이트 → localhost 호출)
 
 ### 5.2 API 엔드포인트 (`/api/tools/silence-remover/`)
@@ -296,10 +296,10 @@ cd itmatzip-platform
 .\build-agent.ps1
 .\agent\dist\itmatzip-agent.exe   # 첫 실행 = 설치 + 백그라운드
 
-# 웹 UI (예: 정적 서버)
-# web-ui/tools 를 document root 로 두면:
-# http://localhost:8080/              ← 메인 대시보드
-# http://localhost:8080/silence-remover/
+# 웹 UI (정적 서버, 포트 29180 — 8080 과 충돌 방지)
+.\serve-tools.ps1
+# http://localhost:29180/              ← 메인 대시보드
+# http://localhost:29180/silence-remover/
 ```
 
 ---

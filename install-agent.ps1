@@ -8,4 +8,4 @@ if (-not (Test-Path $Exe)) {
 }
 Write-Host "실행 중 (첫 실행 시 자동 설치): $Exe" -ForegroundColor Cyan
 Start-Process -FilePath $Exe
-Write-Host "완료. http://127.0.0.1:8000/health 확인" -ForegroundColor Green
+Write-Host "완료. http://127.0.0.1:19876/health 확인" -ForegroundColor Green

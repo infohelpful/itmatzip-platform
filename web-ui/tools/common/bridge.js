@@ -6,14 +6,16 @@
  *
  * 사용 예 (type="module"):
  *   import * as Bridge from '../common/bridge.js';
- *   Bridge.configureBridge({ origin: 'http://localhost:8000' });
+ *   Bridge.configureBridge({ origin: 'http://localhost:19876' });
  *   Bridge.startConnectionMonitor({ onChange: (ok) => { ... } });
  */
+
+import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT } from "./agent-endpoints.js";
 
 /** @typedef {{ progress: number | null, phase: string, message?: string, raw?: unknown }} ProgressEvent */
 
 /** @type {string} */
-let _origin = "http://localhost:8000";
+let _origin = AGENT_ORIGIN_FALLBACKS[1];
 
 /** @type {string} */
 let _healthPath = "/health";
@@ -28,7 +30,7 @@ let _jobPollMs = 400;
 let _connectTimeoutMs = 8000;
 
 /** @type {string[]} */
-const _originFallbacks = ["http://127.0.0.1:8000", "http://localhost:8000"];
+const _originFallbacks = AGENT_ORIGIN_FALLBACKS;
 
 /**
  * @returns {string}
@@ -36,8 +38,8 @@ const _originFallbacks = ["http://127.0.0.1:8000", "http://localhost:8000"];
 function defaultAgentOriginForPage() {
   if (typeof window === "undefined") return _originFallbacks[0];
   const h = window.location.hostname;
-  if (h === "localhost") return "http://localhost:8000";
-  if (h === "127.0.0.1" || h === "[::1]") return "http://127.0.0.1:8000";
+  if (h === "localhost") return `http://localhost:${AGENT_PORT}`;
+  if (h === "127.0.0.1" || h === "[::1]") return `http://127.0.0.1:${AGENT_PORT}`;
   return _originFallbacks[0];
 }
 
@@ -74,7 +76,7 @@ export function getAgentOrigin() {
 }
 
 /**
- * @param {string} origin 예: http://localhost:8000
+ * @param {string} origin 예: http://localhost:19876
  */
 export function setAgentOrigin(origin) {
   _origin = origin.replace(/\/+$/, "");
