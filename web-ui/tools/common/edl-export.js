@@ -19,8 +19,29 @@ export const STORAGE_PADDING_MS = "itmatzip_silence_padding_ms";
 export const STORAGE_MIN_SILENCE_SEC = "itmatzip_silence_min_silence_sec";
 export const STORAGE_MIN_SILENCE = "itmatzip_silence_min_silence_sec";
 export const STORAGE_EDL_FINGERPRINT = "itmatzip_silence_edl_fp";
+/** 다운로드 페이지 → 편집 화면 복귀 시에만 UI 복원 (일반 접속·새로고침은 빈 화면) */
+export const STORAGE_RESTORE_EDITOR = "itmatzip_silence_restore_editor";
 
 export const DEFAULT_PADDING_MS = 18;
+
+export function markEditorRestorePending() {
+  try {
+    sessionStorage.setItem(STORAGE_RESTORE_EDITOR, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @returns {boolean} */
+export function consumeEditorRestorePending() {
+  try {
+    const pending = sessionStorage.getItem(STORAGE_RESTORE_EDITOR) === "1";
+    if (pending) sessionStorage.removeItem(STORAGE_RESTORE_EDITOR);
+    return pending;
+  } catch {
+    return false;
+  }
+}
 
 export function clipNameFromVideoPath(videoPath) {
   const p = String(videoPath || "").trim().replace(/\\/g, "/");

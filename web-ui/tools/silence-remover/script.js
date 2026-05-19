@@ -31,6 +31,7 @@ import {
   DEFAULT_PADDING_MS,
   canExportFromSession,
   clipNameFromVideoPath,
+  consumeEditorRestorePending,
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
@@ -1950,21 +1951,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  async function maybeRestoreEditorSession() {
-    const videoPath = getStoredVideoPath();
-    if (!videoPath) return;
-    if (
-      editorSessionRestoreDone &&
-      pathInput.value.trim() &&
-      silencePreviewEnabled &&
-      waveformPeaksData
-    ) {
-      return;
-    }
-    const ok = await restoreEditorStateFromSession();
-    if (ok) editorSessionRestoreDone = true;
-  }
-
   /**
    * 3. 무음 분석 요청 (에이전트 통신)
    */
@@ -2303,10 +2289,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  window.addEventListener("pageshow", () => {
+  window.addEventListener("pageshow", (ev) => {
     resetExportLinkUi();
-    void maybeRestoreEditorSession();
+    if (ev.persisted) {
+      syncExportLinkState();
+      return;
+    }
+    if (!consumeEditorRestorePending()) return;
+    void restoreEditorStateFromSession().then((ok) => {
+      if (ok) editorSessionRestoreDone = true;
+    });
   });
-
-  void maybeRestoreEditorSession();
 });
