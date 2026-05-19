@@ -3,7 +3,7 @@
  *
  * 사용 예:
  *   import { showAdSense } from "../common/adsense.js";
- *   await showAdSense("installDialog", "#itz-install-ad-slot");
+ *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
 /** @type {string} */
@@ -31,13 +31,6 @@ let _blockedLogged = false;
  * @type {Record<string, AdSenseUnit>}
  */
 export const AD_UNITS = {
-  /** IT맛집 중간광고 — 에이전트 설치 안내 팝업 */
-  installDialog: {
-    slot: "5724069500",
-    adFormat: "auto",
-    fullWidthResponsive: true,
-    style: "display:block",
-  },
   /** EDL 다운로드 페이지 상단 */
   downloadTop: {
     slot: "5724069500",

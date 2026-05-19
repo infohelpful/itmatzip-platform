@@ -514,22 +514,6 @@ function ensureInstallDialogStyles() {
       background: rgba(0, 0, 0, 0.35);
       color: #93c5fd;
     }
-    .itz-install__ad-slot {
-      box-sizing: border-box;
-      width: 100%;
-      min-height: 110px;
-      margin-top: 1rem;
-      padding: 0.5rem;
-      border-radius: 10px;
-      border: 1px dashed #3d4554;
-      background: #0f1115;
-      overflow: hidden;
-    }
-    .itz-install__ad-slot:empty::after {
-      content: "";
-      display: block;
-      min-height: 100px;
-    }
     .itz-install__download-btn {
       box-sizing: border-box;
       display: flex;

@@ -3,8 +3,6 @@
  * 다운로드 URL은 agent-update-manifest.json 의 download_url 을 사용합니다.
  */
 
-import { showAdSense } from "./adsense.js";
-
 /** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 과 동일 */
 export const AGENT_UPDATE_MANIFEST_URL =
   "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/agent/agent-update-manifest.json";
@@ -60,10 +58,31 @@ export function escHtml(s) {
 }
 
 /**
+ * GitHub 등 외부 URL에 `download` 를 쓰면 브라우저가 현재 사이트에서 파일을 찾아 404가 납니다.
+ * @param {string} rawHref
+ */
+function agentDownloadLinkAttrs(rawHref) {
+  const href = escHtml(rawHref);
+  let sameOrigin = false;
+  try {
+    const resolved = new URL(rawHref, globalThis.location?.href ?? "https://tools.itmatzip.com/");
+    sameOrigin =
+      typeof globalThis.location !== "undefined" &&
+      resolved.origin === globalThis.location.origin;
+  } catch {
+    sameOrigin = true;
+  }
+  if (sameOrigin) {
+    return `href="${href}" download`;
+  }
+  return `href="${href}" target="_blank" rel="noopener noreferrer"`;
+}
+
+/**
  * @param {string} downloadHref
  */
 export function buildAgentInstallDialogBodyHtml(downloadHref) {
-  const href = escHtml(downloadHref);
+  const linkAttrs = agentDownloadLinkAttrs(downloadHref);
   return `
 <div class="itz-install__intro">
   <p>
@@ -85,8 +104,7 @@ export function buildAgentInstallDialogBodyHtml(downloadHref) {
     <p class="itz-install__card-text itz-install__card-note">
       별도 bat·설치 마법사는 필요 없습니다. 실행 후 잠시 뒤 웹에서 <strong>다시 연결 확인</strong>을 눌러 주세요.
     </p>
-    <div class="itz-install__ad-slot" id="itz-install-ad-slot" aria-label="광고 영역"></div>
-    <a class="itz-install__download-btn" href="${href}" download role="button">에이전트 다운로드</a>
+    <a class="itz-install__download-btn" ${linkAttrs} role="button">에이전트 다운로드</a>
   </section>
   <section class="itz-install__card--installed">
     <h3 class="itz-install__card-title">이미 설치하셨나요?</h3>
@@ -106,8 +124,5 @@ export async function agentInstallDialogOptions(onPrimaryCheck) {
     bodyHtml: buildAgentInstallDialogBodyHtml(downloadHref),
     primaryLabel: "다시 연결 확인",
     onPrimary: onPrimaryCheck,
-    onShown: () => {
-      void showAdSense("installDialog", "#itz-install-ad-slot");
-    },
   };
 }
