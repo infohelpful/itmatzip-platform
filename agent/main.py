@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -79,7 +80,18 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
+def _ensure_stdio() -> None:
+    """PyInstaller windowed 빌드(console=False)에서는 stdout/stderr 가 None 일 수 있음."""
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+
+
 def main() -> None:
+    if is_frozen():
+        _ensure_stdio()
+
     import uvicorn
 
     host = "127.0.0.1"
@@ -100,6 +112,8 @@ if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()
+    if is_frozen():
+        _ensure_stdio()
     if len(sys.argv) >= 2 and sys.argv[1] == "--pick-file":
         run_pick_file_dialog()
     elif len(sys.argv) >= 2 and sys.argv[1] == "--check-update":
