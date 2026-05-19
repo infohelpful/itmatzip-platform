@@ -1,8 +1,8 @@
 {
-    "version":  "1.0.2",
+    "version":  "1.0.3",
     "published_at":  "2026-05-19",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.2/itmatzip-agent.exe",
-    "sha256":  "676c3033980f933642e40cb13aee215bc2fa7769db29d3140e9dba9f9ce2ab5f",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.3/itmatzip-agent.exe",
+    "sha256":  "b2101a9ea718d56c4359065afd49a76747cb58279a9b6c02ecd43603c1e3af2e",
     "mandatory":  false,
-    "release_notes":  "에이전트 오류 수정"
+    "release_notes":  "에이전트 수정"
 }
