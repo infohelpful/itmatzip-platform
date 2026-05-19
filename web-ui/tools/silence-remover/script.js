@@ -2,11 +2,12 @@ import {
   checkAgentConnection,
   configureBridge,
   fetchAgent,
+  formatAgentConnectionError,
   getAgentOrigin,
   requestAgent,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js";
+} from "../common/bridge.js?v=lna3";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
@@ -2233,10 +2234,13 @@ document.addEventListener("DOMContentLoaded", () => {
           statusDot.style.color = "#10b981";
           statusDot.title = "";
         } else {
-          const hint = detail?.error ? ` — ${detail.error}` : "";
+          const errText = formatAgentConnectionError(
+            detail?.error ?? /** @type {{ rawError?: string }} */ (detail)?.rawError,
+          );
+          const hint = errText ? ` — ${errText}` : "";
           statusDot.textContent = `에이전트 연결 끊김${hint}`;
           statusDot.style.color = "#ef4444";
-          statusDot.title = detail?.error || "";
+          statusDot.title = errText;
         }
       }
       void checkSilenceToolBinaries();

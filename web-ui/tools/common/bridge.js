@@ -101,7 +101,7 @@ function supportsTargetAddressSpace() {
     return false;
   }
   try {
-    new Request("http://127.0.0.1/", { targetAddressSpace: "local" });
+    new Request("http://127.0.0.1/", { targetAddressSpace: "loopback" });
     _targetAddressSpaceSupported = true;
   } catch {
     _targetAddressSpaceSupported = false;
@@ -110,28 +110,32 @@ function supportsTargetAddressSpace() {
 }
 
 /**
- * Chrome Local Network Access — loopback·사설망 fetch 대상 공간
+ * Chrome Local Network Access — fetch 대상 address space
+ * @see https://wicg.github.io/local-network-access/
  * @param {string} [url]
- * @returns {"local" | "private" | undefined}
+ * @returns {"loopback" | "local" | undefined}
  */
 function targetAddressSpaceForUrl(url) {
   if (!supportsTargetAddressSpace()) return undefined;
-  if (!url) return "local";
+  if (!url) return "loopback";
   try {
     const { hostname } = new URL(url);
     const h = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    if (h === "localhost" || h === "127.0.0.1" || h === "::1") return "local";
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".localhost")) {
+      return "loopback";
+    }
     if (
       /^10\./.test(h) ||
       /^192\.168\./.test(h) ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h) ||
+      /^169\.254\./.test(h)
     ) {
-      return "private";
+      return "local";
     }
   } catch {
     /* ignore */
   }
-  return "local";
+  return "loopback";
 }
 
 /**
@@ -140,10 +144,33 @@ function targetAddressSpaceForUrl(url) {
  * @param {RequestInit} [init]
  * @returns {Promise<Response>}
  */
-export function fetchAgent(url, init = {}) {
+/**
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function formatAgentConnectionError(raw) {
+  const msg = raw != null ? String(raw) : "";
+  if (/address space/i.test(msg)) {
+    return "브라우저 로컬 연결 정책 — 강력 새로고침(Ctrl+Shift+R) 후 주소창에서 「로컬 네트워크」 허용";
+  }
+  if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) {
+    return "Failed to fetch — 에이전트 실행 중이면 Chrome 주소창 → 사이트 설정 → 로컬 네트워크 「허용」";
+  }
+  return msg || "연결할 수 없습니다";
+}
+
+export async function fetchAgent(url, init = {}) {
   const space = targetAddressSpaceForUrl(url);
   if (!space) return fetch(url, init);
-  return fetch(url, { ...init, targetAddressSpace: space });
+  try {
+    return await fetch(url, { ...init, targetAddressSpace: space });
+  } catch (e) {
+    try {
+      return await fetch(url, init);
+    } catch {
+      throw e;
+    }
+  }
 }
 
 /**
@@ -196,12 +223,14 @@ export async function checkAgentConnection(signal) {
     };
   }
 
-  return (
-    lastFail ?? {
-      ok: false,
-      error: "에이전트에 연결할 수 없습니다.",
-    }
-  );
+  const err = lastFail?.error;
+  return {
+    ok: false,
+    status: lastFail?.status,
+    latencyMs: lastFail?.latencyMs,
+    error: formatAgentConnectionError(err),
+    rawError: err,
+  };
 }
 
 /**
@@ -838,6 +867,7 @@ const Bridge = {
   getAgentOrigin,
   setAgentOrigin,
   fetchAgent,
+  formatAgentConnectionError,
   checkAgentConnection,
   startConnectionMonitor,
   showInstallAgentDialog,

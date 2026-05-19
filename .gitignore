@@ -4,10 +4,12 @@
 
 # ——— Python ———
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 *.pyo
 *.pyd
+*.pyc
 .Python
 *.so
 *.egg
@@ -25,6 +27,8 @@ htmlcov/
 .nox/
 *.cover
 .hypothesis/
+.pytest_cache/
+dmypy.json
 
 # 가상환경
 .venv/
@@ -36,7 +40,23 @@ ENV/
 # ——— PyInstaller / 에이전트 빌드 ———
 agent/build/
 agent/dist/
+build/
+dist/
 *.spec.bak
+
+# PyInstaller 중간 산출물
+**/pyi-bundle/
+**/pyi-setup/
+**/zip-staging/
+agent/build/agent-bundle.zip
+agent/build/itmatzip-agent/
+**/xref-*.html
+**/warn-*.txt
+*.toc
+*.manifest
+
+# onedir 번들 잔여 (_internal 등)
+**/_internal/
 
 # ——— 배포 바이너리 (GitHub Releases 등에만 업로드) ———
 *.exe
@@ -52,35 +72,47 @@ agent/.venv-build/
 
 # ——— 로컬·임시·개인 메모 ———
 *.log
+*itmatzip-agent-install.log
+*itmatzip-agent-serve.log
 .env
 .env.*
 !.env.example
 rest.txt
 **/_write_fix.js
+_patch_*.py
+_patch_*.js
 *.tmp
 *.temp
 *.bak
 *~
+*.stackdump
 
 # ——— OS ———
 .DS_Store
 Thumbs.db
 desktop.ini
 ehthumbs.db
+Desktop.ini
 
 # ——— IDE / 에디터 ———
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 .project
 .classpath
 .settings/
+*.sublime-project
+*.sublime-workspace
 
 # ——— Node (웹 도구 추가 시) ———
 node_modules/
 npm-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+package-lock.json
+.pnpm-store/
 
-# ——— FFmpeg 로컬 캐시 (사용자 PC, 소스 아님) ———
-# %APPDATA%\ItMatZip\ — 에이전트 런타임 전용
+# ——— FFmpeg / 에이전트 런타임 (사용자 PC, 소스 아님) ———
+# %APPDATA%\ItMatZip\ — 에이전트 설치 경로

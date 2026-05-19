@@ -17,6 +17,9 @@ if sys.stderr is None:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from agent_config import AGENT_HOST, AGENT_PORT, agent_base_url  # noqa: E402
 from runtime_paths import agent_root, is_frozen  # noqa: E402
@@ -38,21 +41,38 @@ async def _app_lifespan(_app: FastAPI):
     yield
 
 
+class _PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    """Chrome LNA — CORS 응답에 private-network 허용 헤더를 보강."""
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        response = await call_next(request)
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="ItMatZip Local Agent",
         version=AGENT_VERSION,
         lifespan=_app_lifespan,
     )
-    # allow_private_network: Chrome 등에서 호스팅 웹 → 로컬 에이전트 호출 시 필수
+    # HTTPS 웹 → loopback 에이전트: credentials 끄고 출처 명시(*+credentials 조합은 CORS 실패 유발)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=[
+            "https://tools.itmatzip.com",
+            "https://silence.itmatzip.com",
+            "http://localhost:5173",
+            "http://localhost:5500",
+            "http://127.0.0.1:5500",
+        ],
+        allow_origin_regex=r"^https://([\w-]+\.)*itmatzip\.com$|^http://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
         allow_private_network=True,
     )
+    app.add_middleware(_PrivateNetworkAccessMiddleware)
 
     @app.get("/health")
     async def health() -> dict:
