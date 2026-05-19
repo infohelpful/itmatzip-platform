@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../../common/adsense.js";
+ *   import { showAdSense } from "../common/adsense.js";
  *   await showAdSense("installDialog", "#itz-install-ad-slot");
  */
 
@@ -13,28 +13,71 @@ let _client = "ca-pub-2088466558007407";
 let _scriptLoadPromise = null;
 
 /**
+ * @typedef {Object} AdSenseUnit
+ * @property {string} slot
+ * @property {string} [adFormat] `data-ad-format` (예: "horizontal", "auto")
+ * @property {boolean} [fullWidthResponsive]
+ * @property {string} [style]
+ */
+
+/**
  * 광고 단위 정의 (슬롯 추가 시 여기만 수정)
- * @type {Record<string, { slot: string, format?: string, fullWidthResponsive?: boolean, style?: string }>}
+ * @type {Record<string, AdSenseUnit>}
  */
 export const AD_UNITS = {
   /** IT맛집 중간광고 — 에이전트 설치 안내 팝업 */
   installDialog: {
     slot: "5724069500",
-    format: "auto",
+    adFormat: "auto",
     fullWidthResponsive: true,
     style: "display:block",
   },
   /** EDL 다운로드 페이지 상단 */
   downloadTop: {
     slot: "5724069500",
-    format: "auto",
+    adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
   },
   /** EDL 다운로드 페이지 하단 */
   downloadBottom: {
     slot: "5724069500",
-    format: "auto",
+    adFormat: "horizontal",
+    fullWidthResponsive: true,
+    style: "display:block",
+  },
+  /** 편집 화면 — 옵션·미디어 요약 위 */
+  editorAboveWorkspace: {
+    slot: "5724069500",
+    adFormat: "horizontal",
+    fullWidthResponsive: true,
+    style: "display:block",
+  },
+  /** 편집 화면 — 좌측 사이드바 */
+  editorSidebar: {
+    slot: "5724069500",
+    adFormat: "horizontal",
+    fullWidthResponsive: true,
+    style: "display:block",
+  },
+  /** 편집 화면 — EDL 다운로드 버튼 아래 */
+  editorBelowExport: {
+    slot: "5724069500",
+    adFormat: "horizontal",
+    fullWidthResponsive: true,
+    style: "display:block",
+  },
+  /** 메인 대시보드 — 상단 배너 */
+  dashboardBanner: {
+    slot: "5724069500",
+    adFormat: "horizontal",
+    fullWidthResponsive: true,
+    style: "display:block",
+  },
+  /** 메인 대시보드 — 좌측 사이드바 */
+  dashboardSidebar: {
+    slot: "5724069500",
+    adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
   },
@@ -120,7 +163,7 @@ export async function showAdSense(unitKey, container) {
   ins.style.cssText = unit.style ?? "display:block";
   ins.setAttribute("data-ad-client", _client);
   ins.setAttribute("data-ad-slot", unit.slot);
-  if (unit.format) ins.setAttribute("data-ad-format", unit.format);
+  if (unit.adFormat) ins.setAttribute("data-ad-format", unit.adFormat);
   if (unit.fullWidthResponsive) {
     ins.setAttribute("data-full-width-responsive", "true");
   }

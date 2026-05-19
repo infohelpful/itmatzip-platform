@@ -32,9 +32,11 @@
 
 ```
 itmatzip-platform/
-├── web-ui/                    # 정적 웹 (호스팅)
+├── web-ui/tools/              # 정적 웹 루트 (tools.itmatzip.com)
+│   ├── index.html             # 메인 대시보드 (웹툴 메뉴)
+│   ├── assets/                # 대시보드 css/js, tools-registry.js
 │   ├── common/                # bridge, edl-export, adsense, agent-install-ui
-│   └── tools/silence-remover/ # index.html, script.js, download.*
+│   └── silence-remover/       # 무음 분석 웹툴
 ├── agent/                     # Python FastAPI 에이전트 소스
 │   ├── main.py
 │   ├── routers/silence_remover.py
@@ -85,7 +87,7 @@ itmatzip-platform/
 - 클릭 시 `이동 중…` → `download.html` 이동
 - `pageshow` / `resetExportLinkUi()`로 **뒤로가기(bfcache)** 시 버튼 문구 복구
 
-### 3.2 공통 모듈 (`web-ui/common/`)
+### 3.2 공통 모듈 (`web-ui/tools/common/`)
 
 | 파일 | 역할 |
 |------|------|
@@ -295,7 +297,9 @@ cd itmatzip-platform
 .\agent\dist\itmatzip-agent.exe   # 첫 실행 = 설치 + 백그라운드
 
 # 웹 UI (예: 정적 서버)
-# http://localhost:8080/.../web-ui/tools/silence-remover/
+# web-ui/tools 를 document root 로 두면:
+# http://localhost:8080/              ← 메인 대시보드
+# http://localhost:8080/silence-remover/
 ```
 
 ---

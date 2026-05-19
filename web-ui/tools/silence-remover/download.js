@@ -2,18 +2,16 @@ import {
   checkAgentConnection,
   configureBridge,
   requestAgent,
-  showInstallAgentDialog,
-} from "../../common/bridge.js";
-import { showAdSense } from "../../common/adsense.js";
-import { agentInstallDialogOptions } from "../../common/agent-install-ui.js";
+} from "../common/bridge.js";
+import { showAdSense } from "../common/adsense.js";
 import {
   buildEdlViaAgent,
   canExportFromSession,
   pickEdlSaveFileHandle,
   saveEdlBlobToDisk,
   validateExportPrerequisitesFromSession,
-} from "../../common/edl-export.js";
-import { LOCAL_HELPER_NAME, MSG_HELPER_NEED_APP } from "../../common/local-helper-ui.js";
+} from "../common/edl-export.js";
+import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 
 configureBridge({ healthPath: "/health" });
 
@@ -33,13 +31,11 @@ const elCountdown = document.getElementById("dl-countdown");
 const elSpinner = document.getElementById("dl-spinner");
 const elAgentHint = document.getElementById("dl-agent-hint");
 const elBtnNow = document.getElementById("dl-btn-now");
-const elBtnRetry = document.getElementById("dl-btn-retry-agent");
 const elBtnBack = document.getElementById("dl-btn-back");
 
 function applyLabels() {
   if (elTitle) elTitle.textContent = "EDL \uD30C\uC77C \uB2E4\uC6B4\uB85C\uB4DC";
   if (elBtnNow) elBtnNow.textContent = "\uC9C0\uAE08 \uB2E4\uC6B4\uB85C\uB4DC";
-  if (elBtnRetry) elBtnRetry.textContent = "\uB2E4\uC2DC \uD655\uC778";
   if (elBtnBack) elBtnBack.textContent = "\uD3B8\uC9D1 \uD654\uBA74\uC73C\uB85C \uB3CC\uC544\uAC00\uAE30";
   document.title = "EDL \uB2E4\uC6B4\uB85C\uB4DC";
 }
@@ -99,11 +95,9 @@ async function ensureAgentConnected() {
   const detail = await checkAgentConnection();
   if (detail.ok) {
     setAgentHint("", false);
-    if (elBtnRetry) elBtnRetry.disabled = true;
     return true;
   }
   setAgentHint(MSG_HELPER_NEED_APP, true);
-  if (elBtnRetry) elBtnRetry.disabled = false;
   return false;
 }
 
@@ -254,27 +248,6 @@ document.addEventListener("DOMContentLoaded", () => {
     elBtnNow.addEventListener("click", () => {
       clearCountdown();
       void runDownloadFromUserClick();
-    });
-  }
-
-  if (elBtnRetry) {
-    elBtnRetry.addEventListener("click", async () => {
-      const ok = await ensureAgentConnected();
-      if (ok) {
-        setStatus(
-          `\uC900\uBE44\uB418\uC5C8\uC2B5\uB2C8\uB2E4. (${AUTO_START_SEC}\uCD08 \uD6C4 \uC790\uB3D9 \uB2E4\uC6B4\uB85C\uB4DC)`,
-        );
-        if (!downloadInFlight && countdownTimer === 0) {
-          if (elBtnNow) elBtnNow.disabled = false;
-          startCountdown();
-        }
-      } else {
-        await showInstallAgentDialog(
-          agentInstallDialogOptions(async () => {
-            await checkAgentConnection();
-          }),
-        );
-      }
     });
   }
 

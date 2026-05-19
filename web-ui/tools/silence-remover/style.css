@@ -7,6 +7,7 @@
   --text-dim: #94a3b8;
   --border: #2d333f;
   --radius: 12px;
+  --editor-block-gap: 28px;
 }
 
 body {
@@ -24,11 +25,20 @@ body {
 
 .sidebar-ad {
   width: 160px;
+  min-height: 120px;
   background: #000;
   border-right: 1px solid var(--border);
   display: flex;
   justify-content: center;
-  padding-top: 20px;
+  align-items: flex-start;
+  padding: 20px 8px;
+  overflow: hidden;
+}
+
+.sidebar-ad .adsbygoogle {
+  display: block;
+  width: 100%;
+  max-width: 144px;
 }
 
 .main-content {
@@ -36,6 +46,56 @@ body {
   max-width: 1000px;
   margin: 0 auto;
   padding: 40px 20px;
+}
+
+/* AdSense — 옵션·미디어 요약 위 인라인 슬롯 */
+.editor-ad {
+  margin: 0 0 var(--editor-block-gap);
+  min-height: 200px;
+  border-radius: var(--radius);
+  background: #0a0c10;
+  border: 1px dashed var(--border);
+  display: block;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.editor-ad .adsbygoogle {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  line-height: normal;
+}
+
+.editor-ad:not(:has(.adsbygoogle)) {
+  min-height: 200px;
+}
+
+.editor-ad[data-adsense-empty="1"] {
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-ad[data-adsense-empty="1"]::after {
+  content: "";
+}
+
+#editor-ad-above-workspace {
+  margin-top: 0;
+  margin-bottom: var(--editor-block-gap);
+}
+
+#editor-ad-below-export {
+  margin-top: var(--editor-block-gap);
+  margin-bottom: 0;
+}
+
+.media-workspace {
+  position: relative;
+  margin-top: 0;
+  min-width: 0;
 }
 
 /* Header */
@@ -95,6 +155,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0;
+  margin-bottom: var(--editor-block-gap);
 }
 
 .drop-zone.is-picking {
@@ -159,12 +220,13 @@ body {
 }
 
 /* Options: left stack + right summary (equal column height) */
+
 .options-layout {
   display: flex;
   flex-direction: row;
   align-items: stretch;
   gap: 15px;
-  margin-top: 25px;
+  margin-top: 0;
   min-width: 0;
   overflow: hidden;
 }
@@ -509,9 +571,9 @@ body {
 
 .chip.active { background: var(--accent); color: white; box-shadow: 0 0 10px var(--accent-glow); }
 
-/* 오디오 파형 미리보기 — 무음 분석 시작 후에만 표시 */
+/* 오디오 파형 미리보기 — 페이지 로드 시부터 표시 */
 .waveform-preview-section {
-  margin-top: 20px;
+  margin-top: 15px;
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -824,44 +886,63 @@ body {
   padding: 24px 28px 28px;
 }
 
-/* Probe loading modal */
-.probe-loading-dialog {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 0;
-  background: var(--panel-bg);
-  color: var(--text-main);
-  max-width: min(440px, calc(100vw - 32px));
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+/* 영상 로드: 옵션·요약·파형 인라인 로딩 */
+.media-workspace-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  background: rgba(15, 17, 21, 0.4);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: var(--radius);
+  pointer-events: auto;
 }
 
-.probe-loading-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.58);
-  backdrop-filter: blur(2px);
+.media-workspace-loading.is-active {
+  display: flex !important;
 }
 
-.probe-loading-inner {
-  padding: 28px 32px 32px;
+.media-workspace-loading[hidden]:not(.is-active) {
+  display: none !important;
+}
+
+.media-workspace[aria-busy="true"] .options-layout,
+.media-workspace[aria-busy="true"] .waveform-preview-section {
+  pointer-events: none;
+}
+
+.media-workspace-loading__panel {
+  width: min(100%, 360px);
+  padding: 22px 24px;
   text-align: center;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(26, 29, 35, 0.94);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
-.probe-loading-title {
-  font-size: 1.15rem;
+.media-workspace-loading__title {
+  margin: 14px 0 8px;
+  font-size: 14px;
   font-weight: 700;
-  margin: 18px 0 10px;
-  line-height: 1.3;
+  line-height: 1.35;
+  color: var(--text-main);
 }
 
-.probe-loading-desc {
-  font-size: 13px;
-  color: var(--text-dim);
+.media-workspace-loading__desc {
   margin: 0;
+  font-size: 12px;
   line-height: 1.55;
+  color: var(--text-dim);
 }
 
-.probe-loading-spinner {
-  width: 46px;
-  height: 46px;
+.media-workspace-loading__spinner {
+  width: 40px;
+  height: 40px;
   margin: 0 auto;
   border-radius: 50%;
   border: 3px solid var(--border);

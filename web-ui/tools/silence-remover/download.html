@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EDL Download</title>
-  <link rel="stylesheet" href="download.css?v=2">
+  <link rel="stylesheet" href="download.css?v=3">
+  <link rel="stylesheet" href="mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body>
@@ -18,7 +19,6 @@
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
         <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled>Download now</button>
-        <button type="button" class="dl-btn dl-btn-secondary" id="dl-btn-retry-agent" disabled>Check agent</button>
         <button type="button" class="dl-btn dl-btn-back" id="dl-btn-back" disabled>Back to editor</button>
       </div>
     </div>
@@ -126,6 +126,14 @@
 
     <div class="dl-ad" id="dl-ad-bottom" aria-label="Advertisement"></div>
   </div>
-  <script type="module" src="download.js?v=3"></script>
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+  <script src="mobile-only.js?v=1"></script>
+  <script type="module" src="download.js?v=4"></script>
 </body>
 </html>

@@ -31,7 +31,7 @@ from common.update_config import (
 )
 from runtime_paths import is_frozen
 
-_log = logging.getLogger("itmatzip.agent.update")
+_logger = logging.getLogger("itmatzip.agent.update")
 
 _APPDATA = os.environ.get("APPDATA") or ""
 UPDATE_ROOT = Path(_APPDATA) / "ItMatZip" / "updates" if _APPDATA else Path.home() / ".itmatzip" / "updates"
@@ -50,7 +50,7 @@ _state: dict[str, Any] = {
 
 def _log(msg: str) -> None:
     line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}"
-    _log.info(msg)
+    _logger.info(msg)
     try:
         UPDATE_ROOT.mkdir(parents=True, exist_ok=True)
         with UPDATE_LOG.open("a", encoding="utf-8") as f:

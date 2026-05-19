@@ -5,8 +5,9 @@ import {
   requestAgent,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../../common/bridge.js";
-import { agentInstallDialogOptions, escHtml } from "../../common/agent-install-ui.js";
+} from "../common/bridge.js";
+import { showAdSense } from "../common/adsense.js";
+import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
   STORAGE_CLIP_NAME,
   STORAGE_DURATION,
@@ -30,7 +31,7 @@ import {
   clipNameFromVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../../common/edl-export.js";
+} from "../common/edl-export.js";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -265,10 +266,10 @@ function applyStaticUiLabels() {
       "무음 구간 자동 제거";
   }
 
-  setText("probe-loading-title", "영상 정보 불러오는 중");
+  setText("probe-loading-title", "영상 불러오는 중");
   setText(
     "probe-loading-desc",
-    "프레임(FPS), 평균 볼륨, 추천 무음 민감도를 에이전트에서 분석하고 있습니다. 잠시만 기다려 주세요.",
+    "옵션·요약·오디오 파형을 준비하고 있습니다.",
   );
 }
 
@@ -282,45 +283,65 @@ document.addEventListener("DOMContentLoaded", () => {
   const btnPickLocalFile = document.getElementById("btn-pick-local-file");
   const btnAnalyze = document.getElementById("btn-analyze");
   const exportLink = document.getElementById("export-link");
-  const probeLoadingDlg = /** @type {HTMLDialogElement | null} */ (document.getElementById("probe-loading-dialog"));
+  const mediaWorkspace = document.getElementById("media-workspace");
+  const mediaWorkspaceLoading = document.getElementById("media-workspace-loading");
   const probeTitleEl = document.getElementById("probe-loading-title");
   const probeDescEl = document.getElementById("probe-loading-desc");
 
-  const DEFAULT_PROBE_TITLE = "영상 정보 불러오는 중";
-  const DEFAULT_PROBE_DESC =
-    "프레임(FPS), 평균 볼륨, 추천 무음 민감도를 에이전트에서 분석하고 있습니다. 잠시만 기다려 주세요.";
+  const MEDIA_LOAD_TITLE_PROBE = "영상 불러오는 중";
+  const MEDIA_LOAD_DESC_PROBE =
+    "프레임·볼륨·무음 민감도와 미디어 요약을 분석하고 있습니다.";
+  const MEDIA_LOAD_TITLE_WAVEFORM = "오디오 파형 생성 중";
+  const MEDIA_LOAD_DESC_WAVEFORM =
+    "편집 FPS 격자로 오디오 파형을 생성하고 있습니다. 긴 영상은 수 분 걸릴 수 있습니다.";
 
-  function resetProbeModalCopy() {
-    if (probeTitleEl) probeTitleEl.textContent = DEFAULT_PROBE_TITLE;
-    if (probeDescEl) probeDescEl.textContent = DEFAULT_PROBE_DESC;
+  function setMediaWorkspaceLoadingCopy(title, desc) {
+    if (probeTitleEl) probeTitleEl.textContent = title;
+    if (probeDescEl) probeDescEl.textContent = desc;
   }
 
-  function hideProbeModal() {
-    if (!probeLoadingDlg) return;
-    if (probeLoadingDlg.open) probeLoadingDlg.close();
-    resetProbeModalCopy();
+  function resetMediaWorkspaceLoadingCopy() {
+    setMediaWorkspaceLoadingCopy(MEDIA_LOAD_TITLE_PROBE, MEDIA_LOAD_DESC_PROBE);
   }
 
-  function showProbeModalForProbe() {
-    if (!probeLoadingDlg) return;
-    resetProbeModalCopy();
-    if (typeof probeLoadingDlg.showModal === "function" && !probeLoadingDlg.open) {
-      probeLoadingDlg.showModal();
-    }
+  function setMediaWorkspaceInteractionLocked(locked) {
+    if (btnAnalyze) btnAnalyze.disabled = locked;
+    if (btnPickLocalFile) btnPickLocalFile.disabled = locked;
+    if (pathInput) pathInput.readOnly = locked;
   }
 
-  /** 짧은 연속 입력으로 프로브가 겹쳐도 모달이 깜빡이지 않도록 깊이 + 지연 표시 */
+  function hideMediaWorkspaceLoading() {
+    if (!mediaWorkspaceLoading) return;
+    mediaWorkspaceLoading.classList.remove("is-active");
+    mediaWorkspaceLoading.hidden = true;
+    mediaWorkspaceLoading.setAttribute("aria-hidden", "true");
+    if (mediaWorkspace) mediaWorkspace.removeAttribute("aria-busy");
+    setMediaWorkspaceInteractionLocked(false);
+    resetMediaWorkspaceLoadingCopy();
+  }
+
+  function showMediaWorkspaceLoading() {
+    if (!mediaWorkspaceLoading) return;
+    resetMediaWorkspaceLoadingCopy();
+    if (mediaWorkspace) mediaWorkspace.setAttribute("aria-busy", "true");
+    setMediaWorkspaceInteractionLocked(true);
+    mediaWorkspaceLoading.hidden = false;
+    mediaWorkspaceLoading.setAttribute("aria-hidden", "false");
+    mediaWorkspaceLoading.classList.add("is-active");
+  }
+
+  /** 짧은 연속 입력으로 프로브가 겹쳐도 로딩이 깜빡이지 않도록 깊이 + 지연 표시 */
   let probeBusyDepth = 0;
   let probeShowTimer = 0;
-  const PROBE_MODAL_DELAY_MS = 220;
+  const PROBE_LOADING_DELAY_MS = 220;
 
   function bumpProbeLoading() {
     probeBusyDepth += 1;
     if (probeBusyDepth === 1) {
       window.clearTimeout(probeShowTimer);
       probeShowTimer = window.setTimeout(() => {
-        if (probeBusyDepth > 0) showProbeModalForProbe();
-      }, PROBE_MODAL_DELAY_MS);
+        if (probeBusyDepth > 0) showMediaWorkspaceLoading();
+      }, PROBE_LOADING_DELAY_MS);
     }
   }
 
@@ -329,7 +350,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (probeBusyDepth === 0) {
       window.clearTimeout(probeShowTimer);
       probeShowTimer = 0;
-      hideProbeModal();
+      hideMediaWorkspaceLoading();
     }
   }
 
@@ -475,13 +496,27 @@ document.addEventListener("DOMContentLoaded", () => {
   const optPadding = /** @type {HTMLInputElement} */ (document.getElementById("opt-padding"));
   const optPaddingVal = document.getElementById("opt-padding-val");
   const waveformPreviewSection = document.getElementById("waveform-preview-section");
-  /** 파형 영역은 무음 분석 시작 시에만 표시 */
+  const WAVEFORM_IDLE_STATUS =
+    "영상 파일을 선택하면 오디오 파형이 자동으로 생성됩니다.";
+
   function setWaveformSectionVisible(visible) {
     if (!waveformPreviewSection) return;
     waveformPreviewSection.hidden = !visible;
     waveformPreviewSection.classList.toggle("is-waveform-hidden", !visible);
   }
-  setWaveformSectionVisible(false);
+
+  function setWaveformIdleStatus() {
+    if (waveformPreviewStatus) {
+      waveformPreviewStatus.textContent = WAVEFORM_IDLE_STATUS;
+      waveformPreviewStatus.classList.remove("is-err");
+    }
+  }
+
+  function initWaveformSection() {
+    setWaveformSectionVisible(true);
+    resetWaveformStateForNewMedia({ hideSection: false });
+    setWaveformIdleStatus();
+  }
 
   const waveformPreviewTitle = document.getElementById("waveform-preview-title");
   const waveformPreviewCanvas = /** @type {HTMLCanvasElement | null} */ (
@@ -1337,8 +1372,12 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (opts.hideSection) {
       setWaveformSectionVisible(false);
+    } else {
+      setWaveformSectionVisible(true);
     }
   }
+
+  initWaveformSection();
 
   /**
    * @param {number} timelineSec
@@ -1381,11 +1420,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function clearWaveformPreview() {
-    resetWaveformStateForNewMedia({ hideSection: true });
+    resetWaveformStateForNewMedia({ hideSection: false });
     resetSilenceAnalysisState();
     resetWaveformZoom();
     clearMediaSummary();
     if (waveformPreviewTitle) waveformPreviewTitle.textContent = "오디오 파형";
+    setWaveformIdleStatus();
   }
 
   /**
@@ -1415,7 +1455,7 @@ document.addEventListener("DOMContentLoaded", () => {
       clearWaveformPreview();
       return;
     }
-    resetWaveformStateForNewMedia({ hideSection: opts.showSection !== true });
+    resetWaveformStateForNewMedia({ hideSection: false });
     waveformPreviewGen += 1;
     const myGen = waveformPreviewGen;
     const loadPath = videoPath;
@@ -1623,7 +1663,8 @@ document.addEventListener("DOMContentLoaded", () => {
     probedMeanVolumeDb = null;
     probedMaxVolumeDb = null;
     probedFpsRational = null;
-    setWaveformSectionVisible(false);
+
+    setWaveformCanvasHidden(true);
 
     bumpProbeLoading();
     const probeCtrl = new AbortController();
@@ -1635,6 +1676,8 @@ document.addEventListener("DOMContentLoaded", () => {
         json: { video_path: p, timeout_sec: 180 },
         signal: probeCtrl.signal,
       });
+      if (pathInput.value.trim() !== p) return;
+
       if (m && typeof m === "object") {
         applyProbeResultToOptions(/** @type {Record<string, unknown>} */ (m));
         const basis = m.recommendation_basis;
@@ -1661,6 +1704,27 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
         applyMediaSummaryFromProbe(m);
+
+        if (pathInput.value.trim() === p) {
+          const probeFps =
+            typeof m.fps === "number" && Number.isFinite(m.fps)
+              ? m.fps
+              : getEditorFpsForExport();
+          const probeDur =
+            typeof m.duration_sec === "number" && m.duration_sec > 0
+              ? m.duration_sec
+              : probedMediaDurationSec ?? 0;
+          setMediaWorkspaceLoadingCopy(
+            MEDIA_LOAD_TITLE_WAVEFORM,
+            MEDIA_LOAD_DESC_WAVEFORM,
+          );
+          await loadWaveformPreview(p, {
+            assumeAgentOk: true,
+            scrollIntoView: false,
+            pixelsPerSecond: peaksPixelsPerSecondForEditorFps(probeFps, probeDur),
+            useEditorTimeline: true,
+          });
+        }
       } else {
         alert("프로브 응답 형식이 올바르지 않습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요.");
       }
@@ -1673,6 +1737,10 @@ document.addEventListener("DOMContentLoaded", () => {
           ? "미디어 정보 분석이 시간 초과되었습니다. 파일이 크면 더 오래 걸릴 수 있습니다."
           : `미디어 정보를 불러오지 못했습니다.\n\n${msg}`,
       );
+      if (!waveformPeaksData) {
+        setWaveformCanvasHidden(true);
+        setWaveformIdleStatus();
+      }
     } finally {
       window.clearTimeout(probeTimeoutId);
       releaseProbeLoading();
@@ -1680,7 +1748,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   pathInput.addEventListener("input", scheduleProbe);
-  /* blur로 프로브하면: (1) 옵션으로 포커스를 옮길 때마다 재요청 (2) 로딩 dialog showModal 시 포커스가 빼앗겨 blur가 나와 중복 프로브·로딩 반복 — 하지 않음 */
+  /* blur로 프로브하지 않음 — 옵션 포커스 이동마다 재요청되는 것을 방지 */
 
   optSens.addEventListener("input", () => {
     lastAppliedNoiseDb = null;
@@ -1971,6 +2039,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
+
+  void showAdSense("editorAboveWorkspace", "#editor-ad-above-workspace");
+  void showAdSense("editorBelowExport", "#editor-ad-below-export");
+  void showAdSense("editorSidebar", "#sidebar-ad-slot");
 
   startConnectionMonitor({
     intervalMs: 8000,

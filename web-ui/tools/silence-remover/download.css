@@ -34,11 +34,29 @@ body {
 }
 
 .dl-ad {
-  min-height: 90px;
-  margin: 0 0 16px;
+  min-height: 200px;
+  margin: 0;
   border-radius: var(--radius);
   background: #0a0c10;
   border: 1px dashed var(--border);
+  display: block;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.dl-ad .adsbygoogle {
+  display: block;
+  width: 100%;
+  min-height: 200px;
+  line-height: normal;
+}
+
+.dl-ad:not(:has(.adsbygoogle)) {
+  min-height: 200px;
+}
+
+.dl-ad[data-adsense-empty="1"] {
+  min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -149,12 +167,6 @@ body {
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: #fff;
   box-shadow: 0 4px 20px var(--accent-glow);
-}
-
-.dl-btn-secondary {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
 }
 
 .dl-btn-back {
