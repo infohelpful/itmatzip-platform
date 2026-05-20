@@ -60,3 +60,25 @@ def pick_file_available() -> bool:
     if is_frozen():
         return True
     return pick_script_path().is_file()
+
+
+def pick_audio_script_path() -> Path:
+    return agent_root() / "scripts" / "pick_audio_dialog.py"
+
+
+def pick_audio_command() -> list[str]:
+    """오디오 전용 파일 선택 대화상자 subprocess argv."""
+    if is_frozen():
+        from common.windows_startup import installed_exe_path
+
+        exe = installed_exe_path()
+        if exe.is_file():
+            return [str(exe), "--pick-audio-file"]
+        return [str(user_launch_exe()), "--pick-audio-file"]
+    return [sys.executable, str(pick_audio_script_path())]
+
+
+def pick_audio_available() -> bool:
+    if is_frozen():
+        return True
+    return pick_audio_script_path().is_file()

@@ -1,4 +1,5 @@
 import {
+  applyConnectionStatusDot,
   checkAgentConnection,
   configureBridge,
   fetchAgent,
@@ -7,7 +8,7 @@ import {
   requestAgent,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna4";
+} from "../common/bridge.js?v=lna7";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
@@ -2207,32 +2208,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-workspace");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
-  void showAdSense("editorSidebar", "#sidebar-ad-slot");
 
-  startConnectionMonitor({
-    intervalMs: 8000,
+  let lastConnectionUiOk = /** @type {boolean | null} */ (null);
+
+  const connectionMonitor = startConnectionMonitor({
+    intervalMs: 3000,
     immediate: true,
     onChange: (ok, detail) => {
-      const statusDot = document.getElementById("connection-status");
-      if (statusDot) {
-        if (ok) {
-          statusDot.textContent = "에이전트 연결됨";
-          statusDot.style.color = "#10b981";
-          statusDot.title = "";
-        } else {
-          const errText = formatAgentConnectionError(
-            detail?.error ?? /** @type {{ rawError?: string }} */ (detail)?.rawError,
-          );
-          const hint = errText ? ` — ${errText}` : "";
-          statusDot.textContent = `에이전트 연결 끊김${hint}`;
-          statusDot.style.color = "#ef4444";
-          statusDot.title = errText;
-        }
-      }
-      void checkSilenceToolBinaries(ok);
+      applyConnectionStatusDot(document.getElementById("connection-status"), ok, detail);
+      const changed = lastConnectionUiOk !== ok;
+      lastConnectionUiOk = ok;
+      if (changed) void checkSilenceToolBinaries(ok);
     },
     autoShowInstallDialog: true,
     installDialogOptions: installDialogOpts,
+  });
+
+  window.addEventListener("focus", () => void connectionMonitor.refresh());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void connectionMonitor.refresh();
   });
 
   /** @param {boolean} [knownOk] 연결 모니터에서 이미 확인한 경우 재요청 생략 */

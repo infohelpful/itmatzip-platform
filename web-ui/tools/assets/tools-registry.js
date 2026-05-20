@@ -29,4 +29,17 @@ export const TOOLS = [
     badge: "AI",
     tags: ["무음", "silence", "edl", "premiere", "ffmpeg", "파형", "오디오"],
   },
+  {
+    id: "vocal-remover",
+    href: "vocal-remover/",
+    title: "Vocal Remover",
+    subtitle: "보컬 분리 · MR/보컬 추출",
+    description:
+      "로컬 오디오 파일에서 보컬과 반주를 분리하고, MR 또는 보컬만 원하는 포맷으로 다운로드합니다.",
+    icon: "🎙️",
+    accent: "#ec4899",
+    available: true,
+    badge: "AI",
+    tags: ["보컬", "vocal", "mr", "분리", "audio", "demucs", "ai"],
+  },
 ];

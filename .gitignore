@@ -33,6 +33,8 @@ dmypy.json
 # 가상환경
 .venv/
 .venv-*/
+.venv312/
+.vscode/
 venv/
 env/
 ENV/
@@ -116,3 +118,27 @@ package-lock.json
 
 # ——— FFmpeg / 에이전트 런타임 (사용자 PC, 소스 아님) ———
 # %APPDATA%\ItMatZip\ — 에이전트 설치 경로
+
+# ——— Vocal Remover · PyTorch wheel (용량 큼, Releases 전용) ———
+wheel-staging/
+wheels-staging/
+agent/wheels/
+agent/wheel-cache/
+**/wheels_gpu/
+*.whl
+wheel.zip
+wheels_gpu.zip
+wheels_gpu.zip.*
+
+# ——— 로컬 테스트·임시 미디어 ———
+agent/test_input.wav
+agent/test_input.*
+agent/test_output/
+agent/run_test_separate.py
+
+# ——— Demucs 분리 결과·작업 폴더 (개발 PC) ———
+**/vocal-remover/workspace/
+**/vocal-remover/cache/
+
+# ——— Cursor 첨부·스크린샷 (저장소 루트) ———
+/assets/

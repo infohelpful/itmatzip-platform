@@ -25,6 +25,7 @@ hiddenimports = [
     "common.subprocess_util",
     "version",
     "scripts.pick_media_dialog",
+    "scripts.pick_audio_dialog",
     "uvicorn.logging",
     "uvicorn.loops",
     "uvicorn.loops.auto",

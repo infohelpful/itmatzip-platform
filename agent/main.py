@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import RedirectResponse, Response
 
 from agent_config import AGENT_HOST, AGENT_PORT, agent_base_url  # noqa: E402
 from runtime_paths import agent_root, is_frozen  # noqa: E402
@@ -31,6 +31,7 @@ if str(_AGENT_ROOT) not in sys.path:
 from common.auto_update import get_update_status_snapshot, schedule_background_update_checks  # noqa: E402
 from engines import silence_remover as silence_remover_engine  # noqa: E402
 from routers import silence_remover as silence_remover_router  # noqa: E402
+from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
 
 
@@ -75,6 +76,11 @@ def create_app() -> FastAPI:
         allow_private_network=True,
     )
 
+    @app.get("/")
+    async def root() -> RedirectResponse:
+        """루트 접속 시 웹 UI 허브로 이동 (19876 단독 접속 404 방지)."""
+        return RedirectResponse(url="/ui/tools/", status_code=302)
+
     @app.get("/health")
     async def health() -> dict:
         """에이전트 프로세스 생존 확인(가볍게). 툴별 바이너리 점검은 각 툴의 `/readiness`에서 수행합니다."""
@@ -97,6 +103,7 @@ def create_app() -> FastAPI:
 
     # 툴 추가 시: routers 아래에 모듈을 만들고 여기서 include_router 만 하면 됩니다.
     app.include_router(silence_remover_router.router)
+    app.include_router(vocal_remover_router.router)
 
     web_ui = _AGENT_ROOT.parent / "web-ui"
     if web_ui.is_dir():
@@ -150,7 +157,8 @@ def main() -> None:
     frozen = is_frozen()
     if not frozen:
         print(f"ItMatZip Agent v{AGENT_VERSION} — {agent_base_url()}/health")
-        print("웹 UI는 https://silence.itmatzip.com 등 호스팅 주소에서 이용하세요. (에이전트는 로컬 API만 제공)")
+        print(f"웹 UI(로컬): {agent_base_url()}/ui/tools/")
+        print("또는 프로젝트 루트에서 .\\serve-tools.ps1 → http://localhost:29180/")
     # exe·stdio 없음 환경 모두 plain 로그 (DefaultFormatter 가 isatty 호출하지 않음)
     uvicorn.run(
         app,
@@ -167,12 +175,20 @@ def run_pick_file_dialog() -> None:
     pick_main()
 
 
+def run_pick_audio_file_dialog() -> None:
+    from scripts.pick_audio_dialog import main as pick_main
+
+    pick_main()
+
+
 if __name__ == "__main__":
     import multiprocessing
 
     multiprocessing.freeze_support()
     if len(sys.argv) >= 2 and sys.argv[1] == "--pick-file":
         run_pick_file_dialog()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "--pick-audio-file":
+        run_pick_audio_file_dialog()
     elif len(sys.argv) >= 2 and sys.argv[1] == "--check-update":
         from common.auto_update import check_and_apply_update
 

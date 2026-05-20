@@ -53,6 +53,12 @@ def _dispatch() -> None:
         pick_main()
         return
 
+    if args and args[0] == "--pick-audio-file":
+        from scripts.pick_audio_dialog import main as pick_audio_main
+
+        pick_audio_main()
+        return
+
     if args and args[0] == "--check-update":
         from common.auto_update import check_and_apply_update
         import json

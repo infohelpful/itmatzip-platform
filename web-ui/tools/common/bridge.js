@@ -159,6 +159,33 @@ export function formatAgentConnectionError(raw) {
   return msg || "연결할 수 없습니다";
 }
 
+/**
+ * 웹툴 index 헤더의 #connection-status 문구·색상 (끊김 시 상세는 title 툴팁만)
+ * @param {HTMLElement | null} el
+ * @param {boolean} ok
+ * @param {{ agentVersion?: string, latencyMs?: number, error?: string, rawError?: string } | null} [detail]
+ */
+export function applyConnectionStatusDot(el, ok, detail) {
+  if (!el) return;
+  if (ok) {
+    const ver =
+      detail && "agentVersion" in detail && detail.agentVersion
+        ? ` v${detail.agentVersion}`
+        : "";
+    const ms = detail?.latencyMs != null ? ` (${detail.latencyMs}ms)` : "";
+    el.textContent = `에이전트 연결됨${ver}${ms}`;
+    el.style.color = "#10b981";
+    el.title = "";
+    return;
+  }
+  el.textContent = "에이전트 연결 끊김";
+  el.style.color = "#ef4444";
+  const errText = formatAgentConnectionError(
+    detail?.error ?? /** @type {{ rawError?: string }} */ (detail)?.rawError,
+  );
+  el.title = errText || "";
+}
+
 export async function fetchAgent(url, init = {}) {
   const space = targetAddressSpaceForUrl(url);
   if (!space) return fetch(url, init);
@@ -207,10 +234,22 @@ export function primeLocalNetworkAccess() {
  * @param {string} origin
  * @param {AbortSignal | undefined} signal
  */
+/** ItMatZip 에이전트 /health 본문인지 (다른 프로세스의 200 응답 제외) */
+function isItmatzipHealthPayload(data) {
+  return (
+    data != null &&
+    typeof data === "object" &&
+    data.status === "ok" &&
+    typeof data.agent_version === "string" &&
+    data.agent_version.length > 0
+  );
+}
+
 async function pingAgentOrigin(origin, signal) {
   const url = `${origin.replace(/\/+$/, "")}${_healthPath}`;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), _connectTimeoutMs);
+  const healthTimeoutMs = Math.min(2500, _connectTimeoutMs);
+  const t = setTimeout(() => ctrl.abort(), healthTimeoutMs);
   const merged = mergeSignals(signal, ctrl.signal);
   const started = performance.now();
   try {
@@ -224,7 +263,34 @@ async function pingAgentOrigin(origin, signal) {
     if (!res.ok) {
       return { ok: false, status: res.status, latencyMs, error: `HTTP ${res.status}`, origin };
     }
-    return { ok: true, status: res.status, latencyMs, origin };
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      return {
+        ok: false,
+        status: res.status,
+        latencyMs,
+        error: "health 응답 파싱 실패",
+        origin,
+      };
+    }
+    if (!isItmatzipHealthPayload(body)) {
+      return {
+        ok: false,
+        status: res.status,
+        latencyMs,
+        error: "ItMatZip 에이전트가 아닙니다",
+        origin,
+      };
+    }
+    return {
+      ok: true,
+      status: res.status,
+      latencyMs,
+      origin,
+      agentVersion: body.agent_version,
+    };
   } catch (e) {
     const latencyMs = Math.round(performance.now() - started);
     const err = e instanceof Error ? e.message : String(e);
@@ -245,7 +311,13 @@ export async function checkAgentConnection(signal) {
     const detail = await pingAgentOrigin(origin, signal);
     if (detail.ok) {
       _origin = origin.replace(/\/+$/, "");
-      return { ok: true, status: detail.status, latencyMs: detail.latencyMs };
+      return {
+        ok: true,
+        status: detail.status,
+        latencyMs: detail.latencyMs,
+        origin: _origin,
+        agentVersion: detail.agentVersion,
+      };
     }
     lastFail = {
       ok: false,
@@ -295,6 +367,7 @@ export function startConnectionMonitor(opts = {}) {
   let lastOk = /** @type {boolean | null} */ (null);
   let firstTick = true;
   let failStreak = 0;
+  let disconnectDialogShown = false;
   let timeoutId = 0;
 
   function nextDelayMs() {
@@ -311,31 +384,30 @@ export function startConnectionMonitor(opts = {}) {
   async function tick() {
     const detail = await checkAgentConnection();
     if (stopped) return;
+    const prevOk = lastOk;
     if (detail.ok) {
       failStreak = 0;
+      disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
       if (_installDialog?.open) dismissInstallAgentDialog();
     } else {
       failStreak += 1;
     }
-    const changed = lastOk !== detail.ok;
-    if (firstTick || changed) {
-      const wasFirstCheck = lastOk === null;
-      if (firstTick) firstTick = false;
-      const wasConnected = lastOk === true;
-      lastOk = detail.ok;
-      opts.onChange?.(detail.ok, detail);
-      if (!detail.ok) {
-        opts.onDisconnected?.(detail);
-        const showInstall =
-          opts.autoShowInstallDialog &&
-          failStreak >= 2 &&
-          (wasConnected || (wasFirstCheck && failStreak >= 2));
-        if (showInstall && Date.now() >= _installAutoShowSuppressedUntil && !_installDialog?.open) {
-          void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
-            showInstallAgentDialog(dialogOpts),
-          );
-        }
+    const changed = prevOk !== detail.ok;
+    if (firstTick) firstTick = false;
+    lastOk = detail.ok;
+    opts.onChange?.(detail.ok, detail);
+    if (!detail.ok) {
+      if (changed) opts.onDisconnected?.(detail);
+      const shouldAlert =
+        opts.autoShowInstallDialog &&
+        !disconnectDialogShown &&
+        (prevOk === true || failStreak >= 2);
+      if (shouldAlert && Date.now() >= _installAutoShowSuppressedUntil && !_installDialog?.open) {
+        disconnectDialogShown = true;
+        void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
+          showInstallAgentDialog(dialogOpts),
+        );
       }
     }
     scheduleNext();
@@ -912,6 +984,7 @@ const Bridge = {
   setAgentOrigin,
   fetchAgent,
   formatAgentConnectionError,
+  applyConnectionStatusDot,
   primeLocalNetworkAccess,
   checkAgentConnection,
   startConnectionMonitor,

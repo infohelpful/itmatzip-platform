@@ -5,24 +5,27 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI Silence Detector Pro</title>
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=19">
   <link rel="stylesheet" href="mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body>
   <div class="app-container">
-    <aside class="sidebar-ad" id="sidebar-ad-slot" aria-label="광고 영역"></aside>
     <main class="main-content">
       <header class="app-header">
         <div class="logo-area">
           <span class="badge">AI Powered</span>
-          <h1>Silence <span class="accent">Detector</span></h1>
+          <div class="logo-title-row">
+            <h1>Silence <span class="accent">Detector</span></h1>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+          </div>
         </div>
         <div class="header-status-col">
           <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
           <div class="bin-readiness" id="bin-readiness">무음 제거 · FFmpeg 준비 대기</div>
         </div>
       </header>
+      <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
       <section class="drop-zone">
         <div class="path-input-group">
           <label for="video-path">영상 파일 경로</label>
@@ -33,7 +36,6 @@
           </div>
         </div>
       </section>
-      <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
       <div class="media-workspace" id="media-workspace">
         <section class="options-layout" id="options-panel">
           <div class="options-main">
@@ -190,7 +192,7 @@
       <p class="mobile-only-desc">Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
     </div>
   </div>
-  <script src="mobile-only.js?v=1"></script>
-  <script type="module" src="script.js?v=lna4"></script>
+  <script src="mobile-only.js?v=2"></script>
+  <script type="module" src="script.js?v=lna7"></script>
 </body>
 </html>

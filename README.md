@@ -226,6 +226,36 @@ GitHub **manifest JSON** 기반.
 
 상세: `agent/AGENT_AUTO_UPDATE.md`
 
+### Vocal Remover / Demucs 설치
+
+에이전트가 Demucs·diffq 설치 시 **PC 환경에 맞는 wheel 번들**을 자동 선택합니다.
+
+| 환경 | Release 자산 | 설치 방식 |
+|------|--------------|-----------|
+| CPU 전용 (NVIDIA GPU 없음) | `wheel.zip` 1개 | 다운로드 → 압축 해제 → `pip install --find-links … demucs diffq` |
+| GPU 사용 가능 | `wheels_gpu.zip.001` + `wheels_gpu.zip.002` | **두 파일 모두** 다운로드 → 순서대로 이어붙여 `wheels_gpu.zip` 생성 → 압축 해제 → 동일 pip 설치 |
+
+- v1.0.4 URL 예:
+  - CPU: `https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.4/wheel.zip`
+  - GPU 1/2: `…/wheels_gpu.zip.001`, `…/wheels_gpu.zip.002`
+- 자동 선택: `nvidia-smi`로 GPU가 보이면 GPU 번들, 아니면 CPU 번들.
+- 강제 지정: 환경 변수 `ITMATZIP_WHEEL_VARIANT=cpu` 또는 `gpu` (기본 `auto`).
+
+`wheel.zip`(CPU)에는 예를 들어 다음이 포함됩니다:
+  - `lameenc-1.8.2-cp314-cp314-win_amd64.whl`
+  - `numpy-2.4.6-cp314-cp314-win_amd64.whl`
+  - `torch-2.12.0-cp314-cp314-win_amd64.whl`
+  - `torchaudio-2.11.0-cp314-cp314-win_amd64.whl`
+  - `torchcodec-0.12.0-cp314-cp314-win_amd64.whl`
+  - `demucs-4.0.1.tar.gz`
+  - `diffq-0.2.4.tar.gz`
+- GPU 번들(`wheels_gpu`)에는 CUDA 빌드 torch 등이 포함됩니다 (용량이 커 GitHub 2GB 제한으로 2분할).
+- 설치 흐름(에이전트 자동):
+  1. 번들 선택 (CPU / GPU 분할)
+  2. 다운로드 (GPU는 `.001`, `.002` 병합)
+  3. 압축 해제
+  4. `pip install --upgrade --find-links <해제된_디렉터리> --prefer-binary demucs diffq`
+
 ### 환경 변수
 
 | 변수 | 설명 |
@@ -234,6 +264,11 @@ GitHub **manifest JSON** 기반.
 | `ITMATZIP_DISABLE_AUTO_UPDATE=1` | 자동 업데이트 끔 |
 | `ITMATZIP_UPDATE_INITIAL_DELAY_SEC` | 첫 확인 지연 (기본 45) |
 | `ITMATZIP_UPDATE_CHECK_INTERVAL_SEC` | 주기 (기본 21600) |
+| `ITMATZIP_WHEEL_VARIANT` | Demucs wheel: `auto` / `cpu` / `gpu` |
+| `ITMATZIP_WHEEL_RELEASE_BASE` | wheel Release 베이스 URL (v1.0.4 등) |
+| `ITMATZIP_WHEEL_CPU_URL` | CPU `wheel.zip` 전체 URL |
+| `ITMATZIP_WHEEL_GPU_PART1_URL` | GPU 분할 1/2 URL |
+| `ITMATZIP_WHEEL_GPU_PART2_URL` | GPU 분할 2/2 URL |
 
 ---
 
