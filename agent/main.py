@@ -35,8 +35,25 @@ from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
 
 
+def _bootstrap_ffmpeg_background() -> None:
+    """서비스 기동 시 ProgramData\\itmatzip-agent\\bin 에 FFmpeg가 없으면 백그라운드로 준비합니다."""
+    import threading
+
+    def _run() -> None:
+        try:
+            from common.bin_manager import ensure_ffmpeg, get_bin_root
+
+            ensure_ffmpeg(download_timeout_sec=300.0)
+            print(f"FFmpeg ready under {get_bin_root()}", flush=True)
+        except Exception as exc:
+            print(f"FFmpeg bootstrap failed: {exc}", flush=True)
+
+    threading.Thread(target=_run, daemon=True, name="ffmpeg-bootstrap").start()
+
+
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
+    _bootstrap_ffmpeg_background()
     silence_remover_engine.schedule_disk_cache_purge()
     schedule_background_update_checks()
     yield

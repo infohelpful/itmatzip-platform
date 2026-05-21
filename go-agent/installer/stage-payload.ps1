@@ -4,7 +4,7 @@ param(
     [switch]$SkipAgent,
     [switch]$UseEmbeddable,
     [string]$Python = "python",
-    [string]$EmbeddableVersion = "3.11.9"
+    [string]$EmbeddableVersion = "3.14.3"
 )
 
 $ErrorActionPreference = "Stop"
@@ -62,10 +62,77 @@ function Install-EmbeddableEngine {
     }
 
     Write-Step "Bootstrapping pip in embeddable Python"
+    $env:PYTHONNOUSERSITE = "1"
     & $enginePython $getPip --no-warn-script-location
 
     Write-Step "Installing engine requirements into embeddable Python"
     & $enginePython -m pip install -r $RequirementsFile
+    Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
+}
+
+function Resolve-BuildPython {
+    param([string]$EmbeddableVersion)
+    $candidates = @()
+    if ($env:ITMATZIP_BUILD_PYTHON) {
+        $candidates += $env:ITMATZIP_BUILD_PYTHON
+    }
+    $majorMinor = ($EmbeddableVersion -split '\.')[0..1] -join ''
+    $candidates += @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python$majorMinor\python.exe"),
+        (Join-Path $env:ProgramFiles "Python$majorMinor\python.exe")
+    )
+    foreach ($path in $candidates) {
+        if ($path -and (Test-Path $path)) {
+            return $path
+        }
+    }
+    return $null
+}
+
+function Build-DiffqVendorWheel {
+    param(
+        [string]$EngineDir,
+        [string]$EmbeddableVersion
+    )
+    $vendorDir = Join-Path $EngineDir "vendor-wheels"
+    New-Item -ItemType Directory -Force -Path $vendorDir | Out-Null
+    $existing = Get-ChildItem $vendorDir -Filter "diffq-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($existing) {
+        Write-Host "vendor diffq wheel already present: $($existing.Name)"
+        return
+    }
+
+    $buildPython = Resolve-BuildPython -EmbeddableVersion $EmbeddableVersion
+    if (-not $buildPython) {
+        throw @"
+MSI 빌드에 diffq cp314 wheel 생성용 **전체 Python**이 필요합니다 (embeddable에는 Python.h 없음).
+  - Python $EmbeddableVersion 설치 후 다시 빌드하거나
+  - `$env:ITMATZIP_BUILD_PYTHON = 'C:\Path\To\python.exe'` 지정
+"@
+    }
+
+    $wheelZip = Join-Path $CacheDir "v1.0.4-wheel.zip"
+    if (-not (Test-Path $wheelZip)) {
+        Write-Step "Downloading v1.0.4 wheel.zip for diffq sdist"
+        Invoke-WebRequest -Uri "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.4/wheel.zip" -OutFile $wheelZip
+    }
+    $extractDir = Join-Path $CacheDir "wheel-zip-extract"
+    if (-not (Test-Path (Join-Path $extractDir "diffq-0.2.4.tar.gz"))) {
+        if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+        Expand-Archive $wheelZip $extractDir -Force
+    }
+    $diffqTar = Get-ChildItem $extractDir -Recurse -Filter "diffq-*.tar.gz" | Select-Object -First 1
+    if (-not $diffqTar) {
+        throw "diffq tar.gz not found inside v1.0.4 wheel.zip"
+    }
+
+    Write-Step "Building diffq vendor wheel with $buildPython (MSI runtime용 cp314 win_amd64)"
+    $env:PYTHONNOUSERSITE = "1"
+    & $buildPython -m pip wheel $diffqTar.FullName -w $vendorDir --no-deps
+    Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
+    if (-not (Get-ChildItem $vendorDir -Filter "diffq-*.whl" -ErrorAction SilentlyContinue)) {
+        throw "diffq vendor wheel build failed"
+    }
 }
 
 function Copy-AgentSource {
@@ -144,10 +211,13 @@ if ($SkipEngine) {
     Set-Content -Path (Join-Path $EngineDir ".keep") -Value "engine not staged"
 } elseif ($UseEmbeddable) {
     Install-EmbeddableEngine -TargetDir $EngineDir -Version $EmbeddableVersion -RequirementsFile $WorkerReq
+    Build-DiffqVendorWheel -EngineDir $EngineDir -EmbeddableVersion $EmbeddableVersion
     $enginePython = Join-Path $EngineDir "python.exe"
     if (Test-Path $AgentReq) {
         Write-Step "Installing FastAPI sidecar requirements into embeddable engine"
+        $env:PYTHONNOUSERSITE = "1"
         & $enginePython -m pip install -r $AgentReq
+        Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
     }
 } else {    Write-Step "Creating engine venv at $EngineDir"
     if (Test-Path $EngineDir) {

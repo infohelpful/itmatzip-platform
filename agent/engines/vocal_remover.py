@@ -625,6 +625,20 @@ def _run_with_heartbeat(
         thread.join(timeout=1.0)
 
 
+def _runtime_abi_tag() -> str:
+    """현재 에이전트 Python(예: 3.14 embeddable → cp314)."""
+    return f"cp{sys.version_info.major}{sys.version_info.minor}"
+
+
+def _wheel_filename_matches_runtime(filename: str) -> bool:
+    """다른 Python용 wheel(cp314 등)을 pip에 넘기지 않도록 필터."""
+    lowered = filename.lower()
+    if sys.platform == "win32" and "win_amd64" not in lowered:
+        return False
+    abi = _runtime_abi_tag().lower()
+    return abi in lowered
+
+
 TORCH_STACK_PACKAGES = ("torch", "torchaudio", "torchcodec")
 # 번들 zip에 없고 PyPI에서만 받는 torch 런타임 의존성 (--no-index 시 filelock 오류 방지)
 TORCH_PIP_RUNTIME_DEPS = (
@@ -650,15 +664,17 @@ def _list_torch_wheels(wheel_dir: Path) -> list[str]:
 def _package_wheel_candidates(wheel_dir: Path, pkg: str) -> list[Path]:
     """torch / torchaudio / torchcodec 각각 올바른 wheel만 선택 (torch*가 audio·codec까지 잡지 않게)."""
     if pkg == "torch":
-        return sorted(
+        raw = [
             p
             for p in wheel_dir.glob("*.whl")
             if p.is_file() and p.name.lower().startswith("torch-")
-        )
-    prefix = f"{pkg}-"
-    return sorted(
-        p for p in wheel_dir.glob("*.whl") if p.is_file() and p.name.lower().startswith(prefix)
-    )
+        ]
+    else:
+        prefix = f"{pkg}-"
+        raw = [
+            p for p in wheel_dir.glob("*.whl") if p.is_file() and p.name.lower().startswith(prefix)
+        ]
+    return sorted(p for p in raw if _wheel_filename_matches_runtime(p.name))
 
 
 def _wheel_dir_has_cuda_torch(wheel_dir: Path) -> bool:
@@ -673,6 +689,16 @@ def _wheel_dir_has_cpu_torch(wheel_dir: Path) -> bool:
         if _is_cpu_torch_wheel_filename(path.name):
             return True
     return False
+
+
+def _prune_incompatible_wheels(wheel_dir: Path) -> list[str]:
+    """pip이 다른 Python용 wheel을 고르지 않도록 비호환 파일을 제거하고 이름 목록을 반환."""
+    removed: list[str] = []
+    for whl in list(wheel_dir.glob("*.whl")):
+        if not _wheel_filename_matches_runtime(whl.name):
+            removed.append(whl.name)
+            whl.unlink(missing_ok=True)  # type: ignore[arg-type]
+    return removed
 
 
 def _wheel_name_is_cuda_flavor(name: str) -> bool:
@@ -700,6 +726,9 @@ def _collect_torch_stack_wheel_paths(wheel_dir: Path, *, want_cuda: bool) -> lis
                 matched = candidate
                 break
         if matched is None and len(candidates) == 1:
+            matched = candidates[0]
+        elif matched is None and len(candidates) > 1:
+            # 동일 플래버 중 첫 호환 wheel (이미 ABI 필터됨)
             matched = candidates[0]
         elif (
             matched is None
@@ -808,25 +837,114 @@ def _verify_torch_stack_subprocess(
     return ver, cuda_ok
 
 
+def _engine_vendor_wheel_dir() -> Path:
+    return Path(sys.executable).resolve().parent / "vendor-wheels"
+
+
+def _prefetched_diffq_wheel() -> Path | None:
+    vendor = _engine_vendor_wheel_dir()
+    if not vendor.is_dir():
+        return None
+    for wheel in sorted(vendor.glob("diffq-*.whl"), reverse=True):
+        if wheel.is_file() and _wheel_filename_matches_runtime(wheel.name):
+            return wheel
+    return None
+
+
+def _pip_find_links_args(wheel_dir: Path) -> list[str]:
+    args: list[str] = []
+    vendor = _engine_vendor_wheel_dir()
+    if vendor.is_dir():
+        args.extend(["--find-links", str(vendor)])
+    args.extend(["--find-links", str(wheel_dir)])
+    return args
+
+
+def _bundle_sdist_artifacts(wheel_dir: Path) -> tuple[Path, Path]:
+    """v1.0.4 wheel.zip / wheels_gpu 에 포함된 demucs·diffq tar.gz (PyPI 최신 sdist 대신)."""
+    demucs = next((p for p in sorted(wheel_dir.glob("demucs-*.tar.gz")) if p.is_file()), None)
+    diffq = next((p for p in sorted(wheel_dir.glob("diffq-*.tar.gz")) if p.is_file()), None)
+    if demucs is None or diffq is None:
+        found = ", ".join(p.name for p in wheel_dir.glob("*.tar.gz")) or "(tar.gz 없음)"
+        raise RuntimeError(
+            f"wheel 번들에 demucs/diffq tar.gz가 없습니다 (발견: {found}). "
+            "GitHub v1.0.4 wheel.zip 또는 wheels_gpu를 다시 받아주세요."
+        )
+    return demucs, diffq
+
+
+def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
+    """GitHub wheel 번들의 demucs/diffq는 tar.gz(sdist) — engine site-packages에 Cython·numpy 선설치."""
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
+    numpy_wheels = sorted(
+        p
+        for p in wheel_dir.glob("numpy-*.whl")
+        if p.is_file() and _wheel_filename_matches_runtime(p.name)
+    )
+    if numpy_wheels:
+        cmd.append(str(numpy_wheels[-1]))
+    else:
+        cmd.append("numpy")
+    cmd.extend(["Cython>=3.0", "setuptools>=69", "wheel"])
+    proc = run_hidden(cmd, capture_output=True, text=True, timeout=600)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "demucs/diffq 빌드 준비(Cython·numpy) 실패: "
+            + (proc.stderr or proc.stdout or "unknown")
+        )
+    # 빌드에 Cython import 가능한지 확인 (서비스 계정 user-site 꼬임 방지)
+    verify = run_hidden(
+        [sys.executable, "-c", "import Cython; import numpy"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if verify.returncode != 0:
+        raise RuntimeError(
+            "Cython/numpy 설치 후 import 실패 (engine Python 경로 확인): "
+            + (verify.stderr or verify.stdout or "unknown")
+        )
+
+
+def _pip_install_demucs_diffq_from_bundle(
+    wheel_dir: Path,
+    *,
+    force_reinstall: bool = False,
+) -> subprocess.CompletedProcess:
+    """번들 tar.gz를 직접 설치 (패키지 이름만 지정하면 PyPI sdist로 새 빌드가 나가 Cython 오류 재발)."""
+    _pip_install_demucs_diffq_build_prereqs(wheel_dir)
+    demucs_tgz, diffq_tgz = _bundle_sdist_artifacts(wheel_dir)
+    diffq_pkg = _prefetched_diffq_wheel()
+    if diffq_pkg is None:
+        diffq_pkg = diffq_tgz
+    lameenc = sorted(
+        p
+        for p in wheel_dir.glob("lameenc-*.whl")
+        if p.is_file() and _wheel_filename_matches_runtime(p.name)
+    )
+    cmd = [sys.executable, "-m", "pip", "install"]
+    if force_reinstall:
+        cmd.append("--force-reinstall")
+    cmd.extend(["--upgrade", *_pip_find_links_args(wheel_dir), "--prefer-binary", "--no-build-isolation"])
+    if lameenc:
+        cmd.append(str(lameenc[-1]))
+    cmd.extend([str(diffq_pkg), str(demucs_tgz)])
+    return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
+
+
 def _pip_install_other_packages_from_wheel_dir(
     wheel_dir: Path,
     packages: list[str],
     *,
     force_reinstall: bool = False,
 ) -> subprocess.CompletedProcess:
-    """demucs·diffq 등 — 번들 우선, 부족한 의존성은 PyPI 허용."""
+    """demucs·diffq — 번들 tar.gz 직접 설치; 그 외 패키지는 find-links + PyPI."""
+    if set(packages) <= {"demucs", "diffq"} and packages:
+        return _pip_install_demucs_diffq_from_bundle(wheel_dir, force_reinstall=force_reinstall)
     cmd = [sys.executable, "-m", "pip", "install"]
     if force_reinstall:
         cmd.append("--force-reinstall")
-    cmd.extend(
-        [
-            "--upgrade",
-            "--find-links",
-            str(wheel_dir),
-            "--prefer-binary",
-            *packages,
-        ]
-    )
+    cmd.extend(["--upgrade", *_pip_find_links_args(wheel_dir), "--prefer-binary", *packages])
     return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
 
 
@@ -913,6 +1031,20 @@ def _install_wheels_bundle(
         archive_path = _fetch_wheel_archive(tmpdir_path, bundle, on_progress=on_progress)
         _emit_prepare_progress(on_progress, 58.0, "압축 해제", "wheel 폴더에 파일을 풉니다")
         _extract_wheel_archive(archive_path, wheel_dir)
+        pruned = _prune_incompatible_wheels(wheel_dir)
+        if pruned:
+            _emit_prepare_progress(
+                on_progress,
+                59.0,
+                "wheel 정리",
+                f"Python {_runtime_abi_tag()} 미호환 wheel 제외: {', '.join(pruned[:3])}",
+            )
+        if bundle == "gpu" and not _wheel_dir_has_cuda_torch(wheel_dir):
+            found = ", ".join(_list_torch_wheels(wheel_dir)[:6]) or "(없음)"
+            raise RuntimeError(
+                f"GPU wheel 번들에 Python {_runtime_abi_tag()}용 CUDA torch가 없습니다. "
+                f"남은 torch wheel: {found}"
+            )
 
         pip_detail = (
             "torch, torchaudio, torchcodec, demucs, diffq"
@@ -948,7 +1080,7 @@ def _install_wheels_bundle(
             raise RuntimeError("pip wheel 설치가 비정상 종료되었습니다.")
         if proc.returncode != 0:
             raise RuntimeError(
-                "로컬 wheel 설치에 실패했습니다. pip 출력: "
+                "번들 wheel 설치에 실패했습니다. pip 출력: "
                 + (proc.stderr or proc.stdout or "unknown")
             )
 
@@ -1095,9 +1227,10 @@ def install_dependencies(on_progress: PrepareProgressCallback | None = None) -> 
     try:
         _install_wheels_bundle(bundle, on_progress=on_progress)
     except Exception as exc:
+        err_text = str(exc)
         label = "wheels_gpu(분할)" if bundle == "gpu" else "wheel.zip"
         raise RuntimeError(
-            f"Demucs 또는 diffq 설치에 실패했습니다. ({label} 다운로드/설치 중 오류: {exc})"
+            f"Demucs 또는 diffq 설치에 실패했습니다. ({label} · GitHub v1.0.4 wheel 다운로드/설치: {exc})"
         ) from exc
 
     if not is_demucs_installed():

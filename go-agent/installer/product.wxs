@@ -33,19 +33,29 @@
       </Directory>
       <Directory Id="CommonAppDataFolder">
         <Directory Id="DATAFOLDER" Name="itmatzip-agent">
+          <Directory Id="BINFOLDER" Name="bin" />
           <Directory Id="LOGSFOLDER" Name="logs" />
         </Directory>
       </Directory>
     </Directory>
 
-    <ComponentGroup Id="DataFolderComponents" Directory="DATAFOLDER">
-      <Component Id="DataFolderPermissions" Guid="B8E4F2A1-3C5D-4E6F-9012-3456789ABCDE">
-        <CreateFolder Directory="LOGSFOLDER" />
+    <ComponentGroup Id="DataFolderComponents">
+      <Component Id="DataFolderPermissions" Guid="B8E4F2A1-3C5D-4E6F-9012-3456789ABCDE" Directory="LOGSFOLDER">
+        <CreateFolder />
         <RegistryValue Root="HKLM"
                        Key="Software\ItMatZip\Agent"
                        Name="DataRoot"
                        Type="string"
                        Value="[DATAFOLDER]"
+                       KeyPath="yes" />
+      </Component>
+      <Component Id="BinFolder" Guid="D4E5F6A7-B8C9-0123-DEF0-456789012345" Directory="BINFOLDER">
+        <CreateFolder />
+        <RegistryValue Root="HKLM"
+                       Key="Software\ItMatZip\Agent"
+                       Name="BinDir"
+                       Type="string"
+                       Value="[BINFOLDER]"
                        KeyPath="yes" />
       </Component>
     </ComponentGroup>

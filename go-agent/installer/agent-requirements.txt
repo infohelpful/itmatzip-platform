@@ -5,3 +5,5 @@ pydantic>=2.0.0
 requests>=2.31.0
 python-multipart>=0.0.9
 pillow>=10.0.0
+# vocal prepare: wheel.zip 의 demucs/diffq tar.gz sdist 빌드
+Cython>=3.0

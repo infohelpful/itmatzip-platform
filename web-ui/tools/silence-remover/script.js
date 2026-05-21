@@ -2296,7 +2296,7 @@ document.addEventListener("DOMContentLoaded", () => {
       binEl.textContent = "FFmpeg · ffprobe가 아직 준비되지 않았습니다.";
       await showInstallAgentDialog({
         title: "FFmpeg 구성 오류",
-        bodyHtml: `<p>에이전트는 연결됐지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code>가 설치 폴더에 없습니다. (Windows PATH와 무관합니다.)</p><p>설치 위치: <code>${escHtml(binDir)}</code></p><p>페이지를 새로고침해 다시 설치를 시도하거나, 에이전트를 재시작해 주세요. 회사망이면 <code>ITMATZIP_FFMPEG_URL</code> 설정이 필요할 수 있습니다.</p>`,
+        bodyHtml: `<p>에이전트는 연결됐지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code>가 <strong>에이전트 전용 폴더</strong>에 없습니다. Windows 시스템 PATH와는 무관합니다.</p><p>필요 경로: <code>${escHtml(binDir)}</code></p><p>최신 MSI(1.0.9+)는 설치 시 위 폴더에 FFmpeg를 넣습니다. 구버전이면 페이지 새로고침(자동 다운로드) 또는 에이전트 재설치를 시도하세요.</p>`,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

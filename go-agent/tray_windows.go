@@ -255,7 +255,7 @@ func trayMenuEventLoop(
 		case <-mStopSvc.ClickedCh:
 			if err := stopWindowsService(); err != nil {
 				log.Printf("tray stop service: %v", err)
-				updateTrayTooltip(port, "서비스 중지 실패")
+				updateTrayTooltip(port, "서비스 중지 실패 · "+shortTrayErr(err))
 			} else {
 				updateTrayTooltip(port, "서비스 중지됨")
 			}
@@ -285,7 +285,7 @@ func refreshTrayServiceMenuItems() {
 		stopItem.Enable()
 		startItem.Enable()
 		startItem.SetTitle("서비스 재시작")
-		startItem.SetTooltip("에이전트 워커를 다시 올립니다 (Windows 서비스는 유지)")
+		startItem.SetTooltip("Windows 서비스를 중지한 뒤 다시 시작합니다")
 	} else {
 		stopItem.Disable()
 		startItem.Enable()
@@ -294,26 +294,46 @@ func refreshTrayServiceMenuItems() {
 	}
 }
 
+func shortTrayErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	if len(s) > 72 {
+		return s[:72] + "…"
+	}
+	return s
+}
+
 func trayRestartOrStartService(port int) {
 	if isWindowsServiceRunning() {
-		updateTrayTooltip(port, "에이전트 재시작 중…")
-		if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
-			log.Printf("tray reload via HTTP: %v", err)
-			updateTrayTooltip(port, "재시작 실패 · 로그 확인")
-			return
+		updateTrayTooltip(port, "Windows 서비스 재시작 중…")
+		if err := restartWindowsServiceAndWait(); err != nil {
+			log.Printf("tray SCM restart: %v", err)
+			if isServiceAccessDenied(err) {
+				updateTrayTooltip(port, "SCM 재시작 거부 · HTTP reload 시도…")
+				if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
+					log.Printf("tray reload via HTTP: %v", err)
+					updateTrayTooltip(port, "재시작 실패 · "+shortTrayErr(err))
+					return
+				}
+			} else {
+				updateTrayTooltip(port, "재시작 실패 · "+shortTrayErr(err))
+				return
+			}
 		}
-		if waitForAgentHealth(port, 60*time.Second) {
+		if waitForAgentHealth(port, 90*time.Second) {
 			updateTrayTooltipFromState(port)
 			return
 		}
-		updateTrayTooltip(port, "재시작됨 (health 대기 중)")
+		updateTrayTooltip(port, "서비스 재시작됨 (health 대기 중)")
 		return
 	}
 
 	updateTrayTooltip(port, "서비스 시작 중…")
 	if err := startWindowsService(); err != nil {
 		log.Printf("tray start service: %v", err)
-		updateTrayTooltip(port, "서비스 시작 실패 (관리자 권한 필요할 수 있음)")
+		updateTrayTooltip(port, "서비스 시작 실패 · "+shortTrayErr(err))
 		return
 	}
 	if waitForAgentHealth(port, 60*time.Second) {

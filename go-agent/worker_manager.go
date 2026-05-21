@@ -111,6 +111,7 @@ func (wm *workerManager) startPythonWorker(ctx context.Context) error {
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
 		fmt.Sprintf("PYTHONPATH=%s", workerDir),
+		"PYTHONNOUSERSITE=1",
 	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -158,6 +159,7 @@ func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
 		fmt.Sprintf("PYTHONPATH=%s", workerDir),
+		"PYTHONNOUSERSITE=1",
 	)
 	if agentDir, ok := resolveAgentDir(); ok {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("ITMATZIP_AGENT_DIR=%s", agentDir))

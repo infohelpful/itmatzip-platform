@@ -14,7 +14,21 @@ def no_window_creationflags(extra: int = 0) -> int:
     return flags
 
 
+def agent_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """MSI embeddable + Windows 서비스: user site-packages 분리 (Cython/torch 경로 꼬임 방지)."""
+    env = os.environ.copy()
+    env["PYTHONNOUSERSITE"] = "1"
+    env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    if extra:
+        env.update(extra)
+    return env
+
+
 def run_hidden(*args: Any, creationflags: int = 0, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
     if os.name == "nt":
         kwargs["creationflags"] = no_window_creationflags(creationflags)
+    if "env" in kwargs:
+        kwargs["env"] = agent_subprocess_env(kwargs["env"])
+    else:
+        kwargs["env"] = agent_subprocess_env()
     return subprocess.run(*args, **kwargs)

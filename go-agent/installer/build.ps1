@@ -59,7 +59,6 @@ Rebuild with: powershell -File installer\build.ps1 -UseEmbeddable
     if (-not (Test-Path $enginePython)) {
         throw "Staging missing engine\python.exe at $enginePython — grpc/fastapi will not start."
     }
-
     if (-not (Import-WixPath)) {
         Write-Warning "WiX Toolset not found in PATH or standard install locations."
         Write-Warning "Install with: winget install WiXToolset.WiXToolset"
