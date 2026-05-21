@@ -2271,7 +2271,7 @@ document.addEventListener("DOMContentLoaded", () => {
         binEl.textContent =
           "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 1~3분 걸릴 수 있음)";
         const ctrl = new AbortController();
-        const dlTimer = setTimeout(() => ctrl.abort(), 180_000);
+        const dlTimer = setTimeout(() => ctrl.abort(), 300_000);
         try {
           data = await requestAgent({
             method: "POST",

@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"]
 
 def _ensure_silence_remover_environment() -> None:
     """무음 탐지 툴이 필요로 하는 로컬 바이너리만 준비합니다."""
-    ensure_ffmpeg()
+    ensure_ffmpeg(download_timeout_sec=300.0)
 
 
 SilenceRemoverReady = Annotated[None, Depends(_ensure_silence_remover_environment)]

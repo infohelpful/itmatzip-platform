@@ -77,6 +77,47 @@ def _run_pick_argv(argv: list[str], *, timeout: float = 600) -> subprocess.Compl
     )
 
 
+def _native_windows_pick_command(*, audio_only: bool) -> list[str]:
+    def _ps_quote(text: str) -> str:
+        return "'" + text.replace("'", "''") + "'"
+
+    title = "ItMatZip — 오디오 파일 선택" if audio_only else "ItMatZip — 미디어 파일 선택"
+    if audio_only:
+        filt = (
+            "오디오 파일 (*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.opus)|"
+            "*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.opus|모든 파일 (*.*)|*.*"
+        )
+    else:
+        filt = (
+            "동영상 파일 (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v)|"
+            "*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v|"
+            "오디오/동영상 (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4a;*.wav;*.mp3;*.aac;*.flac)|"
+            "*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4a;*.wav;*.mp3;*.aac;*.flac|"
+            "모든 파일 (*.*)|*.*"
+        )
+    ps_script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$out=''; "
+        "for($i=0;$i -lt $args.Length;$i++){"
+        "if($args[$i] -eq '--output' -and $i+1 -lt $args.Length){$out=$args[$i+1]}}; "
+        "$dlg=New-Object System.Windows.Forms.OpenFileDialog; "
+        "$dlg.Title="
+        + _ps_quote(title)
+        + "; "
+        "$dlg.Filter="
+        + _ps_quote(filt)
+        + "; "
+        "$dlg.CheckFileExists=$true; "
+        "$dlg.Multiselect=$false; "
+        "$null=$dlg.ShowDialog(); "
+        "$path=''; "
+        "if($dlg.FileName){$path=$dlg.FileName}; "
+        "$payload=@{path=$path} | ConvertTo-Json -Compress; "
+        "if($out){Set-Content -LiteralPath $out -Value $payload -Encoding UTF8}else{Write-Output $payload}"
+    )
+    return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_script]
+
+
 def _parse_pick_stdout(proc: subprocess.CompletedProcess[str]) -> dict[str, object]:
     if proc.returncode not in (0, None) and not (proc.stdout or "").strip():
         raise RuntimeError(
@@ -97,15 +138,23 @@ def _parse_pick_stdout(proc: subprocess.CompletedProcess[str]) -> dict[str, obje
     return payload
 
 
+def _run_native_windows_pick_dialog(*, audio_only: bool, timeout: float = 600) -> dict[str, object]:
+    proc = _run_pick_argv(_native_windows_pick_command(audio_only=audio_only), timeout=timeout)
+    return _parse_pick_stdout(proc)
+
+
 def run_media_pick_dialog(*, timeout: float = 600) -> str:
     if not pick_script_path().is_file() and not _behind_go_proxy():
         raise RuntimeError("파일 선택 스크립트를 찾을 수 없습니다.")
     proc = _run_pick_argv(pick_file_command(), timeout=timeout)
     payload = _parse_pick_stdout(proc)
     if payload.get("error") == "tkinter_unavailable":
-        raise RuntimeError(
-            "tkinter를 사용할 수 없습니다. Python 설치에 Tk가 포함되어 있는지 확인하세요."
-        )
+        try:
+            payload = _run_native_windows_pick_dialog(audio_only=False, timeout=timeout)
+        except Exception as exc:
+            raise RuntimeError(
+                "tkinter를 사용할 수 없고 Windows 네이티브 파일 대화상자 실행도 실패했습니다."
+            ) from exc
     return str(payload.get("path") or "").strip()
 
 
@@ -115,7 +164,10 @@ def run_audio_pick_dialog(*, timeout: float = 600) -> str:
     proc = _run_pick_argv(pick_audio_command(), timeout=timeout)
     payload = _parse_pick_stdout(proc)
     if payload.get("error") == "tkinter_unavailable":
-        raise RuntimeError(
-            "tkinter를 사용할 수 없습니다. Python 설치에 Tk가 포함되어 있는지 확인하세요."
-        )
+        try:
+            payload = _run_native_windows_pick_dialog(audio_only=True, timeout=timeout)
+        except Exception as exc:
+            raise RuntimeError(
+                "tkinter를 사용할 수 없고 Windows 네이티브 파일 대화상자 실행도 실패했습니다."
+            ) from exc
     return str(payload.get("path") or "").strip()
