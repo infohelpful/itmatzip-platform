@@ -51,11 +51,25 @@ class PROCESS_INFORMATION(Structure):
 kernel32 = ctypes.windll.kernel32
 wtsapi32 = ctypes.windll.wtsapi32
 userenv = ctypes.windll.userenv
+advapi32 = ctypes.windll.advapi32
 
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
-INFINITE = 0xFFFFFFFF
 STARTF_USESHOWWINDOW = 0x00000001
 SW_SHOW = 5
+WAIT_OBJECT_0 = 0
+WAIT_TIMEOUT = 258
+TOKEN_ASSIGN_PRIMARY = 0x0001
+TOKEN_DUPLICATE = 0x0002
+TOKEN_QUERY = 0x0008
+TOKEN_ADJUST_DEFAULT = 0x0080
+TOKEN_ADJUST_SESSIONID = 0x0100
+PROCESS_TOKEN_ACCESS = (
+    TOKEN_ASSIGN_PRIMARY
+    | TOKEN_DUPLICATE
+    | TOKEN_QUERY
+    | TOKEN_ADJUST_DEFAULT
+    | TOKEN_ADJUST_SESSIONID
+)
 
 
 def _close_handle(handle: int) -> None:
@@ -83,15 +97,17 @@ def run_as_active_console_user(
     if not argv:
         raise ValueError("argv is empty")
 
-    session_id = active_console_session_id()
-    if session_id is None:
+    def _fallback() -> int:
         proc = subprocess.run(argv, cwd=cwd, timeout=timeout)
         return int(proc.returncode or 0)
 
+    session_id = active_console_session_id()
+    if session_id is None:
+        return _fallback()
+
     user_token = HANDLE()
     if not wtsapi32.WTSQueryUserToken(session_id, byref(user_token)):
-        proc = subprocess.run(argv, cwd=cwd, timeout=timeout)
-        return int(proc.returncode or 0)
+        return _fallback()
 
     duplicated = HANDLE()
     env_block = c_void_p()
@@ -106,23 +122,22 @@ def run_as_active_console_user(
     cmdline_buf = ctypes.create_unicode_buffer(cmdline)
 
     try:
-        if not kernel32.DuplicateTokenEx(
+        if not advapi32.DuplicateTokenEx(
             user_token,
-            0x10000000,  # MAXIMUM_ALLOWED
+            PROCESS_TOKEN_ACCESS,
             None,
-            0,  # SecurityImpersonation
+            2,  # SecurityImpersonation
             1,  # TokenPrimary
             byref(duplicated),
         ):
-            proc = subprocess.run(argv, cwd=cwd, timeout=timeout)
-            return int(proc.returncode or 0)
+            return _fallback()
 
         if not userenv.CreateEnvironmentBlock(byref(env_block), duplicated, False):
             env_block = None
 
         creation_flags = CREATE_UNICODE_ENVIRONMENT if env_block else 0
-
-        ok = kernel32.CreateProcessW(
+        ok = advapi32.CreateProcessAsUserW(
+            duplicated,
             None,
             cmdline_buf,
             None,
@@ -135,13 +150,20 @@ def run_as_active_console_user(
             byref(pi),
         )
         if not ok:
-            proc = subprocess.run(argv, cwd=cwd, timeout=timeout)
-            return int(proc.returncode or 0)
+            return _fallback()
 
         wait_ms = int(max(timeout, 1) * 1000)
-        kernel32.WaitForSingleObject(pi.hProcess, wait_ms)
+        wait_result = kernel32.WaitForSingleObject(pi.hProcess, wait_ms)
+        if wait_result == WAIT_TIMEOUT:
+            _close_handle(pi.hThread)
+            _close_handle(pi.hProcess)
+            raise subprocess.TimeoutExpired(argv, timeout)
+        if wait_result != WAIT_OBJECT_0:
+            return _fallback()
+
         exit_code = DWORD(0)
-        kernel32.GetExitCodeProcess(pi.hProcess, byref(exit_code))
+        if not kernel32.GetExitCodeProcess(pi.hProcess, byref(exit_code)):
+            return _fallback()
         return int(exit_code.value)
     finally:
         if env_block:

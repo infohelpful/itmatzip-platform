@@ -7,6 +7,10 @@ import sys
 from pathlib import Path
 
 
+def _behind_go_proxy() -> bool:
+    return os.environ.get("ITMATZIP_BEHIND_GO_PROXY", "").strip().lower() in ("1", "true", "yes")
+
+
 def _msi_engine_python() -> Path | None:
     """Go MSI 설치 시 engine venv Python (서비스에서 pick 대화상자 실행용)."""
     root = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
@@ -70,6 +74,8 @@ def pick_file_command() -> list[str]:
 
 
 def pick_file_available() -> bool:
+    if _behind_go_proxy():
+        return True
     if is_frozen():
         return True
     return pick_script_path().is_file()
@@ -95,6 +101,8 @@ def pick_audio_command() -> list[str]:
 
 
 def pick_audio_available() -> bool:
+    if _behind_go_proxy():
+        return True
     if is_frozen():
         return True
     return pick_audio_script_path().is_file()

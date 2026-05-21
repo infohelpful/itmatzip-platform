@@ -35,7 +35,24 @@ def _run_pick_argv(argv: list[str], *, timeout: float = 600) -> subprocess.Compl
         full_argv = [*argv, "--output", out_path]
         try:
             code = run_as_active_console_user(full_argv, timeout=timeout)
-            raw = Path(out_path).read_text(encoding="utf-8", errors="replace").strip()
+            out_file = Path(out_path)
+            if not out_file.is_file():
+                # 사용자 세션 실행이 실패했거나 출력 파일 생성 전에 종료된 경우를 보강합니다.
+                fallback = run_hidden(
+                    full_argv,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                fallback_stdout = (fallback.stdout or "").strip()
+                if fallback_stdout:
+                    return fallback
+                raise RuntimeError(
+                    f"파일 선택 프로세스 실행 후 출력 파일을 찾지 못했습니다: {out_path} (code={code})"
+                )
+            raw = out_file.read_text(encoding="utf-8", errors="replace").strip()
             lines = raw.splitlines()
             payload_line = lines[-1] if lines else raw
             return subprocess.CompletedProcess(
@@ -61,6 +78,10 @@ def _run_pick_argv(argv: list[str], *, timeout: float = 600) -> subprocess.Compl
 
 
 def _parse_pick_stdout(proc: subprocess.CompletedProcess[str]) -> dict[str, object]:
+    if proc.returncode not in (0, None) and not (proc.stdout or "").strip():
+        raise RuntimeError(
+            f"파일 선택 프로세스가 비정상 종료되었습니다 (code={proc.returncode}). stderr={proc.stderr!r}"
+        )
     line = (proc.stdout or "").strip().splitlines()
     raw = line[-1] if line else ""
     if not raw:

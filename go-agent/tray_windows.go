@@ -232,7 +232,7 @@ func onTrayReady(port int, iconData []byte) {
 	trayStartSvc = mStartSvc
 	trayMenuMu.Unlock()
 
-	refreshTrayServiceMenuItems()
+	refreshTrayServiceMenuItems(port)
 	updateTrayTooltipFromState(port)
 
 	go trayStatusPoller(port)
@@ -259,10 +259,10 @@ func trayMenuEventLoop(
 			} else {
 				updateTrayTooltip(port, "서비스 중지됨")
 			}
-			refreshTrayServiceMenuItems()
+			refreshTrayServiceMenuItems(port)
 		case <-mStartSvc.ClickedCh:
 			trayRestartOrStartService(port)
-			refreshTrayServiceMenuItems()
+			refreshTrayServiceMenuItems(port)
 		case <-mQuit.ClickedCh:
 			if err := stopWindowsService(); err != nil {
 				log.Printf("stop service on tray exit: %v", err)
@@ -273,7 +273,7 @@ func trayMenuEventLoop(
 	}
 }
 
-func refreshTrayServiceMenuItems() {
+func refreshTrayServiceMenuItems(port int) {
 	trayMenuMu.Lock()
 	stopItem := trayStopSvc
 	startItem := trayStartSvc
@@ -281,7 +281,7 @@ func refreshTrayServiceMenuItems() {
 	if stopItem == nil || startItem == nil {
 		return
 	}
-	if isWindowsServiceRunning() {
+	if isWindowsServiceRunning() || isAgentResponding(port) {
 		stopItem.Enable()
 		startItem.Enable()
 		startItem.SetTitle("서비스 재시작")
@@ -292,6 +292,10 @@ func refreshTrayServiceMenuItems() {
 		startItem.SetTitle("서비스 시작")
 		startItem.SetTooltip("중지된 ItMatZip Agent Windows 서비스를 시작합니다")
 	}
+}
+
+func isAgentResponding(port int) bool {
+	return waitForAgentHealth(port, 1500*time.Millisecond)
 }
 
 func shortTrayErr(err error) string {
@@ -306,7 +310,7 @@ func shortTrayErr(err error) string {
 }
 
 func trayRestartOrStartService(port int) {
-	if isWindowsServiceRunning() {
+	if isWindowsServiceRunning() || isAgentResponding(port) {
 		updateTrayTooltip(port, "Windows 서비스 재시작 중…")
 		if err := restartWindowsServiceAndWait(); err != nil {
 			log.Printf("tray SCM restart: %v", err)
@@ -353,7 +357,7 @@ func trayStatusPoller(port int) {
 		case <-tick.C:
 			updateTrayTooltipFromState(port)
 		case <-svcTick.C:
-			refreshTrayServiceMenuItems()
+			refreshTrayServiceMenuItems(port)
 		}
 	}
 }
@@ -382,7 +386,7 @@ func runLaunch(port int) error {
 }
 
 func updateTrayTooltipFromState(port int) {
-	if !isWindowsServiceRunning() {
+	if !isWindowsServiceRunning() && !isAgentResponding(port) {
 		updateTrayTooltip(port, "서비스 중지됨")
 		return
 	}

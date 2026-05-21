@@ -76,6 +76,23 @@ def _migrate_legacy_binaries() -> None:
     shutil.copy2(leg_fp, get_ffprobe_exe())
 
 
+def _adopt_system_path_binaries() -> None:
+    """
+    에이전트 전용 폴더가 비어 있으면 시스템 PATH의 ffmpeg/ffprobe를 가져와 복사합니다.
+    오프라인 환경 등에서 번들 다운로드가 막힌 경우의 안전한 폴백입니다.
+    """
+    if get_ffmpeg_exe().is_file() and get_ffprobe_exe().is_file():
+        return
+    ffmpeg_on_path = shutil.which("ffmpeg")
+    ffprobe_on_path = shutil.which("ffprobe")
+    if not ffmpeg_on_path or not ffprobe_on_path:
+        return
+    target = get_bin_root()
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ffmpeg_on_path, get_ffmpeg_exe())
+    shutil.copy2(ffprobe_on_path, get_ffprobe_exe())
+
+
 def get_ffmpeg_executable() -> Path:
     """엔진에서 FFmpeg 실행 파일 경로가 필요할 때 사용합니다. 사전에 `ensure_ffmpeg()`가 성공한 상태여야 합니다."""
     path = get_ffmpeg_exe()
@@ -118,6 +135,7 @@ def ensure_ffmpeg(
     없으면 zip 번들을 내려받아 설치합니다.
     """
     _migrate_legacy_binaries()
+    _adopt_system_path_binaries()
     bin_root = get_bin_root()
     bin_root.mkdir(parents=True, exist_ok=True)
     ffmpeg_exe = get_ffmpeg_exe()
