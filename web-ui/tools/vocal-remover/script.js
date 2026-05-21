@@ -310,7 +310,8 @@ function updateActionButtons() {
     btnPickLocalFile.disabled = separationBusy;
   }
   if (btnStartSeparation) {
-    btnStartSeparation.disabled = !toolReady || separationBusy || !hasAudioPath();
+    // 모델 미준비여도 분석하기 클릭 시 refreshToolStatus() → prepareModel() 실행
+    btnStartSeparation.disabled = separationBusy || !hasAudioPath();
   }
   if (exportLink) {
     exportLink.classList.toggle("is-disabled", !isExportEnabled());
