@@ -2,10 +2,10 @@
     "version":  "1.1.4",
     "published_at":  "2026-05-22",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.4/itmatzip-agent.msi",
-    "sha256":  "32bea980035aa1655fa8730108b8dde78662f1f85c2b5d9e5089239504356ba2",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.5/itmatzip-agent.msi",
+    "sha256":  "c3957eb7d9574e53d43cc58f9d3d4af7906f5fb88de26a4ae20a1e0dc91a7abf",
     "mandatory":  false,
-    "release_notes":  "1.1.4: service/tray split, Demucs path, tray quit fix",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.4/itmatzip-agent.msi",
-    "msi_sha256":  "32bea980035aa1655fa8730108b8dde78662f1f85c2b5d9e5089239504356ba2"
+    "release_notes":  " 오류 수정 ",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.5/itmatzip-agent.msi",
+    "msi_sha256":  "c3957eb7d9574e53d43cc58f9d3d4af7906f5fb88de26a4ae20a1e0dc91a7abf"
 }

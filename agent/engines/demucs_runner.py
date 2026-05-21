@@ -1,8 +1,24 @@
 from __future__ import annotations
 
+import os
 import sys
+import traceback
 import wave
 from pathlib import Path
+
+
+def _bootstrap_ffmpeg_dll_path() -> None:
+    """torchcodec이 FFmpeg DLL을 찾도록 Demucs import 전에 PATH를 맞춥니다."""
+    try:
+        from common.bin_manager import ensure_ffmpeg, prepend_ffmpeg_bin_to_env
+
+        ensure_ffmpeg()
+        prepend_ffmpeg_bin_to_env(os.environ)
+    except Exception as exc:
+        print(f"warning: ffmpeg PATH bootstrap failed: {exc}", file=sys.stderr)
+
+
+_bootstrap_ffmpeg_dll_path()
 
 import numpy as np
 import demucs.audio as demucs_audio
@@ -49,7 +65,12 @@ demucs_audio.ta.save = _patched_save
 
 
 def main() -> int:
-    return demucs_main(sys.argv[1:]) or 0
+    try:
+        return demucs_main(sys.argv[1:]) or 0
+    except Exception:
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
+        return 1
 
 
 if __name__ == "__main__":

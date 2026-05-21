@@ -32,7 +32,12 @@ def _emit_prepare_progress(
     if on_progress is not None:
         on_progress(pct, step, detail)
 
-from common.bin_manager import ensure_ffmpeg, get_ffmpeg_executable, get_ffprobe_executable
+from common.bin_manager import (
+    ensure_ffmpeg,
+    get_ffmpeg_executable,
+    get_ffprobe_executable,
+    prepend_ffmpeg_bin_to_env,
+)
 from common.subprocess_util import no_window_creationflags, run_hidden
 from runtime_paths import agent_package_root, demucs_runner_script, is_frozen
 
@@ -128,6 +133,41 @@ def _demucs_jobs_count() -> int:
     return max(1, min(4, os.cpu_count() or 2))
 
 
+def _format_demucs_failure(
+    returncode: int | None,
+    stdout: str,
+    stderr: str,
+    command: list[str],
+) -> str:
+    rc = returncode if returncode is not None else -1
+    parts = [
+        f"exit_code={rc}",
+        f"python={sys.executable}",
+        f"cmd={' '.join(command)}",
+    ]
+    install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+    if install:
+        parts.append(f"install_root={install}")
+    combined = (stderr + "\n" + stdout).strip()
+    if combined:
+        tail = combined[-4000:] if len(combined) > 4000 else combined
+        parts.append("output:\n" + tail)
+    else:
+        parts.append(
+            "output=(empty — Demucs가 메시지 없이 종료됨. "
+            "engine에 demucs/torch 설치·입력 파일 경로·GPU OOM 여부를 확인하세요.)"
+        )
+    return "\n".join(parts)
+
+
+def _stream_pipe_text(pipe, sink: list[str], on_line: Callable[[str], None] | None) -> None:
+    assert pipe is not None
+    for line in pipe:
+        sink.append(line)
+        if on_line is not None:
+            on_line(line)
+
+
 def _run_demucs_with_progress(
     command: list[str],
     timeout_sec: float,
@@ -141,6 +181,13 @@ def _run_demucs_with_progress(
     env["PYTHONUNBUFFERED"] = "1"
     agent_root = agent_package_root()
     agent_root_str = str(agent_root)
+    install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+    if install:
+        env["ITMATZIP_AGENT_INSTALL_ROOT"] = install
+    data = os.environ.get("ITMATZIP_AGENT_DATA", "").strip()
+    if data:
+        env["ITMATZIP_AGENT_DATA"] = data
+    prepend_ffmpeg_bin_to_env(env)
     existing_py_path = env.get("PYTHONPATH", "").strip()
     if existing_py_path:
         if agent_root_str not in existing_py_path.split(os.pathsep):
@@ -148,7 +195,7 @@ def _run_demucs_with_progress(
     else:
         env["PYTHONPATH"] = agent_root_str
     kwargs: dict = {
-        "stdout": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "text": True,
         "encoding": "utf-8",
@@ -161,6 +208,7 @@ def _run_demucs_with_progress(
         kwargs["creationflags"] = no_window_creationflags()
 
     proc = subprocess.Popen(command, **kwargs)  # noqa: S603
+    stdout_lines: list[str] = []
     stderr_lines: list[str] = []
     stages_done = 0
     stage_bar_pct = 0.0
@@ -176,25 +224,33 @@ def _run_demucs_with_progress(
         last_mapped = mapped
         on_progress(mapped, message)
 
-    def consume_stderr() -> None:
+    def on_stderr_line(line: str) -> None:
         nonlocal stages_done, stage_bar_pct, stage_estimate
-        assert proc.stderr is not None
-        for line in proc.stderr:
-            stderr_lines.append(line)
-            parsed = _parse_demucs_tqdm_line(line)
-            if parsed is None:
-                continue
-            bar_pct, is_complete = parsed
-            if is_complete:
-                stages_done += 1
-                stage_bar_pct = 0.0
-                stage_estimate = max(stage_estimate, stages_done + 1)
-            else:
-                stage_bar_pct = bar_pct
-            denom = max(stage_estimate, stages_done + 1)
-            overall = min(0.99, (stages_done + stage_bar_pct / 100.0) / denom)
-            mapped = 12.0 + overall * 76.0
-            publish(mapped, f"Demucs AI 분리 중… ({int(overall * 100)}%, {device_label.upper()})")
+        parsed = _parse_demucs_tqdm_line(line)
+        if parsed is None:
+            return
+        bar_pct, is_complete = parsed
+        if is_complete:
+            stages_done += 1
+            stage_bar_pct = 0.0
+            stage_estimate = max(stage_estimate, stages_done + 1)
+        else:
+            stage_bar_pct = bar_pct
+        denom = max(stage_estimate, stages_done + 1)
+        overall = min(0.99, (stages_done + stage_bar_pct / 100.0) / denom)
+        mapped = 12.0 + overall * 76.0
+        publish(mapped, f"Demucs AI 분리 중… ({int(overall * 100)}%, {device_label.upper()})")
+
+    def consume_stdout() -> None:
+        _stream_pipe_text(proc.stdout, stdout_lines, None)
+
+    def consume_stderr() -> None:
+        _stream_pipe_text(proc.stderr, stderr_lines, on_stderr_line)
+
+    out_thread = threading.Thread(target=consume_stdout, daemon=True)
+    err_thread = threading.Thread(target=consume_stderr, daemon=True)
+    out_thread.start()
+    err_thread.start()
 
     def heartbeat() -> None:
         while not stop_heartbeat.wait(2.0):
@@ -207,9 +263,7 @@ def _run_demucs_with_progress(
                 f"{int(elapsed)}초 경과)",
             )
 
-    reader = threading.Thread(target=consume_stderr, daemon=True)
     hb = threading.Thread(target=heartbeat, daemon=True)
-    reader.start()
     hb.start()
     try:
         proc.wait(timeout=timeout_sec)
@@ -219,10 +273,13 @@ def _run_demucs_with_progress(
         raise
     finally:
         stop_heartbeat.set()
-        reader.join(timeout=5.0)
+        out_thread.join(timeout=10.0)
+        err_thread.join(timeout=10.0)
         hb.join(timeout=1.0)
     publish(88.0, "Demucs 분리 완료, 결과 파일을 정리합니다…")
-    return proc.returncode, "", "".join(stderr_lines)
+    stdout_text = "".join(stdout_lines)
+    stderr_text = "".join(stderr_lines)
+    return proc.returncode, stdout_text, stderr_text
 
 
 def is_allowed_media_path(path: Path) -> bool:
@@ -1517,9 +1574,16 @@ def separate_stems(
         speed_hint = f"CPU · torch {torch_ver}"
     report(8.0, f"Demucs 분리를 시작합니다… ({speed_hint})")
 
+    runner = demucs_runner_script()
+    if not runner.is_file():
+        raise RuntimeError(f"demucs_runner.py 없음: {runner}")
+    if not Path(sys.executable).is_file():
+        raise RuntimeError(f"Python 실행 파일 없음: {sys.executable}")
+
     command = [
         sys.executable,
-        str(demucs_runner_script()),
+        "-u",
+        str(runner),
         "-n",
         MODEL_NAME,
         "-d",
@@ -1547,9 +1611,11 @@ def separate_stems(
         device_label=device_resolved,
     )
     if returncode != 0:
-        msg = "Demucs 분리 실행에 실패했습니다. stdout=" + stdout + " stderr=" + stderr
-        if "AssertionError" in stdout or "AssertionError" in stderr or "pad1d" in stdout + stderr:
-            msg += " (짧은 오디오·모델 불일치일 수 있습니다. 더 긴 파일로 시도해 보세요.)"
+        detail = _format_demucs_failure(returncode, stdout, stderr, command)
+        msg = "Demucs 분리 실행에 실패했습니다.\n" + detail
+        combined = stdout + stderr
+        if "AssertionError" in combined or "pad1d" in combined:
+            msg += "\n(짧은 오디오·모델 불일치일 수 있습니다. 더 긴 파일로 시도해 보세요.)"
         raise RuntimeError(msg)
 
     report(90.0, "분리 결과 파일을 찾는 중…")

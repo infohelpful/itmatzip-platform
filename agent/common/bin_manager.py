@@ -71,9 +71,12 @@ def _migrate_legacy_binaries() -> None:
     leg_fp = legacy / "ffprobe.exe"
     if not (leg_ff.is_file() and leg_fp.is_file()):
         return
-    target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(leg_ff, get_ffmpeg_exe())
-    shutil.copy2(leg_fp, get_ffprobe_exe())
+    if any(legacy.glob("*.dll")):
+        _publish_ffmpeg_runtime_files(legacy)
+    else:
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(leg_ff, get_ffmpeg_exe())
+        shutil.copy2(leg_fp, get_ffprobe_exe())
 
 
 def _adopt_system_path_binaries() -> None:
@@ -81,16 +84,58 @@ def _adopt_system_path_binaries() -> None:
     에이전트 전용 폴더가 비어 있으면 시스템 PATH의 ffmpeg/ffprobe를 가져와 복사합니다.
     오프라인 환경 등에서 번들 다운로드가 막힌 경우의 안전한 폴백입니다.
     """
-    if get_ffmpeg_exe().is_file() and get_ffprobe_exe().is_file():
+    if _ffmpeg_runtime_complete():
         return
     ffmpeg_on_path = shutil.which("ffmpeg")
     ffprobe_on_path = shutil.which("ffprobe")
     if not ffmpeg_on_path or not ffprobe_on_path:
         return
-    target = get_bin_root()
-    target.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(ffmpeg_on_path, get_ffmpeg_exe())
-    shutil.copy2(ffprobe_on_path, get_ffprobe_exe())
+    _publish_ffmpeg_runtime_files(Path(ffmpeg_on_path).parent)
+
+
+def _ffmpeg_runtime_complete() -> bool:
+    """torchcodec/Demucs가 로드하는 FFmpeg shared DLL(avcodec 등)이 bin에 있는지 확인."""
+    bin_root = get_bin_root()
+    if not get_ffmpeg_exe().is_file() or not get_ffprobe_exe().is_file():
+        return False
+    return any(bin_root.glob("*.dll"))
+
+
+def _publish_ffmpeg_runtime_files(source_dir: Path) -> None:
+    """ffmpeg.exe가 있는 폴더의 exe·dll을 agent bin으로 복사 (torchcodec용 DLL 포함)."""
+    bin_root = get_bin_root()
+    bin_root.mkdir(parents=True, exist_ok=True)
+    if not source_dir.is_dir():
+        raise FileNotFoundError(f"FFmpeg source dir missing: {source_dir}")
+    copied = 0
+    for item in source_dir.iterdir():
+        if not item.is_file():
+            continue
+        ext = item.suffix.lower()
+        if ext not in {".exe", ".dll"}:
+            continue
+        shutil.copy2(item, bin_root / item.name)
+        copied += 1
+    if not get_ffmpeg_exe().is_file() or not get_ffprobe_exe().is_file():
+        raise FileNotFoundError(
+            f"ffmpeg/ffprobe not found after publishing from {source_dir}",
+        )
+    if not any(bin_root.glob("*.dll")):
+        raise FileNotFoundError(
+            f"FFmpeg DLL not found in {source_dir}. torchcodec requires avcodec*.dll next to ffmpeg.exe.",
+        )
+
+
+def prepend_ffmpeg_bin_to_env(env: dict[str, str]) -> str:
+    """Demucs/torchcodec subprocess용 PATH 앞에 FFmpeg bin을 붙입니다."""
+    bin_dir = str(get_bin_root())
+    old = env.get("PATH", "")
+    parts = [p for p in old.split(os.pathsep) if p]
+    if bin_dir not in parts:
+        parts.insert(0, bin_dir)
+    new_path = os.pathsep.join(parts)
+    env["PATH"] = new_path
+    return new_path
 
 
 def get_ffmpeg_executable() -> Path:
@@ -141,7 +186,7 @@ def ensure_ffmpeg(
     ffmpeg_exe = get_ffmpeg_exe()
     ffprobe_exe = get_ffprobe_exe()
 
-    if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+    if _ffmpeg_runtime_complete():
         return ffmpeg_exe
 
     _clear_stale_download_lock()
@@ -151,7 +196,7 @@ def ensure_ffmpeg(
     held_lock = False
 
     while time.monotonic() < deadline:
-        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+        if _ffmpeg_runtime_complete():
             return ffmpeg_exe
         if _try_acquire_download_lock():
             held_lock = True
@@ -160,12 +205,12 @@ def ensure_ffmpeg(
         _clear_stale_download_lock()
 
     if not held_lock:
-        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+        if _ffmpeg_runtime_complete():
             return ffmpeg_exe
         raise TimeoutError("FFmpeg 다운로드 잠금을 획득하지 못했습니다. 잠시 후 다시 시도하세요.")
 
     try:
-        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+        if _ffmpeg_runtime_complete():
             return ffmpeg_exe
 
         archive_path = bin_root / _bundle_archive_name
@@ -190,8 +235,7 @@ def ensure_ffmpeg(
                 f"압축 해제 후 ffprobe.exe를 찾지 못했습니다. 동일 번들에 ffprobe가 포함되어 있는지 확인하세요: {url}"
             )
 
-        shutil.copy2(found_ffmpeg, ffmpeg_exe)
-        shutil.copy2(found_probe, ffprobe_exe)
+        _publish_ffmpeg_runtime_files(found_ffmpeg.parent)
 
         try:
             archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
