@@ -1,0 +1,7 @@
+.local/
+models/
+dist/
+*.exe
+*.msi
+*.wixobj
+*.wxs.bak

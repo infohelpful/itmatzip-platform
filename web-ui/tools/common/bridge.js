@@ -10,7 +10,7 @@
  *   Bridge.startConnectionMonitor({ onChange: (ok) => { ... } });
  */
 
-import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT } from "./agent-endpoints.js";
+import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
 
 /** @typedef {{ progress: number | null, phase: string, message?: string, raw?: unknown }} ProgressEvent */
 
@@ -27,7 +27,249 @@ let _jobStatusUrl = (id) => `/api/jobs/${encodeURIComponent(id)}/status`;
 let _jobPollMs = 400;
 
 /** @type {number} */
+let _wsReconnectMs = 2000;
+
+/** @type {number} */
 let _connectTimeoutMs = 8000;
+
+/** @type {WebSocket | null} */
+let _ws = null;
+
+/** @type {number} */
+let _wsReconnectTimer = 0;
+
+/** @type {boolean} */
+let _wsManualClose = false;
+
+/** @type {Set<(event: Record<string, unknown>) => void>} */
+const _wsListeners = new Set();
+
+/** @type {((connected: boolean) => void) | null} */
+let _wsConnectionListener = null;
+
+/**
+ * @typedef {{
+ *   reconnectMs?: number,
+ *   onConnectionChange?: (connected: boolean) => void,
+ * }} AgentWebSocketOptions
+ */
+
+/**
+ * Go/Python agent WebSocket 이벤트를 FastAPI prepare status 형태로 변환
+ * @param {Record<string, unknown>} event
+ * @returns {{ phase: string, progress?: number, message?: string, step?: string, detail?: string } | null}
+ */
+export function mapAgentEventToPrepareStatus(event) {
+  if (!event || typeof event !== "object") return null;
+  const type = String(event.type || "");
+  const status = String(event.status || "");
+  const progress =
+    typeof event.progress === "number" && Number.isFinite(event.progress) ? event.progress : undefined;
+  const message = typeof event.message === "string" ? event.message : "";
+  const modelId = typeof event.model_id === "string" ? event.model_id : "";
+
+  if (type === "download") {
+    if (status === "completed") {
+      return { phase: "ready", progress: 100, message: message || "Download complete", step: modelId };
+    }
+    if (status === "failed") {
+      return { phase: "failed", progress: progress ?? 0, message: message || "Download failed", step: modelId };
+    }
+    return {
+      phase: "downloading_models",
+      progress,
+      message: message || "Downloading model…",
+      step: modelId ? `model: ${modelId}` : "download",
+    };
+  }
+
+  if (type === "install") {
+    if (status === "completed") {
+      return { phase: "ready", progress: 100, message: message || "Install complete" };
+    }
+    if (status === "failed") {
+      return { phase: "failed", message: message || "Install failed" };
+    }
+    return { phase: "installing_dependencies", progress: progress ?? 0, message: message || "Installing…" };
+  }
+
+  if (type === "install_progress") {
+    if (status === "installed") {
+      return { phase: "ready", progress: 100, message: message || "Model ready", step: modelId };
+    }
+    if (status === "failed") {
+      return { phase: "failed", message: message || "Install failed", step: modelId };
+    }
+    return {
+      phase: "downloading_models",
+      progress,
+      message: message || "Installing model…",
+      step: modelId,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * @param {Record<string, unknown>} event
+ * @returns {ProgressEvent | null}
+ */
+export function mapAgentEventToProgress(event) {
+  const prepare = mapAgentEventToPrepareStatus(event);
+  if (prepare) {
+    return {
+      progress: typeof prepare.progress === "number" ? prepare.progress : null,
+      phase: prepare.phase,
+      message: prepare.message ?? prepare.detail,
+      raw: event,
+    };
+  }
+  const type = String(event?.type || "");
+  if (type === "heartbeat" || type === "worker_status") {
+    return {
+      progress: null,
+      phase: String(event.status || type),
+      message: typeof event.message === "string" ? event.message : undefined,
+      raw: event,
+    };
+  }
+  return null;
+}
+
+/**
+ * @param {(event: Record<string, unknown>) => void} listener
+ * @returns {() => void}
+ */
+export function subscribeAgentEvents(listener) {
+  _wsListeners.add(listener);
+  return () => _wsListeners.delete(listener);
+}
+
+function _emitAgentEvent(event) {
+  for (const listener of _wsListeners) {
+    try {
+      listener(event);
+    } catch (err) {
+      console.warn("[ItMatZipBridge] ws listener error", err);
+    }
+  }
+}
+
+function _setWsConnected(connected) {
+  _wsConnectionListener?.(connected);
+}
+
+function _scheduleWsReconnect() {
+  if (_wsManualClose || _wsReconnectTimer) return;
+  _wsReconnectTimer = globalThis.setTimeout(() => {
+    _wsReconnectTimer = 0;
+    void connectAgentWebSocket();
+  }, _wsReconnectMs);
+}
+
+/**
+ * @param {AgentWebSocketOptions} [opts]
+ * @returns {Promise<boolean>} connected
+ */
+export function connectAgentWebSocket(opts = {}) {
+  if (opts.reconnectMs != null) _wsReconnectMs = Math.max(500, opts.reconnectMs);
+  if (typeof opts.onConnectionChange === "function") _wsConnectionListener = opts.onConnectionChange;
+
+  _wsManualClose = false;
+  if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) {
+    return Promise.resolve(_ws.readyState === WebSocket.OPEN);
+  }
+
+  const url = agentWebSocketUrl(_origin);
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      resolve(ok);
+    };
+
+    try {
+      _ws = new WebSocket(url);
+    } catch (err) {
+      console.warn("[ItMatZipBridge] ws connect failed", err);
+      _scheduleWsReconnect();
+      finish(false);
+      return;
+    }
+
+    _ws.addEventListener("open", () => {
+      _setWsConnected(true);
+      finish(true);
+    });
+
+    _ws.addEventListener("message", (ev) => {
+      try {
+        const data = JSON.parse(String(ev.data || ""));
+        if (data && typeof data === "object") _emitAgentEvent(/** @type {Record<string, unknown>} */ (data));
+      } catch {
+        _emitAgentEvent({ type: "log", message: String(ev.data || ""), source: "ws" });
+      }
+    });
+
+    _ws.addEventListener("close", () => {
+      _setWsConnected(false);
+      _ws = null;
+      if (!_wsManualClose) _scheduleWsReconnect();
+      finish(false);
+    });
+
+    _ws.addEventListener("error", () => {
+      finish(false);
+    });
+  });
+}
+
+export function disconnectAgentWebSocket() {
+  _wsManualClose = true;
+  if (_wsReconnectTimer) {
+    globalThis.clearTimeout(_wsReconnectTimer);
+    _wsReconnectTimer = 0;
+  }
+  if (_ws) {
+    try {
+      _ws.close();
+    } catch {
+      /* ignore */
+    }
+    _ws = null;
+  }
+  _setWsConnected(false);
+}
+
+export function isAgentWebSocketConnected() {
+  return _ws != null && _ws.readyState === WebSocket.OPEN;
+}
+
+/**
+ * @param {AgentWebSocketOptions & {
+ *   onEvent?: (event: Record<string, unknown>) => void,
+ *   types?: string[],
+ * }} [opts]
+ * @returns {Promise<{ connected: boolean, unsubscribe: () => void }>}
+ */
+export async function startAgentEventStream(opts = {}) {
+  const types = opts.types ? new Set(opts.types) : null;
+  const unsubscribe = opts.onEvent
+    ? subscribeAgentEvents((event) => {
+        if (types && !types.has(String(event.type || ""))) return;
+        opts.onEvent?.(event);
+      })
+    : () => {};
+
+  const connected = await connectAgentWebSocket({
+    reconnectMs: opts.reconnectMs,
+    onConnectionChange: opts.onConnectionChange,
+  });
+  return { connected, unsubscribe };
+}
+
 
 /** @type {string[]} */
 const _originFallbacks = AGENT_ORIGIN_FALLBACKS;
@@ -390,8 +632,10 @@ export function startConnectionMonitor(opts = {}) {
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
       if (_installDialog?.open) dismissInstallAgentDialog();
+      void connectAgentWebSocket();
     } else {
       failStreak += 1;
+      if (failStreak >= 2) disconnectAgentWebSocket();
     }
     const changed = prevOk !== detail.ok;
     if (firstTick) firstTick = false;
@@ -991,6 +1235,13 @@ const Bridge = {
   showInstallAgentDialog,
   dismissInstallAgentDialog,
   requestAgent,
+  connectAgentWebSocket,
+  disconnectAgentWebSocket,
+  isAgentWebSocketConnected,
+  subscribeAgentEvents,
+  startAgentEventStream,
+  mapAgentEventToPrepareStatus,
+  mapAgentEventToProgress,
 };
 
 const g = typeof globalThis !== "undefined" ? globalThis : window;

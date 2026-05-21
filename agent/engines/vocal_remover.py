@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -1265,6 +1266,61 @@ def _export_stem_wav(stem_wav: Path, output_format: str, export_name: str) -> Pa
     return output_path
 
 
+def _grpc_agent_origin() -> str:
+    return os.environ.get("ITMATZIP_AGENT_HTTP", "http://127.0.0.1:19876").strip().rstrip("/")
+
+
+def _separate_stems_via_grpc(
+    input_path: Path,
+    output_format: str,
+    timeout_sec: float = 3600.0,
+    device: str | None = None,
+    on_progress: Callable[[float, str], None] | None = None,
+) -> SeparationResult:
+    def report(pct: float, msg: str) -> None:
+        if on_progress:
+            on_progress(pct, msg)
+
+    report(5.0, "Go gRPC inference 경로로 분리를 요청합니다…")
+    payload = json.dumps(
+        {
+            "audio_path": str(input_path.resolve()),
+            "output_format": output_format,
+            "device": device,
+            "timeout_sec": timeout_sec,
+        },
+        ensure_ascii=False,
+    )
+    body = json.dumps({"model_id": MODEL_NAME, "input": payload}, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_grpc_agent_origin()}/inference",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_sec + 30.0) as resp:
+            raw = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"gRPC inference HTTP {exc.code}: {detail}") from exc
+
+    if raw.get("status") != "ok":
+        raise RuntimeError(f"gRPC inference failed: {raw}")
+    result = raw.get("result") or {}
+    if result.get("status") != "ok":
+        raise RuntimeError(f"gRPC demucs failed: {result}")
+
+    report(100.0, "MR·보컬 분리가 완료되었습니다.")
+    return SeparationResult(
+        instrumental_path=Path(result["instrumental_path"]),
+        vocals_path=Path(result["vocals_path"]),
+        original_path=Path(result.get("original_path", str(input_path.resolve()))),
+        export_path=Path(result["export_path"]),
+        duration_sec=float(result.get("duration_sec", 0.0)),
+    )
+
+
 def separate_stems(
     input_path: Path,
     output_format: str,
@@ -1273,6 +1329,15 @@ def separate_stems(
     on_progress: Callable[[float, str], None] | None = None,
 ) -> SeparationResult:
     """MR(no_vocals)와 보컬 스템을 항상 함께 추출합니다."""
+
+    if os.environ.get("ITMATZIP_USE_GRPC_INFERENCE", "").strip().lower() in {"1", "true", "yes"}:
+        return _separate_stems_via_grpc(
+            input_path,
+            output_format,
+            timeout_sec=timeout_sec,
+            device=device,
+            on_progress=on_progress,
+        )
 
     def report(pct: float, msg: str) -> None:
         if on_progress:

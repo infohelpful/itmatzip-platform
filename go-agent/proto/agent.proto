@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/itmatzip/itmatzip-agent-go-prototype/proto;proto";
+option py_generic_services = true;
+
+message Empty {}
+
+message HealthResponse {
+  string status = 1;
+  string version = 2;
+  bool ready = 3;
+}
+
+message InstallModelRequest {
+  string model_id = 1;
+  string url = 2;
+  string destination = 3;
+}
+
+message InstallModelResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+message InstallProgress {
+  string status = 1;
+  int32 progress = 2;
+  string message = 3;
+}
+
+message StatusResponse {
+  string worker_status = 1;
+  string last_error = 2;
+}
+
+message InferenceRequest {
+  string model_id = 1;
+  bytes input_payload = 2;
+}
+
+message InferenceResponse {
+  bytes output_payload = 1;
+  string status = 2;
+}
+
+service WorkerControl {
+  rpc Health(Empty) returns (HealthResponse);
+  rpc InstallModel(InstallModelRequest) returns (InstallModelResponse);
+  rpc InstallModelProgress(InstallModelRequest) returns (stream InstallProgress);
+  rpc Status(Empty) returns (StatusResponse);
+}
+
+service Inference {
+  rpc Predict(InferenceRequest) returns (InferenceResponse);
+}

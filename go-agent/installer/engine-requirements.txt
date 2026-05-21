@@ -1,0 +1,3 @@
+# Combined engine pip requirements (grpc worker + FastAPI sidecar)
+-r ../python_worker/requirements.txt
+-r agent-requirements.txt

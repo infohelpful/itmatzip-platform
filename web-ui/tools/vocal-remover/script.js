@@ -5,10 +5,12 @@ import {
   fetchAgent,
   formatAgentConnectionError,
   getAgentOrigin,
+  mapAgentEventToPrepareStatus,
   requestAgent,
   showInstallAgentDialog,
+  startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna7";
+} from "../common/bridge.js?v=ws1";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import { createVocalDualPlayer } from "./dual-player.js";
@@ -407,65 +409,115 @@ async function pollPrepareStatus({ force = false } = {}) {
   let restartAttempted = false;
   let lastProgress = -1;
   let lastProgressAt = Date.now();
+  /** @type {"ready" | "failed" | null} */
+  let wsTerminal = null;
+  let wsErrorMessage = "";
 
-  for (;;) {
-    const data = await fetchPrepareStatus();
-    const phase = data?.phase || "";
-
-    if (phase === "ready") {
-      applyPrepareStatusToOverlay(data);
-      return;
-    }
-    if (phase === "failed") {
-      applyPrepareStatusToOverlay(data);
-      throw new Error(data.detail || data.message || "모델 준비 실패");
-    }
-
-    if (isPrepareInProgress(phase)) {
-      notStartedStreak = 0;
-      const pct = typeof data.progress === "number" ? data.progress : -1;
-      if (pct !== lastProgress) {
-        lastProgress = pct;
-        lastProgressAt = Date.now();
-      } else if (Date.now() - lastProgressAt > 20 * 60 * 1000) {
-        throw new Error(
-          "진행률이 20분 이상 변하지 않습니다. 네트워크·디스크를 확인한 뒤 페이지를 새로고침하세요.",
-        );
+  const { connected: wsConnected, unsubscribe: wsUnsub } = await startAgentEventStream({
+    types: ["download", "install", "install_progress"],
+    onEvent: (event) => {
+      const mapped = mapAgentEventToPrepareStatus(event);
+      if (!mapped) return;
+      applyPrepareStatusToOverlay(mapped);
+      if (mapped.phase === "ready") wsTerminal = "ready";
+      if (mapped.phase === "failed") {
+        wsTerminal = "failed";
+        wsErrorMessage = mapped.message || mapped.detail || "모델 준비 실패";
       }
-      applyPrepareStatusToOverlay(data);
-    } else if (phase === "not_started") {
-      notStartedStreak += 1;
-      if (!restartAttempted && notStartedStreak >= 3) {
-        restartAttempted = true;
+      if (typeof mapped.progress === "number") {
+        lastProgress = mapped.progress;
+        lastProgressAt = Date.now();
+      }
+    },
+  });
+
+  try {
+    for (;;) {
+      if (wsTerminal === "ready") return;
+      if (wsTerminal === "failed") {
+        throw new Error(wsErrorMessage || "모델 준비 실패");
+      }
+
+      /** @type {Record<string, unknown> | null} */
+      let data = null;
+      try {
+        data = await fetchPrepareStatus();
+      } catch (err) {
+        if (wsConnected) {
+          if (Date.now() - lastProgressAt > 20 * 60 * 1000) {
+            throw new Error(
+              "진행률이 20분 이상 변하지 않습니다. 네트워크·디스크를 확인한 뒤 페이지를 새로고침하세요.",
+            );
+          }
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw err;
+      }
+
+      const phase = data?.phase || "";
+
+      if (phase === "ready") {
+        applyPrepareStatusToOverlay(data);
+        return;
+      }
+      if (phase === "failed") {
+        applyPrepareStatusToOverlay(data);
+        throw new Error(data.detail || data.message || "모델 준비 실패");
+      }
+
+      if (isPrepareInProgress(phase)) {
         notStartedStreak = 0;
+        const pct = typeof data.progress === "number" ? data.progress : -1;
+        if (pct !== lastProgress) {
+          lastProgress = pct;
+          lastProgressAt = Date.now();
+        } else if (Date.now() - lastProgressAt > 20 * 60 * 1000) {
+          throw new Error(
+            "진행률이 20분 이상 변하지 않습니다. 네트워크·디스크를 확인한 뒤 페이지를 새로고침하세요.",
+          );
+        }
+        applyPrepareStatusToOverlay(data);
+      } else if (phase === "not_started") {
+        notStartedStreak += 1;
+        if (!restartAttempted && notStartedStreak >= 3) {
+          restartAttempted = true;
+          notStartedStreak = 0;
+          setSetupLoading(true, {
+            title: "AI 환경 준비",
+            step: "설치 재시작",
+            message:
+              "이전 설치가 중단된 것 같습니다(에이전트 재시작 등). GPU wheel 설치를 다시 시작합니다…",
+            progress: 5,
+          });
+          const restarted = await kickPrepare(force);
+          if (restarted) applyPrepareStatusToOverlay(restarted);
+          await new Promise((r) => setTimeout(r, 500));
+          continue;
+        }
+        if (notStartedStreak >= 8) {
+          if (wsConnected) {
+            await new Promise((r) => setTimeout(r, 1000));
+            continue;
+          }
+          throw new Error(
+            "AI 환경 준비가 시작되지 않았습니다. 에이전트(uvicorn)가 실행 중인지 확인하고 페이지를 새로고침하세요.",
+          );
+        }
         setSetupLoading(true, {
           title: "AI 환경 준비",
-          step: "설치 재시작",
-          message:
-            "이전 설치가 중단된 것 같습니다(에이전트 재시작 등). GPU wheel 설치를 다시 시작합니다…",
-          progress: 5,
+          step: "연결 확인",
+          message: "에이전트에 설치 작업을 요청하는 중…",
+          progress: 0,
         });
-        const restarted = await kickPrepare(force);
-        if (restarted) applyPrepareStatusToOverlay(restarted);
-        await new Promise((r) => setTimeout(r, 500));
-        continue;
+      } else {
+        applyPrepareStatusToOverlay(data);
       }
-      if (notStartedStreak >= 8) {
-        throw new Error(
-          "AI 환경 준비가 시작되지 않았습니다. 에이전트(uvicorn)가 실행 중인지 확인하고 페이지를 새로고침하세요.",
-        );
-      }
-      setSetupLoading(true, {
-        title: "AI 환경 준비",
-        step: "연결 확인",
-        message: "에이전트에 설치 작업을 요청하는 중…",
-        progress: 0,
-      });
-    } else {
-      applyPrepareStatusToOverlay(data);
-    }
 
-    await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, wsConnected ? 1000 : 500));
+    }
+  } finally {
+    wsUnsub();
   }
 }
 
