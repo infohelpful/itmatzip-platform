@@ -50,6 +50,7 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
+		"ITMATZIP_BEHIND_GO_PROXY=1",
 	)
 	if isMSIInstallLayout() {
 		cmd.Env = append(cmd.Env, "ITMATZIP_DISABLE_AUTO_UPDATE=1")
@@ -123,6 +124,10 @@ func (s *fastapiSidecar) ProxyHandler() http.Handler {
 		})
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ModifyResponse = func(resp *http.Response) error {
+		stripUpstreamCORS(resp.Header)
+		return nil
+	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Printf("api proxy error: %v", err)
 		w.Header().Set("Content-Type", "application/json")

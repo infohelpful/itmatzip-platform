@@ -7,5 +7,9 @@
   - 해상도: 256x256 포함 (16, 32, 48, 256 멀티 사이즈 권장)
   - 파일명: itmatzip-agent.ico (고정)
 
+트레이 아이콘 (알림 영역)
+  - itmatzip-agent-tray.ico — 16·32·48·256 포함 (go-agent/scripts/build-tray-icon.ps1 로 생성)
+  - 트레이는 256px 단일 ICO만 쓰면 이미지가 안 보일 수 있음
+
 PNG만 있는 경우
   - https://convertio.co/ko/png-ico/ 등으로 .ico 변환 후 위 이름으로 저장

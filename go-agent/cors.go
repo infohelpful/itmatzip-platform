@@ -30,6 +30,19 @@ func allowCORSOrigin(origin string) bool {
 	return corsOriginPattern.MatchString(strings.TrimSuffix(origin, "/"))
 }
 
+func stripUpstreamCORS(h http.Header) {
+	for _, key := range []string{
+		"Access-Control-Allow-Origin",
+		"Access-Control-Allow-Methods",
+		"Access-Control-Allow-Headers",
+		"Access-Control-Expose-Headers",
+		"Access-Control-Allow-Private-Network",
+		"Access-Control-Allow-Credentials",
+	} {
+		h.Del(key)
+	}
+}
+
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")

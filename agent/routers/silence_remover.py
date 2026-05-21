@@ -18,7 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
+from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
 from common.subprocess_util import run_hidden
 from engines import silence_remover
 from runtime_paths import pick_file_available, pick_file_command
@@ -275,21 +275,47 @@ class SilenceRemoverWaveformAnalyzedBody(BaseModel):
     )
 
 
-@router.get("/readiness")
-def get_readiness(_: SilenceRemoverReady) -> dict[str, object]:
-    """
-    무음 탐지 페이지 진입 시 등에서 호출해, 이 툴에 필요한 환경만 점검합니다.
+def _silence_binaries_payload() -> dict[str, object]:
+    return {
+        "ffmpeg": get_ffmpeg_exe().is_file(),
+        "ffprobe": get_ffprobe_exe().is_file(),
+        "bin_dir": str(get_bin_root()),
+    }
 
-    전역 `/health`는 에이전트 프로세스 생존 여부만 보면 되고,
-    FFmpeg 등은 여기서만 확인·다운로드합니다.
+
+@router.get("/readiness")
+def get_readiness() -> dict[str, object]:
+    """
+    무음 탐지 페이지 진입 시 빠르게 바이너리 존재만 확인합니다.
+    다운로드·설치는 POST /prepare 에서 수행합니다.
     """
     return {
         "ok": True,
         "tool": "silence-remover",
-        "binaries": {
-            "ffmpeg": FFMPEG_EXE.is_file(),
-            "ffprobe": FFPROBE_EXE.is_file(),
-        },
+        "binaries": _silence_binaries_payload(),
+    }
+
+
+@router.post("/prepare")
+def post_prepare() -> dict[str, object]:
+    """FFmpeg/ffprobe가 없으면 다운로드·설치합니다 (최초 1회, 수십 초~수 분 소요 가능)."""
+    try:
+        ensure_ffmpeg(download_timeout_sec=300.0)
+    except Exception as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"FFmpeg 설치 실패 ({get_bin_root()}): {e}",
+        ) from e
+    binaries = _silence_binaries_payload()
+    if not binaries["ffmpeg"] or not binaries["ffprobe"]:
+        raise HTTPException(
+            status_code=503,
+            detail=f"FFmpeg 설치 후에도 바이너리가 없습니다: {binaries['bin_dir']}",
+        )
+    return {
+        "ok": True,
+        "tool": "silence-remover",
+        "binaries": binaries,
     }
 
 

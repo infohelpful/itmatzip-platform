@@ -2,7 +2,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?define ProductName = "ItMatZip Agent" ?>
-  <?define ProductVersion = "1.0.5.0" ?>
+  <?define ProductVersion = "1.0.6.0" ?>
   <?define Manufacturer = "ItMatZip" ?>
   <?define UpgradeCode = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" ?>
 
@@ -64,6 +64,14 @@
                   Impersonate="no"
                   Return="ignore" />
 
+    <!-- 서비스 재시작 + 트레이(launch 모드). 트레이 종료 시 서비스도 중지 -->
+    <CustomAction Id="StartTrayIcon"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]itmatzip-agent.exe&quot; --launch"
+                  Execute="commit"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
     <CustomAction Id="StopAgentServiceOnUpgrade"
                   Directory="INSTALLFOLDER"
                   ExeCommand="cmd.exe /c sc stop ItMatZipAgent"
@@ -89,6 +97,7 @@
       <Custom Action="StopAgentServiceOnUpgrade" Before="InstallFiles">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
       <Custom Action="InstallService" After="InstallFiles">NOT REMOVE</Custom>
       <Custom Action="StartAgentService" After="InstallService">NOT REMOVE</Custom>
+      <Custom Action="StartTrayIcon" After="StartAgentService">NOT REMOVE</Custom>
       <Custom Action="StopAgentServiceOnRemove" Before="UninstallService">REMOVE="ALL"</Custom>
       <Custom Action="UninstallService" Before="RemoveFiles">REMOVE="ALL"</Custom>
     </InstallExecuteSequence>

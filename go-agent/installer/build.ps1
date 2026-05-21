@@ -39,6 +39,9 @@ try {
     Write-Host "Building itmatzip-agent.exe..." -ForegroundColor Cyan
     go build -o itmatzip-agent.exe .
 
+    Write-Host "Building tray icon (16x16)..." -ForegroundColor Cyan
+    & (Join-Path $Root "scripts\build-tray-icon.ps1") -Python $Python
+
     $stageArgs = @{
         SkipEngine = $SkipEngine
         Python = $Python

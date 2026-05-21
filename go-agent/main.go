@@ -310,6 +310,8 @@ func main() {
 		serviceMode  = flag.Bool("service", false, "run as Windows service")
 		checkUpdate  = flag.Bool("check-update", false, "check GitHub manifest for MSI update")
 		applyUpdate  = flag.Bool("apply-update", false, "download and apply MSI update if available")
+		trayMode     = flag.Bool("tray", false, "show tray icon only (does not start/stop service)")
+		launchMode   = flag.Bool("launch", false, "restart service and show tray; quitting tray stops service")
 		port         = flag.Int("port", defaultPort, "HTTP/WebSocket port")
 		grpcPort     = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
 		fastapiPort  = flag.Int("fastapi-port", defaultFastAPIPort, "FastAPI sidecar port")
@@ -323,14 +325,38 @@ func main() {
 		if err := installService(*port, *grpcPort, *fastapiPort); err != nil {
 			log.Fatalf("install service: %v", err)
 		}
+		if err := registerTrayAutostart(); err != nil {
+			log.Printf("warning: tray autostart register failed: %v", err)
+		}
+		if err := createLaunchShortcuts(); err != nil {
+			log.Printf("warning: create shortcuts failed: %v", err)
+		}
 		fmt.Println("service installed and started")
 		return
 	}
 	if *uninstall {
+		if err := unregisterTrayAutostart(); err != nil {
+			log.Printf("warning: tray autostart unregister failed: %v", err)
+		}
+		if err := removeLaunchShortcuts(); err != nil {
+			log.Printf("warning: remove shortcuts failed: %v", err)
+		}
 		if err := uninstallService(); err != nil {
 			log.Fatalf("uninstall service: %v", err)
 		}
 		fmt.Println("service uninstalled (or was not registered)")
+		return
+	}
+	if *launchMode {
+		if err := runLaunch(*port); err != nil {
+			log.Fatalf("launch: %v", err)
+		}
+		return
+	}
+	if *trayMode {
+		if err := runTray(*port); err != nil {
+			log.Fatalf("tray: %v", err)
+		}
 		return
 	}
 	if *checkUpdate || *applyUpdate {

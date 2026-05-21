@@ -1,4 +1,5 @@
 import { checkAgentConnection, configureBridge, fetchAgent, getAgentOrigin } from "../common/bridge.js?v=lna6";
+import { showAdSense } from "../common/adsense.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 
 configureBridge({ healthPath: "/health" });
@@ -135,5 +136,8 @@ elBtnVocal?.addEventListener("click", async () => {
 elBtnBack?.addEventListener("click", (ev) => {
   void goBackToEditor(ev);
 });
+
+void showAdSense("downloadTop", "#dl-ad-top");
+void showAdSense("downloadBottom", "#dl-ad-bottom");
 
 initPage();

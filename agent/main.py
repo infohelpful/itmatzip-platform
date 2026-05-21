@@ -57,24 +57,26 @@ def create_app() -> FastAPI:
         version=AGENT_VERSION,
         lifespan=_app_lifespan,
     )
-    # CORS를 바깥(먼저)에 두어 OPTIONS preflight·LNA 헤더가 확실히 처리되게 함
-    app.add_middleware(_PrivateNetworkAccessMiddleware)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "https://tools.itmatzip.com",
-            "https://silence.itmatzip.com",
-            "http://localhost:5173",
-            "http://localhost:5500",
-            "http://127.0.0.1:5500",
-        ],
-        allow_origin_regex=r"^https://([\w-]+\.)*itmatzip\.com$|^http://(localhost|127\.0\.0\.1)(:\d+)?$",
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],
-        allow_private_network=True,
-    )
+    # Go 컨트롤러(19876) 뒤에서 프록시될 때는 CORS를 Go가 한 번만 처리 (중복 시 브라우저 Failed to fetch)
+    behind_go = os.environ.get("ITMATZIP_BEHIND_GO_PROXY", "").strip().lower() in ("1", "true", "yes")
+    if not behind_go:
+        app.add_middleware(_PrivateNetworkAccessMiddleware)
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[
+                "https://tools.itmatzip.com",
+                "https://silence.itmatzip.com",
+                "http://localhost:5173",
+                "http://localhost:5500",
+                "http://127.0.0.1:5500",
+            ],
+            allow_origin_regex=r"^https://([\w-]+\.)*itmatzip\.com$|^http://(localhost|127\.0\.0\.1)(:\d+)?$",
+            allow_credentials=False,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["*"],
+            allow_private_network=True,
+        )
 
     @app.get("/")
     async def root() -> RedirectResponse:

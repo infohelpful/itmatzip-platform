@@ -138,6 +138,7 @@ func startWindowsService() error {
 func stopWindowsService() error {
 	out, err := exec.Command("sc.exe", "stop", windowsServiceName).CombinedOutput()
 	if err == nil {
+		log.Printf("service %s stopped", windowsServiceName)
 		return nil
 	}
 	msg := strings.TrimSpace(string(out))
@@ -145,6 +146,14 @@ func stopWindowsService() error {
 		return nil
 	}
 	return fmt.Errorf("sc stop %s: %v (%s)", windowsServiceName, err, msg)
+}
+
+func restartWindowsService() error {
+	if err := stopWindowsService(); err != nil {
+		return err
+	}
+	time.Sleep(800 * time.Millisecond)
+	return startWindowsService()
 }
 
 func uninstallService() error {

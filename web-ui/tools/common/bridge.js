@@ -461,10 +461,17 @@ export function primeLocalNetworkAccess() {
         }
       }
       const origin = _originFallbacks[0] ?? `http://127.0.0.1:${AGENT_PORT}`;
-      await fetchAgent(`${origin.replace(/\/+$/, "")}${_healthPath}`, {
-        method: "GET",
-        cache: "no-store",
-      });
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2500);
+      try {
+        await fetchAgent(`${origin.replace(/\/+$/, "")}${_healthPath}`, {
+          method: "GET",
+          cache: "no-store",
+          signal: ctrl.signal,
+        });
+      } finally {
+        clearTimeout(t);
+      }
     } catch {
       /* 사용자 거부·에이전트 미실행 */
     }

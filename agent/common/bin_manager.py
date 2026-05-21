@@ -18,35 +18,94 @@ from pathlib import Path
 DEFAULT_FFMPEG_BUNDLE_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 FFMPEG_BUNDLE_URL = os.environ.get("ITMATZIP_FFMPEG_URL", DEFAULT_FFMPEG_BUNDLE_URL)
 
-_APPDATA = os.environ.get("APPDATA")
-if not _APPDATA:
-    raise RuntimeError("APPDATA 환경 변수가 없습니다. Windows에서 에이전트를 실행해 주세요.")
-
-BIN_ROOT: Path = Path(_APPDATA) / "ItMatZip" / "bin"
-FFMPEG_EXE: Path = BIN_ROOT / "ffmpeg.exe"
-FFPROBE_EXE: Path = BIN_ROOT / "ffprobe.exe"
-
-_download_lock = BIN_ROOT / ".ffmpeg_download.lock"
+_STALE_LOCK_SEC = 600.0
 _bundle_archive_name = "ffmpeg_bundle.zip"
 _extract_dir_name = "_ffmpeg_extract"
 
 
+def _resolve_bin_root() -> Path:
+    data = os.environ.get("ITMATZIP_AGENT_DATA", "").strip()
+    if data:
+        return Path(data) / "bin"
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "ItMatZip" / "bin"
+    raise RuntimeError(
+        "APPDATA 또는 ITMATZIP_AGENT_DATA가 없습니다. Windows에서 에이전트를 실행해 주세요."
+    )
+
+
+def get_bin_root() -> Path:
+    """현재 환경 변수 기준 FFmpeg 설치 폴더 (모듈 import 시점이 아닌 호출 시점에 결정)."""
+    return _resolve_bin_root()
+
+
+def get_ffmpeg_exe() -> Path:
+    return get_bin_root() / "ffmpeg.exe"
+
+
+def get_ffprobe_exe() -> Path:
+    return get_bin_root() / "ffprobe.exe"
+
+
+def get_download_lock() -> Path:
+    return get_bin_root() / ".ffmpeg_download.lock"
+
+
+def _legacy_appdata_bin() -> Path | None:
+    appdata = os.environ.get("APPDATA", "").strip()
+    if not appdata:
+        return None
+    return Path(appdata) / "ItMatZip" / "bin"
+
+
+def _migrate_legacy_binaries() -> None:
+    """MSI(ProgramData) 이전에 %APPDATA%\\ItMatZip\\bin 에 받아 둔 경우 새 경로로 복사."""
+    target = get_bin_root()
+    if get_ffmpeg_exe().is_file() and get_ffprobe_exe().is_file():
+        return
+    legacy = _legacy_appdata_bin()
+    if legacy is None or legacy.resolve() == target.resolve():
+        return
+    leg_ff = legacy / "ffmpeg.exe"
+    leg_fp = legacy / "ffprobe.exe"
+    if not (leg_ff.is_file() and leg_fp.is_file()):
+        return
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(leg_ff, get_ffmpeg_exe())
+    shutil.copy2(leg_fp, get_ffprobe_exe())
+
+
 def get_ffmpeg_executable() -> Path:
     """엔진에서 FFmpeg 실행 파일 경로가 필요할 때 사용합니다. 사전에 `ensure_ffmpeg()`가 성공한 상태여야 합니다."""
-    if not FFMPEG_EXE.is_file():
+    path = get_ffmpeg_exe()
+    if not path.is_file():
         raise FileNotFoundError(
-            f"FFmpeg가 준비되지 않았습니다: {FFMPEG_EXE}. 서버 기동 시 ensure_ffmpeg()를 호출했는지 확인하세요."
+            f"FFmpeg가 준비되지 않았습니다: {path}. POST /api/tools/silence-remover/prepare 를 호출했는지 확인하세요."
         )
-    return FFMPEG_EXE
+    return path
 
 
 def get_ffprobe_executable() -> Path:
     """ffprobe 실행 파일 경로입니다. `ensure_ffmpeg()`가 번들에서 `ffmpeg.exe`와 함께 설치합니다."""
-    if not FFPROBE_EXE.is_file():
+    path = get_ffprobe_exe()
+    if not path.is_file():
         raise FileNotFoundError(
-            f"ffprobe가 준비되지 않았습니다: {FFPROBE_EXE}. ensure_ffmpeg()로 번들을 다시 설치해 주세요."
+            f"ffprobe가 준비되지 않았습니다: {path}. ensure_ffmpeg()로 번들을 다시 설치해 주세요."
         )
-    return FFPROBE_EXE
+    return path
+
+
+def _clear_stale_download_lock() -> None:
+    lock = get_download_lock()
+    if not lock.is_file():
+        return
+    try:
+        age = time.time() - lock.stat().st_mtime
+    except OSError:
+        return
+    if age >= _STALE_LOCK_SEC:
+        _release_download_lock()
 
 
 def ensure_ffmpeg(
@@ -55,37 +114,44 @@ def ensure_ffmpeg(
     download_timeout_sec: float = 120.0,
 ) -> Path:
     """
-    `%APPDATA%/ItMatZip/bin/`에 `ffmpeg.exe`와 같은 번들의 `ffprobe.exe`가 있으면 그대로 반환합니다.
-    없으면 zip 번들을 내려받아 압축을 풀고, 두 실행 파일을 동일 폴더에 배치한 뒤 `ffmpeg.exe` 경로를 반환합니다.
+    `ITMATZIP_AGENT_DATA/bin` 또는 `%APPDATA%/ItMatZip/bin/`에 ffmpeg·ffprobe를 둡니다.
+    없으면 zip 번들을 내려받아 설치합니다.
     """
-    BIN_ROOT.mkdir(parents=True, exist_ok=True)
+    _migrate_legacy_binaries()
+    bin_root = get_bin_root()
+    bin_root.mkdir(parents=True, exist_ok=True)
+    ffmpeg_exe = get_ffmpeg_exe()
+    ffprobe_exe = get_ffprobe_exe()
 
-    if FFMPEG_EXE.is_file() and FFPROBE_EXE.is_file():
-        return FFMPEG_EXE
+    if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+        return ffmpeg_exe
+
+    _clear_stale_download_lock()
 
     url = bundle_url or FFMPEG_BUNDLE_URL
     deadline = time.monotonic() + 120.0
     held_lock = False
 
     while time.monotonic() < deadline:
-        if FFMPEG_EXE.is_file() and FFPROBE_EXE.is_file():
-            return FFMPEG_EXE
+        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+            return ffmpeg_exe
         if _try_acquire_download_lock():
             held_lock = True
             break
         time.sleep(0.2)
+        _clear_stale_download_lock()
 
     if not held_lock:
-        if FFMPEG_EXE.is_file() and FFPROBE_EXE.is_file():
-            return FFMPEG_EXE
+        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+            return ffmpeg_exe
         raise TimeoutError("FFmpeg 다운로드 잠금을 획득하지 못했습니다. 잠시 후 다시 시도하세요.")
 
     try:
-        if FFMPEG_EXE.is_file() and FFPROBE_EXE.is_file():
-            return FFMPEG_EXE
+        if ffmpeg_exe.is_file() and ffprobe_exe.is_file():
+            return ffmpeg_exe
 
-        archive_path = BIN_ROOT / _bundle_archive_name
-        extract_dir = BIN_ROOT / _extract_dir_name
+        archive_path = bin_root / _bundle_archive_name
+        extract_dir = bin_root / _extract_dir_name
 
         if extract_dir.exists():
             shutil.rmtree(extract_dir, ignore_errors=True)
@@ -106,8 +172,8 @@ def ensure_ffmpeg(
                 f"압축 해제 후 ffprobe.exe를 찾지 못했습니다. 동일 번들에 ffprobe가 포함되어 있는지 확인하세요: {url}"
             )
 
-        shutil.copy2(found_ffmpeg, FFMPEG_EXE)
-        shutil.copy2(found_probe, FFPROBE_EXE)
+        shutil.copy2(found_ffmpeg, ffmpeg_exe)
+        shutil.copy2(found_probe, ffprobe_exe)
 
         try:
             archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -115,16 +181,18 @@ def ensure_ffmpeg(
             pass
         shutil.rmtree(extract_dir, ignore_errors=True)
 
-        return FFMPEG_EXE
+        return ffmpeg_exe
     finally:
         if held_lock:
             _release_download_lock()
 
 
 def _try_acquire_download_lock() -> bool:
-    BIN_ROOT.mkdir(parents=True, exist_ok=True)
+    bin_root = get_bin_root()
+    bin_root.mkdir(parents=True, exist_ok=True)
+    lock = get_download_lock()
     try:
-        fd = os.open(str(_download_lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         os.close(fd)
         return True
     except FileExistsError:
@@ -133,7 +201,7 @@ def _try_acquire_download_lock() -> bool:
 
 def _release_download_lock() -> None:
     try:
-        _download_lock.unlink(missing_ok=True)  # type: ignore[arg-type]
+        get_download_lock().unlink(missing_ok=True)  # type: ignore[arg-type]
     except OSError:
         pass
 
@@ -195,3 +263,15 @@ def _find_ffprobe_beside_or_under(ffmpeg_path: Path, extract_root: Path) -> Path
         if p.is_file():
             return p
     return None
+
+
+# --- 하위 호환: 기존 `from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, BIN_ROOT` ---
+
+def __getattr__(name: str):
+    if name == "BIN_ROOT":
+        return get_bin_root()
+    if name == "FFMPEG_EXE":
+        return get_ffmpeg_exe()
+    if name == "FFPROBE_EXE":
+        return get_ffprobe_exe()
+    raise AttributeError(name)

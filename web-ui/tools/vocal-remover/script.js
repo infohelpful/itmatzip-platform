@@ -381,6 +381,7 @@ async function prepareModel({ force = false } = {}) {
       throw new Error("모델 준비가 완료되지 않았습니다.");
     }
     setSetupLoading(false);
+    await checkVocalToolReadiness(true);
   } catch (err) {
     setSetupLoading(true, {
       title: "준비 실패",
@@ -888,7 +889,11 @@ async function checkVocalToolReadiness(knownOk) {
 
     setSetupLoading(false);
     if (!b.model_ready) {
-      await refreshToolStatus();
+      const refreshed = await refreshToolStatus();
+      if (refreshed) {
+        await checkVocalToolReadiness(true);
+        return;
+      }
     }
     binEl.className = "bin-readiness is-warn";
     binEl.textContent = parts.join(" · ");

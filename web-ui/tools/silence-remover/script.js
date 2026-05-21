@@ -2257,27 +2257,46 @@ document.addEventListener("DOMContentLoaded", () => {
     binEl.textContent = "FFmpeg · ffprobe 확인 중...";
 
     try {
-      const data = await requestAgent({
+      let data = await requestAgent({
         method: "GET",
         path: "/api/tools/silence-remover/readiness",
         onProgress: (ev) => {
           if (ev.phase === "request") {
-            binEl.textContent =
-              "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 시간이 걸릴 수 있음)";
+            binEl.textContent = "FFmpeg · ffprobe 확인 중...";
           }
         },
       });
-      const b = data && typeof data === "object" ? data.binaries : null;
+      let b = data && typeof data === "object" ? data.binaries : null;
+      if (!b || !b.ffmpeg || !b.ffprobe) {
+        binEl.textContent =
+          "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 1~3분 걸릴 수 있음)";
+        const ctrl = new AbortController();
+        const dlTimer = setTimeout(() => ctrl.abort(), 180_000);
+        try {
+          data = await requestAgent({
+            method: "POST",
+            path: "/api/tools/silence-remover/prepare",
+            signal: ctrl.signal,
+          });
+        } finally {
+          clearTimeout(dlTimer);
+        }
+        b = data && typeof data === "object" ? data.binaries : null;
+      }
       if (b && b.ffmpeg && b.ffprobe) {
         binEl.className = "bin-readiness is-ok";
         binEl.textContent = "FFmpeg · ffprobe 준비됨";
         return;
       }
       binEl.className = "bin-readiness is-err";
-      binEl.textContent = "FFmpeg 또는 ffprobe가 경로에 없습니다.";
+      const binDir =
+        b && typeof b.bin_dir === "string" && b.bin_dir
+          ? b.bin_dir
+          : "C:\\ProgramData\\itmatzip-agent\\bin (서비스) 또는 %APPDATA%\\ItMatZip\\bin";
+      binEl.textContent = "FFmpeg · ffprobe가 아직 준비되지 않았습니다.";
       await showInstallAgentDialog({
         title: "FFmpeg 구성 오류",
-        bodyHtml: `<p>에이전트는 떠 있지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code> 준비 결과가 비정상입니다.</p><p>에이전트를 재시작하거나 <code>%APPDATA%\\ItMatZip\\bin</code> 폴더를 확인해 주세요.</p>`,
+        bodyHtml: `<p>에이전트는 연결됐지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code>가 설치 폴더에 없습니다. (Windows PATH와 무관합니다.)</p><p>설치 위치: <code>${escHtml(binDir)}</code></p><p>페이지를 새로고침해 다시 설치를 시도하거나, 에이전트를 재시작해 주세요. 회사망이면 <code>ITMATZIP_FFMPEG_URL</code> 설정이 필요할 수 있습니다.</p>`,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
