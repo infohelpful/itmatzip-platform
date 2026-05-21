@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 type workerProcess struct {
@@ -119,8 +121,8 @@ func (wm *workerManager) startPythonWorker(ctx context.Context) error {
 
 func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 	wm.mu.Lock()
-	defer wm.mu.Unlock()
 	if wm.grpcProc != nil {
+		wm.mu.Unlock()
 		return fmt.Errorf("grpc worker already running")
 	}
 
@@ -143,20 +145,51 @@ func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		cancel()
+		wm.mu.Unlock()
 		return err
 	}
 	if err := cmd.Start(); err != nil {
 		cancel()
+		wm.mu.Unlock()
 		return err
 	}
 
 	wm.grpcProc = &workerProcess{id: "grpc", kind: "python-grpc", cmd: cmd, cancel: cancel}
 	wm.upsertWorker("grpc", "python-grpc", cmd.Process.Pid, "running", "")
+	wm.mu.Unlock()
 
 	go wm.scanWorkerOutput(stderr, "python-grpc")
 	go wm.waitWorker(wm.grpcProc)
 	wm.hub.broadcast(wsEvent{Type: "worker", Status: "started", Message: "Python gRPC worker launched", Source: "python-grpc"})
-	return nil
+
+	return wm.waitGRPCWorkerAlive(5 * time.Second)
+}
+
+func (wm *workerManager) grpcWorkerAliveLocked() bool {
+	if wm.grpcProc == nil || wm.grpcProc.cmd == nil || wm.grpcProc.cmd.Process == nil {
+		return false
+	}
+	return wm.grpcProc.cmd.ProcessState == nil
+}
+
+func (wm *workerManager) grpcWorkerAlive() bool {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	return wm.grpcWorkerAliveLocked()
+}
+
+func (wm *workerManager) waitGRPCWorkerAlive(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		wm.mu.Lock()
+		alive := wm.grpcWorkerAliveLocked()
+		wm.mu.Unlock()
+		if alive {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("gRPC worker exited before ready (port %s may be in use by another process)", wm.grpcAddr)
 }
 
 func (wm *workerManager) waitWorker(proc *workerProcess) {
@@ -254,6 +287,22 @@ func (wm *workerManager) collectStatus(ctx context.Context) map[string]any {
 		workerStatus, err := wm.grpcClient.Status(ctx)
 		if err == nil {
 			status["grpc_status"] = workerStatus
+			if msg, ok := workerStatus["worker_status"].(string); ok {
+				if !strings.Contains(strings.ToLower(msg), strings.ToLower(installRootPath)) {
+					status["grpc_error"] = fmt.Sprintf(
+						"gRPC worker install_root mismatch (expected %s, got %q)",
+						installRootPath, msg,
+					)
+					status["grpc_health"] = nil
+				}
+			}
+		}
+		if !wm.grpcWorkerAlive() && status["grpc_health"] != nil {
+			status["grpc_error"] = fmt.Sprintf(
+				"gRPC worker process not running; port %s may be held by a stale worker",
+				wm.grpcAddr,
+			)
+			status["grpc_health"] = nil
 		}
 	}
 

@@ -118,9 +118,10 @@ class WorkerControlServicer(agent_pb2_grpc.WorkerControlServicer):
 
     def Status(self, request, context):
         loaded = list(self._registry._loaded.keys())
-        msg = "ready"
+        root = str(_install_root())
+        msg = f"ready; install_root={root}"
         if loaded:
-            msg = f"ready; loaded={','.join(loaded)}"
+            msg += f"; loaded={','.join(loaded)}"
         if demucs_available():
             msg += "; demucs=installed"
         return agent_pb2.StatusResponse(worker_status=msg, last_error="")

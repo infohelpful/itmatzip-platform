@@ -198,7 +198,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "message": "install started"})
 	})
 
-	if sidecar != nil && sidecar.IsReady() {
+	if sidecar != nil {
 		apiProxy := sidecar.ProxyHandler()
 		mux.Handle("/api/", apiProxy)
 		mux.Handle("/ui/", apiProxy)
@@ -293,12 +293,11 @@ func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRP
 	var sidecar *fastapiSidecar
 	if startFastAPI {
 		sidecar = newFastAPISidecar(fastapiPort)
-		if err := sidecar.Start(ctx, mgr); err != nil {
-			log.Printf("warning: fastapi sidecar failed to start: %v", err)
-			sidecar = nil
-		} else {
-			defer sidecar.Stop()
-		}
+		go func() {
+			if err := sidecar.Start(ctx, mgr); err != nil {
+				log.Printf("warning: fastapi sidecar failed to start: %v", err)
+			}
+		}()
 	}
 
 	return startHTTPServer(ctx, hub, mgr, port, sidecar)
@@ -331,7 +330,7 @@ func main() {
 		if err := uninstallService(); err != nil {
 			log.Fatalf("uninstall service: %v", err)
 		}
-		fmt.Println("service uninstalled")
+		fmt.Println("service uninstalled (or was not registered)")
 		return
 	}
 	if *checkUpdate || *applyUpdate {

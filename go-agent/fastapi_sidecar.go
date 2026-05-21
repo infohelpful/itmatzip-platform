@@ -129,7 +129,15 @@ func (s *fastapiSidecar) ProxyHandler() http.Handler {
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`{"detail":"FastAPI sidecar unavailable"}`))
 	}
-	return proxy
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.IsReady() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"detail":"FastAPI sidecar not ready"}`))
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func fetchFastAPIHealth(baseURL string) map[string]any {

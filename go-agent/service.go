@@ -46,10 +46,11 @@ func (p *program) Start(s service.Service) error {
 		}
 
 		p.sidecar = newFastAPISidecar(p.fastapiPort)
-		if err := p.sidecar.Start(p.ctx, p.mgr); err != nil {
-			log.Printf("failed to start FastAPI sidecar: %v", err)
-			p.sidecar = nil
-		}
+		go func() {
+			if err := p.sidecar.Start(p.ctx, p.mgr); err != nil {
+				log.Printf("failed to start FastAPI sidecar: %v", err)
+			}
+		}()
 
 		if err := startHTTPServer(p.ctx, p.hub, p.mgr, p.port, p.sidecar); err != nil {
 			log.Printf("service HTTP server stopped: %v", err)
@@ -98,20 +99,36 @@ func serviceExecutable() (string, error) {
 
 func installService(port, grpcPort, fastapiPort int) error {
 	prg := &program{port: port, grpcPort: grpcPort, fastapiPort: fastapiPort}
-	svc, err := service.New(prg, serviceConfig(port, grpcPort, fastapiPort))
+	cfg := serviceConfig(port, grpcPort, fastapiPort)
+	svc, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
-	return svc.Install()
+	if err := svc.Install(); err != nil {
+		if _, statusErr := svc.Status(); statusErr == nil {
+			log.Printf("service %s already installed, skipping register", cfg.Name)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func uninstallService() error {
 	prg := &program{}
-	svc, err := service.New(prg, &service.Config{Name: "ItMatZipAgent"})
+	cfg := &service.Config{Name: "ItMatZipAgent"}
+	svc, err := service.New(prg, cfg)
 	if err != nil {
 		return err
 	}
-	return svc.Uninstall()
+	if err := svc.Uninstall(); err != nil {
+		if _, statusErr := svc.Status(); statusErr != nil {
+			log.Printf("service %s not installed, skipping unregister", cfg.Name)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func runService(port, grpcPort, fastapiPort int) error {
