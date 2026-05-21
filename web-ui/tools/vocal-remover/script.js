@@ -47,6 +47,7 @@ const separationLoadingPercent = document.getElementById("separation-loading-per
 const separationLoadingTrack = document.getElementById("separation-loading-track");
 const separationLoadingBar = document.getElementById("separation-loading-bar");
 const dualWaveformSection = document.getElementById("dual-waveform-section");
+const dropZoneEl = document.querySelector(".drop-zone");
 
 const DOWNLOAD_PAGE = "download.html";
 const STORAGE_MR_URL = "vocal-remover:mr-download-url";
@@ -247,7 +248,7 @@ async function resetEditorState({ cleanupWorkspace = true } = {}) {
   if (pathHint) {
     pathHint.textContent = "오디오를 선택한 뒤 분석하기를 누르면 MR·보컬을 분리합니다.";
   }
-  dualPlayer.prepareForSeparation("");
+  dualPlayer.prepareForFilePick("");
   updateActionButtons();
 }
 
@@ -294,6 +295,9 @@ function hasAudioPath() {
 }
 
 function updateActionButtons() {
+  if (btnPickLocalFile && btnPickLocalFile.textContent !== "대화상자…") {
+    btnPickLocalFile.disabled = separationBusy;
+  }
   if (btnStartSeparation) {
     btnStartSeparation.disabled = !toolReady || separationBusy || !hasAudioPath();
   }
@@ -672,36 +676,88 @@ async function startAnalysis() {
   await runSeparationForFile(audioPath);
 }
 
+let savedPickBtnLabel = "";
+
+function setPickBusy(busy) {
+  if (btnPickLocalFile) {
+    if (busy) {
+      savedPickBtnLabel = btnPickLocalFile.textContent || "찾아보기";
+      btnPickLocalFile.disabled = true;
+      btnPickLocalFile.textContent = "대화상자…";
+    } else {
+      btnPickLocalFile.disabled = separationBusy;
+      btnPickLocalFile.textContent = savedPickBtnLabel || "찾아보기";
+    }
+  }
+  dropZoneEl?.classList.toggle("is-picking", busy);
+}
+
 async function pickLocalFile() {
   if (separationBusy) {
-    setSeparationLoading(true, { message: "이전 분리 작업이 진행 중입니다." });
-    setTimeout(() => setSeparationLoading(false), 2000);
+    alert("이전 분리 작업이 진행 중입니다. 완료 후 다시 시도해 주세요.");
     return;
   }
+
+  const agent = await checkAgentConnection();
+  if (!agent.ok) {
+    await showInstallAgentDialog(installDialogOpts());
+    return;
+  }
+
+  setPickBusy(true);
+  const ctrl = new AbortController();
+  const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
+
   try {
     const res = await fetchAgent(`${getAgentOrigin()}/api/tools/vocal-remover/pick-local-file`, {
       method: "POST",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
     });
+    const data = await res.json().catch(() => ({}));
+
     if (!res.ok) {
-      const msg = await parseApiError(res);
+      const d = data && typeof data === "object" ? data.detail : undefined;
+      const msg =
+        typeof d === "string"
+          ? d
+          : Array.isArray(d)
+            ? d
+                .map((x) => (x && typeof x === "object" && "msg" in x ? String(x.msg) : ""))
+                .filter(Boolean)
+                .join("; ")
+            : res.statusText || "요청 실패";
       if (res.status === 400 && (msg.includes("취소") || /cancel/i.test(msg))) return;
-      throw new Error(msg);
+      alert(`파일 찾아보기 실패: ${msg}`);
+      return;
     }
-    const data = await res.json();
-    const picked = data?.audio_path || data?.video_path;
-    if (picked && audioPathInput) {
-      if (hadWorkspaceArtifacts) await cleanupAgentWorkspace();
-      clearDownloadResult();
-      audioPathInput.value = picked;
-      dualPlayer.prepareForSeparation(picked);
-      if (pathHint) {
-        pathHint.textContent = "분석하기를 누르면 MR·보컬을 분리합니다.";
-      }
-      updateActionButtons();
+
+    const picked =
+      (data && typeof data === "object" && (data.audio_path || data.video_path)) || "";
+    if (typeof picked !== "string" || !picked.trim()) {
+      alert("에이전트가 경로를 반환하지 않았습니다.");
+      return;
     }
-  } catch (err) {
-    setSeparationLoading(true, { message: `파일 선택 오류: ${formatAgentConnectionError(err)}` });
-    setTimeout(() => setSeparationLoading(false), 3000);
+
+    if (hadWorkspaceArtifacts) await cleanupAgentWorkspace();
+    clearDownloadResult();
+    audioPathInput.value = picked.trim();
+    dualPlayer.prepareForFilePick(picked.trim());
+    if (pathHint) {
+      pathHint.textContent = "분석하기를 누르면 MR·보컬을 분리합니다.";
+    }
+    updateActionButtons();
+  } catch (e) {
+    const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
+    if (name === "AbortError") {
+      alert("파일 선택이 시간 초과되었습니다. 다시 시도해 주세요.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`파일 찾아보기 실패: ${formatAgentConnectionError(e) || msg}`);
+    }
+  } finally {
+    window.clearTimeout(tid);
+    setPickBusy(false);
   }
 }
 
@@ -888,12 +944,14 @@ async function checkVocalToolReadiness(knownOk) {
     }
 
     setSetupLoading(false);
-    if (!b.model_ready) {
-      const refreshed = await refreshToolStatus();
-      if (refreshed) {
+    if (!b.ffmpeg || !b.ffprobe || !b.model_ready || !allCore) {
+      try {
+        await prepareModel();
         await checkVocalToolReadiness(true);
-        return;
+      } catch {
+        /* 오류 메시지는 prepareModel / 외부 catch에서 표시 */
       }
+      return;
     }
     binEl.className = "bin-readiness is-warn";
     binEl.textContent = parts.join(" · ");

@@ -215,6 +215,11 @@ body {
   margin-bottom: 0;
 }
 
+.drop-zone.is-picking {
+  pointer-events: none;
+  opacity: 0.82;
+}
+
 .drop-zone {
   background: var(--panel-bg);
   border: 1px solid var(--border);

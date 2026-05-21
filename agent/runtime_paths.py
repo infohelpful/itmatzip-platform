@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
+
+
+def _msi_engine_python() -> Path | None:
+    """Go MSI 설치 시 engine venv Python (서비스에서 pick 대화상자 실행용)."""
+    root = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+    if not root:
+        return None
+    candidate = Path(root) / "engine" / "python.exe"
+    return candidate if candidate.is_file() else None
 
 
 def is_frozen() -> bool:
@@ -53,6 +63,9 @@ def pick_file_command() -> list[str]:
         if exe.is_file():
             return [str(exe), "--pick-file"]
         return [str(user_launch_exe()), "--pick-file"]
+    engine_py = _msi_engine_python()
+    if engine_py is not None:
+        return [str(engine_py), str(pick_script_path())]
     return [sys.executable, str(pick_script_path())]
 
 
@@ -75,6 +88,9 @@ def pick_audio_command() -> list[str]:
         if exe.is_file():
             return [str(exe), "--pick-audio-file"]
         return [str(user_launch_exe()), "--pick-audio-file"]
+    engine_py = _msi_engine_python()
+    if engine_py is not None:
+        return [str(engine_py), str(pick_audio_script_path())]
     return [sys.executable, str(pick_audio_script_path())]
 
 

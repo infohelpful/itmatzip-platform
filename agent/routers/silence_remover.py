@@ -19,9 +19,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
-from common.subprocess_util import run_hidden
+from common.pick_local_file import run_media_pick_dialog
 from engines import silence_remover
-from runtime_paths import pick_file_available, pick_file_command
+from runtime_paths import pick_file_available
 
 router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"])
 
@@ -331,34 +331,18 @@ def post_pick_local_file(_: SilenceRemoverReady) -> dict[str, str]:
             detail="파일 선택 스크립트를 찾을 수 없습니다. exe를 다시 빌드하거나 agent/scripts를 확인하세요.",
         )
     try:
-        proc = run_hidden(
-            pick_file_command(),
-            capture_output=True,
-            text=True,
-            timeout=600,
-            encoding="utf-8",
-            errors="replace",
-        )
+        path = run_media_pick_dialog(timeout=600)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="파일 선택 대화상자 시간 초과") from None
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "tkinter" in msg.lower():
+            raise HTTPException(status_code=501, detail=msg) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    line = (proc.stdout or "").strip().splitlines()
-    raw = line[-1] if line else ""
-    try:
-        payload = json.loads(raw) if raw else {}
-    except json.JSONDecodeError as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"대화상자 출력 파싱 실패: {e!s}. stderr={proc.stderr!r}",
-        ) from e
-
-    if payload.get("error") == "tkinter_unavailable":
-        raise HTTPException(
-            status_code=501,
-            detail="tkinter를 사용할 수 없습니다. Python 설치에 Tk가 포함되어 있는지 확인하세요.",
-        )
-
-    path = str(payload.get("path") or "").strip()
+    path = str(path or "").strip()
     if not path:
         raise HTTPException(status_code=400, detail="파일 선택이 취소되었습니다.")
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import threading
 from pathlib import Path
@@ -11,10 +10,10 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
-from common.subprocess_util import run_hidden
+from common.pick_local_file import run_audio_pick_dialog
 from engines import silence_remover as silence_remover_engine
 from engines import vocal_remover
-from runtime_paths import pick_audio_available, pick_audio_command
+from runtime_paths import pick_audio_available
 
 router = APIRouter(prefix="/api/tools/vocal-remover", tags=["vocal-remover"])
 
@@ -121,6 +120,15 @@ def _run_prepare() -> None:
     try:
         _set_prepare_state(
             "installing_dependencies",
+            3.0,
+            "FFmpeg 확인 중…",
+            step="FFmpeg",
+            detail="없으면 다운로드합니다 (최초 1회)",
+        )
+        ensure_ffmpeg(download_timeout_sec=300.0)
+
+        _set_prepare_state(
+            "installing_dependencies",
             5.0,
             "Demucs·diffq 환경 확인 중…",
             step="환경 확인",
@@ -202,8 +210,11 @@ def _run_prepare() -> None:
 
 
 @router.get("/readiness")
-def get_readiness(_: VocalRemoverReady) -> dict[str, object]:
-    """페이지 진입 시 FFmpeg·Demucs·diffq 준비 상태를 점검합니다."""
+def get_readiness() -> dict[str, object]:
+    """
+    Vocal Remover 페이지 진입 시 바이너리·모델 존재만 확인합니다.
+    다운로드·설치는 POST /prepare 에서 수행합니다.
+    """
     planned = vocal_remover.select_wheel_bundle()
     installed = vocal_remover.installed_torch_wheel_variant()
     return {
@@ -244,34 +255,18 @@ def post_pick_local_file() -> dict[str, str]:
     if not pick_audio_available():
         raise HTTPException(status_code=500, detail="파일 선택 기능을 사용할 수 없습니다.")
     try:
-        proc = run_hidden(
-            pick_audio_command(),
-            capture_output=True,
-            text=True,
-            timeout=600,
-            encoding="utf-8",
-            errors="replace",
-        )
+        path = run_audio_pick_dialog(timeout=600)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="파일 선택 대화상자 시간 초과") from None
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "tkinter" in msg.lower():
+            raise HTTPException(status_code=501, detail=msg) from exc
+        raise HTTPException(status_code=500, detail=msg) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    line = (proc.stdout or "").strip().splitlines()
-    raw = line[-1] if line else ""
-    try:
-        payload = json.loads(raw) if raw else {}
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"대화상자 출력 파싱 실패: {exc}. stderr={proc.stderr!r}",
-        ) from exc
-
-    if payload.get("error") == "tkinter_unavailable":
-        raise HTTPException(
-            status_code=501,
-            detail="tkinter를 사용할 수 없습니다. Python 설치에 Tk가 포함되어 있는지 확인하세요.",
-        )
-
-    path = str(payload.get("path") or "").strip()
+    path = str(path or "").strip()
     if not path:
         raise HTTPException(status_code=400, detail="파일 선택이 취소되었습니다.")
 

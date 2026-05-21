@@ -588,9 +588,9 @@ export function createVocalDualPlayer(deps) {
 
 
 
-  /** 파일 선택 직후: 파형 영역만 열고 분리 대기 상태 */
+  /** 파일 선택 직후: 경로만 반영하고 분리는 시작하지 않음 */
 
-  function prepareForSeparation(filePath) {
+  function prepareForFilePick(filePath) {
 
     stopSources();
 
@@ -620,9 +620,9 @@ export function createVocalDualPlayer(deps) {
 
     const base = filePath.split(/[/\\]/).pop() || filePath;
 
-    if (labelMusic) labelMusic.textContent = `${base} · MR (분리 중)`;
+    if (labelMusic) labelMusic.textContent = base ? `${base} · MR (분리 대기)` : "MR (분리 대기)";
 
-    if (labelVocal) labelVocal.textContent = `${base} · 보컬 (분리 중)`;
+    if (labelVocal) labelVocal.textContent = base ? `${base} · 보컬 (분리 대기)` : "보컬 (분리 대기)";
 
     if (timeTotal) timeTotal.textContent = "0:00.0";
 
@@ -631,6 +631,22 @@ export function createVocalDualPlayer(deps) {
 
 
     redrawAll();
+
+  }
+
+
+
+  /** 분석(분리) 시작 시 표시 */
+
+  function prepareForSeparation(filePath) {
+
+    prepareForFilePick(filePath);
+
+    const base = filePath.split(/[/\\]/).pop() || filePath;
+
+    if (base && labelMusic) labelMusic.textContent = `${base} · MR (분리 중)`;
+
+    if (base && labelVocal) labelVocal.textContent = `${base} · 보컬 (분리 중)`;
 
   }
 
@@ -734,6 +750,8 @@ export function createVocalDualPlayer(deps) {
 
 
   return {
+
+    prepareForFilePick,
 
     prepareForSeparation,
 
