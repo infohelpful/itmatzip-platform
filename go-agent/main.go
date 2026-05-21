@@ -348,12 +348,14 @@ func main() {
 		return
 	}
 	if *launchMode {
+		hideAgentConsole()
 		if err := runLaunch(*port); err != nil {
 			log.Fatalf("launch: %v", err)
 		}
 		return
 	}
 	if *trayMode {
+		hideAgentConsole()
 		if err := runTray(*port); err != nil {
 			log.Fatalf("tray: %v", err)
 		}

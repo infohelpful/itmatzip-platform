@@ -102,15 +102,54 @@ func runTray(port int) error {
 	return runTrayWithOptions(port, false)
 }
 
+// ensureServiceForLaunch starts or restarts the Windows service only when needed.
+// Normal users cannot run sc stop/start (exit 5); skip restart if the service is already healthy.
+func ensureServiceForLaunch(port int) {
+	if isWindowsServiceRunning() {
+		if waitForAgentHealth(port, 12*time.Second) {
+			return
+		}
+		log.Print("service running but agent not healthy; attempting restart")
+		if err := restartWindowsService(); err != nil {
+			if isServiceAccessDenied(err) {
+				log.Print("service restart skipped (administrator rights required)")
+			} else {
+				log.Printf("warning: service restart failed: %v", err)
+			}
+		}
+		if !waitForAgentHealth(port, 60*time.Second) {
+			log.Printf("warning: agent health not ready within timeout")
+		}
+		return
+	}
+	if err := startWindowsService(); err != nil {
+		if isServiceAccessDenied(err) {
+			log.Print("service start skipped (administrator rights required)")
+		} else {
+			log.Printf("warning: service start failed: %v", err)
+		}
+		return
+	}
+	if !waitForAgentHealth(port, 60*time.Second) {
+		log.Printf("warning: agent health not ready within timeout")
+	}
+}
+
+func isServiceAccessDenied(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "exit status 5") ||
+		strings.Contains(strings.ToLower(s), "access is denied") ||
+		strings.Contains(s, "액세스가 거부")
+}
+
 func runTrayWithOptions(port int, restartServiceFirst bool) error {
 	initPaths()
 
 	if restartServiceFirst {
-		if err := restartWindowsService(); err != nil {
-			log.Printf("warning: service restart failed: %v", err)
-		} else if !waitForAgentHealth(port, 60*time.Second) {
-			log.Printf("warning: agent health not ready within timeout")
-		}
+		ensureServiceForLaunch(port)
 	}
 
 	mutex, ok, err := acquireTraySingleInstance()
