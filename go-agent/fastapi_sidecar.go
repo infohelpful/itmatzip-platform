@@ -30,6 +30,14 @@ func newFastAPISidecar(port int) *fastapiSidecar {
 }
 
 func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
+	if s.cmd != nil && s.cmd.Process != nil && s.cmd.ProcessState == nil {
+		s.Stop()
+		time.Sleep(300 * time.Millisecond)
+	}
+	s.cmd = nil
+	s.cancel = nil
+	s.ready = false
+
 	agentDir, ok := resolveAgentDir()
 	if !ok {
 		return fmt.Errorf("agent directory not found (set ITMATZIP_AGENT_DIR)")

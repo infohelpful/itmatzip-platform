@@ -72,8 +72,8 @@ func createLaunchShortcuts() error {
 	if err != nil {
 		return err
 	}
-	args := "--launch"
-	desc := "ItMatZip Agent 서비스를 시작하고 트레이 아이콘을 표시합니다."
+	args := "--tray"
+	desc := "ItMatZip Agent 트레이 아이콘을 표시합니다 (서비스는 Windows 서비스로 실행)."
 	for _, lnk := range []string{desktop, startMenu} {
 		if err := createWindowsShortcut(lnk, exe, args, icon, workDir, desc); err != nil {
 			return err

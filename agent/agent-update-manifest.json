@@ -1,11 +1,11 @@
 {
-    "version":  "1.0.8",
+    "version":  "1.0.9",
     "published_at":  "2026-05-21",
     "package_type":  "msi",
     "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.8/itmatzip-agent.msi",
-    "sha256":  "130ada8bbf14a5256909f78ab9f3f7af0a619117043412395437b7e63c57ee6b",
+    "sha256":  "e082bd0460b79bfa6bbd1fbb084142147ff7bed3677f9094b406aa9025bb6b93",
     "mandatory":  false,
     "release_notes":  "에이전트 설치 후 명령프롬프트 자동 실 수정 ",
     "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.8/itmatzip-agent.msi",
-    "msi_sha256":  "130ada8bbf14a5256909f78ab9f3f7af0a619117043412395437b7e63c57ee6b"
+    "msi_sha256":  "e082bd0460b79bfa6bbd1fbb084142147ff7bed3677f9094b406aa9025bb6b93"
 }

@@ -49,6 +49,17 @@ try {
     if ($UseEmbeddable -or (-not $SkipEngine)) { $stageArgs.UseEmbeddable = $true }
     & (Join-Path $InstallerDir "stage-payload.ps1") @stageArgs
 
+    $enginePython = Join-Path $Staging "engine\python.exe"
+    if ($SkipEngine) {
+        throw @"
+MSI cannot be built with -SkipEngine: bundled engine\python.exe is required for gRPC and FastAPI.
+Rebuild with: powershell -File installer\build.ps1 -UseEmbeddable
+"@
+    }
+    if (-not (Test-Path $enginePython)) {
+        throw "Staging missing engine\python.exe at $enginePython — grpc/fastapi will not start."
+    }
+
     if (-not (Import-WixPath)) {
         Write-Warning "WiX Toolset not found in PATH or standard install locations."
         Write-Warning "Install with: winget install WiXToolset.WiXToolset"

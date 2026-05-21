@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/itmatzip/itmatzip-agent-go-prototype/proto"
@@ -25,7 +26,12 @@ func newGRPCWorkerClient(addr string) *grpcWorkerClient {
 
 func (c *grpcWorkerClient) Connect(ctx context.Context) error {
 	if c.conn != nil {
-		return nil
+		switch c.conn.GetState() {
+		case connectivity.Ready, connectivity.Idle, connectivity.Connecting:
+			return nil
+		default:
+			_ = c.Close()
+		}
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

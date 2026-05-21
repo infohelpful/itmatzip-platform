@@ -1,39 +1,44 @@
-# 에이전트 릴리스 — 한 번에 끝내기
+# ItMatZip Agent — 릴리스 전 점검 (1.0.9)
 
-여러 번 MSI만 올리지 말고, **아래 순서를 한 사이클**로만 진행하세요.
+**원칙:** 자잘한 수정마다 버전 올리지 말 것. 1.0.9 MSI 한 번으로 아래 항목이 모두 포함되어야 함.
 
-## 이번 1.0.5에 묶인 수정 (한 번에 배포)
+## 1.0.9에 포함된 수정 (최종 점검 반영)
 
 | 영역 | 내용 |
 |------|------|
-| Go MSI | 설치/업그레이드 후 **서비스 자동 시작** |
-| Go HTTP | **CORS** (웹툰 → 127.0.0.1:19876) |
-| Go → FastAPI | **CORS 중복 제거** (Failed to fetch) |
-| FastAPI | FFmpeg **readiness 빠름** + **POST /prepare** 다운로드 |
-| FFmpeg 경로 | `C:\ProgramData\itmatzip-agent\bin` (서비스 계정) |
-| Web UI | `silence-remover/script.js` — `/prepare` 호출 |
+| WiX | XML 주석 `--` 제거, 설치 후 `--tray`만 실행 |
+| 설치/업그레이드 | `installService`가 **이미 설치된 경우에도** `sc sdset` ACL 적용 |
+| 트레이 | `sc.exe` 폴링 제거 → SCM API, CMD 깜빡임 제거, `ShellExecute`로 URL |
+| 재시작 | `POST /api/agent/service/restart` (localhost), 트레이 「서비스 재시작」 |
+| 자동 실행 | HKLM Run·바로가기 → `--tray` (로그인 시 SCM stop 시도 없음) |
+| gRPC | reload 시 `Close()` 후 재연결 |
 
-**MSI만 올리고 웹 UI를 안 올리면** Silence Detector FFmpeg는 여전히 깨질 수 있습니다.
-
-## 1. 버전 맞추기 (한 줄기)
-
-- `agent/version.py` → `AGENT_VERSION = "1.0.5"`
-- `go-agent/installer/product.wxs` → `ProductVersion = "1.0.5.0"`
-
-이미 GitHub에 **깨진 1.0.5**를 올렸다면 → **1.0.6**으로 올리고 manifest도 1.0.6.
-
-## 2. 빌드 + 검증 (관리자 PowerShell)
+## 릴리스 전 체크리스트
 
 ```powershell
 cd go-agent
-powershell -ExecutionPolicy Bypass -File scripts\release-once.ps1
+go build -o nul .
+go vet ./...
+# NEVER -SkipEngine for release MSI (grpc/fastapi need engine\python.exe)
+powershell -File installer\build.ps1 -UseEmbeddable
+powershell -File scripts\test-tray.ps1   # 선택
+
+# 설치 후
+Invoke-RestMethod http://127.0.0.1:19876/health
+Invoke-RestMethod http://127.0.0.1:19876/api/tools/silence-remover/readiness
+Invoke-RestMethod http://127.0.0.1:19876/api/tools/silence-remover/prepare -Method POST
 ```
 
-## 3. GitHub + manifest + 웹 UI
+- [ ] MSI 설치 시 검은 콘솔 안 뜸
+- [ ] 트레이 「서비스 재시작」 후 `/health` OK
+- [ ] tools.itmatzip.com FFmpeg prepare OK (웹 UI도 배포됐는지)
 
-`release-once.ps1` 끝에 나오는 체크리스트 그대로 실행.
+## 버전 파일 (동기화)
 
-## 왜 여러 번 나왔나
+- `agent/version.py` → `1.0.9`
+- `agent/agent-update-manifest.json` → `1.0.9` + MSI SHA256
+- `go-agent/installer/product.wxs` → `1.0.9.0`
 
-디버깅하면서 **증상마다 패치**가 쌓였기 때문입니다 (서비스 수동 시작, CORS, CORS 중복, FFmpeg API).  
-앞으로는 **이 문서 + `release-once.ps1` 한 번**만 쓰면 됩니다.
+## GitHub Release
+
+한 태그 `v1.0.9`에 MSI + manifest만 올리기. 1.0.5~1.0.8은 테스트 빌드로 취급.

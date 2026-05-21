@@ -198,6 +198,8 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		_ = json.NewEncoder(w).Encode(map[string]any{"accepted": true, "message": "install started"})
 	})
 
+	mux.HandleFunc(serviceRestartPath, handleServiceRestart)
+
 	if sidecar != nil {
 		apiProxy := sidecar.ProxyHandler()
 		mux.Handle("/api/", apiProxy)

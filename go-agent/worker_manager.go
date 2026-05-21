@@ -74,6 +74,24 @@ func (wm *workerManager) stop() {
 	wm.stopAll()
 }
 
+func (wm *workerManager) resetWorkers() {
+	wm.stopAll()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		wm.mu.Lock()
+		busy := wm.stdio != nil || wm.grpcProc != nil
+		wm.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(120 * time.Millisecond)
+	}
+	wm.mu.Lock()
+	wm.stdio = nil
+	wm.grpcProc = nil
+	wm.mu.Unlock()
+}
+
 func (wm *workerManager) startPythonWorker(ctx context.Context) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
@@ -164,7 +182,7 @@ func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 	go wm.waitWorker(wm.grpcProc)
 	wm.hub.broadcast(wsEvent{Type: "worker", Status: "started", Message: "Python gRPC worker launched", Source: "python-grpc"})
 
-	return wm.waitGRPCWorkerAlive(5 * time.Second)
+	return wm.waitGRPCWorkerAlive(45 * time.Second)
 }
 
 func (wm *workerManager) grpcWorkerAliveLocked() bool {

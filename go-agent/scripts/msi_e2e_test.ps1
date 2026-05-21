@@ -159,6 +159,17 @@ if (-not (Test-Path (Join-Path $InstallDir "agent\main.py"))) {
 }
 Write-Host "Install layout OK (exe + agent/)"
 
+$enginePython = Join-Path $InstallDir "engine\python.exe"
+if (-not (Test-Path $enginePython)) {
+    throw @"
+Bundled Python missing: $enginePython
+The MSI was built with -SkipEngine (engine not staged). gRPC/FastAPI cannot start.
+Rebuild: cd go-agent; powershell -File installer\build.ps1 -UseEmbeddable
+Then reinstall the MSI.
+"@
+}
+Write-Host "Install layout OK (engine/python.exe present)"
+
 $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if (-not $svc) {
     Write-Host "Registering service manually..."

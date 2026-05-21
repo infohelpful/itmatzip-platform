@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/kardianos/service"
 )
+
+var agentReloadMu sync.Mutex
 
 const windowsServiceName = "ItMatZipAgent"
 
@@ -25,6 +28,7 @@ type program struct {
 
 func (p *program) Start(s service.Service) error {
 	log.Print("service starting")
+	registerServiceProgram(p)
 	initPaths()
 	if err := ensurePaths(); err != nil {
 		return err
@@ -43,8 +47,12 @@ func (p *program) Start(s service.Service) error {
 		}
 		if err := p.mgr.startGRPCWorker(p.ctx); err != nil {
 			log.Printf("failed to start Python gRPC worker: %v", err)
-		} else if err := p.mgr.grpcClient.Connect(p.ctx); err != nil {
-			log.Printf("grpc client connect failed: %v", err)
+		} else {
+			connectCtx, connectCancel := context.WithTimeout(p.ctx, 30*time.Second)
+			defer connectCancel()
+			if err := p.mgr.grpcClient.Connect(connectCtx); err != nil {
+				log.Printf("grpc client connect failed: %v", err)
+			}
 		}
 
 		p.sidecar = newFastAPISidecar(p.fastapiPort)
@@ -73,6 +81,7 @@ func (p *program) Stop(s service.Service) error {
 		p.mgr.stop()
 	}
 	time.Sleep(200 * time.Millisecond)
+	registerServiceProgram(nil)
 	return nil
 }
 
@@ -106,25 +115,67 @@ func installService(port, grpcPort, fastapiPort int) error {
 	if err != nil {
 		return err
 	}
+	alreadyInstalled := false
 	if err := svc.Install(); err != nil {
 		if _, statusErr := svc.Status(); statusErr == nil {
-			log.Printf("service %s already installed, skipping register", cfg.Name)
-			return nil
+			alreadyInstalled = true
+			log.Printf("service %s already installed, refreshing permissions", cfg.Name)
+		} else {
+			return err
 		}
-		return err
 	}
-	if err := startWindowsService(); err != nil {
-		log.Printf("warning: could not start service after install: %v", err)
+	if err := grantServiceControlToUsers(); err != nil {
+		log.Printf("warning: service ACL for users: %v", err)
+	}
+	if !alreadyInstalled || !isWindowsServiceRunning() {
+		if err := startWindowsService(); err != nil {
+			log.Printf("warning: could not start service after install: %v", err)
+		}
+	}
+	return nil
+}
+
+func (p *program) reloadAgents() error {
+	agentReloadMu.Lock()
+	defer agentReloadMu.Unlock()
+
+	if p.ctx == nil {
+		return fmt.Errorf("service context not ready")
+	}
+	log.Print("reloading agent workers (fastapi + python)")
+	if p.sidecar != nil {
+		p.sidecar.Stop()
+	}
+	if p.mgr != nil {
+		if p.mgr.grpcClient != nil {
+			_ = p.mgr.grpcClient.Close()
+		}
+		p.mgr.resetWorkers()
+	}
+	time.Sleep(400 * time.Millisecond)
+
+	if p.mgr != nil {
+		if err := p.mgr.startPythonWorker(p.ctx); err != nil {
+			log.Printf("reload: stdio worker: %v", err)
+		}
+		if err := p.mgr.startGRPCWorker(p.ctx); err != nil {
+			log.Printf("reload: grpc worker: %v", err)
+		} else if p.mgr.grpcClient != nil {
+			if err := p.mgr.grpcClient.Connect(p.ctx); err != nil {
+				log.Printf("reload: grpc connect: %v", err)
+			}
+		}
+	}
+	if p.sidecar != nil {
+		if err := p.sidecar.Start(p.ctx, p.mgr); err != nil {
+			return fmt.Errorf("fastapi sidecar: %w", err)
+		}
 	}
 	return nil
 }
 
 func restartWindowsService() error {
-	if err := stopWindowsService(); err != nil {
-		return err
-	}
-	time.Sleep(800 * time.Millisecond)
-	return startWindowsService()
+	return restartWindowsServiceAndWait()
 }
 
 func uninstallService() error {

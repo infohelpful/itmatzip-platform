@@ -100,7 +100,12 @@ func ensureServiceForLaunch(port int) {
 		if waitForAgentHealth(port, 12*time.Second) {
 			return
 		}
-		log.Print("service running but agent not healthy; attempting restart")
+		log.Print("service running but agent not healthy; attempting reload")
+		if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
+			log.Printf("reload via HTTP failed: %v; trying SCM restart", err)
+		} else if waitForAgentHealth(port, 30*time.Second) {
+			return
+		}
 		if err := restartWindowsService(); err != nil {
 			if isServiceAccessDenied(err) {
 				log.Print("service restart skipped (administrator rights required)")
@@ -256,17 +261,7 @@ func trayMenuEventLoop(
 			}
 			refreshTrayServiceMenuItems()
 		case <-mStartSvc.ClickedCh:
-			if err := startWindowsService(); err != nil {
-				log.Printf("tray start service: %v", err)
-				updateTrayTooltip(port, "서비스 시작 실패")
-			} else {
-				updateTrayTooltip(port, "서비스 시작 중…")
-				if waitForAgentHealth(port, 60*time.Second) {
-					updateTrayTooltipFromState(port)
-				} else {
-					updateTrayTooltip(port, "서비스 시작됨 (health 대기 중)")
-				}
-			}
+			trayRestartOrStartService(port)
 			refreshTrayServiceMenuItems()
 		case <-mQuit.ClickedCh:
 			if err := stopWindowsService(); err != nil {
@@ -288,10 +283,43 @@ func refreshTrayServiceMenuItems() {
 	}
 	if isWindowsServiceRunning() {
 		stopItem.Enable()
-		startItem.Disable()
+		startItem.Enable()
+		startItem.SetTitle("서비스 재시작")
+		startItem.SetTooltip("에이전트 워커를 다시 올립니다 (Windows 서비스는 유지)")
 	} else {
 		stopItem.Disable()
 		startItem.Enable()
+		startItem.SetTitle("서비스 시작")
+		startItem.SetTooltip("중지된 ItMatZip Agent Windows 서비스를 시작합니다")
+	}
+}
+
+func trayRestartOrStartService(port int) {
+	if isWindowsServiceRunning() {
+		updateTrayTooltip(port, "에이전트 재시작 중…")
+		if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
+			log.Printf("tray reload via HTTP: %v", err)
+			updateTrayTooltip(port, "재시작 실패 · 로그 확인")
+			return
+		}
+		if waitForAgentHealth(port, 60*time.Second) {
+			updateTrayTooltipFromState(port)
+			return
+		}
+		updateTrayTooltip(port, "재시작됨 (health 대기 중)")
+		return
+	}
+
+	updateTrayTooltip(port, "서비스 시작 중…")
+	if err := startWindowsService(); err != nil {
+		log.Printf("tray start service: %v", err)
+		updateTrayTooltip(port, "서비스 시작 실패 (관리자 권한 필요할 수 있음)")
+		return
+	}
+	if waitForAgentHealth(port, 60*time.Second) {
+		updateTrayTooltipFromState(port)
+	} else {
+		updateTrayTooltip(port, "서비스 시작됨 (health 대기 중)")
 	}
 }
 
@@ -379,7 +407,7 @@ func registerTrayAutostart() error {
 		return err
 	}
 	defer k.Close()
-	return k.SetStringValue(trayRunValue, fmt.Sprintf(`"%s" --launch`, exe))
+	return k.SetStringValue(trayRunValue, fmt.Sprintf(`"%s" --tray`, exe))
 }
 
 func unregisterTrayAutostart() error {
@@ -400,7 +428,7 @@ func launchTrayProcess() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, "--launch")
+	cmd := exec.Command(exe, "--tray")
 	cmd.SysProcAttr = &windows.SysProcAttr{
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP,
 	}
