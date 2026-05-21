@@ -1,7 +1,12 @@
 .local/
 models/
 dist/
+dist/cache/
 *.exe
 *.msi
 *.wixobj
+*.wixpdb
 *.wxs.bak
+staging.wxs
+*msi-install.log
+*msi-e2e.log

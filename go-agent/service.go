@@ -41,6 +41,8 @@ func (p *program) Start(s service.Service) error {
 	grpcAddr := fmt.Sprintf("%s:%d", defaultHost, p.grpcPort)
 	p.mgr = newWorkerManager(p.hub, grpcAddr)
 
+	ensureTrayForService()
+
 	go func() {
 		if err := p.mgr.startPythonWorker(p.ctx); err != nil {
 			log.Printf("failed to start Python stdio worker: %v", err)

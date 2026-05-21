@@ -199,6 +199,12 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 
 	mux.HandleFunc(serviceRestartPath, handleServiceRestart)
+	mux.HandleFunc("/api/agent/pick-local-file", func(w http.ResponseWriter, r *http.Request) {
+		handlePickLocalFile(w, r, false)
+	})
+	mux.HandleFunc("/api/agent/pick-local-audio-file", func(w http.ResponseWriter, r *http.Request) {
+		handlePickLocalFile(w, r, true)
+	})
 
 	if sidecar != nil {
 		apiProxy := sidecar.ProxyHandler()
@@ -313,6 +319,7 @@ func main() {
 		checkUpdate  = flag.Bool("check-update", false, "check GitHub manifest for MSI update")
 		applyUpdate  = flag.Bool("apply-update", false, "download and apply MSI update if available")
 		trayMode     = flag.Bool("tray", false, "show tray icon only (does not start/stop service)")
+		brokerMode   = flag.Bool("broker", false, "file dialog broker only on :19879 (user session)")
 		launchMode   = flag.Bool("launch", false, "restart service and show tray; quitting tray stops service")
 		port         = flag.Int("port", defaultPort, "HTTP/WebSocket port")
 		grpcPort     = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
@@ -356,6 +363,12 @@ func main() {
 		}
 		return
 	}
+	if *brokerMode {
+		if err := runFileDialogBrokerOnly(); err != nil {
+			log.Fatalf("broker: %v", err)
+		}
+		return
+	}
 	if *trayMode {
 		hideAgentConsole()
 		if err := runTray(*port); err != nil {
@@ -388,4 +401,38 @@ func main() {
 	if err := runAgent(*port, *grpcPort, *fastapiPort, startStdio, startGRPC, startFastAPI); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("agent failed: %v", err)
 	}
+}
+
+func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	path, err := requestFileDialogBroker(audioOnly, 10*time.Minute)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": fmt.Sprintf(
+				"파일 대화상자 브로커를 사용할 수 없습니다. 트레이(사용자 세션) 실행 여부를 확인하세요. (%v)",
+				err,
+			),
+		})
+		return
+	}
+	if strings.TrimSpace(path) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"detail": "파일 선택이 취소되었습니다."})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if audioOnly {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"audio_path": path,
+			"video_path": path,
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"video_path": path})
 }

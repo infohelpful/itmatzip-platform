@@ -123,7 +123,11 @@ func (s *fastapiSidecar) Stop() {
 }
 
 func (s *fastapiSidecar) IsReady() bool {
-	return s.ready
+	if s.ready {
+		return true
+	}
+	// 자식 프로세스가 비정상 종료돼도 포트에 uvicorn이 남아 있으면 프록시 가능
+	return s.pingHealth()
 }
 
 func (s *fastapiSidecar) ProxyHandler() http.Handler {

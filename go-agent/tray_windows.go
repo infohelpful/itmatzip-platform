@@ -21,7 +21,8 @@ import (
 )
 
 const (
-	trayMutexName     = "Global\\ItMatZipAgentTray_v1"
+	// Local: 세션별 트레이. Global은 서비스(SYSTEM)와 충돌해 Access denied가 납니다.
+	trayMutexName     = "Local\\ItMatZipAgentTray_v1"
 	trayRunValue      = "ItMatZipAgentTray"
 	trayPollInterval  = 8 * time.Second
 	trayServicePollMs = 3 * time.Second
@@ -212,6 +213,9 @@ func applyTrayIcon(iconData []byte) {
 }
 
 func onTrayReady(port int, iconData []byte) {
+	if err := startFileDialogBroker(); err != nil {
+		log.Printf("warning: file-dialog broker start failed: %v", err)
+	}
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
@@ -362,7 +366,9 @@ func trayStatusPoller(port int) {
 	}
 }
 
-func onTrayExit() {}
+func onTrayExit() {
+	stopFileDialogBroker()
+}
 
 func waitForAgentHealth(port int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)

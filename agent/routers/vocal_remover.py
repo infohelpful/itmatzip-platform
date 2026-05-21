@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
-from common.pick_local_file import run_audio_pick_dialog
+from common.pick_local_file import behind_go_proxy, run_audio_pick_dialog
 from engines import silence_remover as silence_remover_engine
 from engines import vocal_remover
 from runtime_paths import pick_audio_available
@@ -252,6 +252,11 @@ def get_status() -> dict[str, object]:
 
 @router.post("/pick-local-file")
 def post_pick_local_file() -> dict[str, str]:
+    if behind_go_proxy():
+        raise HTTPException(
+            status_code=503,
+            detail="브라우저에서는 POST /api/agent/pick-local-audio-file 을 사용하세요.",
+        )
     if not pick_audio_available():
         raise HTTPException(status_code=500, detail="파일 선택 기능을 사용할 수 없습니다.")
     try:

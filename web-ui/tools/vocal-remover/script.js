@@ -709,16 +709,19 @@ async function pickLocalFile() {
   const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
 
   try {
-    const res = await fetchAgent(`${getAgentOrigin()}/api/tools/vocal-remover/pick-local-file`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      signal: ctrl.signal,
-    });
+    const req = async (path) =>
+      fetchAgent(`${getAgentOrigin()}${path}`, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: ctrl.signal,
+      });
+
+    const res = await req("/api/agent/pick-local-audio-file");
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
       const d = data && typeof data === "object" ? data.detail : undefined;
-      const msg =
+      let msg =
         typeof d === "string"
           ? d
           : Array.isArray(d)
@@ -727,6 +730,12 @@ async function pickLocalFile() {
                 .filter(Boolean)
                 .join("; ")
             : res.statusText || "요청 실패";
+      if (res.status === 503 && !/트레이/i.test(msg)) {
+        msg += "\n\n작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.";
+      }
+      if (res.status === 404) {
+        msg += "\n\n에이전트를 최신 MSI로 재설치하거나 test-tray.ps1 로 트레이를 띄운 뒤 다시 시도하세요.";
+      }
       if (res.status === 400 && (msg.includes("취소") || /cancel/i.test(msg))) return;
       alert(`파일 찾아보기 실패: ${msg}`);
       return;
@@ -944,17 +953,11 @@ async function checkVocalToolReadiness(knownOk) {
     }
 
     setSetupLoading(false);
-    if (!b.ffmpeg || !b.ffprobe || !b.model_ready || !allCore) {
-      try {
-        await prepareModel();
-        await checkVocalToolReadiness(true);
-      } catch {
-        /* 오류 메시지는 prepareModel / 외부 catch에서 표시 */
-      }
-      return;
-    }
+    toolReady = false;
+    setModelReadySummary(false);
+    updateActionButtons();
     binEl.className = "bin-readiness is-warn";
-    binEl.textContent = parts.join(" · ");
+    binEl.textContent = `${parts.join(" · ")} · 준비 필요 (분석하기를 누르면 설치 시작)`;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     setSetupLoading(false);

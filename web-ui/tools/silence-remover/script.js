@@ -426,21 +426,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
 
     try {
-      const res = await fetchAgent(`${getAgentOrigin()}/api/tools/silence-remover/pick-local-file`, {
-        method: "POST",
-        headers: { Accept: "application/json" },
-        signal: ctrl.signal,
-      });
+      const req = async (path) =>
+        fetchAgent(`${getAgentOrigin()}${path}`, {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          signal: ctrl.signal,
+        });
+
+      const res = await req("/api/agent/pick-local-file");
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         const d = data && typeof data === "object" ? data.detail : undefined;
-        const msg =
+        let msg =
           typeof d === "string"
             ? d
             : Array.isArray(d)
               ? d.map((x) => (x && typeof x === "object" && "msg" in x ? String(x.msg) : "")).filter(Boolean).join("; ")
               : res.statusText || "요청 실패";
+        if (res.status === 503 && !/트레이/i.test(msg)) {
+          msg += "\n\n작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.";
+        }
+        if (res.status === 404) {
+          msg += "\n\n에이전트를 최신 MSI로 재설치하거나, 관리자 PowerShell에서 go-agent\\scripts\\test-tray.ps1 로 트레이를 띄운 뒤 다시 시도하세요.";
+        }
         if (res.status === 400 && (msg.includes("취소") || /cancel/i.test(msg))) return;
         alert(msg);
         return;
@@ -2257,15 +2266,18 @@ document.addEventListener("DOMContentLoaded", () => {
     binEl.textContent = "FFmpeg · ffprobe 확인 중...";
 
     try {
-      let data = await requestAgent({
-        method: "GET",
-        path: "/api/tools/silence-remover/readiness",
-        onProgress: (ev) => {
-          if (ev.phase === "request") {
-            binEl.textContent = "FFmpeg · ffprobe 확인 중...";
-          }
-        },
-      });
+      const fetchReadiness = () =>
+        requestAgent({
+          method: "GET",
+          path: "/api/tools/silence-remover/readiness",
+          onProgress: (ev) => {
+            if (ev.phase === "request") {
+              binEl.textContent = "FFmpeg · ffprobe 확인 중...";
+            }
+          },
+        });
+
+      let data = await fetchReadiness();
       let b = data && typeof data === "object" ? data.binaries : null;
       if (!b || !b.ffmpeg || !b.ffprobe) {
         binEl.textContent =
@@ -2273,7 +2285,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const ctrl = new AbortController();
         const dlTimer = setTimeout(() => ctrl.abort(), 300_000);
         try {
-          data = await requestAgent({
+          await requestAgent({
             method: "POST",
             path: "/api/tools/silence-remover/prepare",
             signal: ctrl.signal,
@@ -2281,6 +2293,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
           clearTimeout(dlTimer);
         }
+        data = await fetchReadiness();
         b = data && typeof data === "object" ? data.binaries : null;
       }
       if (b && b.ffmpeg && b.ffprobe) {

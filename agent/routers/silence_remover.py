@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
-from common.pick_local_file import run_media_pick_dialog
+from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
 from engines import silence_remover
 from runtime_paths import pick_file_available
 
@@ -320,11 +320,13 @@ def post_prepare() -> dict[str, object]:
 
 
 @router.post("/pick-local-file")
-def post_pick_local_file(_: SilenceRemoverReady) -> dict[str, str]:
-    """
-    이 PC에서 tkinter 파일 대화상자를 열고, 선택된 파일의 전체 경로를 반환합니다.
-    (브라우저 `<input type=file>`은 보안상 전체 경로를 주지 않으므로 로컬 에이전트로 처리합니다.)
-    """
+def post_pick_local_file() -> dict[str, str]:
+    """레거시: Go 프록시 뒤에서는 /api/agent/pick-local-file 사용."""
+    if behind_go_proxy():
+        raise HTTPException(
+            status_code=503,
+            detail="브라우저에서는 POST /api/agent/pick-local-file 을 사용하세요.",
+        )
     if not pick_file_available():
         raise HTTPException(
             status_code=500,

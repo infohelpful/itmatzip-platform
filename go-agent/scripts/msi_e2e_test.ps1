@@ -15,6 +15,17 @@ if (-not $LogPath) {
     $LogPath = Join-Path $Root "dist\msi-e2e.log"
 }
 
+function Resolve-FullPath([string]$PathValue) {
+    $resolved = Resolve-Path -LiteralPath $PathValue -ErrorAction SilentlyContinue
+    if ($resolved) {
+        return $resolved.Path
+    }
+    return [System.IO.Path]::GetFullPath($PathValue)
+}
+
+$MsiPath = Resolve-FullPath $MsiPath
+$LogPath = Resolve-FullPath $LogPath
+
 function Write-Log($msg) {
     $line = "$(Get-Date -Format o) $msg"
     Write-Host $line
@@ -63,9 +74,15 @@ function Stop-AgentProcesses {
     Write-Host "Stopping service and freeing agent ports..."
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
     Get-Process -Name itmatzip-agent -ErrorAction SilentlyContinue | Stop-Process -Force
-    foreach ($port in 19876, 19877, 50051) {
+    foreach ($port in 19876, 19877, 19878, 50051, 50151) {
         Get-NetTCPConnection -LocalPort $port -ErrorAction SilentlyContinue |
             ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+    }
+    Get-Process -Name python -ErrorAction SilentlyContinue | ForEach-Object {
+        $cmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+        if ($cmd -match "worker_grpc\.py|uvicorn.*main:app") {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
     }
     Start-Sleep -Seconds 2
 }
@@ -179,7 +196,17 @@ if (-not $svc) {
 
 Stop-AgentProcesses
 Write-Host "Starting service fresh after install..."
-Start-Service -Name $ServiceName
+try {
+    Start-Service -Name $ServiceName -ErrorAction Stop
+} catch {
+    $q = sc.exe query $ServiceName 2>&1 | Out-String
+    if ($q -match "WIN32_EXIT_CODE\s*:\s*1067") {
+        Write-Host "Hint: service crashed on start (1067). Often: old itmatzip-agent.exe in MSI, or port 50051 in use." -ForegroundColor Yellow
+        Write-Host "  Rebuild: powershell -File installer\build.ps1 -UseEmbeddable" -ForegroundColor Yellow
+        Write-Host "  Then rerun this test. Check: Get-Content `$env:ProgramData\itmatzip-agent\logs\service.log -Tail 30" -ForegroundColor Yellow
+    }
+    throw
+}
 Start-Sleep -Seconds 5
 $svc.Refresh()
 Write-Host "Service status: $($svc.Status)"

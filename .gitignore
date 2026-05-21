@@ -10,6 +10,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.pyc
+*.cpython-*.pyc
 .Python
 *.so
 *.egg
@@ -59,6 +60,18 @@ agent/build/itmatzip-agent/
 
 # onedir 번들 잔여 (_internal 등)
 **/_internal/
+
+# ——— Go 에이전트 · WiX MSI (go-agent/) ———
+go-agent/dist/
+go-agent/dist/cache/
+go-agent/itmatzip-agent.exe
+go-agent/.local/
+go-agent/models/
+*.wixobj
+*.wixpdb
+**/staging.wxs
+*msi-install.log
+*msi-e2e.log
 
 # ——— 배포 바이너리 (GitHub Releases 등에만 업로드) ———
 *.exe

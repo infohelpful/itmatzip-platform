@@ -70,14 +70,15 @@ func isDevLayout(exeDir string) bool {
 }
 
 func pythonWorkerScript(name string) string {
-	candidates := []string{
-		filepath.Join("python_worker", name),
+	var candidates []string
+	if installRootPath != "" {
+		candidates = append(candidates, filepath.Join(installRootPath, "python_worker", name))
 	}
 	if exe, err := os.Executable(); err == nil {
 		exeDir := filepath.Dir(exe)
 		candidates = append(candidates, filepath.Join(exeDir, "python_worker", name))
-		candidates = append(candidates, filepath.Join(exeDir, "..", "python_worker", name))
 	}
+	candidates = append(candidates, filepath.Join("python_worker", name))
 	for _, candidate := range candidates {
 		if abs, err := filepath.Abs(candidate); err == nil {
 			if _, err := os.Stat(abs); err == nil {
