@@ -34,7 +34,7 @@ def _emit_prepare_progress(
 
 from common.bin_manager import ensure_ffmpeg, get_ffmpeg_executable, get_ffprobe_executable
 from common.subprocess_util import no_window_creationflags, run_hidden
-from runtime_paths import is_frozen
+from runtime_paths import agent_package_root, demucs_runner_script, is_frozen
 
 _DEMUCS_TQDM_RE = re.compile(
     r"(\d+)%\|.*?\|\s*(\d+(?:\.\d+)?)/(\d+(?:\.\d+)?)",
@@ -139,6 +139,14 @@ def _run_demucs_with_progress(
     """Demucs stderr tqdm + 경과 시간으로 12~88% 구간 진행률을 부드럽게 갱신합니다."""
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
+    agent_root = agent_package_root()
+    agent_root_str = str(agent_root)
+    existing_py_path = env.get("PYTHONPATH", "").strip()
+    if existing_py_path:
+        if agent_root_str not in existing_py_path.split(os.pathsep):
+            env["PYTHONPATH"] = agent_root_str + os.pathsep + existing_py_path
+    else:
+        env["PYTHONPATH"] = agent_root_str
     kwargs: dict = {
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.PIPE,
@@ -147,6 +155,7 @@ def _run_demucs_with_progress(
         "errors": "replace",
         "bufsize": 1,
         "env": env,
+        "cwd": agent_root_str,
     }
     if os.name == "nt":
         kwargs["creationflags"] = no_window_creationflags()
@@ -1510,8 +1519,7 @@ def separate_stems(
 
     command = [
         sys.executable,
-        "-m",
-        "engines.demucs_runner",
+        str(demucs_runner_script()),
         "-n",
         MODEL_NAME,
         "-d",

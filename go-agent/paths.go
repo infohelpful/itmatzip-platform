@@ -161,3 +161,21 @@ func resolveAgentDir() (string, bool) {
 	}
 	return "", false
 }
+
+// prependPathEnv prepends dir to a PATH-style env value (Windows ';', Unix ':').
+func prependPathEnv(existing, dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return existing
+	}
+	sep := string(os.PathListSeparator)
+	if strings.TrimSpace(existing) == "" {
+		return dir
+	}
+	for _, part := range strings.Split(existing, sep) {
+		if strings.TrimSpace(part) == dir {
+			return existing
+		}
+	}
+	return dir + sep + existing
+}

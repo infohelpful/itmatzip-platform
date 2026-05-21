@@ -54,6 +54,37 @@ def agent_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def agent_package_root() -> Path:
+    """
+    FastAPI agent/ 디렉터리 (main.py, engines/ 포함).
+    MSI engine venv에서 Demucs subprocess가 engines.* 를 찾도록 cwd/PYTHONPATH에 사용.
+    """
+    install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+    if install:
+        candidate = Path(install) / "agent"
+        if (candidate / "engines" / "demucs_runner.py").is_file():
+            return candidate.resolve()
+
+    agent_dir = os.environ.get("ITMATZIP_AGENT_DIR", "").strip()
+    if agent_dir:
+        candidate = Path(agent_dir)
+        if (candidate / "engines" / "demucs_runner.py").is_file():
+            return candidate.resolve()
+
+    root = agent_root()
+    if (root / "engines" / "demucs_runner.py").is_file():
+        return root.resolve()
+
+    raise RuntimeError(
+        "agent package root not found (engines/demucs_runner.py). "
+        "Check ITMATZIP_AGENT_INSTALL_ROOT or ITMATZIP_AGENT_DIR."
+    )
+
+
+def demucs_runner_script() -> Path:
+    return agent_package_root() / "engines" / "demucs_runner.py"
+
+
 def pick_script_path() -> Path:
     return agent_root() / "scripts" / "pick_media_dialog.py"
 

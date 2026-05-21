@@ -59,6 +59,8 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
+		fmt.Sprintf("ITMATZIP_AGENT_DIR=%s", agentDir),
+		fmt.Sprintf("PYTHONPATH=%s", prependPathEnv(os.Getenv("PYTHONPATH"), agentDir)),
 		"ITMATZIP_BEHIND_GO_PROXY=1",
 		"PYTHONNOUSERSITE=1",
 	)
