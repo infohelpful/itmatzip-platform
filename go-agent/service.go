@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/kardianos/service"
 )
+
+const windowsServiceName = "ItMatZipAgent"
 
 type program struct {
 	ctx         context.Context
@@ -80,7 +84,7 @@ func serviceConfig(port, grpcPort, fastapiPort int) *service.Config {
 		log.Printf("warning: resolve service executable: %v", err)
 	}
 	return &service.Config{
-		Name:        "ItMatZipAgent",
+		Name:        windowsServiceName,
 		DisplayName: "ItMatZip Agent",
 		Description: "ItMatZip local agent service for model management and AI worker orchestration.",
 		Executable:  exe,
@@ -111,12 +115,42 @@ func installService(port, grpcPort, fastapiPort int) error {
 		}
 		return err
 	}
+	if err := startWindowsService(); err != nil {
+		log.Printf("warning: could not start service after install: %v", err)
+	}
 	return nil
 }
 
+func startWindowsService() error {
+	out, err := exec.Command("sc.exe", "start", windowsServiceName).CombinedOutput()
+	if err == nil {
+		log.Printf("service %s started", windowsServiceName)
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if strings.Contains(msg, "1056") || strings.Contains(strings.ToLower(msg), "already running") {
+		log.Printf("service %s already running", windowsServiceName)
+		return nil
+	}
+	return fmt.Errorf("sc start %s: %v (%s)", windowsServiceName, err, msg)
+}
+
+func stopWindowsService() error {
+	out, err := exec.Command("sc.exe", "stop", windowsServiceName).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if strings.Contains(msg, "1062") || strings.Contains(strings.ToLower(msg), "not started") {
+		return nil
+	}
+	return fmt.Errorf("sc stop %s: %v (%s)", windowsServiceName, err, msg)
+}
+
 func uninstallService() error {
+	_ = stopWindowsService()
 	prg := &program{}
-	cfg := &service.Config{Name: "ItMatZipAgent"}
+	cfg := &service.Config{Name: windowsServiceName}
 	svc, err := service.New(prg, cfg)
 	if err != nil {
 		return err

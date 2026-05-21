@@ -246,7 +246,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 
 	addr := fmt.Sprintf("%s:%d", defaultHost, port)
-	srv := &http.Server{Addr: addr, Handler: mux}
+	srv := &http.Server{Addr: addr, Handler: withCORS(mux)}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -323,7 +323,7 @@ func main() {
 		if err := installService(*port, *grpcPort, *fastapiPort); err != nil {
 			log.Fatalf("install service: %v", err)
 		}
-		fmt.Println("service installed")
+		fmt.Println("service installed and started")
 		return
 	}
 	if *uninstall {
