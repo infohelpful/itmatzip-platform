@@ -71,6 +71,36 @@ python agent\main.py --check-update
 
 `itmatzip-agent.exe --install` 시 `%APPDATA%\ItMatZip\itmatzip-agent.exe` 로 복사되고 로그인마다 자동 실행됩니다. 자동 업데이트도 이 경로의 exe를 교체합니다.
 
+## MSI 자동 업데이트 (Go 하이브리드)
+
+**MSI로 설치**(`C:\Program Files\itmatzip-agent\`)한 경우 Go 컨트롤러가 manifest를 확인하고 새 MSI를 `msiexec /qn`으로 적용합니다. (exe 스왑과 별도)
+
+manifest 예시:
+
+```json
+{
+  "version": "1.0.4",
+  "package_type": "msi",
+  "download_url": "https://github.com/.../itmatzip-agent.msi",
+  "sha256": "...",
+  "msi_download_url": "https://github.com/.../itmatzip-agent.msi",
+  "msi_sha256": "...",
+  "release_notes": "..."
+}
+```
+
+릴리스:
+
+```powershell
+cd go-agent
+powershell -ExecutionPolicy Bypass -File installer/build.ps1 -UseEmbeddable
+cd ..
+.\publish-agent-release.ps1 -PackageType msi -MsiPath go-agent\dist\itmatzip-agent.msi -DownloadUrl "https://github.com/.../itmatzip-agent.msi"
+git add agent/agent-update-manifest.json && git commit && git push
+```
+
+로그: `C:\ProgramData\itmatzip-agent\updates\agent-update.log`
+
 ## 주의
 
 - 업데이트 중에는 에이전트가 **한 번 재시작**됩니다. 분석 중이면 잠시 끊길 수 있습니다.

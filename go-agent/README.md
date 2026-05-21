@@ -92,6 +92,41 @@ Start-Service ItMatZipAgent
 .\itmatzip-agent.exe --uninstall
 ```
 
+## MSI 자동 업데이트 (GitHub manifest)
+
+MSI로 설치된 에이전트(`Program Files\itmatzip-agent\`)는 Go 컨트롤러가 manifest를 확인하고 **새 MSI를 내려받아 msiexec로 교체**합니다.
+
+| 항목 | 내용 |
+|------|------|
+| manifest | `agent/agent-update-manifest.json` (main 브랜치 raw URL) |
+| 필수 필드 | `version`, `package_type: "msi"`, `msi_download_url`, `msi_sha256` |
+| 첫 확인 | 기동 45초 후 |
+| 주기 | 6시간마다 |
+| 로그 | `C:\ProgramData\itmatzip-agent\updates\agent-update.log` |
+
+### 릴리스 절차
+
+```powershell
+# 1. agent/version.py AGENT_VERSION bump
+# 2. go-agent/installer/product.wxs ProductVersion bump
+cd go-agent
+powershell -ExecutionPolicy Bypass -File installer/build.ps1 -UseEmbeddable
+cd ..
+.\publish-agent-release.ps1 -PackageType msi `
+  -MsiPath "go-agent\dist\itmatzip-agent.msi" `
+  -DownloadUrl "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.4/itmatzip-agent.msi"
+# 3. MSI → GitHub Release, manifest → git push
+```
+
+### 수동 확인
+
+```powershell
+& "C:\Program Files\itmatzip-agent\itmatzip-agent.exe" --check-update
+& "C:\Program Files\itmatzip-agent\itmatzip-agent.exe" --check-update --apply-update
+```
+
+환경 변수: `ITMATZIP_DISABLE_AUTO_UPDATE=1`, `ITMATZIP_UPDATE_MANIFEST_URL`, `ITMATZIP_UPDATE_INITIAL_DELAY_SEC`, `ITMATZIP_UPDATE_CHECK_INTERVAL_SEC`
+
 ## FastAPI 사이드카 (vocal-remover API 프록시)
 
 Go가 `:19877`에서 FastAPI(uvicorn)를 기동하고 `:19876`에서 `/api/*`, `/ui/*`를 프록시합니다.

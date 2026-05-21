@@ -31,6 +31,7 @@ func (p *program) Start(s service.Service) error {
 
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.hub = newHub()
+	initUpdateManager(p.ctx)
 	grpcAddr := fmt.Sprintf("%s:%d", defaultHost, p.grpcPort)
 	p.mgr = newWorkerManager(p.hub, grpcAddr)
 

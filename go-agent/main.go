@@ -132,7 +132,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		payload := map[string]any{
 			"status":        "ok",
 			"service":       "itmatzip-agent",
-			"agent_version": "0.1.0",
+			"agent_version": readAgentVersion(),
 			"go_controller": true,
 			"fastapi_ready": sidecar != nil && sidecar.IsReady(),
 		}
@@ -141,11 +141,16 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 				if version, ok := faHealth["agent_version"]; ok {
 					payload["agent_version"] = version
 				}
-				payload["update_available"] = faHealth["update_available"]
-				payload["remote_version"] = faHealth["remote_version"]
+				if _, ok := payload["update_available"]; !ok {
+					payload["update_available"] = faHealth["update_available"]
+				}
+				if _, ok := payload["remote_version"]; !ok {
+					payload["remote_version"] = faHealth["remote_version"]
+				}
 				payload["startup_installed"] = faHealth["startup_installed"]
 			}
 		}
+		mergeUpdateHealth(payload)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
 	})
@@ -267,6 +272,7 @@ func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRP
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	initUpdateManager(ctx)
 
 	if startStdio {
 		if err := mgr.startPythonWorker(ctx); err != nil {
@@ -303,6 +309,8 @@ func main() {
 		install      = flag.Bool("install", false, "install Windows service")
 		uninstall    = flag.Bool("uninstall", false, "uninstall Windows service")
 		serviceMode  = flag.Bool("service", false, "run as Windows service")
+		checkUpdate  = flag.Bool("check-update", false, "check GitHub manifest for MSI update")
+		applyUpdate  = flag.Bool("apply-update", false, "download and apply MSI update if available")
 		port         = flag.Int("port", defaultPort, "HTTP/WebSocket port")
 		grpcPort     = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
 		fastapiPort  = flag.Int("fastapi-port", defaultFastAPIPort, "FastAPI sidecar port")
@@ -324,6 +332,18 @@ func main() {
 			log.Fatalf("uninstall service: %v", err)
 		}
 		fmt.Println("service uninstalled")
+		return
+	}
+	if *checkUpdate || *applyUpdate {
+		initPaths()
+		setupLogging()
+		mgr := newUpdateManager()
+		snap := mgr.Check(*applyUpdate)
+		out, _ := json.MarshalIndent(snap, "", "  ")
+		fmt.Println(string(out))
+		if snap.LastError != "" && *applyUpdate {
+			os.Exit(1)
+		}
 		return
 	}
 	if *serviceMode {

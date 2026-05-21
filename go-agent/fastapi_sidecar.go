@@ -51,6 +51,9 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
 	)
+	if isMSIInstallLayout() {
+		cmd.Env = append(cmd.Env, "ITMATZIP_DISABLE_AUTO_UPDATE=1")
+	}
 
 	if err := cmd.Start(); err != nil {
 		cancel()
