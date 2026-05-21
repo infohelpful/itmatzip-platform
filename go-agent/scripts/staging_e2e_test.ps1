@@ -74,7 +74,7 @@ Stop-StagingAgent
 Remove-Item Env:ITMATZIP_AGENT_DEV -ErrorAction SilentlyContinue
 Remove-Item Env:ITMATZIP_AGENT_DIR -ErrorAction SilentlyContinue
 
-# Staging/CLI: tray autostart is service-only (see service.go ensureTrayForService).
+# Staging/CLI: start tray manually (test-tray.ps1); Windows service does not spawn --tray.
 $proc = Start-Process -FilePath $Exe -ArgumentList @("--port=19876", "--grpc-port=$GrpcPort", "--fastapi-port=$FastAPIPort") `
     -WorkingDirectory $Staging -PassThru -WindowStyle Hidden
 

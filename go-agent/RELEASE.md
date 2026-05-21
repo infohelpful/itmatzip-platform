@@ -1,4 +1,32 @@
-# ItMatZip Agent — 릴리스 전 점검 (1.0.9)
+# ItMatZip Agent — 릴리스 전 점검
+
+## 1.1.4 (1.1.3 회귀 근본 수정)
+
+| 영역 | 수정 |
+|------|------|
+| 서비스 | **`ensureTrayForService` 제거** — SYSTEM이 unsigned `--tray` 실행하지 않음 |
+| 트레이 | **「트레이 종료」** = 트레이만 종료; 서비스 중지는 **「서비스 종료」** 만 (`--launch`만 예외) |
+| 트레이 기동 | HKCU+HKLM Run, MSI `StartTrayIcon`, `--install` 후 사용자 세션 `--tray` |
+| MSI | **`GrantServiceUserControl`** (`sc sdset`) 설치 시 항상 적용 |
+| Demucs | `agent/engines` — `PYTHONPATH`+`cwd`, `demucs_runner.py` 직접 실행, `engines/__init__.py` |
+| FastAPI | `ITMATZIP_AGENT_DIR`, `PYTHONPATH=agent` 고정 |
+
+릴리스:
+
+```powershell
+cd go-agent
+go build -o itmatzip-agent.exe .
+powershell -File installer\build.ps1 -UseEmbeddable
+cd ..
+.\publish-agent-release.ps1 -PackageType msi `
+  -MsiPath "go-agent\dist\itmatzip-agent.msi" `
+  -DownloadUrl "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.4/itmatzip-agent.msi" `
+  -ReleaseNotes "1.1.4: fix 1.1.3 service/tray split, Demucs engines path"
+```
+
+---
+
+## 1.0.9 (레거시 메모)
 
 **원칙:** 자잘한 수정마다 버전 올리지 말 것. 1.0.9 MSI 한 번으로 아래 항목이 모두 포함되어야 함.
 

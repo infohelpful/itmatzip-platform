@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -20,7 +19,6 @@ var (
 	modWtsapi32  = windows.NewLazySystemDLL("wtsapi32.dll")
 	modUserenv   = windows.NewLazySystemDLL("userenv.dll")
 	modAdvapi32  = windows.NewLazySystemDLL("advapi32.dll")
-	// WTSGetActiveConsoleSessionId is exported by kernel32.dll, not wtsapi32.
 	procWTSGetActiveConsoleSessionId = modKernel32.NewProc("WTSGetActiveConsoleSessionId")
 	procWTSEnumerateSessionsW        = modWtsapi32.NewProc("WTSEnumerateSessionsW")
 	procWTSFreeMemory                = modWtsapi32.NewProc("WTSFreeMemory")
@@ -32,24 +30,24 @@ var (
 )
 
 const (
-	wtsActive = 0
-	tokenAssignPrimary    = 0x0001
-	tokenDuplicate        = 0x0002
-	tokenQuery            = 0x0008
-	tokenAdjustDefault    = 0x0080
-	tokenAdjustSessionID  = 0x0100
+	wtsActive            = 0
+	tokenAssignPrimary   = 0x0001
+	tokenDuplicate       = 0x0002
+	tokenQuery           = 0x0008
+	tokenAdjustDefault   = 0x0080
+	tokenAdjustSessionID = 0x0100
 	securityImpersonation = 2
-	tokenPrimary          = 1
-	createUnicodeEnv      = 0x00040000
-	startfUseShowWindow   = 0x00000001
-	swHide                = 0
+	tokenPrimary         = 1
+	createUnicodeEnv     = 0x00040000
+	startfUseShowWindow  = 0x00000001
+	swHide               = 0
 )
 
 type wtsSessionInfo struct {
-	sessionID uint32
-	_         [4]byte // padding on amd64
+	sessionID  uint32
+	_          [4]byte
 	winStation *uint16
-	state     uint32
+	state      uint32
 }
 
 func composeWindowsCommandLine(argv []string) string {
@@ -90,9 +88,7 @@ func candidateUserSessionIDs() []uint32 {
 	var infos uintptr
 	var count uint32
 	ok, _, _ := procWTSEnumerateSessionsW.Call(
-		0,
-		0,
-		1,
+		0, 0, 1,
 		uintptr(unsafe.Pointer(&infos)),
 		uintptr(unsafe.Pointer(&count)),
 	)
@@ -100,7 +96,7 @@ func candidateUserSessionIDs() []uint32 {
 		return out
 	}
 	defer procWTSFreeMemory.Call(infos)
-	const entrySize = 24 // sizeof(WTS_SESSION_INFOW) on amd64
+	const entrySize = 24
 	for i := uint32(0); i < count; i++ {
 		row := (*wtsSessionInfo)(unsafe.Pointer(infos + uintptr(i)*entrySize))
 		if row.state != wtsActive {
@@ -115,21 +111,20 @@ func candidateUserSessionIDs() []uint32 {
 	return out
 }
 
-func launchAgentModeInActiveUserSession(extraArgs ...string) error {
-	exe, err := os.Executable()
+// launchProcessInUserSessions is for dev/test (test-tray.ps1). Production tray uses logon Run key, not SYSTEM.
+func launchProcessInUserSessions(image string, args []string, workDir string) error {
+	image, err := filepath.Abs(image)
 	if err != nil {
 		return err
 	}
-	exe, err = filepath.Abs(exe)
-	if err != nil {
-		return err
-	}
-	argv := append([]string{exe}, extraArgs...)
+	argv := append([]string{image}, args...)
 	cmdLineBuf, err := syscall.UTF16FromString(composeWindowsCommandLine(argv))
 	if err != nil {
 		return fmt.Errorf("command line utf16: %w", err)
 	}
-	workDir, _ := filepath.Split(exe)
+	if workDir == "" {
+		workDir, _ = filepath.Split(image)
+	}
 
 	sessionIDs := candidateUserSessionIDs()
 	if len(sessionIDs) == 0 {
@@ -193,9 +188,7 @@ func launchAgentModeInActiveUserSession(extraArgs ...string) error {
 			uintptr(primaryToken),
 			0,
 			uintptr(unsafe.Pointer(&cmdLineBuf[0])),
-			0,
-			0,
-			0,
+			0, 0, 0,
 			uintptr(creationFlags),
 			envBlock,
 			uintptr(unsafe.Pointer(wd)),
@@ -209,58 +202,23 @@ func launchAgentModeInActiveUserSession(extraArgs ...string) error {
 		}
 		windows.CloseHandle(pi.Thread)
 		windows.CloseHandle(pi.Process)
-		log.Printf("user-session process started (session %d PID %d args=%v)", sessionID, pi.ProcessId, extraArgs)
+		log.Printf("user-session process started (session %d PID %d image=%s args=%v)", sessionID, pi.ProcessId, image, args)
 		return nil
 	}
 	if lastErr != nil {
-		return fmt.Errorf("CreateProcessAsUser %v: %w", extraArgs, lastErr)
+		return fmt.Errorf("CreateProcessAsUser %v: %w", args, lastErr)
 	}
-	return fmt.Errorf("사용자 세션에서 프로세스를 시작하지 못했습니다: %v", extraArgs)
+	return fmt.Errorf("사용자 세션에서 프로세스를 시작하지 못했습니다: %v", args)
+}
+
+func launchAgentModeInActiveUserSession(extraArgs ...string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	return launchProcessInUserSessions(exe, extraArgs, "")
 }
 
 func launchTrayInActiveUserSession() error {
 	return launchAgentModeInActiveUserSession("--tray")
-}
-
-func waitForBrokerReady(maxWait time.Duration) bool {
-	deadline := time.Now().Add(maxWait)
-	for time.Now().Before(deadline) {
-		if isFileDialogBrokerListening() {
-			return true
-		}
-		time.Sleep(400 * time.Millisecond)
-	}
-	return false
-}
-
-func ensureTrayForService() {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("warning: ensure tray recovered from panic: %v", r)
-			}
-		}()
-		if isFileDialogBrokerListening() {
-			return
-		}
-		for attempt := 1; attempt <= 6; attempt++ {
-			if isFileDialogBrokerListening() {
-				return
-			}
-			var err error
-			if err = launchTrayInActiveUserSession(); err != nil {
-				log.Printf("ensure tray in user session (attempt %d): %v", attempt, err)
-				err = launchTrayProcess()
-			}
-			if err != nil {
-				log.Printf("ensure tray (attempt %d): %v", attempt, err)
-			} else if waitForBrokerReady(8 * time.Second) {
-				return
-			}
-			time.Sleep(2 * time.Second)
-		}
-		if !isFileDialogBrokerListening() {
-			log.Print("warning: file-dialog broker not ready (start tray manually)")
-		}
-	}()
 }

@@ -340,6 +340,9 @@ func main() {
 		if err := createLaunchShortcuts(); err != nil {
 			log.Printf("warning: create shortcuts failed: %v", err)
 		}
+		if err := launchTrayProcess(); err != nil {
+			log.Printf("warning: start tray after install: %v (reboot or run: itmatzip-agent.exe --tray)", err)
+		}
 		fmt.Println("service installed and started")
 		return
 	}

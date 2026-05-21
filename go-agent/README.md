@@ -47,11 +47,12 @@ Windows **서비스(Session 0)** 는 트레이 아이콘을 직접 띄울 수 �
 
 - 아이콘: `agent/assets/itmatzip-agent-tray.ico` (16·32·48·256, 트레이 표시용) · `itmatzip-agent.ico` (exe/바로가기)
 - **실행 바로가기** (설치 시 생성): 바탕화면 · 시작 메뉴 `ItMatZip Agent` → `--launch`
-- 로그인 시 자동 실행: `HKLM\...\Run\ItMatZipAgentTray` (`--launch`)
-- **트레이 메뉴**: 대시보드 / Silence Detector / Vocal Remover(웹 열기), 서비스 종료(트레이 유지), 서비스 재시작(중지 시), 종료(서비스+트레이)
-- **다시 실행**: 바로가기 또는 `itmatzip-agent.exe --launch` → 서비스 재시작 후 트레이 표시
-- 로컬 웹 UI 테스트: `ITMATZIP_TOOLS_WEB_BASE=http://localhost:29180`
-- `--tray`: 트레이만 (서비스 시작/중지 없음, 고급/디버그용)
+- 로그인 시 자동 실행: `HKCU`+`HKLM` `Run\ItMatZipAgentTray` → `--tray` (사용자 세션, 파일 대화상자 브로커)
+- **Windows 서비스**는 API(19876)만 담당 — **서비스가 `--tray`를 띄우지 않음** (1.1.4+)
+- **트레이 메뉴**: 대시보드 / Silence / Vocal(웹), 서비스 종료·재시작, **트레이 종료**(서비스는 유지)
+- **다시 실행**: `itmatzip-agent.exe --tray` 또는 로그인 후 Run 키
+- `--launch`: 서비스 재시작 + 트레이 (종료 시 서비스도 중지 — 레거시)
+- `--tray`: 트레이 + 파일 브로커(19879)만
 
 ## 실행 (개발)
 

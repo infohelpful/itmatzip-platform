@@ -29,9 +29,10 @@ const (
 )
 
 var (
-	trayMenuMu   sync.Mutex
-	trayStopSvc  *systray.MenuItem
-	trayStartSvc *systray.MenuItem
+	trayMenuMu            sync.Mutex
+	trayStopSvc           *systray.MenuItem
+	trayStartSvc          *systray.MenuItem
+	trayExitStopsService  bool // true only for --launch (legacy); normal --tray must not stop the service
 )
 
 func toolsWebBase() string {
@@ -91,7 +92,7 @@ func acquireTraySingleInstance() (windows.Handle, bool, error) {
 }
 
 func runTray(port int) error {
-	return runTrayWithOptions(port, false)
+	return runTrayWithOptions(port, false, false)
 }
 
 // ensureServiceForLaunch starts or restarts the Windows service only when needed.
@@ -142,8 +143,9 @@ func isServiceAccessDenied(err error) bool {
 		strings.Contains(s, "액세스가 거부")
 }
 
-func runTrayWithOptions(port int, restartServiceFirst bool) error {
+func runTrayWithOptions(port int, restartServiceFirst bool, exitStopsService bool) error {
 	initPaths()
+	trayExitStopsService = exitStopsService
 
 	if restartServiceFirst {
 		ensureServiceForLaunch(port)
@@ -229,7 +231,11 @@ func onTrayReady(port int, iconData []byte) {
 	mStopSvc := systray.AddMenuItem("서비스 종료", "에이전트 Windows 서비스만 중지합니다 (트레이는 유지)")
 	mStartSvc := systray.AddMenuItem("서비스 재시작", "중지된 에이전트 서비스를 다시 시작합니다")
 	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("종료", "서비스를 중지하고 트레이 아이콘을 닫습니다")
+	mQuit := systray.AddMenuItem("트레이 종료", "트레이 아이콘만 닫습니다 (Windows 서비스는 계속 실행)")
+	if trayExitStopsService {
+		mQuit.SetTitle("종료")
+		mQuit.SetTooltip("서비스를 중지하고 트레이 아이콘을 닫습니다 (--launch 전용)")
+	}
 
 	trayMenuMu.Lock()
 	trayStopSvc = mStopSvc
@@ -265,12 +271,18 @@ func trayMenuEventLoop(
 			}
 			refreshTrayServiceMenuItems(port)
 		case <-mStartSvc.ClickedCh:
-			trayRestartOrStartService(port)
-			refreshTrayServiceMenuItems(port)
+			updateTrayTooltip(port, "서비스 시작 중…")
+			go func() {
+				trayRestartOrStartService(port)
+				refreshTrayServiceMenuItems(port)
+			}()
 		case <-mQuit.ClickedCh:
-			if err := stopWindowsService(); err != nil {
-				log.Printf("stop service on tray exit: %v", err)
+			if trayExitStopsService {
+				if err := stopWindowsService(); err != nil {
+					log.Printf("stop service on tray exit: %v", err)
+				}
 			}
+			stopFileDialogBroker()
 			systray.Quit()
 			return
 		}
@@ -388,7 +400,7 @@ func waitForAgentHealth(port int, timeout time.Duration) bool {
 }
 
 func runLaunch(port int) error {
-	return runTrayWithOptions(port, true)
+	return runTrayWithOptions(port, true, true)
 }
 
 func updateTrayTooltipFromState(port int) {
@@ -423,16 +435,8 @@ func openURL(url string) {
 	}
 }
 
-func registerTrayAutostart() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	exe, err = filepath.Abs(exe)
-	if err != nil {
-		return err
-	}
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
+func setTrayRunKey(root registry.Key, exe string) error {
+	k, err := registry.OpenKey(root, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -440,8 +444,8 @@ func registerTrayAutostart() error {
 	return k.SetStringValue(trayRunValue, fmt.Sprintf(`"%s" --tray`, exe))
 }
 
-func unregisterTrayAutostart() error {
-	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
+func deleteTrayRunKey(root registry.Key) error {
+	k, err := registry.OpenKey(root, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
 	if err != nil {
 		return err
 	}
@@ -451,6 +455,34 @@ func unregisterTrayAutostart() error {
 		return nil
 	}
 	return err
+}
+
+// registerTrayAutostart: tray must start in the user session (not from SYSTEM service).
+func registerTrayAutostart() error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	exe, err = filepath.Abs(exe)
+	if err != nil {
+		return err
+	}
+	if err := setTrayRunKey(registry.CURRENT_USER, exe); err != nil {
+		log.Printf("warning: HKCU Run tray autostart: %v", err)
+	}
+	if err := setTrayRunKey(registry.LOCAL_MACHINE, exe); err != nil {
+		return fmt.Errorf("HKLM Run tray autostart: %w", err)
+	}
+	log.Printf("tray autostart registered (HKCU + HKLM Run): %s --tray", exe)
+	return nil
+}
+
+func unregisterTrayAutostart() error {
+	_ = deleteTrayRunKey(registry.CURRENT_USER)
+	if err := deleteTrayRunKey(registry.LOCAL_MACHINE); err != nil {
+		return err
+	}
+	return nil
 }
 
 func launchTrayProcess() error {

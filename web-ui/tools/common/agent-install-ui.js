@@ -7,9 +7,9 @@
 export const AGENT_UPDATE_MANIFEST_URL =
   "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/agent/agent-update-manifest.json";
 
-/** manifest 조회 실패 시 사용 (manifest download_url 과 맞춰 두세요) */
+/** manifest 조회 실패 시 사용 (agent/agent-update-manifest.json 의 download_url 과 동일하게 유지) */
 const FALLBACK_DOWNLOAD_HREF =
-  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.0/itmatzip-agent.exe";
+  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.4/itmatzip-agent.msi";
 
 /** @type {string | null} */
 let _downloadHrefCache = null;

@@ -41,7 +41,8 @@ func (p *program) Start(s service.Service) error {
 	grpcAddr := fmt.Sprintf("%s:%d", defaultHost, p.grpcPort)
 	p.mgr = newWorkerManager(p.hub, grpcAddr)
 
-	ensureTrayForService()
+	// Tray/file-dialog broker runs in the user session (Run key, MSI StartTrayIcon, --tray).
+	// Do not spawn --tray from SYSTEM service (unsigned exe → signature policy failure).
 
 	go func() {
 		if err := p.mgr.startPythonWorker(p.ctx); err != nil {
