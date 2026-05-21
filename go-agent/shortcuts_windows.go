@@ -45,6 +45,7 @@ func createWindowsShortcut(lnkPath, targetExe, arguments, iconPath, workDir, des
 		psQuote(description),
 	)
 	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script)
+	hideExec(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create shortcut %s: %w (%s)", lnkPath, err, strings.TrimSpace(string(out)))

@@ -74,15 +74,6 @@ func resolveTrayIconPath() string {
 	return ""
 }
 
-func isWindowsServiceRunning() bool {
-	out, err := exec.Command("sc.exe", "query", windowsServiceName).CombinedOutput()
-	if err != nil {
-		return false
-	}
-	upper := strings.ToUpper(string(out))
-	return strings.Contains(upper, "RUNNING")
-}
-
 func acquireTraySingleInstance() (windows.Handle, bool, error) {
 	name, err := windows.UTF16PtrFromString(trayMutexName)
 	if err != nil {
@@ -369,8 +360,9 @@ func updateTrayTooltip(port int, status string) {
 }
 
 func openURL(url string) {
-	cmd := exec.Command("cmd", "/c", "start", "", url)
-	_ = cmd.Start()
+	if err := shellOpen(url); err != nil {
+		log.Printf("open url: %v", err)
+	}
 }
 
 func registerTrayAutostart() error {
@@ -410,8 +402,8 @@ func launchTrayProcess() error {
 	}
 	cmd := exec.Command(exe, "--launch")
 	cmd.SysProcAttr = &windows.SysProcAttr{
-		HideWindow:    true,
 		CreationFlags: windows.CREATE_NEW_PROCESS_GROUP,
 	}
+	hideExec(cmd)
 	return cmd.Start()
 }

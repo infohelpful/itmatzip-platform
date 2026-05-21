@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/kardianos/service"
@@ -119,33 +117,6 @@ func installService(port, grpcPort, fastapiPort int) error {
 		log.Printf("warning: could not start service after install: %v", err)
 	}
 	return nil
-}
-
-func startWindowsService() error {
-	out, err := exec.Command("sc.exe", "start", windowsServiceName).CombinedOutput()
-	if err == nil {
-		log.Printf("service %s started", windowsServiceName)
-		return nil
-	}
-	msg := strings.TrimSpace(string(out))
-	if strings.Contains(msg, "1056") || strings.Contains(strings.ToLower(msg), "already running") {
-		log.Printf("service %s already running", windowsServiceName)
-		return nil
-	}
-	return fmt.Errorf("sc start %s: %v (%s)", windowsServiceName, err, msg)
-}
-
-func stopWindowsService() error {
-	out, err := exec.Command("sc.exe", "stop", windowsServiceName).CombinedOutput()
-	if err == nil {
-		log.Printf("service %s stopped", windowsServiceName)
-		return nil
-	}
-	msg := strings.TrimSpace(string(out))
-	if strings.Contains(msg, "1062") || strings.Contains(strings.ToLower(msg), "not started") {
-		return nil
-	}
-	return fmt.Errorf("sc stop %s: %v (%s)", windowsServiceName, err, msg)
 }
 
 func restartWindowsService() error {

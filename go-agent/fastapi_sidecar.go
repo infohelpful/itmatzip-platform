@@ -46,6 +46,7 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 		"--port", strconv.Itoa(s.port),
 		"--log-level", "warning",
 	)
+	hideExec(cmd)
 	cmd.Dir = agentDir
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),

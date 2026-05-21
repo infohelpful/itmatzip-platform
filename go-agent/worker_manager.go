@@ -87,6 +87,7 @@ func (wm *workerManager) startPythonWorker(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, pythonPath, filepath.Base(workerPath), "--serve")
+	hideExec(cmd)
 	cmd.Dir = workerDir
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
@@ -133,6 +134,7 @@ func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(ctx, pythonPath, filepath.Base(workerPath), "--bind", wm.grpcAddr)
+	hideExec(cmd)
 	cmd.Dir = workerDir
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),

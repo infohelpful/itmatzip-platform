@@ -300,6 +300,7 @@ func (u *updateManager) spawnMSIUpdater(msiPath string) error {
 		"-MsiPath", msiPath,
 		"-LogPath", logPath,
 	)
+	hideExec(cmd)
 	cmd.Dir = u.updatesRoot
 	return cmd.Start()
 }
