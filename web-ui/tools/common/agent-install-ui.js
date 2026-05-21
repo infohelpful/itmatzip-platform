@@ -9,7 +9,7 @@ export const AGENT_UPDATE_MANIFEST_URL =
 
 /** manifest 조회 실패 시 사용 (agent/agent-update-manifest.json 의 download_url 과 동일하게 유지) */
 const FALLBACK_DOWNLOAD_HREF =
-  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.4/itmatzip-agent.msi";
+  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.5/itmatzip-agent.msi";
 
 /** @type {string | null} */
 let _downloadHrefCache = null;

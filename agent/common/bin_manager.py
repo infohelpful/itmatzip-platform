@@ -14,8 +14,11 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-# 프로덕션 배포 시 실제 번들 URL로 교체하세요. 로컬 테스트는 환경 변수로 덮어쓸 수 있습니다.
-DEFAULT_FFMPEG_BUNDLE_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+# torchcodec는 avcodec*.dll 등 shared FFmpeg가 필요합니다. gpl(정적) 빌드는 DLL이 없습니다.
+DEFAULT_FFMPEG_BUNDLE_URL = (
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+    "ffmpeg-master-latest-win64-gpl-shared.zip"
+)
 FFMPEG_BUNDLE_URL = os.environ.get("ITMATZIP_FFMPEG_URL", DEFAULT_FFMPEG_BUNDLE_URL)
 
 _STALE_LOCK_SEC = 600.0
@@ -189,6 +192,15 @@ def ensure_ffmpeg(
     if _ffmpeg_runtime_complete():
         return ffmpeg_exe
 
+    # 예전 static(gpl) 설치: exe만 있고 DLL 없음 → shared 번들로 다시 받기
+    if get_ffmpeg_exe().is_file() and not any(bin_root.glob("*.dll")):
+        for stale in bin_root.iterdir():
+            if stale.is_file():
+                stale.unlink(missing_ok=True)
+        stale_archive = bin_root / _bundle_archive_name
+        if stale_archive.is_file():
+            stale_archive.unlink(missing_ok=True)
+
     _clear_stale_download_lock()
 
     url = bundle_url or FFMPEG_BUNDLE_URL
@@ -223,19 +235,23 @@ def ensure_ffmpeg(
         _download_file(url, archive_path, timeout_sec=download_timeout_sec)
         _extract_zip_safe(archive_path, extract_dir)
 
-        found_ffmpeg = _find_ffmpeg_under(extract_dir)
-        if not found_ffmpeg:
+        runtime_dir = _find_ffmpeg_shared_runtime_dir(extract_dir)
+        if runtime_dir is None:
             raise FileNotFoundError(
-                f"압축 해제 후 ffmpeg.exe를 찾지 못했습니다. URL/번들 형식을 확인하세요: {url}"
+                "압축 해제 후 shared FFmpeg(avcodec*.dll + ffmpeg.exe)를 찾지 못했습니다. "
+                f"win64-gpl-shared 번들 URL인지 확인하세요: {url}"
             )
 
-        found_probe = _find_ffprobe_beside_or_under(found_ffmpeg, extract_dir)
+        found_ffmpeg = runtime_dir / "ffmpeg.exe"
+        found_probe = runtime_dir / "ffprobe.exe"
+        if not found_probe.is_file():
+            found_probe = _find_ffprobe_beside_or_under(found_ffmpeg, extract_dir)
         if not found_probe:
             raise FileNotFoundError(
                 f"압축 해제 후 ffprobe.exe를 찾지 못했습니다. 동일 번들에 ffprobe가 포함되어 있는지 확인하세요: {url}"
             )
 
-        _publish_ffmpeg_runtime_files(found_ffmpeg.parent)
+        _publish_ffmpeg_runtime_files(runtime_dir)
 
         try:
             archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -314,6 +330,18 @@ def _find_ffmpeg_under(root: Path) -> Path | None:
         if p.is_file():
             return p
     return None
+
+
+def _find_ffmpeg_shared_runtime_dir(root: Path) -> Path | None:
+    """ffmpeg.exe와 같은 폴더에 *.dll이 있는 경로 (BtbN gpl-shared 등)."""
+    candidates: list[Path] = []
+    for ffmpeg in root.rglob("ffmpeg.exe"):
+        parent = ffmpeg.parent
+        if any(parent.glob("*.dll")):
+            candidates.append(parent)
+    if not candidates:
+        return None
+    return min(candidates, key=lambda p: len(p.parts))
 
 
 def _find_ffprobe_beside_or_under(ffmpeg_path: Path, extract_root: Path) -> Path | None:

@@ -7,11 +7,51 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
+$RepoRoot = Split-Path -Parent $Root
 $OutDir = Join-Path $Root "dist"
 $InstallerDir = Join-Path $Root "installer"
 $Staging = Join-Path $OutDir "staging"
+$VersionPy = Join-Path $RepoRoot "agent\version.py"
+$ProductWxs = Join-Path $InstallerDir "product.wxs"
 
 . (Join-Path $InstallerDir "resolve-wix.ps1")
+
+function Normalize-AgentSemVer {
+    param([string]$Version)
+    $v = $Version.Trim()
+    # version.py must be x.y.z; accept mistaken x.y.z.0 and compare as x.y.z
+    if ($v -match '^(\d+\.\d+\.\d+)\.0$') { return $Matches[1] }
+    return $v
+}
+
+function Assert-AgentVersionMatchesWix {
+    if (-not (Test-Path $VersionPy)) { throw "agent/version.py not found: $VersionPy" }
+    if (-not (Test-Path $ProductWxs)) { throw "product.wxs not found: $ProductWxs" }
+    $agentRaw = Get-Content $VersionPy -Raw
+    $wxsRaw = Get-Content $ProductWxs -Raw
+    if ($agentRaw -notmatch 'AGENT_VERSION\s*=\s*"([^"]+)"') {
+        throw "AGENT_VERSION not found in $VersionPy"
+    }
+    $agentVer = $Matches[1]
+    if ($wxsRaw -notmatch 'ProductVersion\s*=\s*"([^"]+)"') {
+        throw "ProductVersion not found in $ProductWxs"
+    }
+    $wixVer = $Matches[1]
+    $agentNorm = Normalize-AgentSemVer $agentVer
+    $wixNorm = Normalize-AgentSemVer $wixVer
+    if ($agentNorm -ne $wixNorm) {
+        throw @"
+Version mismatch before MSI build:
+  agent/version.py     AGENT_VERSION = "$agentVer"  -> use x.y.z (example: "1.1.6")
+  installer/product.wxs ProductVersion = "$wixVer"  -> use x.y.z.0 (example: "1.1.6.0")
+Normalized compare: $agentNorm vs $wixNorm
+/health reads version.py inside the MSI — both must refer to the same release (1.1.6 / 1.1.6.0).
+"@
+    }
+    if ($agentVer -match '^\d+\.\d+\.\d+\.0$') {
+        Write-Warning "agent/version.py has AGENT_VERSION=`"$agentVer`" — use `"$agentNorm`" (three-part). /health shows the three-part value."
+    }
+}
 
 function Invoke-WixTool {
     param(
@@ -36,6 +76,9 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 
 Push-Location $Root
 try {
+    Assert-AgentVersionMatchesWix
+    Write-Host "Version check OK: agent/version.py matches product.wxs" -ForegroundColor Green
+
     Write-Host "Building itmatzip-agent.exe..." -ForegroundColor Cyan
     go build -o itmatzip-agent.exe .
 
