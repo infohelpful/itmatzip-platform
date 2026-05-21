@@ -13,7 +13,7 @@ import {
 } from "../common/bridge.js?v=ws1";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
-import { createVocalDualPlayer } from "./dual-player.js";
+import { createVocalDualPlayer } from "./dual-player.js?v=dp2";
 
 configureBridge({ healthPath: "/health" });
 
@@ -22,6 +22,17 @@ const dualPlayer = createVocalDualPlayer({
   getAgentOrigin,
   fetchAgent,
 });
+
+/** @param {string} filePath */
+function applyDualPlayerFilePick(filePath) {
+  if (typeof dualPlayer.prepareForFilePick === "function") {
+    dualPlayer.prepareForFilePick(filePath);
+    return;
+  }
+  console.warn(
+    "[vocal-remover] dual-player.js is outdated (missing prepareForFilePick). Hard-refresh the page (Ctrl+F5).",
+  );
+}
 
 const audioPathInput = document.getElementById("audio-path");
 const btnPickLocalFile = document.getElementById("btn-pick-local-file");
@@ -248,7 +259,7 @@ async function resetEditorState({ cleanupWorkspace = true } = {}) {
   if (pathHint) {
     pathHint.textContent = "오디오를 선택한 뒤 분석하기를 누르면 MR·보컬을 분리합니다.";
   }
-  dualPlayer.prepareForFilePick("");
+  applyDualPlayerFilePick("");
   updateActionButtons();
 }
 
@@ -751,7 +762,7 @@ async function pickLocalFile() {
     if (hadWorkspaceArtifacts) await cleanupAgentWorkspace();
     clearDownloadResult();
     audioPathInput.value = picked.trim();
-    dualPlayer.prepareForFilePick(picked.trim());
+    applyDualPlayerFilePick(picked.trim());
     if (pathHint) {
       pathHint.textContent = "분석하기를 누르면 MR·보컬을 분리합니다.";
     }
