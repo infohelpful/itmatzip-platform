@@ -90,7 +90,7 @@ export function clearAllRowCaretState() {
  *
  * @param {number} [ms]
  */
-export function markCaretListStructuralMutation(ms = 80) {
+export function markCaretListStructuralMutation(ms = 48) {
   caretListRerenderInProgress = true;
   caretListStructuralGuardUntil = performance.now() + Math.max(32, ms);
   window.setTimeout(() => {
@@ -114,9 +114,55 @@ export function sanitizeRowCaretMapForCues(cues) {
     if (st.selectionAnchor != null) {
       st.selectionAnchor = nearestValidStorageCaret(words, st.selectionAnchor);
     }
+    const visN = visibleWordStorageIndices(words).length;
+    if (st.focusedRenderable != null && st.focusedRenderable > visN) {
+      st.focusedRenderable = null;
+      st.rowHasFocus = false;
+      st.caretVisible = false;
+      st.caretBlink = false;
+    }
   }
   if (activeCaretCardIndex != null && activeCaretCardIndex > maxIdx) {
     activeCaretCardIndex = null;
+  }
+}
+
+/**
+ * Enter로 줄 분할 직전 — 원본 줄 캐럿 숨김 + 삽입 위치 이후 caret map 인덱스 shift.
+ *
+ * @param {number} splitSourceIndex
+ */
+export function prepareRowCaretAfterCueSplit(splitSourceIndex) {
+  const st = rowCaretByIndex.get(splitSourceIndex);
+  if (st) {
+    st.caretVisible = false;
+    st.caretBlink = false;
+    st.rowHasFocus = false;
+    st.focusedRenderable = null;
+    st.hoveredRenderable = null;
+    st.selectionAnchor = null;
+  }
+  const shifted = new Map();
+  for (const [key, val] of rowCaretByIndex) {
+    if (key > splitSourceIndex) shifted.set(key + 1, val);
+    else shifted.set(key, val);
+  }
+  rowCaretByIndex.clear();
+  for (const [k, v] of shifted) rowCaretByIndex.set(k, v);
+
+  if (activeCaretCardIndex != null && activeCaretCardIndex > splitSourceIndex) {
+    activeCaretCardIndex += 1;
+  } else if (activeCaretCardIndex === splitSourceIndex) {
+    activeCaretCardIndex = null;
+  }
+  if (keyboardPauseCaretIndex > splitSourceIndex) keyboardPauseCaretIndex += 1;
+  if (lastCardFocusIndex != null && lastCardFocusIndex > splitSourceIndex) {
+    lastCardFocusIndex += 1;
+  } else if (lastCardFocusIndex === splitSourceIndex) {
+    lastCardFocusIndex = null;
+  }
+  if (globalHoveredRowIndex != null && globalHoveredRowIndex > splitSourceIndex) {
+    globalHoveredRowIndex += 1;
   }
 }
 
@@ -239,6 +285,25 @@ export function prepareCaretAtWord(cardIndex, words, storageWordIndex) {
 }
 
 /**
+ * Enter 분할 후 데이터 반영 — 원본 줄 끝 슬롯 캐럿 잔상 제거.
+ *
+ * @param {number} sourceIndex
+ * @param {readonly object[]} cues
+ */
+export function finalizeRowCaretAfterCueSplit(sourceIndex, cues) {
+  const words = getCueWords(cues[sourceIndex] ?? {});
+  const st = rowCaretByIndex.get(sourceIndex);
+  if (!st) return;
+  st.caretVisible = false;
+  st.caretBlink = false;
+  st.rowHasFocus = false;
+  st.focusedRenderable = null;
+  st.hoveredRenderable = null;
+  st.selectionAnchor = null;
+  st.storageCaret = nearestValidStorageCaret(words, 0);
+}
+
+/**
  * @param {number} cardIndex
  * @param {readonly object[]} words
  */
@@ -247,6 +312,19 @@ export function prepareRowCaretForRender(cardIndex, words) {
   st.storageCaret = nearestValidStorageCaret(words, st.storageCaret);
   if (st.selectionAnchor != null) {
     st.selectionAnchor = nearestValidStorageCaret(words, st.selectionAnchor);
+  }
+  const visN = visibleWordStorageIndices(words).length;
+  if (st.focusedRenderable != null && st.focusedRenderable > visN) {
+    st.focusedRenderable = null;
+    st.rowHasFocus = false;
+    st.caretVisible = false;
+    st.caretBlink = false;
+  }
+  if (activeCaretCardIndex != null && activeCaretCardIndex !== cardIndex) {
+    st.caretVisible = false;
+    st.caretBlink = false;
+    st.rowHasFocus = false;
+    st.focusedRenderable = null;
   }
 }
 
@@ -392,12 +470,13 @@ function syncCaretFromFocus(cardIndex, words, renderableCaret) {
  * @param {boolean} playing
  */
 function isCaretShownAt(st, cardIndex, renderableCi, playing) {
-  if (!st.caretVisible && !(st.rowHasFocus && st.focusedRenderable === renderableCi)) {
-    return false;
-  }
   if (playing && keyboardPauseCaretIndex !== cardIndex) return false;
   if (globalHoveredRowIndex !== null && globalHoveredRowIndex !== cardIndex) return false;
   if (st.hoveredRenderable !== null) return st.hoveredRenderable === renderableCi;
+  if (activeCaretCardIndex != null && activeCaretCardIndex !== cardIndex) return false;
+  if (!st.caretVisible && !(st.rowHasFocus && st.focusedRenderable === renderableCi)) {
+    return false;
+  }
   if (st.rowHasFocus && st.focusedRenderable !== null) return st.focusedRenderable === renderableCi;
   return false;
 }
@@ -424,6 +503,21 @@ function patchCaretRowsVisibility(container, cues, playing, cardIndices) {
     const words = getCueWords(cues[idx] ?? {});
     patchCaretVisibility(container, idx, words, playing);
   }
+}
+
+/**
+ * @param {HTMLElement | null} container
+ * @param {readonly object[]} cues
+ * @param {object} opts
+ */
+export function patchAllCaretRows(container, cues, opts) {
+  if (!container || !cues?.length) return;
+  patchCaretRowsVisibility(
+    container,
+    cues,
+    isPlaybackActive(opts),
+    cues.map((_, i) => i),
+  );
 }
 
 /**
@@ -647,6 +741,7 @@ export function requestFocusCaret(container, cues, opts, cardIndex, storageCaret
   activateCaretAt(cardIndex, words, storageCaret, true, detail?.armSpaceSeek !== false);
   globalHoveredRowIndex = null;
   refreshCaretRowUi(container, cardIndex, words, opts);
+  patchAllCaretRows(container, cues, opts);
 }
 
 /**
@@ -654,7 +749,6 @@ export function requestFocusCaret(container, cues, opts, cardIndex, storageCaret
  */
 export function requestFocusCaretDeferred(container, cues, opts, cardIndex, storageCaret, detail) {
   pendingFocusCaret = { container, cues, opts, cardIndex, storageCaret, detail };
-  markCaretListStructuralMutation(96);
   queueMicrotask(() => {
     const p = pendingFocusCaret;
     pendingFocusCaret = null;
@@ -905,7 +999,7 @@ export function placeCaretAtPlayhead(container, cues, opts, playheadSec, detail 
     typeof detail.forceStorageWordIndex === "number" && detail.forceStorageWordIndex >= 0
       ? detail.forceStorageWordIndex
       : storageCaretForPlayhead(cue, playheadSec);
-  opts.onSelectCue?.(ci, { seek: false, scroll: false });
+  opts.onSelectCue?.(ci, { seek: false, scroll: false, rerender: false });
   activateCaretAt(ci, words, wi, true, false);
   globalHoveredRowIndex = null;
 
@@ -935,11 +1029,10 @@ export function placeCaretAtPlayhead(container, cues, opts, playheadSec, detail 
   }
 
   const rc = storageCaretToRenderableCaret(words, nearestValidStorageCaret(words, wi));
+  patchAllCaretRows(container, cues, opts);
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      patchCaretVisibility(container, ci, words, playing);
-      focusRenderableCaretButton(ci, rc);
-    });
+    patchCaretVisibility(container, ci, words, playing);
+    focusRenderableCaretButton(ci, rc);
   });
 }
 
@@ -1008,7 +1101,8 @@ export function requestFocusRow(container, cues, opts, cardIndex, caret) {
   st.caretBlink = false;
   st.rowHasFocus = false;
   st.focusedRenderable = null;
-  requestRerender(container, cues, opts);
+  const rowWords = getCueWords(cues[cardIndex] ?? {});
+  patchCaretVisibility(container, cardIndex, rowWords, isPlaybackActive(opts));
   requestAnimationFrame(() => {
     const ta = document.querySelector(
       `.subtitle-card[data-cue-index="${cardIndex}"] .subtitle-card-textarea`,
@@ -1173,7 +1267,6 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     e.preventDefault();
     clearSelection();
     opts.onSplitSubtitleAtWord(cardIndex, ci);
-    requestFocusCaret(container, cues, opts, cardIndex + 1, 0);
     return;
   }
   if (e.key === "Backspace") {
@@ -1320,7 +1413,7 @@ export function buildWordChipsAndCarets(
     opts,
     cues,
     listContainer,
-    openWordRail,
+    onWordExpand,
     onSelectCue,
   } = chipOpts;
 
@@ -1390,7 +1483,7 @@ export function buildWordChipsAndCarets(
         opts.onWaveformChipClick(cardIndex, vi, storageWi, isActiveChip, e.detail);
         if (isPlaybackActive(opts)) opts.onPausePlayback?.();
         activateCaretAt(cardIndex, words, storageWi, true, true);
-        onSelectCue?.(cardIndex);
+        onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
         opts.onSeek?.(w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
         const cardEl = pill.closest(".subtitle-card");
@@ -1406,7 +1499,7 @@ export function buildWordChipsAndCarets(
       }
       if (isPlaybackActive(opts)) opts.onPausePlayback?.();
       activateCaretAt(cardIndex, words, storageWi, true, true);
-      onSelectCue?.(cardIndex);
+      onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
       opts.onSeek?.(w.start);
       requestFocusCaret(listContainer, cues, opts, cardIndex, storageWi, { seek: false });
     });
@@ -1414,8 +1507,8 @@ export function buildWordChipsAndCarets(
       e.stopPropagation();
       e.preventDefault();
       activateCaretAt(cardIndex, words, storageWi, true);
-      onSelectCue?.(cardIndex);
-      openWordRail?.(cardIndex, storageWi, vi);
+      onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
+      onWordExpand?.(cardIndex, storageWi);
     });
   });
 
@@ -1576,6 +1669,14 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
       enterTextareaEditMode(cardIndex, words, container, opts);
       return;
     }
+    if (activeCaretCardIndex != null && activeCaretCardIndex !== cardIndex) {
+      const stOther = getRowCaret(cardIndex, words);
+      stOther.rowHasFocus = false;
+      stOther.caretVisible = false;
+      stOther.caretBlink = false;
+      patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
+      return;
+    }
     const st = getRowCaret(cardIndex, words);
     st.rowHasFocus = true;
     st.hoveredRenderable = null;
@@ -1586,13 +1687,22 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
   card.addEventListener("focusout", () => {
     const root = card;
     const capturedGen = caretFocusGeneration;
-    window.setTimeout(() => {
+    queueMicrotask(() => {
       if (isCaretStructuralGuardActive()) return;
       if (capturedGen !== caretFocusGeneration) return;
       const active = document.activeElement;
       if (active && root.contains(active)) return;
       if (active instanceof HTMLElement) {
-        if (active.id?.startsWith("subtitle-caret-")) return;
+        if (active.id?.startsWith("subtitle-caret-")) {
+          const m = /^subtitle-caret-(\d+)-/.exec(active.id);
+          const otherIdx = m ? Number(m[1]) : -1;
+          if (otherIdx >= 0 && otherIdx !== cardIndex) {
+            clearRowCaretState(cardIndex, words, false);
+            if (activeCaretCardIndex === cardIndex) activeCaretCardIndex = null;
+            patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
+          }
+          return;
+        }
         if (active.closest(".subtitle-card-textarea")) {
           enterTextareaEditMode(cardIndex, words, container, opts);
           return;
@@ -1610,7 +1720,7 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
       spaceSeekIntent = "none";
       listPlayFromCaretPreferred = false;
       patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
-    }, 32);
+    });
   });
 }
 

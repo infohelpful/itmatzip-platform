@@ -21,12 +21,13 @@ import {
   clearAllRowCaretState,
   markCaretListStructuralMutation,
   prepareRowCaretForRender,
+  patchAllCaretRows,
   requestFocusCaret,
   sanitizeRowCaretMapForCues,
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=39";
+} from "./word-caret-ui.js?v=42";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -254,6 +255,7 @@ function renderAllCards(container, cues, opts) {
       listContainer: container,
       onSelectCue: opts.onSelectCue,
       openWordRail: (ci, storageWi, visIdx) => openWordRail(card, ci, storageWi, cues, opts),
+      onWordExpand: opts.onWordExpand,
     });
 
     inner.appendChild(tracks);
@@ -306,7 +308,9 @@ function renderAllCards(container, cues, opts) {
     ta.dataset.waveformNoDismiss = "1";
     card.appendChild(ta);
 
-    card.addEventListener("click", () => opts.onSelectCue?.(i));
+    card.addEventListener("click", () =>
+      opts.onSelectCue?.(i, { scroll: false, rerender: false }),
+    );
     wireSubtitleCardCaretHost(card, i, words, cues, container, opts);
 
     if (isExpanded) mountWordRail(mount, card, i, opts.expandedWordIndex, cues, opts);
@@ -326,7 +330,7 @@ export function renderSubtitleCards(container, cues, opts = {}) {
     restoreListScrollTop(c, saved);
   });
 
-  markCaretListStructuralMutation(96);
+  markCaretListStructuralMutation(48);
   sanitizeRowCaretMapForCues(cues);
 
   disposeAllWaveformPanels();
@@ -343,6 +347,13 @@ export function renderSubtitleCards(container, cues, opts = {}) {
 
   renderAllCards(container, cues, opts);
   restoreListScrollTop(container, savedScrollTop);
+  patchAllCaretRows(container, cues, opts);
+}
+
+export function patchSelectedCueHighlight(container, prevIdx, nextIdx) {
+  if (!container || prevIdx === nextIdx) return;
+  setCardActiveAt(container, prevIdx, nextIdx);
+  lastActiveSelectedIdx = nextIdx >= 0 ? nextIdx : -1;
 }
 
 export { requestFocusCaret };

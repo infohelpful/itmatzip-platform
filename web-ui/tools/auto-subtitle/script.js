@@ -24,13 +24,16 @@ import {
   scrollCueIntoView,
   requestFocusCaret,
   requestFocusCaretDeferred,
+  prepareRowCaretAfterCueSplit,
+  finalizeRowCaretAfterCueSplit,
   syncExpandedPanelPlayhead,
   refreshExpandedPanelSkipRanges,
   finishExpandedPanelRangePlay,
   toggleExpandedPanelPlayFromCut,
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
-} from "./cue-cards.js?v=54";
+  patchSelectedCueHighlight,
+} from "./cue-cards.js?v=56";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -990,11 +993,16 @@ function bindStyleControl(id, outEl, fmt) {
   sync();
 }
 
-function selectCueLine(cueIndex, { scroll = true, seek = true } = {}) {
+function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true } = {}) {
+  const prevSelected = selectedCueIndex;
   selectedCueIndex = cueIndex;
   const cue = lastCues[cueIndex];
   if (!cue || cue.is_silence) {
-    renderCuesTable(lastCues);
+    if (rerender) {
+      renderCuesTable(lastCues);
+    } else if (prevSelected !== cueIndex && subtitleList) {
+      patchSelectedCueHighlight(subtitleList, prevSelected, cueIndex);
+    }
     commitPlayheadUi();
     return;
   }
@@ -1005,7 +1013,11 @@ function selectCueLine(cueIndex, { scroll = true, seek = true } = {}) {
     orch.seekMediaSec(media);
     playheadSec = orch.mapMediaToEditSec(media);
   }
-  renderCuesTable(lastCues);
+  if (rerender) {
+    renderCuesTable(lastCues);
+  } else if (prevSelected !== cueIndex && subtitleList) {
+    patchSelectedCueHighlight(subtitleList, prevSelected, cueIndex);
+  }
   commitPlayheadUi();
   if (scroll && subtitleList) {
     scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), cueIndex, {
@@ -1223,7 +1235,9 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       renderCuesTable(lastCues);
     },
     onSplitSubtitleAtWord: (index, wordIndex) => {
+      prepareRowCaretAfterCueSplit(index);
       splitSubtitleAtWord(subtitleHub, index, wordIndex);
+      finalizeRowCaretAfterCueSplit(index, lastCues);
       renderCuesTable(lastCues);
       if (subtitleList) {
         requestFocusCaretDeferred(
@@ -1239,8 +1253,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       armDeleteGuard();
       backspaceWordAt(subtitleHub, cardIndex, wordIndex);
       renderCuesTable(lastCues);
-      window.setTimeout(() => {
-        if (!subtitleList) return;
+      if (subtitleList) {
         const wi = Math.max(0, wordIndex - 1);
         requestFocusCaretDeferred(
           subtitleList,
@@ -1250,15 +1263,14 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           wi,
           { seek: false },
         );
-      }, 0);
+      }
     },
     onDeleteWordAt: (cardIndex, caretIndex) => {
       armDeleteGuard();
       deleteWordAt(subtitleHub, cardIndex, caretIndex);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      window.setTimeout(() => {
-        if (!subtitleList) return;
+      if (subtitleList) {
         const words = lastCues[cardIndex]?.words ?? [];
         requestFocusCaretDeferred(
           subtitleList,
@@ -1268,15 +1280,14 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           nearestValidStorageCaret(words, caretIndex),
           { seek: false },
         );
-      }, 0);
+      }
     },
     onDeleteWordRangeAt: (cardIndex, from, to) => {
       armDeleteGuard();
       deleteWordRangeAt(subtitleHub, cardIndex, from, to);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      window.setTimeout(() => {
-        if (!subtitleList) return;
+      if (subtitleList) {
         const words = lastCues[cardIndex]?.words ?? [];
         requestFocusCaretDeferred(
           subtitleList,
@@ -1286,12 +1297,13 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           nearestValidStorageCaret(words, from),
           { seek: false },
         );
-      }, 0);
+      }
     },
     onSelectCue: (cueIndex, detail) =>
       selectCueLine(cueIndex, {
         seek: detail?.seek !== false,
         scroll: detail?.scroll !== false,
+        rerender: detail?.rerender !== false,
       }),
     onWordExpand: (ci, wi) => {
       if (expandedCueIndex === ci && expandedWordIndex === wi) {
