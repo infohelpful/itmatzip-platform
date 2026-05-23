@@ -26,6 +26,8 @@ let globalHoveredRowIndex = null;
 let lastCardFocusIndex = null;
 /** @type {'none' | 'caret' | 'wholeLine'} */
 let spaceSeekIntent = "none";
+/** 단어 칩/캐럿 클릭 후 Space → playAtCaret (편집 직후 파형 Space와 분리) */
+let listPlayFromCaretPreferred = false;
 /** 재생 중 화살표로 일시정지한 뒤 캐럿 네비 허용 (행 index) */
 let keyboardPauseCaretIndex = -1;
 /** 화살표 일시정지 직후 playhead→캐럿 동기화 1회 스킵 */
@@ -77,6 +79,7 @@ export function clearAllRowCaretState() {
   lastCardFocusIndex = null;
   activeCaretCardIndex = null;
   spaceSeekIntent = "none";
+  listPlayFromCaretPreferred = false;
   keyboardPauseCaretIndex = -1;
   skipPlayheadCaretSyncOnPause = false;
   pendingFocusCaret = null;
@@ -208,6 +211,31 @@ export function resetKeyboardPauseCaret() {
 
 export function resetSpaceSeekIntent() {
   spaceSeekIntent = "none";
+  listPlayFromCaretPreferred = false;
+}
+
+/** 칩/캐럿 클릭 직후 Space → playAtCaret (파형 cut~end 보다 우선) */
+export function shouldDeferWaveformSpaceToCaret() {
+  return spaceSeekIntent === "caret" && listPlayFromCaretPreferred;
+}
+
+export function clearListPlayFromCaretPreferred() {
+  listPlayFromCaretPreferred = false;
+}
+
+function tryWaveformSpaceWhenExpanded(opts) {
+  if (spaceSeekIntent !== "none") return false;
+  const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+  const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+  if (ci < 0 || wi < 0) return false;
+  return opts.onWaveformSpacePlay?.() === true;
+}
+
+/** 편집 commit 직후 — render 전 캐럿 상태 (파형 열린 줄 포함) */
+export function prepareCaretAtWord(cardIndex, words, storageWordIndex) {
+  clearListPlayFromCaretPreferred();
+  spaceSeekIntent = "none";
+  activateCaretAt(cardIndex, words, storageWordIndex, true, false);
 }
 
 /**
@@ -290,6 +318,7 @@ function refreshCaretRowUi(container, cardIndex, words, opts) {
 function enterTextareaEditMode(cardIndex, words, container, opts) {
   if (isPlaybackActive(opts)) opts.onPausePlayback?.();
   spaceSeekIntent = "none";
+  listPlayFromCaretPreferred = false;
   activeCaretCardIndex = null;
   globalHoveredRowIndex = null;
   const st = getRowCaret(cardIndex, words);
@@ -320,7 +349,10 @@ function activateCaretAt(cardIndex, words, storageCaret, blink, armSpaceSeek = t
   st.focusedRenderable = rc;
   st.hoveredRenderable = null;
   lastCardFocusIndex = cardIndex;
-  if (armSpaceSeek) spaceSeekIntent = "caret";
+  if (armSpaceSeek) {
+    spaceSeekIntent = "caret";
+    listPlayFromCaretPreferred = true;
+  }
   focusRenderableCaretButton(cardIndex, rc);
 }
 
@@ -360,12 +392,14 @@ function syncCaretFromFocus(cardIndex, words, renderableCaret) {
  * @param {boolean} playing
  */
 function isCaretShownAt(st, cardIndex, renderableCi, playing) {
-  const isHoverPos = st.hoveredRenderable === renderableCi;
-  const isFocusPos =
-    st.rowHasFocus && st.focusedRenderable === renderableCi && st.caretVisible;
-  if (isHoverPos) return true;
+  if (!st.caretVisible && !(st.rowHasFocus && st.focusedRenderable === renderableCi)) {
+    return false;
+  }
   if (playing && keyboardPauseCaretIndex !== cardIndex) return false;
-  return isFocusPos;
+  if (globalHoveredRowIndex !== null && globalHoveredRowIndex !== cardIndex) return false;
+  if (st.hoveredRenderable !== null) return st.hoveredRenderable === renderableCi;
+  if (st.rowHasFocus && st.focusedRenderable !== null) return st.focusedRenderable === renderableCi;
+  return false;
 }
 
 function clearHoverOnOtherRows(exceptCardIndex) {
@@ -426,6 +460,7 @@ function setHoverCaretAt(cardIndex, words, visibleIndex, container, opts, cues) 
  */
 function dismissSpaceSeekIntent(container, cardIndex, words, opts, cues) {
   spaceSeekIntent = "none";
+  listPlayFromCaretPreferred = false;
   dismissHoverCaretUi(container, cardIndex, words, opts, cues);
 }
 
@@ -609,7 +644,7 @@ export function requestFocusCaret(container, cues, opts, cardIndex, storageCaret
     opts.onCardNavigate(cues[cardIndex].start);
   }
   clearCaretUiOnOtherRows(container, cues, opts, cardIndex);
-  activateCaretAt(cardIndex, words, storageCaret, true);
+  activateCaretAt(cardIndex, words, storageCaret, true, detail?.armSpaceSeek !== false);
   globalHoveredRowIndex = null;
   refreshCaretRowUi(container, cardIndex, words, opts);
 }
@@ -647,17 +682,75 @@ export function requestFocusCaretDeferred(container, cues, opts, cardIndex, stor
  */
 function storageCaretForPlayhead(cue, playheadSec) {
   const words = getCueWords(cue);
-  let wi = pickActiveWordIndex(cue, playheadSec);
-  if (wi >= 0) return wi;
   const vis = visibleWordStorageIndices(words);
+  /** 트림 겹침 시 마지막(가장 오른쪽) 단어 — pickActiveWordIndex 와 동일 */
+  let found = -1;
   for (const i of vis) {
-    if ((words[i]?.start ?? 0) >= playheadSec - 1e-4) return i;
+    const w = words[i];
+    if (playheadSec >= w.start && playheadSec < w.end) found = i;
   }
-  for (let j = vis.length - 1; j >= 0; j -= 1) {
-    const i = vis[j];
-    if ((words[i]?.start ?? 0) <= playheadSec + 1e-4) return i;
+  if (found >= 0) return found;
+  for (const i of vis) {
+    if (playheadSec < (words[i]?.start ?? 0)) return i;
   }
-  return vis.length ? vis[0] : nearestValidStorageCaret(words, 0);
+  if (vis.length) return vis[vis.length - 1];
+  const wi = pickActiveWordIndex(cue, playheadSec);
+  if (wi >= 0) return wi;
+  return nearestValidStorageCaret(words, 0);
+}
+
+function isRowWaveformExpanded(cardIndex, opts) {
+  const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+  const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+  return ci === cardIndex && wi >= 0;
+}
+
+function wireRailCaretHoverOnce(rail, tracks, cardIndex, words, listContainer, opts, cues) {
+  if (!(rail instanceof HTMLElement) || rail.dataset.caretHoverWired === "1") return;
+  rail.dataset.caretHoverWired = "1";
+  rail.addEventListener("pointermove", (e) => {
+    const chip =
+      e.target instanceof Element ? e.target.closest(".subtitle-word-chip") : null;
+    if (!chip || !tracks.contains(chip)) return;
+    const vi = Number(chip.dataset.visibleIndex);
+    const storageWi = Number(chip.dataset.wordIndex);
+    if (!Number.isFinite(vi) || !Number.isFinite(storageWi)) return;
+    setHoverCaretAt(cardIndex, words, vi, listContainer, opts, cues);
+  });
+  rail.addEventListener("mouseleave", () => {
+    if (globalHoveredRowIndex !== cardIndex) return;
+    dismissHoverCaretUi(listContainer, cardIndex, words, opts, cues);
+  });
+}
+
+function replaceCaretOverlayDom(
+  rail,
+  inner,
+  tracks,
+  cardIndex,
+  words,
+  visibleStorageIndices,
+  isExpanded,
+  playing,
+  opts,
+  cues,
+  listContainer,
+) {
+  inner.querySelector(".subtitle-word-carets-overlay")?.remove();
+  appendCaretsOverlay(
+    rail,
+    inner,
+    tracks,
+    cardIndex,
+    words,
+    visibleStorageIndices,
+    isExpanded,
+    playing,
+    opts,
+    cues,
+    listContainer,
+    { skipRailHoverWire: true },
+  );
 }
 
 /**
@@ -719,7 +812,17 @@ function caretIndexBeforePlayheadWord(cue, playheadSec) {
  * @param {number} activeCueIndex
  * @param {number} playheadSec
  */
-export function syncCaretOnPlaybackPause(container, cues, opts, activeCueIndex, playheadSec) {
+export function syncPlaybackCaretVisibility(container, cues, playing) {
+  if (!container || !cues?.length) return;
+  patchCaretRowsVisibility(
+    container,
+    cues,
+    playing,
+    cues.map((_, i) => i),
+  );
+}
+
+export function syncCaretOnPlaybackPause(container, cues, opts, activeCueIndex, playheadSec, detail = {}) {
   if (skipPlayheadCaretSyncOnPause) {
     skipPlayheadCaretSyncOnPause = false;
     return;
@@ -732,12 +835,12 @@ export function syncCaretOnPlaybackPause(container, cues, opts, activeCueIndex, 
   if (ae instanceof HTMLElement && root?.contains(ae) && ae.closest(".subtitle-card-textarea")) {
     return;
   }
-  const words = getCueWords(cue);
-  if (!words.length) return;
-  const snap = nearestValidStorageCaret(words, caretIndexBeforePlayheadWord(cue, playheadSec));
   keyboardPauseCaretIndex = -1;
-  activateCaretAt(activeCueIndex, words, snap, true, false);
-  refreshCaretRowUi(container, activeCueIndex, words, opts);
+  const placeDetail = { forceCueIndex: activeCueIndex };
+  if (typeof detail.forceStorageWordIndex === "number" && detail.forceStorageWordIndex >= 0) {
+    placeDetail.forceStorageWordIndex = detail.forceStorageWordIndex;
+  }
+  placeCaretAtPlayhead(container, cues, opts, playheadSec, placeDetail);
 }
 
 /**
@@ -789,17 +892,55 @@ export function handleGlobalArrowKey(e, container, cues, opts) {
   requestFocusCaret(container, cues, opts, 0, 0);
 }
 
-export function placeCaretAtPlayhead(container, cues, opts, playheadSec) {
-  const ci = pickActiveCueIndex(cues, playheadSec);
+export function placeCaretAtPlayhead(container, cues, opts, playheadSec, detail = {}) {
+  const ci =
+    typeof detail.forceCueIndex === "number" && detail.forceCueIndex >= 0
+      ? detail.forceCueIndex
+      : pickActiveCueIndex(cues, playheadSec);
   if (ci < 0 || !container) return;
   const cue = cues[ci];
   if (!cue || cue.is_silence) return;
   const words = getCueWords(cue);
-  const wi = storageCaretForPlayhead(cue, playheadSec);
+  const wi =
+    typeof detail.forceStorageWordIndex === "number" && detail.forceStorageWordIndex >= 0
+      ? detail.forceStorageWordIndex
+      : storageCaretForPlayhead(cue, playheadSec);
   opts.onSelectCue?.(ci, { seek: false, scroll: false });
   activateCaretAt(ci, words, wi, true, false);
   globalHoveredRowIndex = null;
-  refreshCaretRowUi(container, ci, words, opts);
+
+  const playing = isPlaybackActive(opts);
+  if (isRowWaveformExpanded(ci, opts)) {
+    const card = container.querySelector(`.subtitle-card[data-cue-index="${ci}"]`);
+    const rail = card?.querySelector(".subtitle-word-rail");
+    const inner = rail?.querySelector(".subtitle-word-row-inner");
+    const tracks = inner?.querySelector(".subtitle-word-row-tracks");
+    if (rail instanceof HTMLElement && inner instanceof HTMLElement && tracks instanceof HTMLElement) {
+      replaceCaretOverlayDom(
+        rail,
+        inner,
+        tracks,
+        ci,
+        words,
+        visibleWordStorageIndices(words),
+        true,
+        playing,
+        opts,
+        cues,
+        container,
+      );
+    }
+  } else {
+    refreshCaretRowUi(container, ci, words, opts);
+  }
+
+  const rc = storageCaretToRenderableCaret(words, nearestValidStorageCaret(words, wi));
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      patchCaretVisibility(container, ci, words, playing);
+      focusRenderableCaretButton(ci, rc);
+    });
+  });
 }
 
 /**
@@ -843,6 +984,7 @@ export function tryHandleCaretSpaceKey(e, container, cues, opts) {
     const cue = cues[cardIndex];
     opts.onWaveformSeekAndPlay?.(cue?.start ?? 0);
     spaceSeekIntent = "none";
+    listPlayFromCaretPreferred = false;
     return true;
   }
 
@@ -920,6 +1062,16 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     if (e.defaultPrevented) return;
     e.preventDefault();
     e.stopPropagation();
+    if (wasPlaying) {
+      opts.onTogglePlayback?.(true);
+      return;
+    }
+    if (tryWaveformSpaceWhenExpanded(opts)) return;
+    if (spaceSeekIntent === "caret") {
+      playAtCaret(cardIndex, ci, opts);
+      dismissSpaceSeekIntent(container, cardIndex, words, opts, cues);
+      return;
+    }
     opts.onTogglePlayback?.(true);
     return;
   }
@@ -1029,7 +1181,6 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     if (hasSelection && opts.onDeleteWordRangeAt) {
       opts.onDeleteWordRangeAt(cardIndex, selStart, selEnd);
       clearSelection();
-      requestFocusCaret(container, cues, opts, cardIndex, selStart);
       return;
     }
     clearSelection();
@@ -1037,11 +1188,8 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     while (leftIdx >= 0 && words[leftIdx]?.is_deleted) leftIdx -= 1;
     if (leftIdx >= 0 && opts.onBackspaceWordAt) {
       opts.onBackspaceWordAt(cardIndex, leftIdx + 1);
-      requestFocusCaret(container, cues, opts, cardIndex, leftIdx);
     } else if (cardIndex > 0) {
-      const prevLen = cues[cardIndex - 1]?.words?.length ?? 0;
       opts.onBackspaceWordAt?.(cardIndex, ci);
-      requestFocusCaret(container, cues, opts, cardIndex - 1, prevLen);
     }
     return;
   }
@@ -1050,7 +1198,6 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     if (hasSelection && opts.onDeleteWordRangeAt) {
       opts.onDeleteWordRangeAt(cardIndex, selStart, selEnd);
       clearSelection();
-      requestFocusCaret(container, cues, opts, cardIndex, selStart);
       return;
     }
     clearSelection();
@@ -1058,10 +1205,8 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     while (rightIdx < words.length && words[rightIdx]?.is_deleted) rightIdx += 1;
     if (rightIdx < words.length && opts.onDeleteWordAt) {
       opts.onDeleteWordAt(cardIndex, rightIdx);
-      requestFocusCaret(container, cues, opts, cardIndex, rightIdx);
     } else if (cardIndex + 1 < cues.length) {
       opts.onDeleteWordAt(cardIndex, ci);
-      requestFocusCaret(container, cues, opts, cardIndex + 1, 0);
     }
   }
 }
@@ -1091,15 +1236,19 @@ function appendCaretsOverlay(
   opts,
   cues,
   listContainer,
+  overlayOpts = {},
 ) {
-  if (isExpanded) return;
   const st = getRowCaret(cardIndex, words);
+  const n = visibleStorageIndices.length;
+  if (isExpanded && !(st.rowHasFocus && st.focusedRenderable != null)) return;
+  if (n === 0) return;
+
+  const slotIndices = Array.from({ length: n + 1 }, (_, i) => i);
 
   const overlay = document.createElement("div");
   overlay.className = "subtitle-word-carets-overlay";
-  const n = visibleStorageIndices.length;
 
-  for (let k = 0; k <= n; k += 1) {
+  for (const k of slotIndices) {
     const storageK = renderableCaretToStorageCaret(words, k);
     const shown = isCaretShownAt(st, cardIndex, k, playing);
     const btn = document.createElement("button");
@@ -1135,20 +1284,9 @@ function appendCaretsOverlay(
 
   inner.appendChild(overlay);
 
-  rail.addEventListener("pointermove", (e) => {
-    const chip =
-      e.target instanceof Element ? e.target.closest(".subtitle-word-chip") : null;
-    if (!chip || !tracks.contains(chip)) return;
-    const vi = Number(chip.dataset.visibleIndex);
-    const storageWi = Number(chip.dataset.wordIndex);
-    if (!Number.isFinite(vi) || !Number.isFinite(storageWi)) return;
-    setHoverCaretAt(cardIndex, words, vi, listContainer, opts, cues);
-  });
-
-  rail.addEventListener("mouseleave", () => {
-    if (globalHoveredRowIndex !== cardIndex) return;
-    dismissHoverCaretUi(listContainer, cardIndex, words, opts, cues);
-  });
+  if (!overlayOpts.skipRailHoverWire) {
+    wireRailCaretHoverOnce(rail, tracks, cardIndex, words, listContainer, opts, cues);
+  }
 
   scheduleCaretLayout(inner, cardIndex, words, visibleStorageIndices, listContainer, playing);
 }
@@ -1226,6 +1364,7 @@ export function buildWordChipsAndCarets(
     slot.appendChild(pill);
     tracks.appendChild(slot);
 
+    if (isExpanded) pill.setAttribute("data-waveform-expanded-row-chip", "1");
     if (isExpanded && expandedWordIndex === storageWi) pill.classList.add("is-selected");
     if (playing && activeWord === storageWi) pill.classList.add("subtitle-word-chip--active");
 
@@ -1240,17 +1379,33 @@ export function buildWordChipsAndCarets(
       e.stopPropagation();
       const st = getRowCaret(cardIndex, words);
       st.selectionAnchor = null;
-      if (isExpanded && opts.onWaveformChipClick) {
-        const isActiveChip = expandedWordIndex === storageWi;
+      const liveExpandedCue =
+        typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+      const liveExpandedWi =
+        typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+      const rowHasWaveform = liveExpandedCue === cardIndex && liveExpandedWi >= 0;
+
+      if (rowHasWaveform && opts.onWaveformChipClick) {
+        const isActiveChip = liveExpandedWi === storageWi;
         opts.onWaveformChipClick(cardIndex, vi, storageWi, isActiveChip, e.detail);
         if (isPlaybackActive(opts)) opts.onPausePlayback?.();
-        activateCaretAt(cardIndex, words, storageWi, true);
+        activateCaretAt(cardIndex, words, storageWi, true, true);
         onSelectCue?.(cardIndex);
+        opts.onSeek?.(w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
+        const cardEl = pill.closest(".subtitle-card");
+        if (cardEl instanceof HTMLElement) {
+          lastCardFocusIndex = cardIndex;
+          cardEl.focus({ preventScroll: true });
+        }
         return;
       }
+
+      if (liveExpandedCue >= 0 && liveExpandedCue !== cardIndex) {
+        opts.onCloseWaveform?.({ restoreFocus: false });
+      }
       if (isPlaybackActive(opts)) opts.onPausePlayback?.();
-      activateCaretAt(cardIndex, words, storageWi, true);
+      activateCaretAt(cardIndex, words, storageWi, true, true);
       onSelectCue?.(cardIndex);
       opts.onSeek?.(w.start);
       requestFocusCaret(listContainer, cues, opts, cardIndex, storageWi, { seek: false });
@@ -1315,8 +1470,16 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
     if (spaceSeekIntent === "wholeLine") {
       opts.onWaveformSeekAndPlay?.(cues[cardIndex]?.start ?? 0);
       spaceSeekIntent = "none";
+      listPlayFromCaretPreferred = false;
       return;
     }
+    if (spaceSeekIntent === "caret") {
+      playAtCaret(cardIndex, ci, opts);
+      spaceSeekIntent = "none";
+      listPlayFromCaretPreferred = false;
+      return;
+    }
+    if (cardIndex === opts.getExpandedCueIndex?.() && tryWaveformSpaceWhenExpanded(opts)) return;
     opts.onTogglePlayback?.(true);
     return;
   }
@@ -1397,6 +1560,7 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
     if (t.closest(".subtitle-word-rail") && tryFirstCaret()) return;
 
     spaceSeekIntent = "wholeLine";
+    lastCardFocusIndex = cardIndex;
     card.querySelectorAll(`[id^="subtitle-caret-${cardIndex}-"]`).forEach((el) => {
       if (el instanceof HTMLElement) el.blur();
     });
@@ -1444,6 +1608,7 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
       clearRowCaretState(cardIndex, words, false);
       if (activeCaretCardIndex === cardIndex) activeCaretCardIndex = null;
       spaceSeekIntent = "none";
+      listPlayFromCaretPreferred = false;
       patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
     }, 32);
   });

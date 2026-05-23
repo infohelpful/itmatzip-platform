@@ -26,6 +26,10 @@ import {
   paintConnectorOverlay,
 } from "./waveform/waveform-connector-geom.js";
 import { splitWordAtMediaSecInLines } from "./shared/split-word-actions.js";
+import {
+  shouldDeferWaveformSpaceToCaret,
+} from "./subtitle-list/word-caret-ui.js";
+import { registerWaveformPanel, unregisterWaveformPanel } from "./waveform-panel-registry.js";
 
 const MIN_SPLIT_SEC = 0.02;
 const MIN_TRIM_SPAN_SEC = 0.038;
@@ -81,6 +85,7 @@ export class LineWaveformPanel {
   }
 
   show(cueIndex, wordIndex) {
+    registerWaveformPanel(this);
     this.cueIndex = cueIndex;
     this.focusWordIndex = wordIndex;
     this._connectorAnchorKey = null;
@@ -96,6 +101,7 @@ export class LineWaveformPanel {
   }
 
   hide() {
+    unregisterWaveformPanel(this);
     this.finishRangePlay(false);
     this._unbindKeys();
     this._connectorRo?.disconnect();
@@ -130,24 +136,43 @@ export class LineWaveformPanel {
     this.focusWordIndex = -1;
   }
 
-  /** @param {boolean} [animate] @param {{ rewindToTrimStart?: boolean }} [opts] */
+  /** @param {boolean} [animate] @param {{ rewindToTrimStart?: boolean, playheadEditSec?: number }} [opts] */
   finishRangePlay(animate = true, opts = {}) {
-    if (!this._isPlayingRange && !this._isCutLinePlayingMotion) return;
+    const shouldRewind = opts.rewindToTrimStart === true;
+    const shouldSyncPlayhead = Number.isFinite(opts.playheadEditSec);
+    if (
+      !this._isPlayingRange &&
+      !this._isCutLinePlayingMotion &&
+      !shouldRewind &&
+      !shouldSyncPlayhead
+    ) {
+      return;
+    }
     this._isPlayingRange = false;
     this._playStartSec = null;
     this._exitPlayingMotion();
 
     if (!this.editRange) return;
 
-    const rewind = opts.rewindToTrimStart === true && !this._cutLineUserPositioned;
-    if (rewind) {
+    if (shouldRewind) {
       const s = Math.min(this.editRange.start, this.editRange.end);
       const e = Math.max(this.editRange.start, this.editRange.end);
       this.cutSec = Math.min(e - CUT_EPS, s + CUT_EPS);
+      this._cutLineUserPositioned = false;
       const wid = this._activeWordId();
       if (wid) cutSecByWordId.set(wid, this.cutSec);
       this._rewindCutLineToTrimStart(animate);
       return;
+    }
+
+    if (shouldSyncPlayhead) {
+      const s = Math.min(this.editRange.start, this.editRange.end);
+      const e = Math.max(this.editRange.start, this.editRange.end);
+      const clamped = Math.min(e - CUT_EPS, Math.max(s + CUT_EPS, opts.playheadEditSec));
+      this.cutSec = clamped;
+      this._cutLineUserPositioned = true;
+      const wid = this._activeWordId();
+      if (wid) cutSecByWordId.set(wid, clamped);
     }
     this._syncCutLineDom();
   }
@@ -352,7 +377,13 @@ export class LineWaveformPanel {
     flow?.addEventListener("keydown", (e) => {
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
       if (e.code === "Space" || e.key === " ") {
+        if (!this.deps.isWaveformPanelActive?.()) return;
+        if (shouldDeferWaveformSpaceToCaret()) return;
         e.preventDefault();
+        if (this.deps.isPlaying?.()) {
+          this.deps.onPausePlayback?.();
+          return;
+        }
         this._togglePlayFromCut();
       }
     });
@@ -817,7 +848,10 @@ export class LineWaveformPanel {
         );
         const updated = result[this.cueIndex];
         if (updated && this.deps.onApplySubtitleChange) {
-          this.deps.onApplySubtitleChange(() => result);
+          this.deps.onApplySubtitleChange(() => result, {
+            cueIndex: this.cueIndex,
+            focusWordIndex: this.focusWordIndex,
+          });
         }
         this._connectorAnchorKey = null;
         this._connectorGeom = null;
@@ -926,6 +960,19 @@ export class LineWaveformPanel {
     const s = Math.min(this.editRange.start, this.editRange.end);
     const e = Math.max(this.editRange.start, this.editRange.end);
     let startT = this.cutSec;
+    const playheadEdit = this.deps.getPlayheadEditSec?.();
+    if (
+      Number.isFinite(playheadEdit) &&
+      playheadEdit > s + CUT_EPS &&
+      playheadEdit < e - CUT_EPS &&
+      playheadEdit > startT + 0.02
+    ) {
+      startT = playheadEdit;
+      this.cutSec = playheadEdit;
+      this._cutLineUserPositioned = true;
+      const wid = this._activeWordId();
+      if (wid) cutSecByWordId.set(wid, playheadEdit);
+    }
     if (startT >= e - 0.05) startT = s;
     const clamped = Math.min(e - CUT_EPS, Math.max(s + CUT_EPS, startT));
     this.beginRangePlay(clamped);
@@ -954,7 +1001,10 @@ export class LineWaveformPanel {
     if (!result.ok) return;
 
     if (this.deps.onApplySubtitleChange) {
-      this.deps.onApplySubtitleChange(() => result.lines);
+      this.deps.onApplySubtitleChange(() => result.lines, {
+        cueIndex: this.cueIndex,
+        focusWordIndex: result.storageIdx,
+      });
     }
 
     this.focusWordIndex = result.storageIdx;
@@ -976,11 +1026,17 @@ export class LineWaveformPanel {
     this._unbindKeys();
     this._boundKeydown = (e) => {
       if (e.code !== "Space" && e.key !== " ") return;
+      if (!this.deps.isWaveformPanelActive?.()) return;
       const tag = e.target instanceof Element ? e.target.tagName : "";
       if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
       if (!this.root?.querySelector("[data-subwave-flow]")) return;
+      if (shouldDeferWaveformSpaceToCaret()) return;
       e.preventDefault();
-      e.stopImmediatePropagation();
+      e.stopPropagation();
+      if (this.deps.isPlaying?.()) {
+        this.deps.onPausePlayback?.();
+        return;
+      }
       this._togglePlayFromCut();
     };
     document.addEventListener("keydown", this._boundKeydown, { capture: true });

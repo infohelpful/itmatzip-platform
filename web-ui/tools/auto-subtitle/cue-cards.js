@@ -9,11 +9,13 @@ export {
   refreshExpandedPanelSkipRanges,
   finishExpandedPanelRangePlay,
   toggleExpandedPanelPlayFromCut,
+  getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   resetPlaybackHighlightCache,
   requestFocusCaret,
-} from "./subtitle-list/virtual-scroll-list.js?v=47";
+} from "./subtitle-list/virtual-scroll-list.js?v=54";
 export {
-  tryHandleCaretSpaceKey,
   requestFocusCaretDeferred,
-} from "./subtitle-list/word-caret-ui.js?v=35";
+  syncPlaybackCaretVisibility,
+  clearListPlayFromCaretPreferred,
+} from "./subtitle-list/word-caret-ui.js?v=40";

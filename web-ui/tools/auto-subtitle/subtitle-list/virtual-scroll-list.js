@@ -8,6 +8,7 @@ import {
 } from "../subtitle-words.js";
 import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=24";
 import { LineWaveformPanel } from "../line-waveform-panel.js";
+import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
   applySubwavePanelLeftPx,
   findActiveWordChip,
@@ -25,7 +26,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=35";
+} from "./word-caret-ui.js?v=39";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -328,6 +329,8 @@ export function renderSubtitleCards(container, cues, opts = {}) {
   markCaretListStructuralMutation(96);
   sanitizeRowCaretMapForCues(cues);
 
+  disposeAllWaveformPanels();
+
   const savedScrollTop = container.scrollTop;
   resetPlaybackHighlightCache();
   container.innerHTML = "";
@@ -462,7 +465,18 @@ export function finishExpandedPanelRangePlay(container, opts = {}) {
   const mount = card?.querySelector(".subtitle-card-media-rail");
   panelByCard.get(mount)?.finishRangePlay?.(true, {
     rewindToTrimStart: opts.rewindToTrimStart === true,
+    playheadEditSec: opts.playheadEditSec,
   });
+}
+
+/** @param {HTMLElement | null} container @param {number} expandedCue */
+export function getExpandedPanelCutEditSec(container, expandedCue) {
+  if (!container || expandedCue < 0) return null;
+  const card = queryCardByCueIndex(container, expandedCue);
+  const mount = card?.querySelector(".subtitle-card-media-rail");
+  const panel = mount ? panelByCard.get(mount) : null;
+  const cut = panel?.cutSec;
+  return Number.isFinite(cut) ? cut : null;
 }
 
 export function toggleExpandedPanelPlayFromCut(container, opts = {}) {
@@ -505,8 +519,11 @@ function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
   }
 
   mount.innerHTML = "";
-  if (!panel) {
-    panel = new LineWaveformPanel(mount, {
+  if (panel) {
+    panel.hide();
+    panelByCard.delete(mount);
+  }
+  panel = new LineWaveformPanel(mount, {
       getCues,
       getCard: () => card,
       getPeaksData: opts.getPeaksData || (() => opts.peaksData ?? null),
@@ -516,19 +533,25 @@ function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
       mapEditToMediaSec: opts.mapEditToMediaSec,
       mapMediaToEditSec: opts.mapMediaToEditSec,
       formatTime: opts.formatTimeFull || opts.formatTime,
-      onApplySubtitleChange: (updater) => opts.onApplySubtitleChange?.(updater),
+      onApplySubtitleChange: (updater, meta) => opts.onApplySubtitleChange?.(updater, meta),
       onBeforeWordSplit: () => opts.onBeforeWordSplit?.(),
       onPlayEditRange: (s, e) => opts.onPlayEditRange?.(s, e),
       onPausePlayback: () => opts.onPausePlayback?.(),
       isPlaying: () => opts.getIsPlaying?.() ?? Boolean(opts.isPlaying),
+      getPlayheadEditSec: () =>
+        typeof opts.getPlayheadSec === "function" ? opts.getPlayheadSec() : opts.playheadSec,
+      isWaveformPanelActive: () => {
+        const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+        const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+        return ci >= 0 && wi >= 0;
+      },
       onUndo: () => opts.onWaveformUndo?.(),
       onSeek: (sec) => opts.onSeek?.(sec),
       onFocusWordAfterSplit: (ci, wi, wordId) => opts.onWaveformFocusWord?.(ci, wi, wordId),
       onClose: () => opts.onCloseWaveform?.(),
       ensurePeaksLoad: opts.ensurePeaksLoad,
-    });
-    panelByCard.set(mount, panel);
-  }
+  });
+  panelByCard.set(mount, panel);
 
   const cue = getCues()[cueIndex];
   if (cue) {

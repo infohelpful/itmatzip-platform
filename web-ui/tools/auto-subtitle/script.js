@@ -28,14 +28,17 @@ import {
   refreshExpandedPanelSkipRanges,
   finishExpandedPanelRangePlay,
   toggleExpandedPanelPlayFromCut,
-  tryHandleCaretSpaceKey,
+  getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
-} from "./cue-cards.js?v=47";
+} from "./cue-cards.js?v=54";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
   resetSpaceSeekIntent,
   syncCaretOnPlaybackPause,
+  syncPlaybackCaretVisibility,
+  clearListPlayFromCaretPreferred,
+  prepareCaretAtWord,
 } from "./subtitle-list/word-caret-ui.js";
 import {
   nearestValidStorageCaret,
@@ -293,6 +296,8 @@ function beginPreviewSyncedPlayback(startMediaSec) {
 
 /** @type {number | null} 파형 ▶ 재생 시 편집축 종료 시각 */
 let waveformPlayRangeEndEdit = null;
+/** 삭제 직후 seek/play 지연 (AutoSubtitle armDeleteGuard) */
+let deleteGuardUntil = 0;
 let lastPlaybackCueIndex = -1;
 let lastPlaybackWordIndex = -1;
 let lastOverlayCueIndex = -1;
@@ -494,9 +499,38 @@ function getActiveCueForPreview() {
   return ai >= 0 ? lastCues[ai] : null;
 }
 
-function closeWordWaveform() {
+function armDeleteGuard(ms = 280) {
+  const now = performance.now();
+  const requestedUntil = now + ms;
+  deleteGuardUntil =
+    deleteGuardUntil > now
+      ? Math.min(requestedUntil, deleteGuardUntil + 120)
+      : requestedUntil;
+}
+
+function isDeleteGuardActive() {
+  return performance.now() < deleteGuardUntil;
+}
+
+/** @param {object} cue @param {number} storageWordIndex */
+function editSecForStorageWord(cue, storageWordIndex) {
+  ensureCueWords(cue);
+  const words = cue.words ?? [];
+  let editSec = cue.start ?? 0;
+  const vis = visibleWordStorageIndices(words);
+  if (vis.length) {
+    const c = Math.max(0, Math.min(storageWordIndex, words.length));
+    let pick = vis.find((i) => i >= c);
+    if (pick == null) pick = vis[vis.length - 1];
+    editSec = words[pick]?.start ?? editSec;
+  }
+  return editSec;
+}
+
+function closeWordWaveform({ restoreFocus = true } = {}) {
   const prevCue = expandedCueIndex;
   const prevWord = expandedWordIndex;
+  waveformPlayRangeEndEdit = null;
   if (waveformChipCloseTimer != null) {
     clearTimeout(waveformChipCloseTimer);
     waveformChipCloseTimer = null;
@@ -504,7 +538,7 @@ function closeWordWaveform() {
   expandedCueIndex = -1;
   expandedWordIndex = -1;
   renderCuesTable(lastCues);
-  if (prevCue >= 0 && subtitleList) {
+  if (restoreFocus && prevCue >= 0 && subtitleList) {
     const cue = lastCues[prevCue];
     ensureCueWords(cue ?? {});
     const words = cue?.words ?? [];
@@ -516,7 +550,7 @@ function closeWordWaveform() {
       buildSubtitleCardOpts(lastCues),
       prevCue,
       storageCaret,
-      { seek: false },
+      { seek: false, armSpaceSeek: false },
     );
   }
 }
@@ -612,6 +646,10 @@ function commitPlayheadUi({
   lastHighlightSelectedCue = selectedCueIndex;
   lastCommitMediaPlaying = mediaPlaying;
 
+  if (playStateChanged && subtitleList) {
+    syncPlaybackCaretVisibility(subtitleList, lastCues, mediaPlaying);
+  }
+
   const wall = performance.now();
   const panelOpen = expandedCueIndex >= 0 && expandedWordIndex >= 0;
   if (panelOpen) {
@@ -703,7 +741,11 @@ function playbackTick() {
   playbackRafId = requestAnimationFrame(playbackTick);
 }
 
-function startPlaybackLoop() {
+function startPlaybackLoop(opts = {}) {
+  if (isDeleteGuardActive()) {
+    window.setTimeout(() => startPlaybackLoop(opts), 35);
+    return;
+  }
   if (!previewVideo || !previewAudio) return;
   if (isVideoPlaying && playbackRafId) return;
 
@@ -712,13 +754,19 @@ function startPlaybackLoop() {
     playbackRafId = 0;
   }
 
+  if (!opts.fromWaveformRange) {
+    waveformPlayRangeEndEdit = null;
+  }
+
   playbackLoopGeneration += 1;
   isVideoPlaying = true;
   setPreviewPlaybackUiActive(true);
   resetKeyboardPauseCaret();
+  resetSpaceSeekIntent();
   resetPlaybackSkipThrottle();
   lastPlayheadUiCommitWallMs = 0;
   lastExpandedPanelSyncWallMs = 0;
+  if (subtitleList) syncPlaybackCaretVisibility(subtitleList, lastCues, true);
   if (waveformChipCloseTimer != null) {
     clearTimeout(waveformChipCloseTimer);
     waveformChipCloseTimer = null;
@@ -746,14 +794,59 @@ function startPlaybackLoop() {
   playbackTick();
 }
 
+/**
+ * 재생 중 Space/정지 — playhead 가 속한 단어 블록 앞에 캐럿 (Electron SubtitleVirtualList pause effect).
+ *
+ * @param {number} pausedAtCue
+ * @param {number} pausedAtWord
+ * @param {{ ai: number, wi: number }} resolvedPause
+ * @param {boolean} wasWaveformRange
+ */
+function syncPauseCaretAtPlayhead(pausedAtCue, pausedAtWord, resolvedPause, wasWaveformRange) {
+  if (!subtitleList || !lastCues.length) return;
+
+  let pauseAi = pausedAtCue >= 0 ? pausedAtCue : resolvedPause.ai;
+  if (pauseAi < 0) pauseAi = pickActiveCueIndex(lastCues, playheadSec);
+  if (pauseAi < 0 && selectedCueIndex >= 0) pauseAi = selectedCueIndex;
+  if (pauseAi < 0) return;
+
+  let caretEditSec = playheadSec;
+  if (wasWaveformRange && expandedCueIndex >= 0 && pauseAi === expandedCueIndex) {
+    const panelCutSec = getExpandedPanelCutEditSec(subtitleList, expandedCueIndex);
+    if (Number.isFinite(panelCutSec)) caretEditSec = panelCutSec;
+  }
+
+  let pauseWi =
+    pausedAtWord >= 0 && pausedAtCue === pauseAi ? pausedAtWord : resolvedPause.wi;
+  if (pauseWi < 0 && lastCues[pauseAi]) {
+    pauseWi = pickActiveWordIndex(lastCues[pauseAi], caretEditSec);
+  }
+
+  const detail = pauseWi >= 0 ? { forceStorageWordIndex: pauseWi } : {};
+  syncCaretOnPlaybackPause(
+    subtitleList,
+    lastCues,
+    buildSubtitleCardOpts(lastCues),
+    pauseAi,
+    caretEditSec,
+    detail,
+  );
+}
+
 function stopPlaybackLoop(opts = {}) {
-  if (!isVideoPlaying && !playbackRafId) return;
+  const wasMediaPlaying = isVideoPlaying || playbackRafId || isPreviewMediaPlaying();
+  if (!wasMediaPlaying) return;
   const wasWaveformRange = waveformPlayRangeEndEdit != null;
+  const shouldSyncPauseCaret =
+    opts.waveformRangeNaturalEnd !== true && subtitleList && lastCues.length;
   playbackLoopGeneration += 1;
   isVideoPlaying = false;
   setPreviewPlaybackUiActive(false);
   waveformPlayRangeEndEdit = null;
+  const pausedAtCue = lastPlaybackCueIndex;
+  const pausedAtWord = lastPlaybackWordIndex;
   capturePlayheadFromPreviewMedia();
+  const resolvedPause = resolvePlaybackIndices(playheadSec);
   if (playbackRafId) {
     cancelAnimationFrame(playbackRafId);
     playbackRafId = 0;
@@ -768,9 +861,14 @@ function stopPlaybackLoop(opts = {}) {
       expandedCueIndex,
       expandedWordIndex,
       rewindToTrimStart: opts.waveformRangeNaturalEnd === true,
+      playheadEditSec: opts.waveformRangeNaturalEnd === true ? undefined : playheadSec,
     });
   }
   commitPlayheadUi();
+  if (shouldSyncPauseCaret) {
+    syncPauseCaretAtPlayhead(pausedAtCue, pausedAtWord, resolvedPause, wasWaveformRange);
+  }
+  if (subtitleList) syncPlaybackCaretVisibility(subtitleList, lastCues, false);
 }
 
 /**
@@ -789,19 +887,6 @@ function togglePreviewPlayback(opts = {}) {
     userRequestedPreviewPause = true;
     stopPlaybackLoop();
     userRequestedPreviewPause = false;
-    if (opts.showCaretOnPause && subtitleList && lastCues.length) {
-      const ai =
-        pickActiveCueIndex(lastCues, playheadSec) >= 0
-          ? pickActiveCueIndex(lastCues, playheadSec)
-          : selectedCueIndex;
-      syncCaretOnPlaybackPause(
-        subtitleList,
-        lastCues,
-        buildSubtitleCardOpts(lastCues),
-        ai,
-        playheadSec,
-      );
-    }
     return;
   }
   resetSpaceSeekIntent();
@@ -810,6 +895,7 @@ function togglePreviewPlayback(opts = {}) {
 
 /** @param {number} cardIndex @param {number} storageCaret */
 function playAtSubtitleCaret(cardIndex, storageCaret) {
+  waveformPlayRangeEndEdit = null;
   const cue = lastCues[cardIndex];
   if (!cue) return;
   ensureCueWords(cue);
@@ -1102,6 +1188,8 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     selectedCueIndex,
     expandedCueIndex,
     expandedWordIndex,
+    getExpandedCueIndex: () => expandedCueIndex,
+    getExpandedWordIndex: () => expandedWordIndex,
     playheadSec,
     isPlaying: mediaPlaying,
     getIsPlaying: () => isPreviewMediaPlaying(),
@@ -1148,9 +1236,11 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
     },
     onBackspaceWordAt: (cardIndex, wordIndex) => {
+      armDeleteGuard();
       backspaceWordAt(subtitleHub, cardIndex, wordIndex);
       renderCuesTable(lastCues);
-      if (subtitleList) {
+      window.setTimeout(() => {
+        if (!subtitleList) return;
         const wi = Math.max(0, wordIndex - 1);
         requestFocusCaretDeferred(
           subtitleList,
@@ -1158,34 +1248,35 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           buildSubtitleCardOpts(lastCues),
           cardIndex,
           wi,
+          { seek: false },
         );
-      }
+      }, 0);
     },
     onDeleteWordAt: (cardIndex, caretIndex) => {
+      armDeleteGuard();
       deleteWordAt(subtitleHub, cardIndex, caretIndex);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      if (subtitleList) {
+      window.setTimeout(() => {
+        if (!subtitleList) return;
         const words = lastCues[cardIndex]?.words ?? [];
-        const vis = visibleWordStorageIndices(words);
-        const snap =
-          vis.length > 0
-            ? nearestValidStorageCaret(words, Math.min(caretIndex, vis[vis.length - 1] + 1))
-            : 0;
         requestFocusCaretDeferred(
           subtitleList,
           lastCues,
           buildSubtitleCardOpts(lastCues),
           cardIndex,
-          snap,
+          nearestValidStorageCaret(words, caretIndex),
+          { seek: false },
         );
-      }
+      }, 0);
     },
     onDeleteWordRangeAt: (cardIndex, from, to) => {
+      armDeleteGuard();
       deleteWordRangeAt(subtitleHub, cardIndex, from, to);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      if (subtitleList) {
+      window.setTimeout(() => {
+        if (!subtitleList) return;
         const words = lastCues[cardIndex]?.words ?? [];
         requestFocusCaretDeferred(
           subtitleList,
@@ -1193,8 +1284,9 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           buildSubtitleCardOpts(lastCues),
           cardIndex,
           nearestValidStorageCaret(words, from),
+          { seek: false },
         );
-      }
+      }, 0);
     },
     onSelectCue: (cueIndex, detail) =>
       selectCueLine(cueIndex, {
@@ -1210,7 +1302,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       expandedWordIndex = wi;
       renderCuesTable(lastCues);
     },
-    onCloseWaveform: () => closeWordWaveform(),
+    onCloseWaveform: (opts) => closeWordWaveform(opts ?? {}),
     onPreviewLineTextInput: (cueIndex, text) => {
       if (lastCues[cueIndex]) {
         lastCues[cueIndex].text = text;
@@ -1237,10 +1329,6 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       togglePreviewPlayback({
         showCaretOnPause: Boolean(fromSpace),
       }),
-    onPausePlayback: () => {
-      previewVideo?.pause();
-      stopPlaybackLoop();
-    },
     onWaveformSeekAndPlay: (editSec) => {
       if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return;
       const orch = getPlaybackOrchestrator();
@@ -1274,10 +1362,44 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       const orch = getPlaybackOrchestrator();
       return orch.mapMediaToEditSec(mediaSec);
     },
-    onApplySubtitleChange: (updater) => {
+    onWaveformSpacePlay: () => {
+      if (!subtitleList || expandedCueIndex < 0 || expandedWordIndex < 0) return false;
+      return toggleExpandedPanelPlayFromCut(subtitleList, {
+        expandedCueIndex,
+        expandedWordIndex,
+        playheadSec,
+      });
+    },
+    onApplySubtitleChange: (updater, meta) => {
       subtitleHub.applySubtitleChange(updater);
+      let focusAfterRender = null;
+      if (meta && meta.cueIndex >= 0 && meta.focusWordIndex >= 0) {
+        const ci = meta.cueIndex;
+        const wi = meta.focusWordIndex;
+        const cue = lastCues[ci];
+        if (cue) {
+          ensureCueWords(cue);
+          prepareCaretAtWord(ci, cue.words ?? [], wi);
+          playheadSec = editSecForStorageWord(cue, wi);
+          waveformPlayRangeEndEdit = null;
+          focusAfterRender = { ci, wi };
+        }
+      } else {
+        clearListPlayFromCaretPreferred();
+        resetSpaceSeekIntent();
+      }
       renderCuesTable(lastCues);
       commitPlayheadUi();
+      if (focusAfterRender && subtitleList) {
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          focusAfterRender.ci,
+          focusAfterRender.wi,
+          { seek: false, armSpaceSeek: false },
+        );
+      }
     },
     onBeforeWordSplit: () => {
       subtitleHub.gapFillWhenBuildingVrew = false;
@@ -1297,7 +1419,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       playheadSec = startEdit;
       orch.seekMediaSec(startMedia);
       commitPlayheadUi();
-      startPlaybackLoop();
+      startPlaybackLoop({ fromWaveformRange: true });
     },
     onPausePlayback: () => {
       userRequestedPreviewPause = true;
@@ -2198,42 +2320,18 @@ document.addEventListener("keydown", (e) => {
   closeGpuInstallModal();
 });
 
-document.addEventListener(
-  "keydown",
-  (e) => {
-    if (e.key !== " " && e.code !== "Space") return;
-    if (e.isComposing || e.defaultPrevented) return;
-    const target = e.target;
-    if (target instanceof HTMLTextAreaElement) return;
-    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
-
-    /* 파형 패널 열림: ▶ 와 동일 — 자르기 위치 ~ 트림 끝 구간 재생 */
-    if (
-      expandedCueIndex >= 0 &&
-      expandedWordIndex >= 0 &&
-      subtitleList &&
-      toggleExpandedPanelPlayFromCut(subtitleList, {
-        expandedCueIndex,
-        expandedWordIndex,
-      })
-    ) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      return;
-    }
-
-    e.preventDefault();
-
-    if (!previewVideo) return;
-
-    if (subtitleList && lastCues.length) {
-      tryHandleCaretSpaceKey(e, subtitleList, lastCues, buildSubtitleCardOpts(lastCues));
-    } else {
-      togglePreviewPlayback();
-    }
-  },
-  { capture: true },
-);
+document.addEventListener("keydown", (e) => {
+  if ((e.key !== " " && e.code !== "Space") || e.repeat) return;
+  if (e.isComposing || e.defaultPrevented) return;
+  const target = e.target;
+  if (target instanceof HTMLTextAreaElement) return;
+  if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+  /** AutoSubtitle App.tsx — 카드 밖에서만 연속 재생 토글 */
+  if (target instanceof Element && target.closest(".subtitle-card")) return;
+  e.preventDefault();
+  if (!previewVideo) return;
+  togglePreviewPlayback();
+});
 
 document.addEventListener("keydown", (e) => {
   if (!subtitleList || !lastCues.length) return;
@@ -2393,17 +2491,10 @@ document.addEventListener(
     if (expandedCueIndex < 0) return;
     const t = e.target;
     if (!(t instanceof Element)) return;
-    if (
-      t.closest(".subtitle-card-media-rail") ||
-      t.closest(".subtitle-waveform-mount") ||
-      t.closest(".subtitle-word-chip") ||
-      t.closest(".subtitle-word-rail") ||
-      t.closest(".subwave-flow-root") ||
-      t.closest(".subtitle-waveform-accordion") ||
-      t.closest(".subtitle-card-textarea")
-    ) {
-      return;
-    }
+    if (t.closest(".subwave-flow-root")) return;
+    if (t.closest('[data-waveform-expanded-row-chip="1"]')) return;
+    if (t.closest('[data-waveform-mount-for-open-line="1"]')) return;
+    if (t.closest('[data-waveform-no-dismiss="1"]')) return;
     closeWordWaveform();
   },
   true,
