@@ -5,7 +5,14 @@
     "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.6/itmatzip-agent.msi",
     "sha256":  "b700ae2d7070750fce4933b18286cbca6f131fbccce268a433a7250b42252460",
     "mandatory":  false,
-    "release_notes":  " 오류 수정 ",
+    "release_notes":  "Auto Subtitle: 첫 자막 추출 시 Whisper AI 모델(약 1.6GB)·FFmpeg 자동 다운로드. 전사·보내기·SRT/VTT/ASS/영상 번인 지원.",
+    "tool_hints":  {
+                       "auto-subtitle":  {
+                                             "first_run_download_mb":  1650,
+                                             "model_name":  "faster-whisper-large-v3-turbo",
+                                             "prepare_note":  "첫 자막 추출 시 AI 모델(약 1.6GB)을 PC에 받습니다."
+                                         }
+                   },
     "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.1.6/itmatzip-agent.msi",
     "msi_sha256":  "b700ae2d7070750fce4933b18286cbca6f131fbccce268a433a7250b42252460"
 }

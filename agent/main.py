@@ -30,6 +30,7 @@ if str(_AGENT_ROOT) not in sys.path:
 
 from common.auto_update import get_update_status_snapshot, schedule_background_update_checks  # noqa: E402
 from engines import silence_remover as silence_remover_engine  # noqa: E402
+from routers import auto_subtitle as auto_subtitle_router  # noqa: E402
 from routers import silence_remover as silence_remover_router  # noqa: E402
 from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
     # 툴 추가 시: routers 아래에 모듈을 만들고 여기서 include_router 만 하면 됩니다.
     app.include_router(silence_remover_router.router)
     app.include_router(vocal_remover_router.router)
+    app.include_router(auto_subtitle_router.router)
 
     web_ui = _AGENT_ROOT.parent / "web-ui"
     if web_ui.is_dir():

@@ -42,9 +42,9 @@ func toolsWebBase() string {
 	return "https://tools.itmatzip.com"
 }
 
-func trayToolURLs() (dashboard, silence, vocal string) {
+func trayToolURLs() (dashboard, silence, vocal, autosub string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/"
 }
 
 func resolveTrayIconPath() string {
@@ -221,11 +221,12 @@ func onTrayReady(port int, iconData []byte) {
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
-	dashboardURL, silenceURL, vocalURL := trayToolURLs()
+	dashboardURL, silenceURL, vocalURL, autosubURL := trayToolURLs()
 
 	mDashboard := systray.AddMenuItem("대시보드", dashboardURL)
 	mSilence := systray.AddMenuItem("Silence Detector", silenceURL)
 	mVocal := systray.AddMenuItem("Vocal Remover", vocalURL)
+	mAutosub := systray.AddMenuItem("Auto Subtitle", autosubURL)
 	systray.AddSeparator()
 
 	mStopSvc := systray.AddMenuItem("서비스 종료", "에이전트 Windows 서비스만 중지합니다 (트레이는 유지)")
@@ -246,13 +247,13 @@ func onTrayReady(port int, iconData []byte) {
 	updateTrayTooltipFromState(port)
 
 	go trayStatusPoller(port)
-	go trayMenuEventLoop(port, dashboardURL, silenceURL, vocalURL, mDashboard, mSilence, mVocal, mStopSvc, mStartSvc, mQuit)
+	go trayMenuEventLoop(port, dashboardURL, silenceURL, vocalURL, autosubURL, mDashboard, mSilence, mVocal, mAutosub, mStopSvc, mStartSvc, mQuit)
 }
 
 func trayMenuEventLoop(
 	port int,
-	dashboardURL, silenceURL, vocalURL string,
-	mDashboard, mSilence, mVocal, mStopSvc, mStartSvc, mQuit *systray.MenuItem,
+	dashboardURL, silenceURL, vocalURL, autosubURL string,
+	mDashboard, mSilence, mVocal, mAutosub, mStopSvc, mStartSvc, mQuit *systray.MenuItem,
 ) {
 	for {
 		select {
@@ -262,6 +263,8 @@ func trayMenuEventLoop(
 			openURL(silenceURL)
 		case <-mVocal.ClickedCh:
 			openURL(vocalURL)
+		case <-mAutosub.ClickedCh:
+			openURL(autosubURL)
 		case <-mStopSvc.ClickedCh:
 			if err := stopWindowsService(); err != nil {
 				log.Printf("tray stop service: %v", err)

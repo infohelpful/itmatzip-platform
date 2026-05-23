@@ -82,6 +82,13 @@ try {
     Write-Host "vocal-remover/status: $($vrStatus | ConvertTo-Json -Compress)"
     if (-not $vrStatus.ok) { throw "vocal-remover status not ok" }
 
+    $asReadiness = Invoke-RestMethod "$Origin/api/tools/auto-subtitle/readiness"
+    Write-Host "auto-subtitle/readiness: $($asReadiness | ConvertTo-Json -Compress)"
+    if (-not $asReadiness.ok) { throw "auto-subtitle readiness not ok" }
+
+    $asExport = Invoke-RestMethod "$Origin/api/tools/auto-subtitle/export/status"
+    Write-Host "auto-subtitle/export/status: phase=$($asExport.phase)"
+
     $readiness = Invoke-RestMethod "$Origin/api/tools/vocal-remover/readiness"
     Write-Host "vocal-remover/readiness: demucs=$($readiness.demucs_installed) ffmpeg=$($readiness.ffmpeg_installed)"
 

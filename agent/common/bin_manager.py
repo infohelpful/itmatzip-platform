@@ -24,6 +24,34 @@ FFMPEG_BUNDLE_URL = os.environ.get("ITMATZIP_FFMPEG_URL", DEFAULT_FFMPEG_BUNDLE_
 _STALE_LOCK_SEC = 600.0
 _bundle_archive_name = "ffmpeg_bundle.zip"
 _extract_dir_name = "_ffmpeg_extract"
+_FFMPEG_SHARED_SUBDIR = "gpl-shared"
+
+
+def is_file_locked_error(exc: BaseException) -> bool:
+    if isinstance(exc, PermissionError):
+        return True
+    winerr = getattr(exc, "winerror", None)
+    return winerr == 32
+
+
+def _copy2_with_retry(src: Path, dst: Path, *, retries: int = 8) -> None:
+    last: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            shutil.copy2(src, dst)
+            return
+        except OSError as exc:
+            last = exc
+            if not is_file_locked_error(exc):
+                raise
+            time.sleep(0.35 * (attempt + 1))
+    if last:
+        raise last
+
+
+def get_ffmpeg_shared_dir() -> Path:
+    """실행 중인 구형 ffmpeg.exe와 분리된 shared DLL 런타임 폴더."""
+    return get_bin_root() / _FFMPEG_SHARED_SUBDIR
 
 
 def _resolve_bin_root() -> Path:
@@ -44,10 +72,14 @@ def get_bin_root() -> Path:
 
 
 def get_ffmpeg_exe() -> Path:
+    if _ffmpeg_shared_runtime_complete():
+        return get_ffmpeg_shared_dir() / "ffmpeg.exe"
     return get_bin_root() / "ffmpeg.exe"
 
 
 def get_ffprobe_exe() -> Path:
+    if _ffmpeg_shared_runtime_complete():
+        return get_ffmpeg_shared_dir() / "ffprobe.exe"
     return get_bin_root() / "ffprobe.exe"
 
 
@@ -75,11 +107,12 @@ def _migrate_legacy_binaries() -> None:
     if not (leg_ff.is_file() and leg_fp.is_file()):
         return
     if any(legacy.glob("*.dll")):
-        _publish_ffmpeg_runtime_files(legacy)
+        _publish_ffmpeg_runtime_files(legacy, dest_dir=get_ffmpeg_shared_dir())
     else:
-        target.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(leg_ff, get_ffmpeg_exe())
-        shutil.copy2(leg_fp, get_ffprobe_exe())
+        shared = get_ffmpeg_shared_dir()
+        shared.mkdir(parents=True, exist_ok=True)
+        _copy2_with_retry(leg_ff, shared / "ffmpeg.exe")
+        _copy2_with_retry(leg_fp, shared / "ffprobe.exe")
 
 
 def _adopt_system_path_binaries() -> None:
@@ -93,33 +126,46 @@ def _adopt_system_path_binaries() -> None:
     ffprobe_on_path = shutil.which("ffprobe")
     if not ffmpeg_on_path or not ffprobe_on_path:
         return
-    _publish_ffmpeg_runtime_files(Path(ffmpeg_on_path).parent)
+    _publish_ffmpeg_runtime_files(Path(ffmpeg_on_path).parent, dest_dir=get_ffmpeg_shared_dir())
+
+
+def _ffmpeg_shared_runtime_complete() -> bool:
+    d = get_ffmpeg_shared_dir()
+    if not (d / "ffmpeg.exe").is_file() or not (d / "ffprobe.exe").is_file():
+        return False
+    return any(d.glob("*.dll"))
 
 
 def _ffmpeg_runtime_complete() -> bool:
-    """torchcodec/Demucs가 로드하는 FFmpeg shared DLL(avcodec 등)이 bin에 있는지 확인."""
+    """torchcodec/Demucs가 로드하는 FFmpeg shared DLL(avcodec 등)이 준비됐는지 확인."""
+    if _ffmpeg_shared_runtime_complete():
+        return True
     bin_root = get_bin_root()
-    if not get_ffmpeg_exe().is_file() or not get_ffprobe_exe().is_file():
+    if not (bin_root / "ffmpeg.exe").is_file() or not (bin_root / "ffprobe.exe").is_file():
         return False
     return any(bin_root.glob("*.dll"))
 
 
-def _publish_ffmpeg_runtime_files(source_dir: Path) -> None:
-    """ffmpeg.exe가 있는 폴더의 exe·dll을 agent bin으로 복사 (torchcodec용 DLL 포함)."""
-    bin_root = get_bin_root()
+def _publish_ffmpeg_runtime_files(source_dir: Path, *, dest_dir: Path | None = None) -> None:
+    """ffmpeg.exe가 있는 폴더의 exe·dll을 dest_dir(기본 gpl-shared)로 복사."""
+    bin_root = dest_dir or get_ffmpeg_shared_dir()
     bin_root.mkdir(parents=True, exist_ok=True)
     if not source_dir.is_dir():
         raise FileNotFoundError(f"FFmpeg source dir missing: {source_dir}")
+    files = [item for item in source_dir.iterdir() if item.is_file()]
+    dlls = [f for f in files if f.suffix.lower() == ".dll"]
+    exes = [f for f in files if f.suffix.lower() == ".exe"]
     copied = 0
-    for item in source_dir.iterdir():
-        if not item.is_file():
-            continue
-        ext = item.suffix.lower()
-        if ext not in {".exe", ".dll"}:
-            continue
-        shutil.copy2(item, bin_root / item.name)
-        copied += 1
-    if not get_ffmpeg_exe().is_file() or not get_ffprobe_exe().is_file():
+    for item in dlls + exes:
+        dest = bin_root / item.name
+        try:
+            _copy2_with_retry(item, dest)
+            copied += 1
+        except OSError as exc:
+            if item.suffix.lower() == ".exe" and is_file_locked_error(exc) and any(bin_root.glob("*.dll")):
+                continue
+            raise
+    if not (bin_root / "ffmpeg.exe").is_file() or not (bin_root / "ffprobe.exe").is_file():
         raise FileNotFoundError(
             f"ffmpeg/ffprobe not found after publishing from {source_dir}",
         )
@@ -131,7 +177,7 @@ def _publish_ffmpeg_runtime_files(source_dir: Path) -> None:
 
 def prepend_ffmpeg_bin_to_env(env: dict[str, str]) -> str:
     """Demucs/torchcodec subprocess용 PATH 앞에 FFmpeg bin을 붙입니다."""
-    bin_dir = str(get_bin_root())
+    bin_dir = str(get_ffmpeg_shared_dir() if _ffmpeg_shared_runtime_complete() else get_bin_root())
     old = env.get("PATH", "")
     parts = [p for p in old.split(os.pathsep) if p]
     if bin_dir not in parts:
@@ -190,16 +236,16 @@ def ensure_ffmpeg(
     ffprobe_exe = get_ffprobe_exe()
 
     if _ffmpeg_runtime_complete():
-        return ffmpeg_exe
+        return get_ffmpeg_exe()
 
-    # 예전 static(gpl) 설치: exe만 있고 DLL 없음 → shared 번들로 다시 받기
-    if get_ffmpeg_exe().is_file() and not any(bin_root.glob("*.dll")):
-        for stale in bin_root.iterdir():
-            if stale.is_file():
-                stale.unlink(missing_ok=True)
+    # 예전 static(gpl) 설치: exe만 있고 DLL 없음 → gpl-shared/ 로 새로 받기 (bin 루트 exe는 건드리지 않음).
+    if (bin_root / "ffmpeg.exe").is_file() and not _ffmpeg_shared_runtime_complete():
         stale_archive = bin_root / _bundle_archive_name
         if stale_archive.is_file():
-            stale_archive.unlink(missing_ok=True)
+            try:
+                stale_archive.unlink()
+            except OSError:
+                pass
 
     _clear_stale_download_lock()
 
@@ -209,7 +255,7 @@ def ensure_ffmpeg(
 
     while time.monotonic() < deadline:
         if _ffmpeg_runtime_complete():
-            return ffmpeg_exe
+            return get_ffmpeg_exe()
         if _try_acquire_download_lock():
             held_lock = True
             break
@@ -218,12 +264,12 @@ def ensure_ffmpeg(
 
     if not held_lock:
         if _ffmpeg_runtime_complete():
-            return ffmpeg_exe
+            return get_ffmpeg_exe()
         raise TimeoutError("FFmpeg 다운로드 잠금을 획득하지 못했습니다. 잠시 후 다시 시도하세요.")
 
     try:
         if _ffmpeg_runtime_complete():
-            return ffmpeg_exe
+            return get_ffmpeg_exe()
 
         archive_path = bin_root / _bundle_archive_name
         extract_dir = bin_root / _extract_dir_name
@@ -251,7 +297,7 @@ def ensure_ffmpeg(
                 f"압축 해제 후 ffprobe.exe를 찾지 못했습니다. 동일 번들에 ffprobe가 포함되어 있는지 확인하세요: {url}"
             )
 
-        _publish_ffmpeg_runtime_files(runtime_dir)
+        _publish_ffmpeg_runtime_files(runtime_dir, dest_dir=get_ffmpeg_shared_dir())
 
         try:
             archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -259,7 +305,7 @@ def ensure_ffmpeg(
             pass
         shutil.rmtree(extract_dir, ignore_errors=True)
 
-        return ffmpeg_exe
+        return get_ffmpeg_exe()
     finally:
         if held_lock:
             _release_download_lock()
@@ -295,7 +341,14 @@ def _download_file(url: str, dest: Path, *, timeout_sec: float) -> None:
         with urllib.request.urlopen(request, timeout=timeout_sec) as response:
             with dest_part.open("wb") as out:
                 shutil.copyfileobj(response, out, length=1024 * 256)
-        os.replace(dest_part, dest)
+        for attempt in range(8):
+            try:
+                os.replace(dest_part, dest)
+                break
+            except OSError as exc:
+                if not is_file_locked_error(exc) or attempt >= 7:
+                    raise
+                time.sleep(0.35 * (attempt + 1))
     except (urllib.error.URLError, OSError) as e:
         try:
             dest_part.unlink(missing_ok=True)  # type: ignore[arg-type]

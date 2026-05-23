@@ -30,6 +30,19 @@ export const TOOLS = [
     tags: ["무음", "silence", "edl", "premiere", "ffmpeg", "파형", "오디오"],
   },
   {
+    id: "auto-subtitle",
+    href: "auto-subtitle/",
+    title: "Auto Subtitle",
+    subtitle: "AI 자막 추출 · SRT",
+    description:
+      "로컬 영상·오디오에서 Faster-Whisper로 자막을 생성합니다. AI 모델은 추출 시 PC에 다운로드됩니다.",
+    icon: "💬",
+    accent: "#8b5cf6",
+    available: true,
+    badge: "AI",
+    tags: ["자막", "subtitle", "whisper", "srt", "전사", "ffmpeg", "영상"],
+  },
+  {
     id: "vocal-remover",
     href: "vocal-remover/",
     title: "Vocal Remover",

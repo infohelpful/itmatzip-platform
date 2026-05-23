@@ -1,0 +1,2412 @@
+import {
+  applyConnectionStatusDot,
+  checkAgentConnection,
+  configureBridge,
+  fetchAgent,
+  formatAgentConnectionError,
+  getAgentOrigin,
+  mapAgentEventToPrepareStatus,
+  requestAgent,
+  showInstallAgentDialog,
+  startAgentEventStream,
+  startConnectionMonitor,
+} from "../common/bridge.js?v=as5";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
+import {
+  LOCAL_HELPER_NAME,
+  MSG_SUBTITLE_JOB_BUSY,
+  MSG_SUBTITLE_NEED_APP,
+  MSG_SUBTITLE_PREPARE,
+} from "../common/local-helper-ui.js?v=1";
+import {
+  renderSubtitleCards,
+  readCuesFromCards,
+  scrollCueIntoView,
+  requestFocusCaret,
+  requestFocusCaretDeferred,
+  syncExpandedPanelPlayhead,
+  refreshExpandedPanelSkipRanges,
+  finishExpandedPanelRangePlay,
+  toggleExpandedPanelPlayFromCut,
+  tryHandleCaretSpaceKey,
+  updatePlaybackHighlights,
+} from "./cue-cards.js?v=47";
+import {
+  handleGlobalArrowKey,
+  resetKeyboardPauseCaret,
+  resetSpaceSeekIntent,
+  syncCaretOnPlaybackPause,
+} from "./subtitle-list/word-caret-ui.js";
+import {
+  nearestValidStorageCaret,
+  visibleWordStorageIndices,
+} from "./shared/subtitle-word-caret-map.js?v=21";
+import { syncAllCuesFromWords, ensureCueWords } from "./subtitle-words.js?v=21";
+import {
+  pickActiveCueIndex,
+  pickActiveCueIndexWithHint,
+  pickActiveWordIndex,
+  skipCutRangeAt,
+} from "./playback.js?v=24";
+import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
+import {
+  buildExportRequestPayload,
+  exportFormatLabel,
+  EXPORT_TEXT_FORMATS,
+} from "./export/export-client.js?v=22";
+import {
+  normalizeCuesFromAgent,
+  postProcessCuesAfterTranscribe,
+} from "./shared/cues-ssot.js?v=29";
+import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
+import { removeSilenceWordsFromSubtitleLines } from "./shared/phase5-edit-policy.js?v=28";
+import { getSubtitleBoxChromeInline } from "./shared/subtitle-box-chrome.js?v=21";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=21";
+import {
+  applyPlaybackSkipToPreviewMedia,
+  applyThrottledVideoSkipCut,
+  isHtmlAudioMasterActive,
+  readHtmlAudioMasterPlayhead,
+  resetPlaybackSkipThrottle,
+  startSyncedPlayback,
+  stopSyncedPlayback,
+  syncVideoFromHtmlAudioMaster,
+} from "./hub/synced-playback.js?v=30";
+import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js";
+import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=24";
+import {
+  splitSubtitleAt,
+  mergeEmptySubtitleAt,
+  splitSubtitleAtWord,
+  backspaceWordAt,
+  deleteWordAt,
+  deleteWordRangeAt,
+} from "./shared/subtitle-edit-actions.js?v=21";
+
+configureBridge({ healthPath: "/health" });
+
+const TOOL_PREFIX = "/api/tools/auto-subtitle";
+const STORAGE_CUES = "auto-subtitle:last-cues";
+const STORAGE_CUTS = "auto-subtitle:cut-ranges";
+const STORAGE_EXPORT_PATH = "auto-subtitle:export-path";
+const STORAGE_VIDEO_PATH = "auto-subtitle:last-video-path";
+
+const DEFAULT_SUBTITLE_STYLE = {
+  fontFamily: "Malgun Gothic",
+  fontSize: 47,
+  textColor: "#ffffff",
+  fontWeight: 700,
+  bgColor: "#000000",
+  bgOpacity: 63,
+  bgSize: 50,
+  strokeColor: "#000000",
+  strokeWidth: 2,
+  x: 50,
+  y: 90,
+};
+
+const SYSTEM_FONT_CANDIDATES = [
+  "Malgun Gothic",
+  "맑은 고딕",
+  "Apple SD Gothic Neo",
+  "Noto Sans KR",
+  "Nanum Gothic",
+  "Gulim",
+  "Dotum",
+  "Batang",
+  "Arial",
+  "Segoe UI",
+  "Helvetica Neue",
+  "sans-serif",
+];
+
+const videoPathInput = document.getElementById("video-path");
+const btnPick = document.getElementById("btn-pick-local-file");
+const btnNewJob = document.getElementById("btn-new-job");
+const btnTranscribe = document.getElementById("btn-transcribe");
+const styleSection = document.getElementById("style-section");
+const exportFormatSelect = document.getElementById("export-format");
+const btnExport = document.getElementById("btn-export");
+const btnDownloadResult = document.getElementById("btn-download-result");
+const btnShowExportFolder = document.getElementById("btn-show-export-folder");
+const languageSelect = document.getElementById("language-select");
+const binReadiness = document.getElementById("bin-readiness");
+const subtitleList = document.getElementById("subtitle-list");
+const subtitleEmpty = document.getElementById("subtitle-empty");
+const resultsMeta = document.getElementById("results-meta");
+const previewSection = document.getElementById("preview-section");
+const previewVideo = document.getElementById("preview-video");
+const previewAudio = document.getElementById("preview-audio");
+const previewOverlay = document.getElementById("preview-subtitle-overlay");
+const previewEmpty = document.getElementById("preview-empty");
+
+const setupLoading = document.getElementById("setup-loading");
+const setupLoadingTitle = document.getElementById("setup-loading-title");
+const setupLoadingStep = document.getElementById("setup-loading-step");
+const setupLoadingMessage = document.getElementById("setup-loading-message");
+const setupLoadingBar = document.getElementById("setup-loading-bar");
+const setupLoadingTrack = document.getElementById("setup-loading-track");
+
+const transcribeLoading = document.getElementById("transcribe-loading");
+const transcribeLoadingTitle = document.getElementById("transcribe-loading-title");
+const transcribeLoadingStep = document.getElementById("transcribe-loading-step");
+const transcribeLoadingMessage = document.getElementById("transcribe-loading-message");
+const transcribeLoadingBar = document.getElementById("transcribe-loading-bar");
+const transcribeLoadingTrack = document.getElementById("transcribe-loading-track");
+const transcribeLoadingPercent = document.getElementById("transcribe-loading-percent");
+
+const exportLoading = document.getElementById("export-loading");
+const exportLoadingTitle = document.getElementById("export-loading-title");
+const exportLoadingStep = document.getElementById("export-loading-step");
+const exportLoadingMessage = document.getElementById("export-loading-message");
+const exportLoadingBar = document.getElementById("export-loading-bar");
+const exportLoadingTrack = document.getElementById("export-loading-track");
+const exportLoadingPercent = document.getElementById("export-loading-percent");
+const prepareBanner = document.getElementById("prepare-banner");
+const styleFontFamily = document.getElementById("style-font-family");
+const styleFontSizeRange = document.getElementById("style-font-size-range");
+const styleFontSizeOut = document.getElementById("style-font-size-out");
+const styleTextColor = document.getElementById("style-text-color");
+const styleTextAlpha = document.getElementById("style-text-alpha");
+const styleTextAlphaOut = document.getElementById("style-text-alpha-out");
+const styleStrokeColor = document.getElementById("style-stroke-color");
+const styleStrokeWidth = document.getElementById("style-stroke-width");
+const styleStrokeWidthOut = document.getElementById("style-stroke-width-out");
+const styleBgColor = document.getElementById("style-bg-color");
+const styleBgOpacity = document.getElementById("style-bg-opacity");
+const styleBgOpacityOut = document.getElementById("style-bg-opacity-out");
+const styleBgSize = document.getElementById("style-bg-size");
+const styleBgSizeOut = document.getElementById("style-bg-size-out");
+const styleX = document.getElementById("style-x");
+const styleXOut = document.getElementById("style-x-out");
+const styleYRange = document.getElementById("style-y-range");
+const styleYOut = document.getElementById("style-y-out");
+const fontDatalist = document.getElementById("system-font-list");
+const btnSaveProject = document.getElementById("btn-save-project");
+const btnSaveProjectAs = document.getElementById("btn-save-project-as");
+const btnUnloadModel = document.getElementById("btn-unload-model");
+const btnLoadProject = document.getElementById("btn-load-project");
+const btnPrepare = document.getElementById("btn-prepare");
+const btnUndo = document.getElementById("btn-undo");
+const btnRedo = document.getElementById("btn-redo");
+const gapFillVrew = document.getElementById("gap-fill-vrew");
+const btnRemoveSilence = document.getElementById("btn-remove-silence");
+
+/** Electron: 단어 구간 기반 재생 스케줄 */
+globalThis.__AUTO_SUBTITLE_WORD_PLAYBACK__ = true;
+const gpuInstallModal = document.getElementById("gpu-install-modal");
+const gpuInstallMessage = document.getElementById("gpu-install-message");
+const btnGpuInstallRun = document.getElementById("btn-gpu-install-run");
+const btnGpuInstallDismiss = document.getElementById("btn-gpu-install-dismiss");
+
+let toolReady = false;
+let modelLoaded = false;
+let agentConnected = false;
+let lastCues = [];
+/** @type {{ start: number, end: number }[]} */
+let lastCutRanges = [];
+let lastExportPath = null;
+let waveformLoading = false;
+let selectedCueIndex = -1;
+let expandedCueIndex = -1;
+/** @type {ReturnType<typeof setTimeout> | null} */
+let waveformChipCloseTimer = null;
+let expandedWordIndex = -1;
+/** @type {object | null} */
+let peaksPayload = null;
+let playheadSec = 0;
+let playbackRafId = 0;
+let isVideoPlaying = false;
+
+/** RAF 루프와 무관하게 실제 미디어 재생 여부 */
+function isPreviewMediaPlaying() {
+  if (isVideoPlaying) return true;
+  if (previewAudio && isHtmlAudioMasterActive()) {
+    return !previewAudio.paused;
+  }
+  return Boolean(previewVideo && !previewVideo.paused);
+}
+
+/** 재생 클럭 — Whisper/RMS·피크·단어 블록과 동일한 오디오 축 (Electron masterAudio) */
+function readPreviewMediaClockSec() {
+  const skip = getPlaybackSkipRanges();
+  if (previewAudio && isHtmlAudioMasterActive()) {
+    const { mediaSec } = readHtmlAudioMasterPlayhead(previewAudio, { skipRanges: skip });
+    if (mediaSec != null) return mediaSec;
+  }
+  if (previewVideo && Number.isFinite(previewVideo.currentTime)) {
+    return previewVideo.currentTime;
+  }
+  return 0;
+}
+
+/** 일시정지 직전 — html-audio 마스터가 살아 있을 때 오디오 시계 우선 */
+function capturePlayheadFromPreviewMedia() {
+  const orch = getPlaybackOrchestrator();
+  let media = null;
+  if (
+    isHtmlAudioMasterActive() &&
+    previewAudio &&
+    Number.isFinite(previewAudio.currentTime)
+  ) {
+    media = previewAudio.currentTime;
+  } else if (previewVideo && Number.isFinite(previewVideo.currentTime)) {
+    media = previewVideo.currentTime;
+  } else if (previewAudio && Number.isFinite(previewAudio.currentTime)) {
+    media = previewAudio.currentTime;
+  }
+  if (media == null) return;
+  playheadSec = orch.mapMediaToEditSec(media);
+}
+
+/** Electron syncPausedMasterToEdit — 정지 시 미디어 시계를 playheadSec 에 맞춤 */
+function syncPausedPreviewMediaToPlayhead() {
+  if (!previewVideo || !Number.isFinite(playheadSec)) return;
+  const orch = getPlaybackOrchestrator();
+  const skip = getPlaybackSkipRanges();
+  let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  if (Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
+    media = Math.min(media, Math.max(0, previewVideo.duration - 0.001));
+  }
+  if (previewAudio?.src) {
+    assignMasterAudioTimelineSecIfNeeded(previewAudio, media);
+  }
+  if (Math.abs(previewVideo.currentTime - media) > 0.002) {
+    previewVideo.currentTime = media;
+  }
+  previewAudio?.pause();
+  previewVideo.pause();
+  playheadSec = orch.mapMediaToEditSec(media);
+}
+
+/** @param {number} startMediaSec */
+function beginPreviewSyncedPlayback(startMediaSec) {
+  const url = getMediaStreamUrl();
+  if (!url || !previewVideo || !previewAudio) return false;
+  masterMediaUrl = url;
+  void startSyncedPlayback(url, previewVideo, previewAudio, {
+    startMediaSec,
+    skipRanges: getPlaybackSkipRanges(),
+  });
+  return true;
+}
+
+/** @type {number | null} 파형 ▶ 재생 시 편집축 종료 시각 */
+let waveformPlayRangeEndEdit = null;
+let lastPlaybackCueIndex = -1;
+let lastPlaybackWordIndex = -1;
+let lastOverlayCueIndex = -1;
+let lastHighlightSelectedCue = -1;
+let lastCommitMediaPlaying = false;
+/** 재생 UI 갱신 스로틀 (~15fps) — 비디오 디코드와 분리 */
+const PLAYHEAD_UI_COMMIT_MS = 66;
+let lastPlayheadUiCommitWallMs = 0;
+let lastExpandedPanelSyncWallMs = 0;
+const EXPANDED_PANEL_SYNC_MS = 100;
+let playbackLoopGeneration = 0;
+let userRequestedPreviewPause = false;
+/** 현재 작업에 묶인 영상 경로 (다른 파일 선택 시 자막 초기화) */
+let sessionVideoPath = "";
+/** @type {string | null} */
+let masterMediaUrl = null;
+/** 재생·피크·파형 축 SSOT (timeline_sec / 브라우저 duration) */
+let sessionMediaDurationSec = null;
+/** Whisper info.duration — pcm 피크 축과 다를 때 자막 시각 스케일용 */
+let sessionWhisperDurationSec = null;
+/** readiness.binaries.audiowaveform — false면 pcm_columns만 사용 */
+let agentAudiowaveformAvailable = false;
+
+const subtitleHub = new SubtitleAppHub({
+  onStateChange: () => {
+    syncHubFromState();
+  },
+});
+
+function syncHubFromState() {
+  lastCues = subtitleHub.cues;
+  lastCutRanges = subtitleHub.cutRanges;
+  persistCues();
+  persistCuts();
+  updateUndoRedoButtons();
+  updateActionButtons();
+  rebuildPlaybackSync();
+  if (subtitleList) refreshExpandedPanelSkipRanges(subtitleList);
+}
+
+function rebuildPlaybackSync() {
+  const orch = getPlaybackOrchestrator();
+  const dur =
+    previewVideo?.duration && Number.isFinite(previewVideo.duration)
+      ? previewVideo.duration
+      : 0;
+  orch.rebuild(lastCues, getPlaybackSkipRanges(), dur);
+}
+
+function updateUndoRedoButtons() {
+  if (btnUndo) btnUndo.disabled = !subtitleHub.canUndo();
+  if (btnRedo) btnRedo.disabled = !subtitleHub.canRedo();
+}
+
+function persistCues() {
+  try {
+    sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
+    const vp = videoPathInput?.value?.trim() || sessionVideoPath;
+    if (vp) sessionStorage.setItem(STORAGE_VIDEO_PATH, vp);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 자막·파형·컷만 비움 (영상 경로는 유지). 새 영상 / 경로 변경 시 호출 */
+function clearSubtitleWorkspace() {
+  subtitleHub.reset();
+  lastCues = [];
+  lastCutRanges = [];
+  lastExportPath = null;
+  selectedCueIndex = -1;
+  expandedCueIndex = -1;
+  expandedWordIndex = -1;
+  peaksPayload = null;
+  sessionMediaDurationSec = null;
+  sessionWhisperDurationSec = null;
+  try {
+    sessionStorage.removeItem(STORAGE_CUES);
+    sessionStorage.removeItem(STORAGE_CUTS);
+    sessionStorage.removeItem(STORAGE_EXPORT_PATH);
+  } catch {
+    /* ignore */
+  }
+  if (subtitleList) subtitleList.innerHTML = "";
+  stopPlaybackLoop();
+  commitPlayheadUi();
+  updateActionButtons();
+}
+
+function hexWithAlpha(hex, alpha255) {
+  const h = String(hex || "#ffffff").replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h.padStart(6, "0").slice(0, 6);
+  const a = Math.max(0, Math.min(255, Number(alpha255) || 255));
+  return `#${full}${a.toString(16).padStart(2, "0")}`;
+}
+
+function readSubtitleStyleFromDom() {
+  const fontSize = Number(styleFontSizeRange?.value) || DEFAULT_SUBTITLE_STYLE.fontSize;
+  const textAlpha = Number(styleTextAlpha?.value);
+  const style = {
+    ...DEFAULT_SUBTITLE_STYLE,
+    fontFamily: styleFontFamily?.value?.trim() || DEFAULT_SUBTITLE_STYLE.fontFamily,
+    fontSize,
+    textColor: hexWithAlpha(styleTextColor?.value, textAlpha),
+    strokeColor: styleStrokeColor?.value || DEFAULT_SUBTITLE_STYLE.strokeColor,
+    strokeWidth: Number(styleStrokeWidth?.value) ?? DEFAULT_SUBTITLE_STYLE.strokeWidth,
+    bgColor: styleBgColor?.value || DEFAULT_SUBTITLE_STYLE.bgColor,
+    bgOpacity: Number(styleBgOpacity?.value) ?? DEFAULT_SUBTITLE_STYLE.bgOpacity,
+    bgSize: Number(styleBgSize?.value) ?? DEFAULT_SUBTITLE_STYLE.bgSize,
+    x: Number(styleX?.value) ?? DEFAULT_SUBTITLE_STYLE.x,
+    y: Number(styleYRange?.value) ?? DEFAULT_SUBTITLE_STYLE.y,
+  };
+  const vw = previewVideo?.videoWidth;
+  const vh = previewVideo?.videoHeight;
+  if (vw > 0 && vh > 0) {
+    style.videoWidth = vw;
+    style.videoHeight = vh;
+  }
+  return style;
+}
+
+function exportPhaseStepLabel(phase, fmt) {
+  const label = exportFormatLabel(fmt || "srt");
+  if (phase === "queued") return `${label} · 대기`;
+  if (phase === "running") return `${label} · 처리 중`;
+  if (phase === "completed") return `${label} · 완료`;
+  if (phase === "failed") return `${label} · 실패`;
+  return label;
+}
+
+function applySubtitleStyleFromProject(style) {
+  if (!style || typeof style !== "object") return;
+  if (styleFontFamily && style.fontFamily) styleFontFamily.value = style.fontFamily;
+  if (styleFontSizeRange && style.fontSize != null) {
+    styleFontSizeRange.value = String(style.fontSize);
+    if (styleFontSizeOut) styleFontSizeOut.textContent = `${style.fontSize}px`;
+  }
+  if (styleTextColor && style.textColor) {
+    const tc = String(style.textColor);
+    if (tc.length >= 7) styleTextColor.value = tc.slice(0, 7);
+    if (tc.length === 9 && styleTextAlpha) {
+      styleTextAlpha.value = String(parseInt(tc.slice(7, 9), 16));
+      if (styleTextAlphaOut) styleTextAlphaOut.textContent = styleTextAlpha.value;
+    }
+  }
+  if (styleStrokeColor && style.strokeColor) styleStrokeColor.value = style.strokeColor;
+  if (styleStrokeWidth && style.strokeWidth != null) {
+    styleStrokeWidth.value = String(style.strokeWidth);
+    if (styleStrokeWidthOut) styleStrokeWidthOut.textContent = `${style.strokeWidth}px`;
+  }
+  if (styleBgColor && style.bgColor) styleBgColor.value = style.bgColor;
+  if (styleBgOpacity && style.bgOpacity != null) {
+    styleBgOpacity.value = String(style.bgOpacity);
+    if (styleBgOpacityOut) styleBgOpacityOut.textContent = `${style.bgOpacity}%`;
+  }
+  if (styleBgSize && style.bgSize != null) {
+    styleBgSize.value = String(style.bgSize);
+    if (styleBgSizeOut) styleBgSizeOut.textContent = `${style.bgSize}%`;
+  }
+  if (styleX && style.x != null) {
+    styleX.value = String(style.x);
+    if (styleXOut) styleXOut.textContent = `${style.x}%`;
+  }
+  if (styleYRange && style.y != null) {
+    styleYRange.value = String(style.y);
+    if (styleYOut) styleYOut.textContent = `${style.y}%`;
+  }
+  updatePreviewOverlay();
+}
+
+function syncCuesFromDom() {
+  if (subtitleList) {
+    const read = readCuesFromCards(subtitleList, lastCues);
+    subtitleHub.setCues(syncAllCuesFromWords(read), { recordHistory: false });
+  }
+}
+
+function getPlaybackSkipRanges() {
+  return subtitleHub.getPlaybackSkipRanges();
+}
+
+function getMediaStreamUrl() {
+  const p = videoPathInput?.value?.trim() || sessionVideoPath;
+  if (!p || !agentConnected) return null;
+  return `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+}
+
+function getActiveCueForPreview() {
+  const t = playheadSec;
+  if (isPreviewMediaPlaying()) {
+    const { ai } = resolvePlaybackIndices(t);
+    if (ai >= 0) return lastCues[ai];
+    return null;
+  }
+  if (selectedCueIndex >= 0 && lastCues[selectedCueIndex] && !lastCues[selectedCueIndex].is_silence) {
+    return lastCues[selectedCueIndex];
+  }
+  const { ai } = resolvePlaybackIndices(t);
+  return ai >= 0 ? lastCues[ai] : null;
+}
+
+function closeWordWaveform() {
+  const prevCue = expandedCueIndex;
+  const prevWord = expandedWordIndex;
+  if (waveformChipCloseTimer != null) {
+    clearTimeout(waveformChipCloseTimer);
+    waveformChipCloseTimer = null;
+  }
+  expandedCueIndex = -1;
+  expandedWordIndex = -1;
+  renderCuesTable(lastCues);
+  if (prevCue >= 0 && subtitleList) {
+    const cue = lastCues[prevCue];
+    ensureCueWords(cue ?? {});
+    const words = cue?.words ?? [];
+    const storageCaret =
+      prevWord >= 0 ? nearestValidStorageCaret(words, prevWord) : nearestValidStorageCaret(words, 0);
+    requestFocusCaretDeferred(
+      subtitleList,
+      lastCues,
+      buildSubtitleCardOpts(lastCues),
+      prevCue,
+      storageCaret,
+      { seek: false },
+    );
+  }
+}
+
+function setPreviewPlaybackUiActive(active) {
+  previewSection?.classList.toggle("is-media-playing", active);
+  if (previewVideo) {
+    previewVideo.controls = false;
+    previewVideo.removeAttribute("controls");
+  }
+}
+
+/**
+ * @param {number} t
+ * @returns {{ ai: number, wi: number }}
+ */
+function resolvePlaybackIndices(t) {
+  const ai = pickActiveCueIndexWithHint(lastCues, t, lastPlaybackCueIndex);
+  const cue = ai >= 0 ? lastCues[ai] : null;
+  const wi = cue ? pickActiveWordIndex(cue, t) : -1;
+  return { ai, wi };
+}
+
+function commitPlayheadUi({
+  scrollActiveCard = false,
+  activeCueIndex,
+  activeWordIndex,
+} = {}) {
+  const t = playheadSec;
+  const mediaPlaying = isPreviewMediaPlaying();
+  const ai =
+    typeof activeCueIndex === "number"
+      ? activeCueIndex
+      : mediaPlaying
+        ? pickActiveCueIndexWithHint(lastCues, t, lastPlaybackCueIndex)
+        : selectedCueIndex;
+  const cue = ai >= 0 ? lastCues[ai] : null;
+  const wi =
+    typeof activeWordIndex === "number"
+      ? activeWordIndex
+      : cue && mediaPlaying
+        ? pickActiveWordIndex(cue, t)
+        : -1;
+
+  const cueChanged = ai !== lastPlaybackCueIndex;
+  const wordChanged = wi !== lastPlaybackWordIndex;
+  const selectionChanged = selectedCueIndex !== lastHighlightSelectedCue;
+  const playStateChanged = mediaPlaying !== lastCommitMediaPlaying;
+
+  lastPlaybackCueIndex = ai;
+  lastPlaybackWordIndex = wi;
+
+  if (!mediaPlaying || ai !== lastOverlayCueIndex) {
+    updatePreviewOverlay();
+    lastOverlayCueIndex = ai;
+  }
+
+  const highlightNeedsUpdate =
+    cueChanged || wordChanged || selectionChanged || playStateChanged;
+
+  if (mediaPlaying) {
+    if (highlightNeedsUpdate) {
+      updatePlaybackHighlights(subtitleList, lastCues, {
+        playheadSec: t,
+        isPlaying: true,
+        selectedCueIndex,
+        activeCueIndex: ai,
+      });
+    }
+    if (scrollActiveCard && cueChanged && subtitleList && ai >= 0) {
+      scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), ai, {
+        behavior: "auto",
+      });
+    }
+  } else if (selectedCueIndex >= 0) {
+    if (selectionChanged || playStateChanged) {
+      updatePlaybackHighlights(subtitleList, lastCues, {
+        playheadSec: t,
+        isPlaying: false,
+        selectedCueIndex,
+      });
+    }
+    lastOverlayCueIndex = -1;
+  } else if (playStateChanged) {
+    updatePlaybackHighlights(subtitleList, lastCues, {
+      playheadSec: t,
+      isPlaying: false,
+      selectedCueIndex: -1,
+    });
+    lastOverlayCueIndex = -1;
+  }
+
+  lastHighlightSelectedCue = selectedCueIndex;
+  lastCommitMediaPlaying = mediaPlaying;
+
+  const wall = performance.now();
+  const panelOpen = expandedCueIndex >= 0 && expandedWordIndex >= 0;
+  if (panelOpen) {
+    if (mediaPlaying && waveformPlayRangeEndEdit != null) {
+      syncExpandedPanelPlayhead(subtitleList, {
+        expandedCueIndex,
+        expandedWordIndex,
+        playheadEditSec: t,
+        mediaPlaying: true,
+      });
+    } else if (
+      highlightNeedsUpdate ||
+      wall - lastExpandedPanelSyncWallMs >= EXPANDED_PANEL_SYNC_MS
+    ) {
+      lastExpandedPanelSyncWallMs = wall;
+      syncExpandedPanelPlayhead(subtitleList, {
+        expandedCueIndex,
+        expandedWordIndex,
+      });
+    }
+  }
+}
+
+function playbackTick() {
+  if (!previewVideo) {
+    stopPlaybackLoop();
+    return;
+  }
+
+  const skip = getPlaybackSkipRanges();
+  const skipOpts = { skipRanges: skip };
+
+  if (previewAudio && isHtmlAudioMasterActive()) {
+    if (previewAudio.paused) {
+      if (isVideoPlaying) {
+        playbackRafId = requestAnimationFrame(playbackTick);
+      } else {
+        playbackRafId = 0;
+      }
+      return;
+    }
+    syncVideoFromHtmlAudioMaster(previewVideo, previewAudio, skipOpts);
+  } else if (previewVideo.paused) {
+    playbackRafId = 0;
+    return;
+  } else {
+    applyThrottledVideoSkipCut(previewVideo, skip);
+  }
+
+  const orch = getPlaybackOrchestrator();
+  const media = readPreviewMediaClockSec();
+  playheadSec = orch.mapMediaToEditSec(media);
+
+  const { ai, wi } = resolvePlaybackIndices(playheadSec);
+  const cueChanged = ai !== lastPlaybackCueIndex;
+  const wordChanged = wi !== lastPlaybackWordIndex;
+
+  if (
+    waveformPlayRangeEndEdit != null &&
+    playheadSec >= waveformPlayRangeEndEdit - 0.02
+  ) {
+    previewAudio?.pause();
+    previewVideo.pause();
+    stopPlaybackLoop({ waveformRangeNaturalEnd: true });
+    commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+    return;
+  }
+
+  if (
+    waveformPlayRangeEndEdit != null &&
+    expandedCueIndex >= 0 &&
+    expandedWordIndex >= 0
+  ) {
+    syncExpandedPanelPlayhead(subtitleList, {
+      expandedCueIndex,
+      expandedWordIndex,
+      playheadEditSec: playheadSec,
+      mediaPlaying: true,
+    });
+  }
+
+  const wall = performance.now();
+  const uiDue = wall - lastPlayheadUiCommitWallMs >= PLAYHEAD_UI_COMMIT_MS;
+  if (cueChanged || wordChanged || uiDue) {
+    lastPlayheadUiCommitWallMs = wall;
+    commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+  }
+
+  playbackRafId = requestAnimationFrame(playbackTick);
+}
+
+function startPlaybackLoop() {
+  if (!previewVideo || !previewAudio) return;
+  if (isVideoPlaying && playbackRafId) return;
+
+  if (playbackRafId) {
+    cancelAnimationFrame(playbackRafId);
+    playbackRafId = 0;
+  }
+
+  playbackLoopGeneration += 1;
+  isVideoPlaying = true;
+  setPreviewPlaybackUiActive(true);
+  resetKeyboardPauseCaret();
+  resetPlaybackSkipThrottle();
+  lastPlayheadUiCommitWallMs = 0;
+  lastExpandedPanelSyncWallMs = 0;
+  if (waveformChipCloseTimer != null) {
+    clearTimeout(waveformChipCloseTimer);
+    waveformChipCloseTimer = null;
+  }
+
+  stopSyncedPlayback(previewVideo, previewAudio);
+
+  const orch = getPlaybackOrchestrator();
+  orch.suspendSyncEngineForWebAudio();
+
+  const skip = getPlaybackSkipRanges();
+  let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  if (previewVideo?.duration && Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
+    media = Math.min(media, Math.max(0, previewVideo.duration - 0.001));
+  }
+  if (previewAudio?.src) {
+    assignMasterAudioTimelineSecIfNeeded(previewAudio, media);
+  }
+  if (previewVideo && Math.abs(previewVideo.currentTime - media) > 0.002) {
+    previewVideo.currentTime = media;
+  }
+  playheadSec = orch.mapMediaToEditSec(media);
+
+  beginPreviewSyncedPlayback(media);
+  playbackTick();
+}
+
+function stopPlaybackLoop(opts = {}) {
+  if (!isVideoPlaying && !playbackRafId) return;
+  const wasWaveformRange = waveformPlayRangeEndEdit != null;
+  playbackLoopGeneration += 1;
+  isVideoPlaying = false;
+  setPreviewPlaybackUiActive(false);
+  waveformPlayRangeEndEdit = null;
+  capturePlayheadFromPreviewMedia();
+  if (playbackRafId) {
+    cancelAnimationFrame(playbackRafId);
+    playbackRafId = 0;
+  }
+  if (previewVideo) stopSyncedPlayback(previewVideo, previewAudio ?? undefined);
+  syncPausedPreviewMediaToPlayhead();
+  lastPlaybackCueIndex = -1;
+  lastPlaybackWordIndex = -1;
+  lastOverlayCueIndex = -1;
+  if (wasWaveformRange && expandedCueIndex >= 0 && expandedWordIndex >= 0) {
+    finishExpandedPanelRangePlay(subtitleList, {
+      expandedCueIndex,
+      expandedWordIndex,
+      rewindToTrimStart: opts.waveformRangeNaturalEnd === true,
+    });
+  }
+  commitPlayheadUi();
+}
+
+/**
+ * @param {{ showCaretOnPause?: boolean, playFromCaret?: boolean }} [opts]
+ */
+function applyPlaybackSkipIfNeeded() {
+  applyPlaybackSkipToPreviewMedia(previewVideo, previewAudio, {
+    skipRanges: getPlaybackSkipRanges(),
+  });
+}
+
+function togglePreviewPlayback(opts = {}) {
+  if (!previewVideo) return;
+  const playing = isPreviewMediaPlaying() || isVideoPlaying;
+  if (playing) {
+    userRequestedPreviewPause = true;
+    stopPlaybackLoop();
+    userRequestedPreviewPause = false;
+    if (opts.showCaretOnPause && subtitleList && lastCues.length) {
+      const ai =
+        pickActiveCueIndex(lastCues, playheadSec) >= 0
+          ? pickActiveCueIndex(lastCues, playheadSec)
+          : selectedCueIndex;
+      syncCaretOnPlaybackPause(
+        subtitleList,
+        lastCues,
+        buildSubtitleCardOpts(lastCues),
+        ai,
+        playheadSec,
+      );
+    }
+    return;
+  }
+  resetSpaceSeekIntent();
+  if (!isVideoPlaying) startPlaybackLoop();
+}
+
+/** @param {number} cardIndex @param {number} storageCaret */
+function playAtSubtitleCaret(cardIndex, storageCaret) {
+  const cue = lastCues[cardIndex];
+  if (!cue) return;
+  ensureCueWords(cue);
+  const words = cue.words ?? [];
+  let editSec = cue.start ?? 0;
+  const vis = visibleWordStorageIndices(words);
+  if (vis.length) {
+    const c = Math.max(0, Math.min(storageCaret, words.length));
+    let pick = vis.find((i) => i >= c);
+    if (pick == null) pick = vis[vis.length - 1];
+    editSec = words[pick]?.start ?? editSec;
+  }
+  selectCueLine(cardIndex, { seek: false, scroll: false });
+  if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return;
+  const orch = getPlaybackOrchestrator();
+  const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+  orch.seekMediaSec(media);
+  playheadSec = orch.mapMediaToEditSec(media);
+  commitPlayheadUi();
+  startPlaybackLoop();
+}
+
+function updatePreviewOverlay() {
+  if (!previewOverlay) return;
+  const cue = getActiveCueForPreview();
+  const style = readSubtitleStyleFromDom();
+  if (!cue || !String(cue.text || "").trim()) {
+    previewOverlay.hidden = true;
+    previewOverlay.innerHTML = "";
+    return;
+  }
+  const chrome = getSubtitleBoxChromeInline(style.fontSize || 47, style.bgSize ?? 50);
+  const bgAlpha = Math.max(0, Math.min(1, (style.bgOpacity ?? 60) / 100));
+  previewOverlay.hidden = false;
+  previewOverlay.style.bottom = `${100 - (style.y ?? 90)}%`;
+  previewOverlay.style.justifyContent =
+    (style.x ?? 50) < 34 ? "flex-start" : (style.x ?? 50) > 66 ? "flex-end" : "center";
+  previewOverlay.innerHTML = `
+    <div class="as-preview-overlay-inner" style="
+      font-family: ${JSON.stringify(style.fontFamily).slice(1, -1)};
+      font-size: ${Math.round((style.fontSize || 26) * 0.55)}px;
+      font-weight: ${style.fontWeight || 700};
+      color: ${style.textColor || "#fff"};
+      -webkit-text-stroke: ${style.strokeWidth || 0}px ${style.strokeColor || "#000"};
+      background: ${hexWithAlpha(style.bgColor, Math.round(bgAlpha * 255))};
+      padding: ${chrome.padding};
+      line-height: ${chrome.lineHeight};
+      border-radius: ${chrome.borderRadius}px;
+      border: ${chrome.border};
+      box-sizing: ${chrome.boxSizing};
+    ">${escapeHtml(String(cue.text || "").trim())}</div>
+  `;
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function populateFontList() {
+  if (!fontDatalist) return;
+  const seen = new Set();
+  const add = (name) => {
+    const n = String(name || "").trim();
+    if (!n || seen.has(n)) return;
+    seen.add(n);
+    const opt = document.createElement("option");
+    opt.value = n;
+    fontDatalist.appendChild(opt);
+  };
+  SYSTEM_FONT_CANDIDATES.forEach(add);
+  try {
+    if (document.fonts?.forEach) {
+      document.fonts.forEach((f) => add(f.family));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function bindStyleControl(id, outEl, fmt) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const sync = () => {
+    if (outEl) outEl.textContent = fmt(el);
+    updatePreviewOverlay();
+  };
+  el.addEventListener("input", sync);
+  sync();
+}
+
+function selectCueLine(cueIndex, { scroll = true, seek = true } = {}) {
+  selectedCueIndex = cueIndex;
+  const cue = lastCues[cueIndex];
+  if (!cue || cue.is_silence) {
+    renderCuesTable(lastCues);
+    commitPlayheadUi();
+    return;
+  }
+  ensureCueWords(cue);
+  if (seek && previewVideo && Number.isFinite(cue.start)) {
+    const orch = getPlaybackOrchestrator();
+    const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
+    orch.seekMediaSec(media);
+    playheadSec = orch.mapMediaToEditSec(media);
+  }
+  renderCuesTable(lastCues);
+  commitPlayheadUi();
+  if (scroll && subtitleList) {
+    scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), cueIndex, {
+      behavior: "auto",
+    });
+  }
+}
+let preparePollTimer = null;
+let transcribePollTimer = null;
+let exportPollTimer = null;
+
+function installDialogOpts() {
+  return agentInstallDialogOptions(() => checkAgentConnection());
+}
+
+function friendlyAgentError(err) {
+  const msg = formatAgentConnectionError(err);
+  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY;
+  if (/Failed to fetch|연결|fetch/i.test(msg)) return MSG_SUBTITLE_NEED_APP;
+  return msg || "요청에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+}
+
+function updatePrepareBanner(readiness) {
+  if (!prepareBanner) return;
+  const b = readiness?.binaries || {};
+  if (b.model_loaded) {
+    prepareBanner.hidden = true;
+    return;
+  }
+  const mb = readiness?.model?.download_hint_mb || 1650;
+  let note =
+    readiness?.model?.first_run_note ||
+    MSG_SUBTITLE_PREPARE.replace("1.6GB", `약 ${mb}MB`);
+  if (b.gpu_detected && !b.gpu_runtime_installed) {
+    note += " NVIDIA GPU용 CUDA DLL(runtime_dlls.zip)도 함께 받습니다.";
+  }
+  prepareBanner.textContent = note;
+  prepareBanner.hidden = false;
+}
+
+function formatTime(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  const m = Math.floor(s / 60);
+  const r = s - m * 60;
+  return `${m}:${r.toFixed(2).padStart(5, "0")}`;
+}
+
+function setSetupLoading(active, { title, step, message, progress } = {}) {
+  if (!setupLoading) return;
+  if (active) {
+    setupLoading.hidden = false;
+    setupLoading.classList.add("is-active");
+    setupLoading.setAttribute("aria-hidden", "false");
+    if (title && setupLoadingTitle) setupLoadingTitle.textContent = title;
+    if (setupLoadingStep) setupLoadingStep.textContent = step || "";
+    if (message && setupLoadingMessage) setupLoadingMessage.textContent = message;
+    if (setupLoadingBar && setupLoadingTrack) {
+      if (typeof progress === "number") {
+        const pct = Math.max(0, Math.min(100, progress));
+        setupLoadingBar.style.width = `${pct}%`;
+        setupLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
+      } else {
+        setupLoadingBar.style.width = "30%";
+        setupLoadingTrack.setAttribute("aria-valuenow", "0");
+      }
+    }
+    return;
+  }
+  setupLoading.hidden = true;
+  setupLoading.classList.remove("is-active");
+  setupLoading.setAttribute("aria-hidden", "true");
+}
+
+function setTranscribeLoading(active, { title, step, message, progress } = {}) {
+  if (!transcribeLoading) return;
+  if (active) {
+    transcribeLoading.hidden = false;
+    transcribeLoading.classList.add("is-active");
+    transcribeLoading.setAttribute("aria-hidden", "false");
+    if (title && transcribeLoadingTitle) transcribeLoadingTitle.textContent = title;
+    if (transcribeLoadingStep) transcribeLoadingStep.textContent = step || "";
+    if (message && transcribeLoadingMessage) transcribeLoadingMessage.textContent = message;
+    if (transcribeLoadingBar && transcribeLoadingTrack) {
+      if (typeof progress === "number") {
+        const pct = Math.max(0, Math.min(100, progress));
+        transcribeLoadingBar.style.width = `${pct}%`;
+        transcribeLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
+        if (transcribeLoadingPercent) transcribeLoadingPercent.textContent = `${Math.round(pct)}%`;
+      }
+    }
+    return;
+  }
+  transcribeLoading.hidden = true;
+  transcribeLoading.classList.remove("is-active");
+  transcribeLoading.setAttribute("aria-hidden", "true");
+}
+
+function updateActionButtons() {
+  const hasPath = Boolean(videoPathInput?.value?.trim());
+  const hasCues = lastCues.some((c) => !c.is_silence && String(c.text || "").trim());
+  if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  if (btnTranscribe) btnTranscribe.disabled = !agentConnected || !hasPath;
+  if (btnExport) btnExport.disabled = !agentConnected || !hasCues;
+  if (btnUnloadModel) btnUnloadModel.disabled = !agentConnected || !modelLoaded;
+  if (btnDownloadResult) {
+    btnDownloadResult.disabled = !agentConnected || !lastExportPath;
+    btnDownloadResult.hidden = !lastExportPath;
+  }
+  if (btnShowExportFolder) {
+    btnShowExportFolder.disabled = !agentConnected || !lastExportPath;
+    btnShowExportFolder.hidden = !lastExportPath;
+  }
+  if (subtitleEmpty) subtitleEmpty.hidden = hasCues;
+  if (resultsMeta) resultsMeta.hidden = !hasCues;
+  if (btnRemoveSilence) btnRemoveSilence.disabled = !hasCues;
+}
+
+function setExportLoading(active, { title, step, message, progress } = {}) {
+  if (!exportLoading) return;
+  if (active) {
+    exportLoading.hidden = false;
+    exportLoading.classList.add("is-active");
+    exportLoading.setAttribute("aria-hidden", "false");
+    if (title && exportLoadingTitle) exportLoadingTitle.textContent = title;
+    if (exportLoadingStep) exportLoadingStep.textContent = step || "";
+    if (message && exportLoadingMessage) exportLoadingMessage.textContent = message;
+    if (exportLoadingBar && exportLoadingTrack && typeof progress === "number") {
+      const pct = Math.max(0, Math.min(100, progress));
+      exportLoadingBar.style.width = `${pct}%`;
+      exportLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
+      if (exportLoadingPercent) exportLoadingPercent.textContent = `${Math.round(pct)}%`;
+    }
+    return;
+  }
+  exportLoading.hidden = true;
+  exportLoading.classList.remove("is-active");
+  exportLoading.setAttribute("aria-hidden", "true");
+}
+
+function stopExportPoll() {
+  if (exportPollTimer) {
+    clearInterval(exportPollTimer);
+    exportPollTimer = null;
+  }
+}
+
+function persistCuts() {
+  try {
+    sessionStorage.setItem(STORAGE_CUTS, JSON.stringify(lastCutRanges));
+  } catch {
+    /* ignore */
+  }
+}
+
+function getMediaDurationSecHint() {
+  if (sessionMediaDurationSec != null && sessionMediaDurationSec > 0) return sessionMediaDurationSec;
+  if (previewVideo?.duration && Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
+    return previewVideo.duration;
+  }
+  return null;
+}
+
+function peaksLoadOpts(extra = {}) {
+  return {
+    timeoutSec: 900,
+    durationHintSec: getMediaDurationSecHint() ?? undefined,
+    audiowaveformAvailable: agentAudiowaveformAvailable,
+    ...extra,
+  };
+}
+
+function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
+  const mediaPlaying = isPreviewMediaPlaying();
+  const activeCue = mediaPlaying
+    ? resolvePlaybackIndices(playheadSec).ai
+    : selectedCueIndex;
+  const mediaDurationSec = getMediaDurationSecHint();
+  return {
+    formatTime,
+    selectedCueIndex,
+    expandedCueIndex,
+    expandedWordIndex,
+    playheadSec,
+    isPlaying: mediaPlaying,
+    getIsPlaying: () => isPreviewMediaPlaying(),
+    getPlayheadSec: () => playheadSec,
+    activeCueIndex: activeCue,
+    scrollActiveCard: scrollActive,
+    peaksData: peaksPayload,
+    getPeaksData: () => peaksPayload,
+    mediaDurationSec,
+    getMediaDurationSec: getMediaDurationSecHint,
+    video: previewVideo,
+    getCues: () => lastCues,
+    getPlaybackSkipRanges: () => subtitleHub.getPlaybackSkipRanges(),
+    formatTimeFull: formatTime,
+    ensurePeaksLoad: () => loadWaveformPeaks(),
+    onCardNavigate: (sec) => {
+      if (previewVideo && Number.isFinite(sec)) {
+        const orch = getPlaybackOrchestrator();
+        const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
+        orch.seekMediaSec(media);
+        playheadSec = orch.mapMediaToEditSec(media);
+        commitPlayheadUi();
+      }
+    },
+    onSplitSubtitleAt: (index, pos) => {
+      splitSubtitleAt(subtitleHub, index, pos);
+      renderCuesTable(lastCues);
+    },
+    onMergeEmptySubtitleAt: (index) => {
+      mergeEmptySubtitleAt(subtitleHub, index);
+      renderCuesTable(lastCues);
+    },
+    onSplitSubtitleAtWord: (index, wordIndex) => {
+      splitSubtitleAtWord(subtitleHub, index, wordIndex);
+      renderCuesTable(lastCues);
+      if (subtitleList) {
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          index + 1,
+          0,
+        );
+      }
+    },
+    onBackspaceWordAt: (cardIndex, wordIndex) => {
+      backspaceWordAt(subtitleHub, cardIndex, wordIndex);
+      renderCuesTable(lastCues);
+      if (subtitleList) {
+        const wi = Math.max(0, wordIndex - 1);
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          cardIndex,
+          wi,
+        );
+      }
+    },
+    onDeleteWordAt: (cardIndex, caretIndex) => {
+      deleteWordAt(subtitleHub, cardIndex, caretIndex);
+      renderCuesTable(lastCues);
+      commitPlayheadUi();
+      if (subtitleList) {
+        const words = lastCues[cardIndex]?.words ?? [];
+        const vis = visibleWordStorageIndices(words);
+        const snap =
+          vis.length > 0
+            ? nearestValidStorageCaret(words, Math.min(caretIndex, vis[vis.length - 1] + 1))
+            : 0;
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          cardIndex,
+          snap,
+        );
+      }
+    },
+    onDeleteWordRangeAt: (cardIndex, from, to) => {
+      deleteWordRangeAt(subtitleHub, cardIndex, from, to);
+      renderCuesTable(lastCues);
+      commitPlayheadUi();
+      if (subtitleList) {
+        const words = lastCues[cardIndex]?.words ?? [];
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          cardIndex,
+          nearestValidStorageCaret(words, from),
+        );
+      }
+    },
+    onSelectCue: (cueIndex, detail) =>
+      selectCueLine(cueIndex, {
+        seek: detail?.seek !== false,
+        scroll: detail?.scroll !== false,
+      }),
+    onWordExpand: (ci, wi) => {
+      if (expandedCueIndex === ci && expandedWordIndex === wi) {
+        closeWordWaveform();
+        return;
+      }
+      expandedCueIndex = ci;
+      expandedWordIndex = wi;
+      renderCuesTable(lastCues);
+    },
+    onCloseWaveform: () => closeWordWaveform(),
+    onPreviewLineTextInput: (cueIndex, text) => {
+      if (lastCues[cueIndex]) {
+        lastCues[cueIndex].text = text;
+        updatePreviewOverlay();
+      }
+    },
+    onSubtitleTextCommit: (cueIndex, text) => {
+      subtitleHub.applySubtitleChange((cues) => {
+        const next = [...cues];
+        next[cueIndex] = { ...next[cueIndex], text };
+        return next;
+      });
+    },
+    onSeek: (sec) => {
+      if (previewVideo && Number.isFinite(sec)) {
+        const orch = getPlaybackOrchestrator();
+        const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
+        orch.seekMediaSec(media);
+        playheadSec = orch.mapMediaToEditSec(media);
+        commitPlayheadUi();
+      }
+    },
+    onTogglePlayback: (fromSpace) =>
+      togglePreviewPlayback({
+        showCaretOnPause: Boolean(fromSpace),
+      }),
+    onPausePlayback: () => {
+      previewVideo?.pause();
+      stopPlaybackLoop();
+    },
+    onWaveformSeekAndPlay: (editSec) => {
+      if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return;
+      const orch = getPlaybackOrchestrator();
+      const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+      orch.seekMediaSec(media);
+      playheadSec = orch.mapMediaToEditSec(media);
+      commitPlayheadUi();
+      startPlaybackLoop();
+    },
+    onWaveformChipClick: (ci, _visIdx, storageWi, isActiveChip, detail) => {
+      if (expandedCueIndex !== ci) return;
+      if (waveformChipCloseTimer != null) {
+        clearTimeout(waveformChipCloseTimer);
+        waveformChipCloseTimer = null;
+      }
+      if (isActiveChip && detail === 1) {
+        waveformChipCloseTimer = setTimeout(() => closeWordWaveform(), 280);
+        return;
+      }
+      if (!isActiveChip) {
+        expandedWordIndex = storageWi;
+        renderCuesTable(lastCues);
+      }
+    },
+    onPlayAtCaret: (cardIndex, storageCaret) => playAtSubtitleCaret(cardIndex, storageCaret),
+    mapEditToMediaSec: (editSec) => {
+      const orch = getPlaybackOrchestrator();
+      return skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+    },
+    mapMediaToEditSec: (mediaSec) => {
+      const orch = getPlaybackOrchestrator();
+      return orch.mapMediaToEditSec(mediaSec);
+    },
+    onApplySubtitleChange: (updater) => {
+      subtitleHub.applySubtitleChange(updater);
+      renderCuesTable(lastCues);
+      commitPlayheadUi();
+    },
+    onBeforeWordSplit: () => {
+      subtitleHub.gapFillWhenBuildingVrew = false;
+    },
+    onWaveformUndo: () => {
+      if (subtitleHub.undo()) renderCuesTable(lastCues);
+    },
+    onPlayEditRange: (startEdit, endEdit) => {
+      if (!previewVideo || !previewAudio || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
+      if (endEdit - startEdit <= 1e-4) return;
+      const orch = getPlaybackOrchestrator();
+      const startMedia = skipCutRangeAt(
+        orch.mapEditToMediaSec(startEdit),
+        getPlaybackSkipRanges(),
+      );
+      waveformPlayRangeEndEdit = endEdit;
+      playheadSec = startEdit;
+      orch.seekMediaSec(startMedia);
+      commitPlayheadUi();
+      startPlaybackLoop();
+    },
+    onPausePlayback: () => {
+      userRequestedPreviewPause = true;
+      stopPlaybackLoop();
+      previewVideo?.pause();
+      userRequestedPreviewPause = false;
+    },
+    onWaveformFocusWord: (ci, wi) => {
+      expandedCueIndex = ci;
+      expandedWordIndex = wi;
+      renderCuesTable(lastCues);
+    },
+  };
+}
+
+function renderCuesTable(cues, { scrollActive = false } = {}) {
+  if (!subtitleList) return;
+  const opts = buildSubtitleCardOpts(cues, { scrollActive });
+  renderSubtitleCards(subtitleList, cues, opts);
+  updateActionButtons();
+  if (scrollActive && opts.activeCueIndex >= 0) {
+    scrollCueIntoView(subtitleList, cues, opts, opts.activeCueIndex, { behavior: "auto" });
+  }
+}
+
+async function loadWaveformPeaks() {
+  const videoPath = videoPathInput?.value?.trim();
+  if (!videoPath || !agentConnected || waveformLoading) return false;
+  waveformLoading = true;
+  try {
+    const result = await loadWaveformPeaksForMedia(videoPath, peaksLoadOpts());
+    if (!result.metrics) {
+      peaksPayload = null;
+      console.warn("waveform-peaks", result.error || "invalid_peaks");
+      return false;
+    }
+    peaksPayload = result.payload;
+    if (expandedCueIndex >= 0 && expandedWordIndex >= 0) {
+      renderCuesTable(lastCues);
+    }
+    return true;
+  } catch (err) {
+    peaksPayload = null;
+    console.warn("waveform-peaks", err);
+    return false;
+  } finally {
+    waveformLoading = false;
+  }
+}
+
+async function applyLoadedProject(res) {
+  const videoPath = res?.video_path || res?.normalized?.video_path || "";
+  const cues = res?.cues || res?.normalized?.cues || [];
+  const cuts = res?.cut_ranges || res?.normalized?.cut_ranges || [];
+  const style = res?.subtitle_style || res?.normalized?.subtitle_style;
+
+  if (videoPath && videoPathInput) {
+    sessionVideoPath = videoPath;
+    videoPathInput.value = videoPath;
+    try {
+      sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
+    } catch {
+      /* ignore */
+    }
+    updatePreview(videoPath);
+  }
+  subtitleHub.ingestFromProject(Array.isArray(cues) ? cues : [], {
+    cutRanges: Array.isArray(cuts) ? cuts : [],
+  });
+  applySubtitleStyleFromProject(style);
+
+  try {
+    sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
+    sessionStorage.setItem(STORAGE_CUTS, JSON.stringify(lastCutRanges));
+  } catch {
+    /* ignore */
+  }
+
+  renderCuesTable(lastCues);
+  updateActionButtons();
+  const firstSpeech = lastCues.findIndex((c) => !c.is_silence && String(c.text || "").trim());
+  if (firstSpeech >= 0) {
+    selectCueLine(firstSpeech, { scroll: false });
+    if (subtitleList) {
+      requestFocusCaretDeferred(
+        subtitleList,
+        lastCues,
+        buildSubtitleCardOpts(lastCues),
+        firstSpeech,
+        0,
+      );
+    }
+  }
+
+  if (resultsMeta) {
+    resultsMeta.textContent = `${lastCues.length} cues · 프로젝트 불러옴`;
+  }
+
+  if (videoPath) {
+    await loadWaveformPeaks();
+  }
+}
+
+async function onLoadProject() {
+  if (!agentConnected) {
+    alert(MSG_SUBTITLE_NEED_APP);
+    return;
+  }
+  const pick = await requestAgent({ path: "/api/agent/pick-local-project-file", method: "POST" });
+  const projectPath = pick?.project_path || pick?.path || "";
+  if (!projectPath) return;
+
+  const res = await requestAgent({
+    path: `${TOOL_PREFIX}/project/load`,
+    method: "POST",
+    json: { project_path: projectPath },
+  });
+  await applyLoadedProject(res);
+}
+
+function applyReadiness(data) {
+  const b = data?.binaries || {};
+  const model = data?.model || {};
+  const parts = [];
+  if (b.ffmpeg) parts.push("FFmpeg");
+  if (b.faster_whisper) parts.push("Whisper lib");
+  if (b.model_present) parts.push("모델 파일");
+  if (b.model_loaded) parts.push(`로드(${model.device || "?"})`);
+  if (binReadiness) {
+    binReadiness.textContent = parts.length
+      ? `Auto Subtitle · ${parts.join(" · ")}`
+      : "Auto Subtitle · 준비 필요";
+  }
+  modelLoaded = Boolean(b.model_loaded);
+  agentAudiowaveformAvailable = Boolean(b.audiowaveform);
+  toolReady = Boolean(b.ffmpeg && modelLoaded);
+  if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  updatePrepareBanner(data);
+  maybeShowGpuInstallDialog(data);
+}
+
+let gpuDialogShown = false;
+
+function closeGpuInstallModal() {
+  if (!gpuInstallModal) return;
+  gpuInstallModal.hidden = true;
+  gpuInstallModal.classList.remove("is-open");
+  gpuInstallModal.setAttribute("aria-hidden", "true");
+}
+
+function openGpuInstallModal(message) {
+  if (!gpuInstallModal) return;
+  if (gpuInstallMessage && message) gpuInstallMessage.textContent = message;
+  gpuInstallModal.hidden = false;
+  gpuInstallModal.classList.add("is-open");
+  gpuInstallModal.setAttribute("aria-hidden", "false");
+}
+
+function maybeShowGpuInstallDialog(readiness) {
+  const b = readiness?.binaries || {};
+  if (!b.gpu_detected || b.gpu_runtime_installed || gpuDialogShown) return;
+  if (!gpuInstallModal) return;
+  gpuDialogShown = true;
+  openGpuInstallModal(
+    "NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 GPU로 자막 추출을 사용할 수 있습니다.",
+  );
+}
+
+async function runGpuRuntimeInstall() {
+  closeGpuInstallModal();
+  setSetupLoading(true, {
+    title: "GPU 가속 런타임",
+    step: "다운로드",
+    message: "runtime_dlls.zip 설치 중… (수 분 걸릴 수 있습니다)",
+    progress: 5,
+  });
+  try {
+    const res = await requestAgent({
+      path: `${TOOL_PREFIX}/gpu-runtime/install`,
+      method: "POST",
+    });
+    await fetchReadiness();
+    const src = res?.source === "existing" ? "이미 설치되어 있습니다." : "설치가 완료되었습니다.";
+    alert(`GPU 런타임 ${src}`);
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  } finally {
+    setSetupLoading(false);
+  }
+}
+
+async function fetchReadiness() {
+  try {
+    const data = await requestAgent({ path: `${TOOL_PREFIX}/readiness` });
+    applyReadiness(data);
+    return data;
+  } catch {
+    if (binReadiness) binReadiness.textContent = "Auto Subtitle · readiness 실패";
+    toolReady = false;
+    return null;
+  }
+}
+
+function stopPreparePoll() {
+  if (preparePollTimer) {
+    clearInterval(preparePollTimer);
+    preparePollTimer = null;
+  }
+}
+
+function stopTranscribePoll() {
+  if (transcribePollTimer) {
+    clearInterval(transcribePollTimer);
+    transcribePollTimer = null;
+  }
+}
+
+async function pollPrepareStatus() {
+  const data = await requestAgent({ path: `${TOOL_PREFIX}/prepare/status` });
+  const phase = data?.phase || "";
+  setSetupLoading(true, {
+    title: phase === "downloading_models" ? "AI 모델 다운로드" : "환경 준비",
+    step: data?.step || phase,
+    message: data?.detail || data?.message || "준비 중…",
+    progress: typeof data?.progress === "number" ? data.progress : undefined,
+  });
+  if (phase === "ready") {
+    stopPreparePoll();
+    setSetupLoading(false);
+    await fetchReadiness();
+    updateActionButtons();
+    return true;
+  }
+  if (phase === "failed") {
+    stopPreparePoll();
+    setSetupLoading(false);
+    alert(friendlyAgentError(data?.error || data?.message || data?.detail || "준비에 실패했습니다."));
+    return false;
+  }
+  return null;
+}
+
+async function ensurePrepared() {
+  const readiness = await fetchReadiness();
+  if (readiness?.binaries?.model_loaded) {
+    return true;
+  }
+
+  setSetupLoading(true, {
+    title: "AI 환경 준비",
+    step: "시작",
+    message: MSG_SUBTITLE_PREPARE,
+    progress: 2,
+  });
+
+  await requestAgent({ path: `${TOOL_PREFIX}/prepare`, method: "POST" });
+
+  return new Promise((resolve) => {
+    stopPreparePoll();
+    preparePollTimer = setInterval(async () => {
+      try {
+        const done = await pollPrepareStatus();
+        if (done === true) resolve(true);
+        if (done === false) resolve(false);
+      } catch (err) {
+        stopPreparePoll();
+        setSetupLoading(false);
+        alert(friendlyAgentError(err));
+        resolve(false);
+      }
+    }, 800);
+  });
+}
+
+const TRANSCRIBE_LOADING_TITLE = "자막 추출 중…";
+const TRANSCRIBE_LOADING_START_MSG = "자막 추출을 시작합니다.";
+
+async function pollTranscribeStatus() {
+  const data = await requestAgent({ path: `${TOOL_PREFIX}/transcribe/status` });
+  const phase = data?.phase || "";
+  setTranscribeLoading(true, {
+    title: TRANSCRIBE_LOADING_TITLE,
+    step: "",
+    message: data?.message || TRANSCRIBE_LOADING_START_MSG,
+    progress: typeof data?.progress === "number" ? data.progress : undefined,
+  });
+
+  if (phase === "completed") {
+    stopTranscribePoll();
+    setTranscribeLoading(false);
+    lastExportPath = data.srt_path || null;
+    await finalizeTranscribeResults(data.cues || [], data.duration_sec, {
+      waveform_peaks_json: data.waveform_peaks_json,
+      waveform_peaks: data.waveform_peaks,
+    });
+    return true;
+  }
+
+  if (phase === "failed") {
+    stopTranscribePoll();
+    setTranscribeLoading(false);
+    const errText = data?.error || data?.message || "자막 추출에 실패했습니다.";
+    alert(friendlyAgentError(errText));
+    return false;
+  }
+
+  return null;
+}
+
+/**
+ * 추출 완료 — Electron onTranscribeComplete: audiowaveform 피크 → leading split → temporal gap → SSOT.
+ *
+ * @param {unknown[]} rawCues
+ * @param {number} [durationSecHint]
+ * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null }} [transcribeMeta]
+ */
+async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}) {
+  subtitleHub.gapFillWhenBuildingVrew = false;
+  setTranscribeLoading(true, {
+    title: TRANSCRIBE_LOADING_TITLE,
+    step: "후처리",
+    message: "파형·무음 블록 정리 중…",
+    progress: 95,
+  });
+
+  try {
+    const dur =
+      Number(durationSecHint) > 0
+        ? Number(durationSecHint)
+        : getMediaDurationSecHint();
+
+    if (dur != null && dur > 0) sessionWhisperDurationSec = dur;
+
+    const inlinePeaks = transcribeMeta?.waveform_peaks_json;
+    if (inlinePeaks && resolvePeaksTimelineMetrics(inlinePeaks, dur ?? undefined)) {
+      peaksPayload = inlinePeaks;
+    } else {
+      const videoPath = videoPathInput?.value?.trim();
+      if (videoPath && agentConnected) {
+        try {
+          const result = await loadWaveformPeaksForMedia(
+            videoPath,
+            peaksLoadOpts({ force: true, engine: "auto" }),
+          );
+          if (result.metrics) {
+            peaksPayload = result.payload;
+          } else {
+            console.warn("waveform-peaks post-transcribe", result.error || "invalid_peaks");
+          }
+        } catch (err) {
+          console.warn("waveform-peaks post-transcribe", err);
+        }
+      }
+    }
+
+    const peaksMetrics = peaksPayload
+      ? resolvePeaksTimelineMetrics(peaksPayload, dur ?? undefined)
+      : null;
+    if (peaksMetrics?.durationSec > 0) {
+      sessionMediaDurationSec = peaksMetrics.durationSec;
+    } else if (dur != null && dur > 0) {
+      sessionMediaDurationSec = dur;
+    }
+    subtitleHub.ingestFromTranscribe(rawCues, {
+      gapFill: false,
+      peaksMetrics,
+      whisperDurationSec: dur ?? null,
+    });
+    try {
+      sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
+      if (lastExportPath) sessionStorage.setItem(STORAGE_EXPORT_PATH, lastExportPath);
+    } catch {
+      /* ignore */
+    }
+    renderCuesTable(lastCues);
+    if (resultsMeta) {
+      resultsMeta.textContent = `${lastCues.length} cues · 추출 완료`;
+      resultsMeta.hidden = false;
+    }
+    updateActionButtons();
+    const firstSpeech = lastCues.findIndex((c) => !c.is_silence && String(c.text || "").trim());
+    if (firstSpeech >= 0) {
+      selectCueLine(firstSpeech, { scroll: false });
+      if (subtitleList) {
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          firstSpeech,
+          0,
+        );
+      }
+    }
+  } catch (err) {
+    console.error("finalizeTranscribeResults", err);
+    alert(`자막 후처리 중 오류가 발생했습니다.\n${friendlyAgentError(err)}`);
+  } finally {
+    setTranscribeLoading(false);
+  }
+}
+
+async function runTranscribe() {
+  const videoPath = videoPathInput?.value?.trim();
+  if (!videoPath) {
+    alert("영상·오디오 파일을 선택하세요.");
+    return;
+  }
+
+  const prepared = await ensurePrepared();
+  if (!prepared) return;
+
+  setTranscribeLoading(true, {
+    title: TRANSCRIBE_LOADING_TITLE,
+    step: "",
+    message: TRANSCRIBE_LOADING_START_MSG,
+    progress: 0,
+  });
+
+  const lang = languageSelect?.value?.trim() || null;
+  try {
+    await requestAgent({
+      path: `${TOOL_PREFIX}/transcribe`,
+      method: "POST",
+      json: {
+        video_path: videoPath,
+        language: lang,
+        beam_size: 5,
+        vad_filter: true,
+        rms_vad_align: true,
+      },
+    });
+  } catch (err) {
+    stopTranscribePoll();
+    setTranscribeLoading(false);
+    alert(friendlyAgentError(err));
+    return false;
+  }
+
+  return new Promise((resolve) => {
+    stopTranscribePoll();
+    const tick = async () => {
+      try {
+        const done = await pollTranscribeStatus();
+        if (done === true) resolve(true);
+        if (done === false) resolve(false);
+      } catch (err) {
+        stopTranscribePoll();
+        setTranscribeLoading(false);
+        alert(friendlyAgentError(err));
+        resolve(false);
+      }
+    };
+    void tick();
+    transcribePollTimer = setInterval(tick, 400);
+  });
+}
+
+function buildExportPayload(fmt) {
+  syncCuesFromDom();
+  return buildExportRequestPayload(
+    lastCues,
+    lastCutRanges,
+    readSubtitleStyleFromDom(),
+    fmt,
+    videoPathInput?.value?.trim() || null,
+  );
+}
+
+async function saveProject() {
+  if (!lastCues.length) {
+    alert("저장할 전사 결과가 없습니다.");
+    return;
+  }
+  syncCuesFromDom();
+  const name = prompt("프로젝트 이름 (선택)", "autosub-project");
+  const res = await requestAgent({
+    path: `${TOOL_PREFIX}/project/save`,
+    method: "POST",
+    json: {
+      name: name || undefined,
+      project: {
+        format: "autosubtitle-project",
+        version: 1,
+        videoPath: videoPathInput?.value?.trim() || null,
+        cutRanges: lastCutRanges,
+        subtitleStyle: readSubtitleStyleFromDom(),
+        subtitles: lastCues,
+      },
+    },
+  });
+  alert(`프로젝트를 저장했습니다.\n${res.project_path || ""}`);
+}
+
+async function unloadModel() {
+  await requestAgent({ path: `${TOOL_PREFIX}/model/unload`, method: "POST" });
+  await fetchReadiness();
+  alert("AI 모델을 메모리에서 해제했습니다. 다음 자막 추출 시 다시 불러옵니다.");
+}
+
+async function pollExportStatus(fmt) {
+  const data = await requestAgent({ path: `${TOOL_PREFIX}/export/status` });
+  const phase = data?.phase || "";
+  setExportLoading(true, {
+    title: "보내기",
+    step: exportPhaseStepLabel(phase, data?.format || fmt),
+    message: data?.message || "처리 중…",
+    progress: typeof data?.progress === "number" ? data.progress : undefined,
+  });
+  if (phase === "completed") {
+    stopExportPoll();
+    setExportLoading(false);
+    lastExportPath = data.result_path || null;
+    if (lastExportPath) {
+      try {
+        sessionStorage.setItem(STORAGE_EXPORT_PATH, lastExportPath);
+      } catch {
+        /* ignore */
+      }
+    }
+    updateActionButtons();
+    return true;
+  }
+  if (phase === "failed") {
+    stopExportPoll();
+    setExportLoading(false);
+    alert(data?.error || data?.message || "보내기에 실패했습니다.");
+    return false;
+  }
+  return null;
+}
+
+async function showExportResultInFolder(filePath) {
+  if (!filePath || !agentConnected) return;
+  try {
+    await requestAgent({
+      path: `${TOOL_PREFIX}/export/show-in-folder`,
+      method: "POST",
+      json: { file_path: filePath },
+    });
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  }
+}
+
+async function runExport() {
+  const fmt = exportFormatSelect?.value || "srt";
+  if (!lastCues.length && !["mp3", "wav"].includes(fmt)) {
+    alert("전사 결과가 없습니다.");
+    return;
+  }
+  const payload = buildExportPayload(fmt);
+  const label = exportFormatLabel(fmt);
+
+  setExportLoading(true, {
+    title: "보내기",
+    step: `${label} · 시작`,
+    message: EXPORT_TEXT_FORMATS.includes(fmt)
+      ? `${label} 파일 생성 중…`
+      : `${label} FFmpeg 인코딩 중… (시간이 걸릴 수 있습니다)`,
+    progress: 5,
+  });
+
+  if (EXPORT_TEXT_FORMATS.includes(fmt)) {
+    try {
+      const res = await requestAgent({
+        path: `${TOOL_PREFIX}/export/sync`,
+        method: "POST",
+        json: payload,
+      });
+      setExportLoading(false);
+      lastExportPath = res.file_path || null;
+      if (lastExportPath) sessionStorage.setItem(STORAGE_EXPORT_PATH, lastExportPath);
+      updateActionButtons();
+      openDownload(lastExportPath);
+      return;
+    } catch (err) {
+      setExportLoading(false);
+      alert(friendlyAgentError(err));
+      return;
+    }
+  }
+
+  try {
+    await requestAgent({ path: `${TOOL_PREFIX}/export`, method: "POST", json: payload });
+  } catch (err) {
+    setExportLoading(false);
+    alert(friendlyAgentError(err));
+    return;
+  }
+
+  return new Promise((resolve) => {
+    stopExportPoll();
+    exportPollTimer = setInterval(async () => {
+      try {
+        const done = await pollExportStatus(fmt);
+        if (done === true) {
+          openDownload(lastExportPath);
+          resolve(true);
+        }
+        if (done === false) resolve(false);
+      } catch (err) {
+        stopExportPoll();
+        setExportLoading(false);
+        alert(friendlyAgentError(err));
+        resolve(false);
+      }
+    }, 1000);
+  });
+}
+
+function openDownload(filePath) {
+  if (!filePath || !agentConnected) return;
+  const url = `${getAgentOrigin()}${TOOL_PREFIX}/download?file_path=${encodeURIComponent(filePath)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function resetJob() {
+  stopPreparePoll();
+  stopTranscribePoll();
+  stopExportPoll();
+  setSetupLoading(false);
+  setTranscribeLoading(false);
+  setExportLoading(false);
+  sessionVideoPath = "";
+  if (videoPathInput) videoPathInput.value = "";
+  try {
+    sessionStorage.removeItem(STORAGE_VIDEO_PATH);
+  } catch {
+    /* ignore */
+  }
+  clearSubtitleWorkspace();
+  updatePreview("");
+}
+
+function detachPreviewMasterAudio() {
+  if (!previewAudio) return;
+  previewAudio.pause();
+  previewAudio.removeAttribute("src");
+  try {
+    previewAudio.load();
+  } catch {
+    /* ignore */
+  }
+}
+
+function updatePreview(videoPath) {
+  if (!previewVideo || !previewSection) return;
+  stopPlaybackLoop();
+  setPreviewPlaybackUiActive(false);
+  detachPreviewMasterAudio();
+  const p = String(videoPath || "").trim();
+  if (!p || !agentConnected) {
+    previewVideo.removeAttribute("src");
+    if (previewEmpty) previewEmpty.hidden = false;
+    updatePreviewOverlay();
+    return;
+  }
+  const url = `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+  previewVideo.src = url;
+  if (previewAudio) {
+    previewAudio.src = url;
+    previewAudio.preload = "auto";
+  }
+  if (previewEmpty) previewEmpty.hidden = true;
+  previewVideo.onloadedmetadata = () => {
+    if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
+    const orch = getPlaybackOrchestrator();
+    if (!orch.video) {
+      orch.attachVideo(previewVideo, {
+        masterAudio: previewAudio ?? undefined,
+        onPlayheadChange: ({ editSec }) => {
+          if (!isVideoPlaying) playheadSec = editSec;
+        },
+      });
+    } else if (previewAudio) {
+      orch.masterAudio = previewAudio;
+    }
+    rebuildPlaybackSync();
+  };
+}
+
+let pickBusy = false;
+let savedPickBtnLabel = "";
+
+function setPickBusy(busy) {
+  pickBusy = busy;
+  if (btnPick) {
+    btnPick.disabled = busy;
+    if (busy) {
+      savedPickBtnLabel = btnPick.textContent || "찾아보기";
+      btnPick.textContent = "파일 선택 중…";
+    } else {
+      btnPick.textContent = savedPickBtnLabel || "찾아보기";
+    }
+  }
+}
+
+function formatPickErrorDetail(data, statusText) {
+  const d = data && typeof data === "object" ? data.detail : undefined;
+  let msg =
+    typeof d === "string"
+      ? d
+      : Array.isArray(d)
+        ? d
+            .map((x) => (x && typeof x === "object" && "msg" in x ? String(x.msg) : ""))
+            .filter(Boolean)
+            .join("; ")
+        : statusText || "요청 실패";
+  if (!/트레이|브로커|19879/i.test(msg)) {
+    msg += "\n\n작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.";
+  }
+  return msg;
+}
+
+async function onPickLocalFile() {
+  if (pickBusy) return;
+
+  const agent = await checkAgentConnection();
+  if (!agent.ok) {
+    await showInstallAgentDialog(installDialogOpts());
+    return;
+  }
+
+  userRequestedPreviewPause = true;
+  stopPlaybackLoop();
+  previewVideo?.pause();
+  detachPreviewMasterAudio();
+
+  setPickBusy(true);
+  const ctrl = new AbortController();
+  const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
+
+  try {
+    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-file`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      let msg = formatPickErrorDetail(data, res.statusText);
+      if (res.status === 400 && (msg.includes("취소") || /cancel/i.test(msg))) return;
+      alert(`파일 찾아보기 실패: ${msg}`);
+      return;
+    }
+
+    const path =
+      data && typeof data === "object"
+        ? String(data.video_path || data.path || "").trim()
+        : "";
+    if (!path || !videoPathInput) {
+      alert("에이전트가 경로를 반환하지 않았습니다.");
+      return;
+    }
+
+    const prev = sessionVideoPath || videoPathInput.value.trim();
+    if (path !== prev) {
+      clearSubtitleWorkspace();
+    }
+    sessionVideoPath = path;
+    videoPathInput.value = path;
+    try {
+      sessionStorage.setItem(STORAGE_VIDEO_PATH, path);
+    } catch {
+      /* ignore */
+    }
+    updatePreview(path);
+    updateActionButtons();
+    loadWaveformPeaks();
+  } catch (e) {
+    const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
+    if (name === "AbortError") {
+      alert("파일 선택이 시간 초과되었습니다. 다시 시도해 주세요.");
+    } else {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`파일 찾아보기 실패: ${formatAgentConnectionError(e) || msg}`);
+    }
+  } finally {
+    userRequestedPreviewPause = false;
+    window.clearTimeout(tid);
+    setPickBusy(false);
+  }
+}
+
+function restoreSession() {
+  // 자막은 전사·프로젝트 불러오기 후에만 표시. F5 새로고침 시 이전 sessionStorage 자막은 복원하지 않음.
+  try {
+    sessionStorage.removeItem(STORAGE_CUES);
+    sessionStorage.removeItem(STORAGE_CUTS);
+    sessionStorage.removeItem(STORAGE_VIDEO_PATH);
+  } catch {
+    /* ignore */
+  }
+  updateActionButtons();
+}
+
+btnPick?.addEventListener("click", () => void onPickLocalFile());
+
+btnLoadProject?.addEventListener("click", async () => {
+  try {
+    await onLoadProject();
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  }
+});
+
+btnSaveProjectAs?.addEventListener("click", async () => {
+  try {
+    syncCuesFromDom();
+    const name = prompt("다른 이름으로 저장", "autosub-project-copy");
+    if (name == null) return;
+    const res = await requestAgent({
+      path: `${TOOL_PREFIX}/project/save`,
+      method: "POST",
+      json: {
+        name: name || undefined,
+        project: {
+          format: "autosubtitle-project",
+          version: 1,
+          videoPath: videoPathInput?.value?.trim() || null,
+          cutRanges: lastCutRanges,
+          subtitleStyle: readSubtitleStyleFromDom(),
+          subtitles: lastCues,
+        },
+      },
+    });
+    alert(`프로젝트를 저장했습니다.\n${res.project_path || ""}`);
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  }
+});
+
+btnSaveProject?.addEventListener("click", async () => {
+  try {
+    await saveProject();
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  }
+});
+
+btnUnloadModel?.addEventListener("click", async () => {
+  try {
+    await unloadModel();
+  } catch (err) {
+    alert(friendlyAgentError(err));
+  }
+});
+
+btnNewJob?.addEventListener("click", resetJob);
+
+btnPrepare?.addEventListener("click", async () => {
+  btnPrepare.disabled = true;
+  try {
+    await ensurePrepared();
+  } finally {
+    updateActionButtons();
+  }
+});
+
+btnUndo?.addEventListener("click", () => {
+  if (subtitleHub.undo()) renderCuesTable(lastCues);
+});
+
+btnRedo?.addEventListener("click", () => {
+  if (subtitleHub.redo()) renderCuesTable(lastCues);
+});
+
+gapFillVrew?.addEventListener("change", () => {
+  subtitleHub.gapFillWhenBuildingVrew = Boolean(gapFillVrew.checked);
+});
+
+btnRemoveSilence?.addEventListener("click", () => {
+  if (!lastCues.length) return;
+  if (!confirm("모든 무음(--) 단어 블록을 제거할까요?")) return;
+  subtitleHub.applySubtitleChange((cues) => removeSilenceWordsFromSubtitleLines(cues));
+  renderCuesTable(lastCues);
+});
+
+btnGpuInstallDismiss?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  closeGpuInstallModal();
+});
+
+btnGpuInstallRun?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  void runGpuRuntimeInstall();
+});
+
+gpuInstallModal?.addEventListener("click", (e) => {
+  if (e.target === gpuInstallModal) closeGpuInstallModal();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || !gpuInstallModal || gpuInstallModal.hidden) return;
+  closeGpuInstallModal();
+});
+
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.key !== " " && e.code !== "Space") return;
+    if (e.isComposing || e.defaultPrevented) return;
+    const target = e.target;
+    if (target instanceof HTMLTextAreaElement) return;
+    if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+
+    /* 파형 패널 열림: ▶ 와 동일 — 자르기 위치 ~ 트림 끝 구간 재생 */
+    if (
+      expandedCueIndex >= 0 &&
+      expandedWordIndex >= 0 &&
+      subtitleList &&
+      toggleExpandedPanelPlayFromCut(subtitleList, {
+        expandedCueIndex,
+        expandedWordIndex,
+      })
+    ) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+
+    e.preventDefault();
+
+    if (!previewVideo) return;
+
+    if (subtitleList && lastCues.length) {
+      tryHandleCaretSpaceKey(e, subtitleList, lastCues, buildSubtitleCardOpts(lastCues));
+    } else {
+      togglePreviewPlayback();
+    }
+  },
+  { capture: true },
+);
+
+document.addEventListener("keydown", (e) => {
+  if (!subtitleList || !lastCues.length) return;
+  handleGlobalArrowKey(e, subtitleList, lastCues, buildSubtitleCardOpts(lastCues));
+});
+
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const tag = e.target instanceof Element ? e.target.tagName : "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.key === "z" && !e.shiftKey) {
+    e.preventDefault();
+    if (subtitleHub.undo()) renderCuesTable(lastCues);
+  } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
+    e.preventDefault();
+    if (subtitleHub.redo()) renderCuesTable(lastCues);
+  }
+});
+
+btnTranscribe?.addEventListener("click", async () => {
+  btnTranscribe.disabled = true;
+  try {
+    await runTranscribe();
+  } finally {
+    updateActionButtons();
+  }
+});
+
+btnExport?.addEventListener("click", async () => {
+  btnExport.disabled = true;
+  try {
+    await runExport();
+  } finally {
+    updateActionButtons();
+  }
+});
+
+btnDownloadResult?.addEventListener("click", () => openDownload(lastExportPath));
+btnShowExportFolder?.addEventListener("click", () => showExportResultInFolder(lastExportPath));
+
+videoPathInput?.addEventListener("input", () => {
+  const p = videoPathInput?.value?.trim() || "";
+  if (p !== sessionVideoPath) {
+    if (sessionVideoPath || lastCues.length) clearSubtitleWorkspace();
+    sessionVideoPath = p;
+    try {
+      if (p) sessionStorage.setItem(STORAGE_VIDEO_PATH, p);
+      else sessionStorage.removeItem(STORAGE_VIDEO_PATH);
+    } catch {
+      /* ignore */
+    }
+  }
+  updatePreview(p);
+  updateActionButtons();
+});
+
+previewVideo?.addEventListener("click", () => togglePreviewPlayback());
+previewVideo?.addEventListener("play", () => {
+  if (!isHtmlAudioMasterActive()) startPlaybackLoop();
+});
+previewVideo?.addEventListener("timeupdate", () => {
+  if (isHtmlAudioMasterActive()) return;
+  if (!previewVideo || previewVideo.paused) return;
+  const orch = getPlaybackOrchestrator();
+  playheadSec = orch.mapMediaToEditSec(previewVideo.currentTime);
+  if (!playbackRafId) {
+    applyThrottledVideoSkipCut(previewVideo, getPlaybackSkipRanges());
+    commitPlayheadUi();
+  }
+});
+previewVideo?.addEventListener("pause", () => {
+  if (userRequestedPreviewPause) stopPlaybackLoop();
+});
+previewVideo?.addEventListener("ended", () => stopPlaybackLoop());
+previewVideo?.addEventListener("seeked", () => {
+  if (!isVideoPlaying && previewVideo) {
+    const orch = getPlaybackOrchestrator();
+    playheadSec = orch.mapMediaToEditSec(previewVideo.currentTime);
+    applyPlaybackSkipIfNeeded();
+    commitPlayheadUi();
+  }
+});
+previewAudio?.addEventListener("seeked", () => {
+  if (!isVideoPlaying && previewAudio) {
+    const orch = getPlaybackOrchestrator();
+    playheadSec = orch.mapMediaToEditSec(previewAudio.currentTime);
+    applyPlaybackSkipIfNeeded();
+    commitPlayheadUi();
+  }
+});
+previewAudio?.addEventListener("pause", () => {
+  if (userRequestedPreviewPause && isHtmlAudioMasterActive()) stopPlaybackLoop();
+});
+previewAudio?.addEventListener("ended", () => {
+  if (isHtmlAudioMasterActive()) stopPlaybackLoop();
+});
+
+styleFontFamily?.addEventListener("input", () => updatePreviewOverlay());
+styleFontFamily?.addEventListener("change", () => updatePreviewOverlay());
+
+bindStyleControl("style-font-size-range", styleFontSizeOut, (el) => `${el.value}px`);
+bindStyleControl("style-text-alpha", styleTextAlphaOut, (el) => el.value);
+bindStyleControl("style-stroke-width", styleStrokeWidthOut, (el) => `${el.value}px`);
+bindStyleControl("style-bg-opacity", styleBgOpacityOut, (el) => `${el.value}%`);
+bindStyleControl("style-bg-size", styleBgSizeOut, (el) => `${el.value}%`);
+bindStyleControl("style-x", styleXOut, (el) => `${el.value}%`);
+bindStyleControl("style-y-range", styleYOut, (el) => `${el.value}%`);
+styleTextColor?.addEventListener("input", () => updatePreviewOverlay());
+styleStrokeColor?.addEventListener("input", () => updatePreviewOverlay());
+styleBgColor?.addEventListener("input", () => updatePreviewOverlay());
+
+populateFontList();
+
+startConnectionMonitor({
+  onChange: async (connected) => {
+    agentConnected = connected;
+    const connEl = document.getElementById("connection-status");
+    applyConnectionStatusDot(connEl, connected);
+    connEl?.classList.toggle("is-connected", connected);
+    if (connected) {
+      await fetchReadiness();
+    } else {
+      toolReady = false;
+      if (binReadiness) binReadiness.textContent = `${LOCAL_HELPER_NAME} 연결 필요`;
+      if (prepareBanner) prepareBanner.hidden = true;
+    }
+    updateActionButtons();
+  },
+  autoShowInstallDialog: true,
+  installDialogOptions: installDialogOpts(),
+});
+
+startAgentEventStream({
+  onEvent: (evt) => {
+    const mapped = mapAgentEventToPrepareStatus?.(evt);
+    if (mapped && setupLoading?.classList.contains("is-active")) {
+      applyPrepareStatusFromWs(mapped);
+    }
+  },
+});
+
+function applyPrepareStatusFromWs(data) {
+  setSetupLoading(true, {
+    title: data?.phase === "downloading_models" ? "AI 모델" : "환경 준비",
+    step: data?.step || "",
+    message: data?.detail || data?.message || "",
+    progress: data?.progress,
+  });
+}
+
+restoreSession();
+updatePreviewOverlay();
+
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    if (expandedCueIndex < 0) return;
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    if (
+      t.closest(".subtitle-card-media-rail") ||
+      t.closest(".subtitle-waveform-mount") ||
+      t.closest(".subtitle-word-chip") ||
+      t.closest(".subtitle-word-rail") ||
+      t.closest(".subwave-flow-root") ||
+      t.closest(".subtitle-waveform-accordion") ||
+      t.closest(".subtitle-card-textarea")
+    ) {
+      return;
+    }
+    closeWordWaveform();
+  },
+  true,
+);
+
+requestAgent({ path: "/health" }).catch(() => {});

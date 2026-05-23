@@ -14,8 +14,14 @@ func runFileDialogBrokerOnly() error {
 }
 func isFileDialogBrokerListening() bool { return false }
 
-func requestFileDialogBroker(audioOnly bool, timeout time.Duration) (string, error) {
+func ensureFileDialogBrokerReady(timeout time.Duration) error {
+	_ = timeout
+	return fmt.Errorf("file dialog broker is only available on Windows")
+}
+
+func requestFileDialogBroker(audioOnly bool, projectOnly bool, timeout time.Duration) (string, error) {
 	_ = audioOnly
+	_ = projectOnly
 	_ = timeout
 	return "", fmt.Errorf("file dialog broker is only available on Windows")
 }

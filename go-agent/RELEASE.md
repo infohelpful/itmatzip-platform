@@ -1,5 +1,22 @@
 # ItMatZip Agent — 릴리스 전 점검
 
+## Auto Subtitle (웹 툴 + agent/)
+
+| 항목 | 내용 |
+|------|------|
+| API | `/api/tools/auto-subtitle/*` — prepare, transcribe, export, media/stream |
+| 첫 사용 | Whisper CT2 ~1.6GB + FFmpeg — `POST /prepare` 시 PC에 다운로드 |
+| 작업 큐 | 전사·보내기 동시 1건 (`409` 한글 안내) |
+| 메모리 | 작업 후 5분 유휴 시 모델 언로드 (`POST /model/unload`, `ITMATZIP_WHISPER_UNLOAD_IDLE_SEC`) |
+| 웹 UI | `web-ui/tools/auto-subtitle/` — `local-helper-ui` 문구, 스타일·프로젝트 저장 |
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:19876/api/tools/auto-subtitle/readiness
+Invoke-RestMethod http://127.0.0.1:19876/api/tools/auto-subtitle/export/status
+```
+
+---
+
 ## 1.1.4 (1.1.3 회귀 근본 수정)
 
 | 영역 | 수정 |

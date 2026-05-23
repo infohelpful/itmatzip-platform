@@ -200,10 +200,13 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 
 	mux.HandleFunc(serviceRestartPath, handleServiceRestart)
 	mux.HandleFunc("/api/agent/pick-local-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, false)
+		handlePickLocalFile(w, r, false, false)
 	})
 	mux.HandleFunc("/api/agent/pick-local-audio-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, true)
+		handlePickLocalFile(w, r, true, false)
+	})
+	mux.HandleFunc("/api/agent/pick-local-project-file", func(w http.ResponseWriter, r *http.Request) {
+		handlePickLocalFile(w, r, false, true)
 	})
 
 	if sidecar != nil {
@@ -406,12 +409,20 @@ func main() {
 	}
 }
 
-func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool) {
+func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool, projectOnly bool) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	path, err := requestFileDialogBroker(audioOnly, 10*time.Minute)
+	if err := ensureFileDialogBrokerReady(10 * time.Second); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": err.Error(),
+		})
+		return
+	}
+	path, err := requestFileDialogBroker(audioOnly, projectOnly, 10*time.Minute)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -430,6 +441,10 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if projectOnly {
+		_ = json.NewEncoder(w).Encode(map[string]any{"project_path": path})
+		return
+	}
 	if audioOnly {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"audio_path": path,

@@ -26,7 +26,8 @@ import (
 const fileDialogBrokerAddr = "127.0.0.1:19879"
 
 type pickDialogRequest struct {
-	AudioOnly bool `json:"audio_only"`
+	AudioOnly   bool `json:"audio_only"`
+	ProjectOnly bool `json:"project_only"`
 }
 
 type pickDialogResponse struct {
@@ -75,7 +76,7 @@ func handleFileDialogBrokerPick(w http.ResponseWriter, r *http.Request) {
 	}
 	var req pickDialogRequest
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	path, err := pickFileViaUserDialog(req.AudioOnly)
+	path, err := pickFileViaUserDialog(req.AudioOnly, req.ProjectOnly)
 	resp := pickDialogResponse{OK: err == nil, Path: path}
 	if err != nil {
 		resp.Error = err.Error()
@@ -117,8 +118,39 @@ func isFileDialogBrokerListening() bool {
 	return true
 }
 
-func requestFileDialogBroker(audioOnly bool, timeout time.Duration) (string, error) {
-	body, _ := json.Marshal(pickDialogRequest{AudioOnly: audioOnly})
+func waitFileDialogBrokerListening(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if isFileDialogBrokerListening() {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return isFileDialogBrokerListening()
+}
+
+// ensureFileDialogBrokerReady — 서비스(19876)만 떠 있고 트레이/브로커(19879)가 없을 때 사용자 세션에 브로커 기동.
+func ensureFileDialogBrokerReady(timeout time.Duration) error {
+	if waitFileDialogBrokerListening(400 * time.Millisecond) {
+		return nil
+	}
+	_ = startFileDialogBroker()
+	if waitFileDialogBrokerListening(800 * time.Millisecond) {
+		return nil
+	}
+	if err := launchAgentModeInActiveUserSession("--broker"); err != nil {
+		return fmt.Errorf("파일 대화상자 브로커를 사용자 세션에서 시작하지 못했습니다: %w", err)
+	}
+	if waitFileDialogBrokerListening(timeout) {
+		return nil
+	}
+	return fmt.Errorf(
+		"파일 대화상자 브로커(127.0.0.1:19879)가 준비되지 않았습니다. 작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요",
+	)
+}
+
+func requestFileDialogBroker(audioOnly bool, projectOnly bool, timeout time.Duration) (string, error) {
+	body, _ := json.Marshal(pickDialogRequest{AudioOnly: audioOnly, ProjectOnly: projectOnly})
 	client := &http.Client{Timeout: timeout}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+fileDialogBrokerAddr+"/pick", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -140,10 +172,13 @@ func requestFileDialogBroker(audioOnly bool, timeout time.Duration) (string, err
 	return strings.TrimSpace(out.Path), nil
 }
 
-func pickFileViaUserDialog(audioOnly bool) (string, error) {
+func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
 	title := "ItMatZip — 미디어 파일 선택"
 	filter := "동영상 파일 (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v)|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4v|오디오/동영상 (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4a;*.wav;*.mp3;*.aac;*.flac)|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.m4a;*.wav;*.mp3;*.aac;*.flac|모든 파일 (*.*)|*.*"
-	if audioOnly {
+	if projectOnly {
+		title = "ItMatZip — 프로젝트 불러오기"
+		filter = "Auto Subtitle 프로젝트 (*.autosub;*.json)|*.autosub;*.json|모든 파일 (*.*)|*.*"
+	} else if audioOnly {
 		title = "ItMatZip — 오디오 파일 선택"
 		filter = "오디오 파일 (*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.opus)|*.wav;*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.wma;*.opus|모든 파일 (*.*)|*.*"
 	}

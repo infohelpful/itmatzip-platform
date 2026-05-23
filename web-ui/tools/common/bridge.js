@@ -387,11 +387,41 @@ function targetAddressSpaceForUrl(url) {
  * @returns {Promise<Response>}
  */
 /**
+ * Error / FastAPI detail / { message } 등을 사용자용 문자열로 변환
+ * @param {unknown} raw
+ * @returns {string}
+ */
+export function extractAgentErrorMessage(raw) {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw.trim();
+  if (raw instanceof Error) return raw.message?.trim() || String(raw);
+  if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => extractAgentErrorMessage(item))
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (typeof raw === "object") {
+    const o = /** @type {Record<string, unknown>} */ (raw);
+    if (o.message != null) return extractAgentErrorMessage(o.message);
+    if (o.detail != null) return extractAgentErrorMessage(o.detail);
+    if (o.error != null) return extractAgentErrorMessage(o.error);
+    if (typeof o.msg === "string") return o.msg.trim();
+  }
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return String(raw);
+  }
+}
+
+/**
  * @param {unknown} raw
  * @returns {string}
  */
 export function formatAgentConnectionError(raw) {
-  const msg = raw != null ? String(raw) : "";
+  const msg = extractAgentErrorMessage(raw);
   if (/address space/i.test(msg)) {
     return "브라우저 로컬 연결 정책 — 강력 새로고침(Ctrl+Shift+R) 후 주소창에서 「로컬 네트워크」 허용";
   }
@@ -890,9 +920,9 @@ export async function requestAgent(opts) {
     onProgress({ progress: null, phase: "error", message: `HTTP ${res.status}`, raw: data });
     const msg =
       data && typeof data === "object" && "detail" in /** @type {any} */ (data)
-        ? String(/** @type {any} */ (data).detail)
+        ? extractAgentErrorMessage(/** @type {any} */ (data).detail)
         : `HTTP ${res.status}`;
-    throw new Error(msg);
+    throw new Error(msg || `HTTP ${res.status}`);
   }
 
   onProgress({ progress: 100, phase: "done", message: "완료", raw: data });
@@ -1234,6 +1264,7 @@ const Bridge = {
   getAgentOrigin,
   setAgentOrigin,
   fetchAgent,
+  extractAgentErrorMessage,
   formatAgentConnectionError,
   applyConnectionStatusDot,
   primeLocalNetworkAccess,
