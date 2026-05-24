@@ -278,10 +278,23 @@ function tryWaveformSpaceWhenExpanded(opts) {
 }
 
 /** 편집 commit 직후 — render 전 캐럿 상태 (파형 열린 줄 포함) */
-export function prepareCaretAtWord(cardIndex, words, storageWordIndex) {
-  clearListPlayFromCaretPreferred();
-  spaceSeekIntent = "none";
-  activateCaretAt(cardIndex, words, storageWordIndex, true, false);
+export function prepareCaretAtWord(cardIndex, words, storageWordIndex, armSpaceSeek = true) {
+  if (!armSpaceSeek) {
+    clearListPlayFromCaretPreferred();
+    spaceSeekIntent = "none";
+  } else {
+    spaceSeekIntent = "none";
+  }
+  activateCaretAt(cardIndex, words, storageWordIndex, true, armSpaceSeek);
+}
+
+/** 파형 열린 줄 — 칩/캐럿 클릭 직후가 아니면 Space → cut~trim 구간 재생 */
+function preferWaveformSpaceWhenExpanded(opts, cardIndex) {
+  if (listPlayFromCaretPreferred && spaceSeekIntent === "caret") return false;
+  const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+  const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+  if (ci !== cardIndex || wi < 0) return false;
+  return tryWaveformSpaceWhenExpanded(opts);
 }
 
 /**
@@ -860,6 +873,14 @@ function replaceCaretOverlayDom(
  * @param {number} storageCaret
  * @param {object} opts
  */
+function seekWordFromChipOpts(opts, cue, storageWi, fallbackStart) {
+  if (typeof opts.onSeekWord === "function" && cue) {
+    opts.onSeekWord(cue, storageWi);
+    return;
+  }
+  opts.onSeek?.(fallbackStart);
+}
+
 function playAtCaret(cardIndex, storageCaret, opts) {
   const cue = opts.getCues?.()?.[cardIndex] ?? null;
   if (!cue) return;
@@ -1160,12 +1181,13 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
       opts.onTogglePlayback?.(true);
       return;
     }
-    if (tryWaveformSpaceWhenExpanded(opts)) return;
+    if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
     if (spaceSeekIntent === "caret") {
       playAtCaret(cardIndex, ci, opts);
       dismissSpaceSeekIntent(container, cardIndex, words, opts, cues);
       return;
     }
+    if (tryWaveformSpaceWhenExpanded(opts)) return;
     opts.onTogglePlayback?.(true);
     return;
   }
@@ -1484,7 +1506,7 @@ export function buildWordChipsAndCarets(
         if (isPlaybackActive(opts)) opts.onPausePlayback?.();
         activateCaretAt(cardIndex, words, storageWi, true, true);
         onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
-        opts.onSeek?.(w.start);
+        seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
         const cardEl = pill.closest(".subtitle-card");
         if (cardEl instanceof HTMLElement) {
@@ -1500,7 +1522,7 @@ export function buildWordChipsAndCarets(
       if (isPlaybackActive(opts)) opts.onPausePlayback?.();
       activateCaretAt(cardIndex, words, storageWi, true, true);
       onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
-      opts.onSeek?.(w.start);
+      seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
       requestFocusCaret(listContainer, cues, opts, cardIndex, storageWi, { seek: false });
     });
     pill.addEventListener("dblclick", (e) => {
@@ -1566,6 +1588,7 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
       listPlayFromCaretPreferred = false;
       return;
     }
+    if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
     if (spaceSeekIntent === "caret") {
       playAtCaret(cardIndex, ci, opts);
       spaceSeekIntent = "none";

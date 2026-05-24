@@ -33,6 +33,53 @@ export function skipCutRangeAt(timeSec, ranges) {
 }
 
 /**
+ * [rangeStart, rangeEnd) 구간에서 skip 밖 첫 edit 시각.
+ *
+ * @param {number} rangeStart
+ * @param {number} rangeEnd
+ * @param {readonly { start: number, end: number }[]} ranges
+ * @returns {number | null}
+ */
+export function firstPlayableSecInRange(rangeStart, rangeEnd, ranges) {
+  const rs = Number(rangeStart);
+  const re = Number(rangeEnd);
+  if (!Number.isFinite(rs) || !Number.isFinite(re) || re <= rs + 1e-9) return null;
+  const merged = mergeCutRanges(ranges);
+  let t = rs;
+  for (let guard = 0; guard < 64; guard += 1) {
+    if (t >= re - 1e-9) return null;
+    let hit = null;
+    for (const r of merged) {
+      if (t >= r.start && t < r.end) {
+        hit = r;
+        break;
+      }
+    }
+    if (!hit) return t;
+    t = hit.end + SKIP_CUT_TAIL_SEC;
+  }
+  return null;
+}
+
+/**
+ * 단어 블록 span 안에서 재생 가능한 edit 시각 (trim/tombstone skip 이후).
+ *
+ * @param {{ start?: number, end?: number } | null | undefined} word
+ * @param {readonly { start: number, end: number }[]} skipRanges
+ * @returns {number | null}
+ */
+export function playableEditSecForWord(word, skipRanges) {
+  if (!word) return null;
+  const s = Number(word.start);
+  const e = Number(word.end);
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s + 1e-9) return null;
+  const inSpan = firstPlayableSecInRange(s, e, skipRanges);
+  if (inSpan != null) return inSpan;
+  const jumped = skipCutRangeAt(s, skipRanges);
+  return jumped < e - 1e-9 ? jumped : null;
+}
+
+/**
  * @param {Array<{ start: number, end: number, words?: unknown[], is_silence?: boolean }>} cues
  */
 export function collectDeletedWordSkipRanges(cues) {

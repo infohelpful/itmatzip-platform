@@ -47,13 +47,15 @@ import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
 } from "./shared/subtitle-word-caret-map.js?v=21";
-import { syncAllCuesFromWords, ensureCueWords } from "./subtitle-words.js?v=21";
+import { syncAllCuesFromWords, ensureCueWords, MIN_WORD_SPAN_SEC } from "./subtitle-words.js?v=21";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
   pickActiveWordIndex,
   skipCutRangeAt,
-} from "./playback.js?v=24";
+  playableEditSecForWord,
+  firstPlayableSecInRange,
+} from "./playback.js?v=25";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
@@ -521,13 +523,27 @@ function editSecForStorageWord(cue, storageWordIndex) {
   const words = cue.words ?? [];
   let editSec = cue.start ?? 0;
   const vis = visibleWordStorageIndices(words);
+  const skips = getPlaybackSkipRanges();
   if (vis.length) {
     const c = Math.max(0, Math.min(storageWordIndex, words.length));
     let pick = vis.find((i) => i >= c);
     if (pick == null) pick = vis[vis.length - 1];
-    editSec = words[pick]?.start ?? editSec;
+    const word = words[pick];
+    editSec = playableEditSecForWord(word, skips) ?? word?.start ?? editSec;
   }
   return editSec;
+}
+
+/** @param {number} editSec */
+function seekEditSecAndPlay(editSec) {
+  if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return false;
+  const orch = getPlaybackOrchestrator();
+  const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+  orch.seekMediaSec(media);
+  playheadSec = orch.mapMediaToEditSec(media);
+  commitPlayheadUi();
+  startPlaybackLoop();
+  return true;
 }
 
 function closeWordWaveform({ restoreFocus = true } = {}) {
@@ -901,24 +917,10 @@ function playAtSubtitleCaret(cardIndex, storageCaret) {
   waveformPlayRangeEndEdit = null;
   const cue = lastCues[cardIndex];
   if (!cue) return;
-  ensureCueWords(cue);
-  const words = cue.words ?? [];
-  let editSec = cue.start ?? 0;
-  const vis = visibleWordStorageIndices(words);
-  if (vis.length) {
-    const c = Math.max(0, Math.min(storageCaret, words.length));
-    let pick = vis.find((i) => i >= c);
-    if (pick == null) pick = vis[vis.length - 1];
-    editSec = words[pick]?.start ?? editSec;
-  }
-  selectCueLine(cardIndex, { seek: false, scroll: false });
-  if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return;
-  const orch = getPlaybackOrchestrator();
-  const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
-  orch.seekMediaSec(media);
-  playheadSec = orch.mapMediaToEditSec(media);
-  commitPlayheadUi();
-  startPlaybackLoop();
+  const editSec = editSecForStorageWord(cue, storageCaret);
+  if (!Number.isFinite(editSec)) return;
+  selectCueLine(cardIndex, { seek: false, scroll: false, rerender: false });
+  seekEditSecAndPlay(editSec);
 }
 
 function updatePreviewOverlay() {
@@ -1337,18 +1339,23 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         commitPlayheadUi();
       }
     },
-    onTogglePlayback: (fromSpace) =>
-      togglePreviewPlayback({
-        showCaretOnPause: Boolean(fromSpace),
-      }),
-    onWaveformSeekAndPlay: (editSec) => {
-      if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return;
+    onSeekWord: (cue, storageWordIndex) => {
+      if (!previewVideo) return;
+      const editSec = editSecForStorageWord(cue, storageWordIndex);
+      if (!Number.isFinite(editSec)) return;
       const orch = getPlaybackOrchestrator();
       const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
       orch.seekMediaSec(media);
       playheadSec = orch.mapMediaToEditSec(media);
       commitPlayheadUi();
-      startPlaybackLoop();
+    },
+    onTogglePlayback: (fromSpace) =>
+      togglePreviewPlayback({
+        showCaretOnPause: Boolean(fromSpace),
+      }),
+    onWaveformSeekAndPlay: (editSec) => {
+      if (!Number.isFinite(editSec)) return;
+      seekEditSecAndPlay(editSec);
     },
     onWaveformChipClick: (ci, _visIdx, storageWi, isActiveChip, detail) => {
       if (expandedCueIndex !== ci) return;
@@ -1391,10 +1398,16 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         const cue = lastCues[ci];
         if (cue) {
           ensureCueWords(cue);
-          prepareCaretAtWord(ci, cue.words ?? [], wi);
+          const waveformOpen = expandedCueIndex === ci && expandedWordIndex === wi;
+          prepareCaretAtWord(ci, cue.words ?? [], wi, !waveformOpen);
+          const word = cue.words?.[wi];
           playheadSec = editSecForStorageWord(cue, wi);
-          waveformPlayRangeEndEdit = null;
-          focusAfterRender = { ci, wi };
+          if (waveformOpen && word) {
+            waveformPlayRangeEndEdit = Math.max(Number(word.start) || 0, Number(word.end) || 0);
+          } else {
+            waveformPlayRangeEndEdit = null;
+          }
+          focusAfterRender = { ci, wi, armSpaceSeek: !waveformOpen };
         }
       } else {
         clearListPlayFromCaretPreferred();
@@ -1409,7 +1422,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
           buildSubtitleCardOpts(lastCues),
           focusAfterRender.ci,
           focusAfterRender.wi,
-          { seek: false, armSpaceSeek: false },
+          { seek: false, armSpaceSeek: focusAfterRender.armSpaceSeek !== false },
         );
       }
     },
@@ -1421,14 +1434,22 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     },
     onPlayEditRange: (startEdit, endEdit) => {
       if (!previewVideo || !previewAudio || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
-      if (endEdit - startEdit <= 1e-4) return;
+      const lo = Math.min(startEdit, endEdit);
+      const hi = Math.max(startEdit, endEdit);
+      const skips = getPlaybackSkipRanges();
+      let start = firstPlayableSecInRange(lo, hi, skips);
+      if (start == null) start = skipCutRangeAt(startEdit, skips);
+      if (!Number.isFinite(start)) return;
+      const minSpan = Math.max(1e-4, MIN_WORD_SPAN_SEC * 0.5);
+      if (hi - start < minSpan) {
+        start = Math.max(lo, hi - minSpan);
+        start = firstPlayableSecInRange(start, hi, skips) ?? skipCutRangeAt(start, skips);
+      }
+      if (!Number.isFinite(start) || hi - start <= 1e-4) return;
       const orch = getPlaybackOrchestrator();
-      const startMedia = skipCutRangeAt(
-        orch.mapEditToMediaSec(startEdit),
-        getPlaybackSkipRanges(),
-      );
-      waveformPlayRangeEndEdit = endEdit;
-      playheadSec = startEdit;
+      const startMedia = skipCutRangeAt(orch.mapEditToMediaSec(start), skips);
+      waveformPlayRangeEndEdit = hi;
+      playheadSec = start;
       orch.seekMediaSec(startMedia);
       commitPlayheadUi();
       startPlaybackLoop({ fromWaveformRange: true });

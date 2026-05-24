@@ -21,4 +21,4 @@ export {
   clearListPlayFromCaretPreferred,
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
-} from "./subtitle-list/word-caret-ui.js?v=42";
+} from "./subtitle-list/word-caret-ui.js?v=44";
