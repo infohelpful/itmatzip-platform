@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>Auto Subtitle</title>
-  <link rel="stylesheet" href="style.css?v=51">
+  <link rel="stylesheet" href="style.css?v=73">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body class="as-app">
@@ -17,8 +17,8 @@
       </div>
       <div class="as-topbar-actions">
         <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>환경 준비</button>
-        <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled title="실행 취소 (Ctrl+Z)">↩</button>
-        <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled title="다시 실행 (Ctrl+Y)">↪</button>
+        <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="실행 취소 (Ctrl+Z)">↩</button>
+        <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="다시 실행 (Ctrl+Y)">↪</button>
         <button type="button" id="btn-load-project" class="as-btn as-btn-ghost">불러오기</button>
         <button type="button" id="btn-save-project-as" class="as-btn as-btn-ghost">다른 이름으로 저장</button>
         <button type="button" id="btn-save-project" class="as-btn as-btn-ghost">저장</button>
@@ -27,55 +27,90 @@
 
     <section class="as-stylebar" id="style-section">
       <div class="as-stylebar-controls">
-        <div class="as-style-row">
+        <div class="as-style-col">
           <label class="as-style-field as-style-field--font">
             <span>폰트</span>
-            <input type="text" id="style-font-family" list="system-font-list" value="Malgun Gothic" autocomplete="off">
-            <datalist id="system-font-list"></datalist>
+            <div class="as-style-ctrl as-style-ctrl--wide">
+              <select id="style-font-family" class="as-select as-select--font">
+                <option value="Malgun Gothic" selected>Malgun Gothic</option>
+              </select>
+            </div>
           </label>
-          <label class="as-style-field">
-            <span>글자 크기</span>
-            <input type="range" id="style-font-size-range" min="12" max="96" value="47">
-            <output id="style-font-size-out">47px</output>
-          </label>
-          <label class="as-style-field">
-            <span>글자 색상</span>
-            <input type="color" id="style-text-color" value="#ffffff">
-            <input type="range" id="style-text-alpha" min="0" max="255" value="255">
-            <output id="style-text-alpha-out">255</output>
-          </label>
-          <label class="as-style-field">
-            <span>외곽선</span>
-            <input type="color" id="style-stroke-color" value="#000000">
-            <input type="range" id="style-stroke-width" min="0" max="8" value="2">
-            <output id="style-stroke-width-out">2px</output>
-          </label>
-        </div>
-        <div class="as-style-row">
           <label class="as-style-field">
             <span>배경 색상</span>
-            <input type="color" id="style-bg-color" value="#000000">
-            <input type="range" id="style-bg-opacity" min="0" max="100" value="63">
-            <output id="style-bg-opacity-out">63%</output>
+            <div class="as-style-ctrl">
+              <input type="color" id="style-bg-color" value="#000000">
+              <input type="range" id="style-bg-opacity" min="0" max="100" value="63">
+              <output id="style-bg-opacity-out">63%</output>
+            </div>
+          </label>
+        </div>
+        <div class="as-style-col">
+          <label class="as-style-field">
+            <span>글자 크기</span>
+            <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
+              <span class="as-style-ctrl-gap" aria-hidden="true"></span>
+              <input type="range" id="style-font-size-range" min="12" max="96" value="47">
+              <output id="style-font-size-out">47px</output>
+            </div>
           </label>
           <label class="as-style-field">
             <span>배경 크기</span>
-            <input type="range" id="style-bg-size" min="0" max="100" value="50">
-            <output id="style-bg-size-out">50%</output>
+            <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
+              <span class="as-style-ctrl-gap" aria-hidden="true"></span>
+              <input type="range" id="style-bg-size" min="0" max="100" value="50">
+              <output id="style-bg-size-out">50%</output>
+            </div>
+          </label>
+        </div>
+        <div class="as-style-col">
+          <label class="as-style-field">
+            <span>글자 색상</span>
+            <div class="as-style-ctrl">
+              <input type="color" id="style-text-color" value="#ffffff">
+              <input type="range" id="style-text-alpha" min="0" max="255" value="255">
+              <output id="style-text-alpha-out">255</output>
+            </div>
           </label>
           <label class="as-style-field">
             <span>좌우 위치</span>
-            <input type="range" id="style-x" min="0" max="100" value="50">
-            <output id="style-x-out">50%</output>
+            <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
+              <span class="as-style-ctrl-gap" aria-hidden="true"></span>
+              <input type="range" id="style-x" min="0" max="100" value="50">
+              <output id="style-x-out">50%</output>
+            </div>
+          </label>
+        </div>
+        <div class="as-style-col">
+          <label class="as-style-field">
+            <span>외곽선</span>
+            <div class="as-style-ctrl">
+              <input type="color" id="style-stroke-color" value="#000000">
+              <input type="range" id="style-stroke-width" min="0" max="8" value="2">
+              <output id="style-stroke-width-out">2px</output>
+            </div>
           </label>
           <label class="as-style-field">
             <span>상하 위치</span>
-            <input type="range" id="style-y-range" min="0" max="100" value="90">
-            <output id="style-y-out">90%</output>
+            <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
+              <span class="as-style-ctrl-gap" aria-hidden="true"></span>
+              <input type="range" id="style-y-range" min="0" max="100" value="90">
+              <output id="style-y-out">90%</output>
+            </div>
           </label>
         </div>
       </div>
       <div class="as-stylebar-export">
+        <div class="as-lang-box">
+          <label for="language-select">언어</label>
+          <select id="language-select" class="as-select as-select--lang">
+            <option value="">자동</option>
+            <option value="ko" selected>한국어</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="zh">中文</option>
+          </select>
+        </div>
         <select id="export-format" class="as-select">
           <option value="video">영상으로보내기</option>
           <option value="srt">SRT</option>
@@ -91,46 +126,43 @@
 
     <div class="as-workspace">
       <section class="as-pane as-pane-preview">
-        <div class="as-pane-toolbar">
-          <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="로컬 파일 경로">
-          <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost">찾아보기</button>
+        <div class="as-preview-main">
+          <div class="as-pane-toolbar as-pane-toolbar--preview">
+            <label class="as-load-label" for="video-path">영상 불러오기</label>
+            <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="로컬 파일 경로">
+            <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost">찾아보기</button>
+          </div>
+          <div class="as-preview-stage" id="preview-section">
+            <div class="as-preview-media-frame" id="preview-media-frame">
+              <video id="preview-video" class="as-preview-video" playsinline preload="metadata"></video>
+              <audio id="preview-audio" class="as-preview-audio" preload="metadata" aria-hidden="true"></audio>
+              <div id="preview-subtitle-overlay" class="as-preview-overlay" hidden aria-hidden="true"></div>
+            </div>
+            <p class="as-preview-empty" id="preview-empty">영상·오디오 파일을 선택하세요.</p>
+          </div>
+          <div class="as-preview-transport" id="preview-transport">
+            <button type="button" id="btn-preview-play" class="as-transport-btn" title="재생/일시정지 (Space)" disabled aria-label="재생">▶</button>
+            <span id="preview-time-current" class="as-transport-time">0:00</span>
+            <div class="as-transport-track-wrap">
+              <input type="range" id="preview-seek" class="as-transport-seek" min="0" max="1000" value="0" step="1" disabled aria-label="재생 위치">
+            </div>
+            <span id="preview-time-total" class="as-transport-time">0:00</span>
+          </div>
         </div>
-        <p class="prepare-banner" id="prepare-banner" hidden></p>
-        <div class="as-preview-stage" id="preview-section">
-          <video id="preview-video" class="as-preview-video" playsinline preload="metadata"></video>
-          <audio id="preview-audio" class="as-preview-audio" preload="metadata" aria-hidden="true"></audio>
-          <div id="preview-subtitle-overlay" class="as-preview-overlay" hidden aria-hidden="true"></div>
-          <p class="as-preview-empty" id="preview-empty">영상·오디오 파일을 선택하세요.</p>
+        <div class="as-preview-ad-wrap">
+          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-preview-pane" aria-label="광고"></div>
         </div>
       </section>
 
       <section class="as-pane as-pane-subtitles">
-        <div class="as-pane-toolbar as-pane-toolbar--sub">
-          <div class="as-lang-box">
-            <label for="language-select">언어 (선택)</label>
-            <p class="as-lang-hint">비우면 Whisper가 자동 감지합니다.</p>
-            <select id="language-select" class="as-select">
-              <option value="">자동</option>
-              <option value="ko">한국어</option>
-              <option value="en">English</option>
-              <option value="ja">日本語</option>
-              <option value="zh">中文</option>
-            </select>
-          </div>
-          <label class="as-gapfill-toggle" title="추출·재가공 시 단어 사이 무음(--) gap-fill">
-            <input type="checkbox" id="gap-fill-vrew" />
-            <span>gap-fill</span>
-          </label>
-          <button type="button" id="btn-remove-silence" class="as-btn as-btn-ghost" disabled title="무음(--) 단어 블록 일괄 제거">무음 제거</button>
-          <button type="button" id="btn-transcribe" class="as-btn as-btn-accent" disabled>자막 추출</button>
+        <div class="as-subtitle-ad-wrap">
+          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-subtitle-pane" aria-label="광고"></div>
         </div>
-        <p class="as-subtitle-hint" id="subtitle-hint">
-          compact 단어 칩 · 호버 황금 캐럿 · 스페이스 재생 · 더블클릭 → 줄 파형(휠 줌, 트림 핸들).
-          gap-fill은 옵션(기본 끔). 무음 제거는 「무음 제거」 버튼.
-        </p>
-        <div class="as-subtitle-list" id="subtitle-list"></div>
-        <p class="as-subtitle-empty" id="subtitle-empty">자막 추출을 실행하면 결과가 여기에 표시됩니다.</p>
-        <span id="results-meta" class="as-results-meta" hidden></span>
+        <div class="as-subtitle-main">
+          <div class="as-subtitle-list" id="subtitle-list"></div>
+          <p class="as-subtitle-empty" id="subtitle-empty">영상을 불러오면 자막이 여기에 표시됩니다.</p>
+          <span id="results-meta" class="as-results-meta" hidden></span>
+        </div>
       </section>
     </div>
 
@@ -144,28 +176,29 @@
         <a href="../index.html" class="as-link-dashboard">대시보드</a>
       </div>
     </footer>
-  </div>
 
-  <div class="setup-loading" id="setup-loading" hidden aria-hidden="true">
-    <div class="setup-loading__panel">
-      <p class="setup-loading__title" id="setup-loading-title">AI 환경 준비</p>
-      <p class="setup-loading__step" id="setup-loading-step"></p>
-      <p class="setup-loading__desc" id="setup-loading-message">FFmpeg · faster-whisper · Whisper 모델을 준비합니다…</p>
-      <div class="setup-loading__track" id="setup-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="setup-loading__bar" id="setup-loading-bar"></div>
+    <div class="as-inapp-busy-host" id="as-inapp-busy-host" hidden aria-hidden="true">
+      <div class="setup-loading" id="setup-loading" hidden aria-hidden="true">
+        <div class="setup-loading__panel">
+          <p class="setup-loading__title" id="setup-loading-title">AI 환경 준비</p>
+          <p class="setup-loading__step" id="setup-loading-step"></p>
+          <p class="setup-loading__desc" id="setup-loading-message">FFmpeg · faster-whisper · Whisper 모델을 준비합니다…</p>
+          <div class="setup-loading__track" id="setup-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="setup-loading__bar" id="setup-loading-bar"></div>
+          </div>
+        </div>
       </div>
-    </div>
-  </div>
-
-  <div class="transcribe-loading" id="transcribe-loading" hidden aria-hidden="true">
-    <div class="setup-loading__panel">
-      <p class="setup-loading__title" id="transcribe-loading-title">자막 추출 중…</p>
-      <p class="setup-loading__step" id="transcribe-loading-step"></p>
-      <p class="setup-loading__desc" id="transcribe-loading-message">자막 추출을 시작합니다.</p>
-      <div class="setup-loading__track" id="transcribe-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="setup-loading__bar" id="transcribe-loading-bar"></div>
+      <div class="transcribe-loading" id="transcribe-loading" hidden aria-hidden="true">
+        <div class="setup-loading__panel">
+          <p class="setup-loading__title" id="transcribe-loading-title">자막 추출 중…</p>
+          <p class="setup-loading__step" id="transcribe-loading-step"></p>
+          <p class="setup-loading__desc" id="transcribe-loading-message">자막 추출을 시작합니다.</p>
+          <div class="setup-loading__track" id="transcribe-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="setup-loading__bar" id="transcribe-loading-bar"></div>
+          </div>
+          <p class="transcribe-percent" id="transcribe-loading-percent"></p>
+        </div>
       </div>
-      <p class="transcribe-percent" id="transcribe-loading-percent"></p>
     </div>
   </div>
 
@@ -192,6 +225,6 @@
     </div>
   </div>
 
-  <script type="module" src="script.js?v=97"></script>
+  <script type="module" src="script.js?v=109"></script>
 </body>
 </html>

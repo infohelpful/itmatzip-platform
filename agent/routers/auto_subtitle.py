@@ -20,6 +20,7 @@ from engines import auto_subtitle_project
 from engines import auto_subtitle_gpu_runtime
 from engines import auto_subtitle_runtime
 from engines import silence_remover as silence_remover_engine
+from engines import system_fonts
 
 router = APIRouter(prefix="/api/tools/auto-subtitle", tags=["auto-subtitle"])
 
@@ -293,6 +294,12 @@ def get_readiness() -> dict[str, object]:
         },
         "runtime": runtime,
     }
+
+
+@router.get("/system-fonts")
+def get_system_fonts() -> dict[str, object]:
+    """로컬 PC에 설치된 글꼴 패밀리 목록."""
+    return {"ok": True, "fonts": system_fonts.list_installed_font_families()}
 
 
 @router.post("/gpu-runtime/install")

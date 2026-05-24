@@ -12,6 +12,7 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=as5";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
+import { showAdSense } from "../common/adsense.js";
 import {
   LOCAL_HELPER_NAME,
   MSG_SUBTITLE_JOB_BUSY,
@@ -67,7 +68,6 @@ import {
   postProcessCuesAfterTranscribe,
 } from "./shared/cues-ssot.js?v=29";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
-import { removeSilenceWordsFromSubtitleLines } from "./shared/phase5-edit-policy.js?v=28";
 import { getSubtitleBoxChromeInline } from "./shared/subtitle-box-chrome.js?v=21";
 import { SubtitleAppHub } from "./hub/app-hub.js?v=21";
 import {
@@ -98,6 +98,8 @@ const STORAGE_CUES = "auto-subtitle:last-cues";
 const STORAGE_CUTS = "auto-subtitle:cut-ranges";
 const STORAGE_EXPORT_PATH = "auto-subtitle:export-path";
 const STORAGE_VIDEO_PATH = "auto-subtitle:last-video-path";
+const STORAGE_USER_PREFS = "auto-subtitle:user-preferences";
+const USER_PREFS_VERSION = 1;
 
 const DEFAULT_SUBTITLE_STYLE = {
   fontFamily: "Malgun Gothic",
@@ -131,7 +133,6 @@ const SYSTEM_FONT_CANDIDATES = [
 const videoPathInput = document.getElementById("video-path");
 const btnPick = document.getElementById("btn-pick-local-file");
 const btnNewJob = document.getElementById("btn-new-job");
-const btnTranscribe = document.getElementById("btn-transcribe");
 const styleSection = document.getElementById("style-section");
 const exportFormatSelect = document.getElementById("export-format");
 const btnExport = document.getElementById("btn-export");
@@ -143,10 +144,17 @@ const subtitleList = document.getElementById("subtitle-list");
 const subtitleEmpty = document.getElementById("subtitle-empty");
 const resultsMeta = document.getElementById("results-meta");
 const previewSection = document.getElementById("preview-section");
+const previewMediaFrame = document.getElementById("preview-media-frame");
 const previewVideo = document.getElementById("preview-video");
 const previewAudio = document.getElementById("preview-audio");
 const previewOverlay = document.getElementById("preview-subtitle-overlay");
 const previewEmpty = document.getElementById("preview-empty");
+const btnPreviewPlay = document.getElementById("btn-preview-play");
+const previewSeek = document.getElementById("preview-seek");
+const previewTimeCurrent = document.getElementById("preview-time-current");
+const previewTimeTotal = document.getElementById("preview-time-total");
+const asShell = document.querySelector(".as-shell");
+const inappBusyHost = document.getElementById("as-inapp-busy-host");
 
 const setupLoading = document.getElementById("setup-loading");
 const setupLoadingTitle = document.getElementById("setup-loading-title");
@@ -170,7 +178,6 @@ const exportLoadingMessage = document.getElementById("export-loading-message");
 const exportLoadingBar = document.getElementById("export-loading-bar");
 const exportLoadingTrack = document.getElementById("export-loading-track");
 const exportLoadingPercent = document.getElementById("export-loading-percent");
-const prepareBanner = document.getElementById("prepare-banner");
 const styleFontFamily = document.getElementById("style-font-family");
 const styleFontSizeRange = document.getElementById("style-font-size-range");
 const styleFontSizeOut = document.getElementById("style-font-size-out");
@@ -189,7 +196,6 @@ const styleX = document.getElementById("style-x");
 const styleXOut = document.getElementById("style-x-out");
 const styleYRange = document.getElementById("style-y-range");
 const styleYOut = document.getElementById("style-y-out");
-const fontDatalist = document.getElementById("system-font-list");
 const btnSaveProject = document.getElementById("btn-save-project");
 const btnSaveProjectAs = document.getElementById("btn-save-project-as");
 const btnUnloadModel = document.getElementById("btn-unload-model");
@@ -197,9 +203,6 @@ const btnLoadProject = document.getElementById("btn-load-project");
 const btnPrepare = document.getElementById("btn-prepare");
 const btnUndo = document.getElementById("btn-undo");
 const btnRedo = document.getElementById("btn-redo");
-const gapFillVrew = document.getElementById("gap-fill-vrew");
-const btnRemoveSilence = document.getElementById("btn-remove-silence");
-
 /** Electron: 단어 구간 기반 재생 스케줄 */
 globalThis.__AUTO_SUBTITLE_WORD_PLAYBACK__ = true;
 const gpuInstallModal = document.getElementById("gpu-install-modal");
@@ -315,6 +318,8 @@ let lastExpandedPanelSyncWallMs = 0;
 const EXPANDED_PANEL_SYNC_MS = 100;
 let playbackLoopGeneration = 0;
 let userRequestedPreviewPause = false;
+let previewSeekDragging = false;
+let previewResumeAfterSeek = false;
 /** 현재 작업에 묶인 영상 경로 (다른 파일 선택 시 자막 초기화) */
 let sessionVideoPath = "";
 /** @type {string | null} */
@@ -392,6 +397,68 @@ function clearSubtitleWorkspace() {
   updateActionButtons();
 }
 
+const PREVIEW_SUBTITLE_SIDE_MARGIN_PCT = 3;
+
+function previewSubtitleTextAlign(x) {
+  const pct = Number(x) || 50;
+  if (pct < 34) return "left";
+  if (pct > 66) return "right";
+  return "center";
+}
+
+function clampStylePercent(value, min, max) {
+  return Math.max(min, Math.min(max, Number(value) || 0));
+}
+
+/** object-fit: contain 과 동일한 표시 영역 */
+function computePreviewContainRect(containerW, containerH, mediaW, mediaH) {
+  if (!(containerW > 0 && containerH > 0 && mediaW > 0 && mediaH > 0)) return null;
+  const scale = Math.min(containerW / mediaW, containerH / mediaH);
+  const width = mediaW * scale;
+  const height = mediaH * scale;
+  return {
+    width,
+    height,
+    left: (containerW - width) / 2,
+    top: (containerH - height) / 2,
+    scale,
+  };
+}
+
+function getPreviewNativeMediaSize() {
+  const vw = previewVideo?.videoWidth || 0;
+  const vh = previewVideo?.videoHeight || 0;
+  if (vw > 0 && vh > 0) return { width: vw, height: vh };
+  return { width: 1920, height: 1080 };
+}
+
+function layoutPreviewMediaFrame() {
+  if (!previewSection || !previewMediaFrame) return null;
+  const cw = previewSection.clientWidth;
+  const ch = previewSection.clientHeight;
+  const native = getPreviewNativeMediaSize();
+  const rect = computePreviewContainRect(cw, ch, native.width, native.height);
+  if (!rect) {
+    previewMediaFrame.style.width = `${cw}px`;
+    previewMediaFrame.style.height = `${ch}px`;
+    previewMediaFrame.style.left = "0px";
+    previewMediaFrame.style.top = "0px";
+    return { scale: ch > 0 ? ch / native.height : 1, ...native };
+  }
+  previewMediaFrame.style.width = `${rect.width}px`;
+  previewMediaFrame.style.height = `${rect.height}px`;
+  previewMediaFrame.style.left = `${rect.left}px`;
+  previewMediaFrame.style.top = `${rect.top}px`;
+  return { scale: rect.scale, width: native.width, height: native.height };
+}
+
+function getPreviewOverlayScale(style) {
+  const nativeH = style.videoHeight || previewVideo?.videoHeight || 1080;
+  const frameH = previewMediaFrame?.clientHeight || 0;
+  if (frameH > 0 && nativeH > 0) return frameH / nativeH;
+  return 0.55;
+}
+
 function hexWithAlpha(hex, alpha255) {
   const h = String(hex || "#ffffff").replace("#", "");
   const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h.padStart(6, "0").slice(0, 6);
@@ -435,7 +502,10 @@ function exportPhaseStepLabel(phase, fmt) {
 
 function applySubtitleStyleFromProject(style) {
   if (!style || typeof style !== "object") return;
-  if (styleFontFamily && style.fontFamily) styleFontFamily.value = style.fontFamily;
+  if (styleFontFamily && style.fontFamily) {
+    ensureFontSelectOption(style.fontFamily);
+    styleFontFamily.value = style.fontFamily;
+  }
   if (styleFontSizeRange && style.fontSize != null) {
     styleFontSizeRange.value = String(style.fontSize);
     if (styleFontSizeOut) styleFontSizeOut.textContent = `${style.fontSize}px`;
@@ -471,6 +541,91 @@ function applySubtitleStyleFromProject(style) {
     if (styleYOut) styleYOut.textContent = `${style.y}%`;
   }
   updatePreviewOverlay();
+}
+
+function stripSubtitleStyleForStorage(style) {
+  if (!style || typeof style !== "object") return null;
+  const { videoWidth, videoHeight, ...rest } = style;
+  return rest;
+}
+
+function collectUserPreferences() {
+  return {
+    version: USER_PREFS_VERSION,
+    language: languageSelect?.value ?? "",
+    exportFormat: exportFormatSelect?.value ?? "srt",
+    subtitleStyle: stripSubtitleStyleForStorage(readSubtitleStyleFromDom()),
+  };
+}
+
+let saveUserPrefsTimer = 0;
+
+function scheduleSaveUserPreferences() {
+  window.clearTimeout(saveUserPrefsTimer);
+  saveUserPrefsTimer = window.setTimeout(() => {
+    saveUserPrefsTimer = 0;
+    try {
+      localStorage.setItem(STORAGE_USER_PREFS, JSON.stringify(collectUserPreferences()));
+    } catch (err) {
+      console.warn("[auto-subtitle] save user preferences", err);
+    }
+  }, 400);
+}
+
+function loadUserPreferences() {
+  try {
+    const raw = localStorage.getItem(STORAGE_USER_PREFS);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    if (data.version != null && Number(data.version) !== USER_PREFS_VERSION) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function applyUserPreferences(prefs) {
+  if (!prefs || typeof prefs !== "object") return;
+  if (prefs.subtitleStyle) applySubtitleStyleFromProject(prefs.subtitleStyle);
+  if (languageSelect && prefs.language != null) {
+    const lang = String(prefs.language);
+    const has = Array.from(languageSelect.options).some((o) => o.value === lang);
+    if (has) languageSelect.value = lang;
+  }
+  if (exportFormatSelect && prefs.exportFormat) {
+    const fmt = String(prefs.exportFormat);
+    const has = Array.from(exportFormatSelect.options).some((o) => o.value === fmt);
+    if (has) exportFormatSelect.value = fmt;
+  }
+}
+
+function loadAndApplyUserPreferences() {
+  const prefs = loadUserPreferences();
+  if (prefs) applyUserPreferences(prefs);
+}
+
+function attachUserPreferencesAutosave() {
+  const save = () => scheduleSaveUserPreferences();
+  styleFontFamily?.addEventListener("change", save);
+  languageSelect?.addEventListener("change", save);
+  exportFormatSelect?.addEventListener("change", save);
+  for (const id of [
+    "style-font-size-range",
+    "style-text-alpha",
+    "style-stroke-width",
+    "style-bg-opacity",
+    "style-bg-size",
+    "style-x",
+    "style-y-range",
+  ]) {
+    const el = document.getElementById(id);
+    el?.addEventListener("input", save);
+    el?.addEventListener("change", save);
+  }
+  styleTextColor?.addEventListener("input", save);
+  styleStrokeColor?.addEventListener("input", save);
+  styleBgColor?.addEventListener("input", save);
 }
 
 function syncCuesFromDom() {
@@ -574,12 +729,82 @@ function closeWordWaveform({ restoreFocus = true } = {}) {
   }
 }
 
+function formatPreviewClock(sec) {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const total = Math.floor(sec);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const ss = String(s).padStart(2, "0");
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${ss}`;
+  return `${m}:${ss}`;
+}
+
+function getPreviewEditDurationSec() {
+  const mediaDur = getMediaDurationSecHint();
+  if (!(mediaDur > 0)) return 0;
+  try {
+    const orch = getPlaybackOrchestrator();
+    if (orch?.mapMediaToEditSec) {
+      return Math.max(0, orch.mapMediaToEditSec(Math.max(0, mediaDur - 0.001)));
+    }
+  } catch {
+    /* ignore */
+  }
+  return mediaDur;
+}
+
+function updatePreviewTransportAvailability() {
+  const hasMedia = Boolean(previewVideo?.src);
+  if (btnPreviewPlay) btnPreviewPlay.disabled = !hasMedia;
+  if (previewSeek) previewSeek.disabled = !hasMedia;
+}
+
+function updatePreviewTransportUi() {
+  updatePreviewTransportAvailability();
+  const dur = getPreviewEditDurationSec();
+  const current = Math.max(0, Number(playheadSec) || 0);
+  if (previewTimeCurrent) previewTimeCurrent.textContent = formatPreviewClock(current);
+  if (previewTimeTotal) previewTimeTotal.textContent = formatPreviewClock(dur);
+  if (previewSeek && !previewSeekDragging) {
+    const pct = dur > 0 ? Math.round((current / dur) * 1000) : 0;
+    previewSeek.value = String(Math.max(0, Math.min(1000, pct)));
+  }
+}
+
+/** @param {number} editSec @param {{ resumePlayback?: boolean }} [opts] */
+function seekPreviewToEditSec(editSec, opts = {}) {
+  if (!previewVideo || !Number.isFinite(editSec)) return;
+  const dur = getPreviewEditDurationSec();
+  const clamped = dur > 0 ? Math.max(0, Math.min(dur, editSec)) : Math.max(0, editSec);
+  playheadSec = clamped;
+  syncPausedPreviewMediaToPlayhead();
+  commitPlayheadUi();
+  if (opts.resumePlayback) startPlaybackLoop();
+}
+
+function applyPreviewSeekFromControl() {
+  const dur = getPreviewEditDurationSec();
+  if (!(dur > 0) || !previewSeek) return;
+  const pct = Number(previewSeek.value) / 1000;
+  playheadSec = pct * dur;
+  syncPausedPreviewMediaToPlayhead();
+  updatePreviewTransportUi();
+  updatePreviewOverlay();
+}
+
 function setPreviewPlaybackUiActive(active) {
   previewSection?.classList.toggle("is-media-playing", active);
+  if (btnPreviewPlay) {
+    btnPreviewPlay.textContent = active ? "⏸" : "▶";
+    btnPreviewPlay.setAttribute("aria-label", active ? "일시정지" : "재생");
+    btnPreviewPlay.classList.toggle("is-playing", active);
+  }
   if (previewVideo) {
     previewVideo.controls = false;
     previewVideo.removeAttribute("controls");
   }
+  updatePreviewTransportUi();
 }
 
 /**
@@ -690,6 +915,8 @@ function commitPlayheadUi({
       });
     }
   }
+
+  if (!previewSeekDragging) updatePreviewTransportUi();
 }
 
 function playbackTick() {
@@ -925,6 +1152,7 @@ function playAtSubtitleCaret(cardIndex, storageCaret) {
 
 function updatePreviewOverlay() {
   if (!previewOverlay) return;
+  layoutPreviewMediaFrame();
   const cue = getActiveCueForPreview();
   const style = readSubtitleStyleFromDom();
   if (!cue || !String(cue.text || "").trim()) {
@@ -932,19 +1160,25 @@ function updatePreviewOverlay() {
     previewOverlay.innerHTML = "";
     return;
   }
-  const chrome = getSubtitleBoxChromeInline(style.fontSize || 47, style.bgSize ?? 50);
+  const x = clampStylePercent(style.x ?? 50, 5, 95);
+  const y = clampStylePercent(style.y ?? 90, 2, 98);
+  const scale = getPreviewOverlayScale(style);
+  const previewFontSize = Math.max(8, Math.round((style.fontSize || 47) * scale));
+  const previewStrokeWidth = Math.max(0, (style.strokeWidth || 0) * scale);
+  const chrome = getSubtitleBoxChromeInline(previewFontSize, style.bgSize ?? 50);
   const bgAlpha = Math.max(0, Math.min(1, (style.bgOpacity ?? 60) / 100));
   previewOverlay.hidden = false;
-  previewOverlay.style.bottom = `${100 - (style.y ?? 90)}%`;
-  previewOverlay.style.justifyContent =
-    (style.x ?? 50) < 34 ? "flex-start" : (style.x ?? 50) > 66 ? "flex-end" : "center";
   previewOverlay.innerHTML = `
     <div class="as-preview-overlay-inner" style="
+      left: ${PREVIEW_SUBTITLE_SIDE_MARGIN_PCT}%;
+      right: ${PREVIEW_SUBTITLE_SIDE_MARGIN_PCT}%;
+      top: ${y}%;
+      text-align: ${previewSubtitleTextAlign(x)};
       font-family: ${JSON.stringify(style.fontFamily).slice(1, -1)};
-      font-size: ${Math.round((style.fontSize || 26) * 0.55)}px;
+      font-size: ${previewFontSize}px;
       font-weight: ${style.fontWeight || 700};
       color: ${style.textColor || "#fff"};
-      -webkit-text-stroke: ${style.strokeWidth || 0}px ${style.strokeColor || "#000"};
+      -webkit-text-stroke: ${previewStrokeWidth}px ${style.strokeColor || "#000"};
       background: ${hexWithAlpha(style.bgColor, Math.round(bgAlpha * 255))};
       padding: ${chrome.padding};
       line-height: ${chrome.lineHeight};
@@ -963,24 +1197,70 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function populateFontList() {
-  if (!fontDatalist) return;
+function ensureFontSelectOption(name) {
+  if (!styleFontFamily) return;
+  const n = String(name || "").trim();
+  if (!n) return;
+  const exists = Array.from(styleFontFamily.options).some((o) => o.value === n);
+  if (exists) return;
+  const opt = document.createElement("option");
+  opt.value = n;
+  opt.textContent = n;
+  styleFontFamily.appendChild(opt);
+}
+
+function populateFontSelect(fontNames, { preserveValue = true } = {}) {
+  if (!styleFontFamily) return;
+  const prev = preserveValue ? styleFontFamily.value : "";
+  const merged = [];
   const seen = new Set();
   const add = (name) => {
     const n = String(name || "").trim();
-    if (!n || seen.has(n)) return;
-    seen.add(n);
-    const opt = document.createElement("option");
-    opt.value = n;
-    fontDatalist.appendChild(opt);
+    if (!n) return;
+    const key = n.toLocaleLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(n);
   };
+  add("Malgun Gothic");
   SYSTEM_FONT_CANDIDATES.forEach(add);
+  (fontNames || []).forEach(add);
+  merged.sort((a, b) => a.localeCompare(b, "ko"));
+  styleFontFamily.replaceChildren();
+  for (const name of merged) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    styleFontFamily.appendChild(opt);
+  }
+  if (prev && merged.includes(prev)) {
+    styleFontFamily.value = prev;
+  } else if (merged.includes("Malgun Gothic")) {
+    styleFontFamily.value = "Malgun Gothic";
+  } else if (merged.length) {
+    styleFontFamily.value = merged[0];
+  }
+  syncFontSelectTitle();
+}
+
+function syncFontSelectTitle() {
+  if (!styleFontFamily) return;
+  const label =
+    styleFontFamily.options[styleFontFamily.selectedIndex]?.textContent?.trim() ||
+    styleFontFamily.value?.trim() ||
+    "";
+  styleFontFamily.title = label;
+}
+
+async function loadSystemFontsFromAgent() {
+  if (!agentConnected) return;
   try {
-    if (document.fonts?.forEach) {
-      document.fonts.forEach((f) => add(f.family));
-    }
-  } catch {
-    /* ignore */
+    const data = await requestAgent({ path: `${TOOL_PREFIX}/system-fonts` });
+    const fonts = Array.isArray(data?.fonts) ? data.fonts : [];
+    if (fonts.length) populateFontSelect(fonts);
+  } catch (err) {
+    console.warn("[auto-subtitle] system-fonts", err);
+    populateFontSelect(SYSTEM_FONT_CANDIDATES);
   }
 }
 
@@ -1042,24 +1322,6 @@ function friendlyAgentError(err) {
   return msg || "요청에 실패했습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-function updatePrepareBanner(readiness) {
-  if (!prepareBanner) return;
-  const b = readiness?.binaries || {};
-  if (b.model_loaded) {
-    prepareBanner.hidden = true;
-    return;
-  }
-  const mb = readiness?.model?.download_hint_mb || 1650;
-  let note =
-    readiness?.model?.first_run_note ||
-    MSG_SUBTITLE_PREPARE.replace("1.6GB", `약 ${mb}MB`);
-  if (b.gpu_detected && !b.gpu_runtime_installed) {
-    note += " NVIDIA GPU용 CUDA DLL(runtime_dlls.zip)도 함께 받습니다.";
-  }
-  prepareBanner.textContent = note;
-  prepareBanner.hidden = false;
-}
-
 function formatTime(sec) {
   const s = Math.max(0, Number(sec) || 0);
   const m = Math.floor(s / 60);
@@ -1067,9 +1329,25 @@ function formatTime(sec) {
   return `${m}:${r.toFixed(2).padStart(5, "0")}`;
 }
 
+function syncInAppBusyShell() {
+  const setupActive = Boolean(setupLoading?.classList.contains("is-active"));
+  const transcribeActive = Boolean(transcribeLoading?.classList.contains("is-active"));
+  const busy = setupActive || transcribeActive;
+  asShell?.classList.toggle("is-inapp-busy", busy);
+  if (inappBusyHost) {
+    inappBusyHost.hidden = !busy;
+    inappBusyHost.setAttribute("aria-hidden", busy ? "false" : "true");
+  }
+}
+
 function setSetupLoading(active, { title, step, message, progress } = {}) {
   if (!setupLoading) return;
   if (active) {
+    transcribeLoading?.classList.remove("is-active");
+    if (transcribeLoading) {
+      transcribeLoading.hidden = true;
+      transcribeLoading.setAttribute("aria-hidden", "true");
+    }
     setupLoading.hidden = false;
     setupLoading.classList.add("is-active");
     setupLoading.setAttribute("aria-hidden", "false");
@@ -1086,16 +1364,23 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
         setupLoadingTrack.setAttribute("aria-valuenow", "0");
       }
     }
+    syncInAppBusyShell();
     return;
   }
   setupLoading.hidden = true;
   setupLoading.classList.remove("is-active");
   setupLoading.setAttribute("aria-hidden", "true");
+  syncInAppBusyShell();
 }
 
 function setTranscribeLoading(active, { title, step, message, progress } = {}) {
   if (!transcribeLoading) return;
   if (active) {
+    setupLoading?.classList.remove("is-active");
+    if (setupLoading) {
+      setupLoading.hidden = true;
+      setupLoading.setAttribute("aria-hidden", "true");
+    }
     transcribeLoading.hidden = false;
     transcribeLoading.classList.add("is-active");
     transcribeLoading.setAttribute("aria-hidden", "false");
@@ -1110,18 +1395,18 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
         if (transcribeLoadingPercent) transcribeLoadingPercent.textContent = `${Math.round(pct)}%`;
       }
     }
+    syncInAppBusyShell();
     return;
   }
   transcribeLoading.hidden = true;
   transcribeLoading.classList.remove("is-active");
   transcribeLoading.setAttribute("aria-hidden", "true");
+  syncInAppBusyShell();
 }
 
 function updateActionButtons() {
-  const hasPath = Boolean(videoPathInput?.value?.trim());
   const hasCues = lastCues.some((c) => !c.is_silence && String(c.text || "").trim());
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
-  if (btnTranscribe) btnTranscribe.disabled = !agentConnected || !hasPath;
   if (btnExport) btnExport.disabled = !agentConnected || !hasCues;
   if (btnUnloadModel) btnUnloadModel.disabled = !agentConnected || !modelLoaded;
   if (btnDownloadResult) {
@@ -1134,7 +1419,6 @@ function updateActionButtons() {
   }
   if (subtitleEmpty) subtitleEmpty.hidden = hasCues;
   if (resultsMeta) resultsMeta.hidden = !hasCues;
-  if (btnRemoveSilence) btnRemoveSilence.disabled = !hasCues;
 }
 
 function setExportLoading(active, { title, step, message, progress } = {}) {
@@ -1523,6 +1807,7 @@ async function applyLoadedProject(res) {
     cutRanges: Array.isArray(cuts) ? cuts : [],
   });
   applySubtitleStyleFromProject(style);
+  scheduleSaveUserPreferences();
 
   try {
     sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
@@ -1590,7 +1875,6 @@ function applyReadiness(data) {
   agentAudiowaveformAvailable = Boolean(b.audiowaveform);
   toolReady = Boolean(b.ffmpeg && modelLoaded);
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
-  updatePrepareBanner(data);
   maybeShowGpuInstallDialog(data);
 }
 
@@ -2107,7 +2391,9 @@ function updatePreview(videoPath) {
   if (!p || !agentConnected) {
     previewVideo.removeAttribute("src");
     if (previewEmpty) previewEmpty.hidden = false;
+    layoutPreviewMediaFrame();
     updatePreviewOverlay();
+    updatePreviewTransportUi();
     return;
   }
   const url = `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
@@ -2119,6 +2405,9 @@ function updatePreview(videoPath) {
   if (previewEmpty) previewEmpty.hidden = true;
   previewVideo.onloadedmetadata = () => {
     if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
+    layoutPreviewMediaFrame();
+    updatePreviewOverlay();
+    updatePreviewTransportUi();
     const orch = getPlaybackOrchestrator();
     if (!orch.video) {
       orch.attachVideo(previewVideo, {
@@ -2184,6 +2473,7 @@ async function onPickLocalFile() {
   setPickBusy(true);
   const ctrl = new AbortController();
   const tid = window.setTimeout(() => ctrl.abort(), 10 * 60 * 1000);
+  let shouldTranscribe = false;
 
   try {
     const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-file`, {
@@ -2223,6 +2513,7 @@ async function onPickLocalFile() {
     updatePreview(path);
     updateActionButtons();
     loadWaveformPeaks();
+    shouldTranscribe = true;
   } catch (e) {
     const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
     if (name === "AbortError") {
@@ -2235,6 +2526,11 @@ async function onPickLocalFile() {
     userRequestedPreviewPause = false;
     window.clearTimeout(tid);
     setPickBusy(false);
+  }
+
+  if (shouldTranscribe) {
+    await runTranscribe();
+    updateActionButtons();
   }
 }
 
@@ -2321,17 +2617,6 @@ btnRedo?.addEventListener("click", () => {
   if (subtitleHub.redo()) renderCuesTable(lastCues);
 });
 
-gapFillVrew?.addEventListener("change", () => {
-  subtitleHub.gapFillWhenBuildingVrew = Boolean(gapFillVrew.checked);
-});
-
-btnRemoveSilence?.addEventListener("click", () => {
-  if (!lastCues.length) return;
-  if (!confirm("모든 무음(--) 단어 블록을 제거할까요?")) return;
-  subtitleHub.applySubtitleChange((cues) => removeSilenceWordsFromSubtitleLines(cues));
-  renderCuesTable(lastCues);
-});
-
 btnGpuInstallDismiss?.addEventListener("click", (e) => {
   e.preventDefault();
   e.stopPropagation();
@@ -2384,15 +2669,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-btnTranscribe?.addEventListener("click", async () => {
-  btnTranscribe.disabled = true;
-  try {
-    await runTranscribe();
-  } finally {
-    updateActionButtons();
-  }
-});
-
 btnExport?.addEventListener("click", async () => {
   btnExport.disabled = true;
   try {
@@ -2419,6 +2695,35 @@ videoPathInput?.addEventListener("input", () => {
   }
   updatePreview(p);
   updateActionButtons();
+});
+
+btnPreviewPlay?.addEventListener("click", () => togglePreviewPlayback());
+
+previewSeek?.addEventListener("pointerdown", () => {
+  previewResumeAfterSeek = isPreviewMediaPlaying() || isVideoPlaying;
+  if (previewResumeAfterSeek) {
+    userRequestedPreviewPause = true;
+    stopPlaybackLoop();
+    userRequestedPreviewPause = false;
+  }
+  previewSeekDragging = true;
+});
+
+previewSeek?.addEventListener("input", () => {
+  applyPreviewSeekFromControl();
+});
+
+previewSeek?.addEventListener("pointerup", () => {
+  previewSeekDragging = false;
+  applyPreviewSeekFromControl();
+  commitPlayheadUi();
+  if (previewResumeAfterSeek) startPlaybackLoop();
+  previewResumeAfterSeek = false;
+});
+
+previewSeek?.addEventListener("change", () => {
+  previewSeekDragging = false;
+  commitPlayheadUi();
 });
 
 previewVideo?.addEventListener("click", () => togglePreviewPlayback());
@@ -2462,8 +2767,10 @@ previewAudio?.addEventListener("ended", () => {
   if (isHtmlAudioMasterActive()) stopPlaybackLoop();
 });
 
-styleFontFamily?.addEventListener("input", () => updatePreviewOverlay());
-styleFontFamily?.addEventListener("change", () => updatePreviewOverlay());
+styleFontFamily?.addEventListener("change", () => {
+  syncFontSelectTitle();
+  updatePreviewOverlay();
+});
 
 bindStyleControl("style-font-size-range", styleFontSizeOut, (el) => `${el.value}px`);
 bindStyleControl("style-text-alpha", styleTextAlphaOut, (el) => el.value);
@@ -2476,7 +2783,10 @@ styleTextColor?.addEventListener("input", () => updatePreviewOverlay());
 styleStrokeColor?.addEventListener("input", () => updatePreviewOverlay());
 styleBgColor?.addEventListener("input", () => updatePreviewOverlay());
 
-populateFontList();
+attachUserPreferencesAutosave();
+
+populateFontSelect(SYSTEM_FONT_CANDIDATES);
+loadAndApplyUserPreferences();
 
 startConnectionMonitor({
   onChange: async (connected) => {
@@ -2486,10 +2796,10 @@ startConnectionMonitor({
     connEl?.classList.toggle("is-connected", connected);
     if (connected) {
       await fetchReadiness();
+      await loadSystemFontsFromAgent();
     } else {
       toolReady = false;
       if (binReadiness) binReadiness.textContent = `${LOCAL_HELPER_NAME} 연결 필요`;
-      if (prepareBanner) prepareBanner.hidden = true;
     }
     updateActionButtons();
   },
@@ -2517,6 +2827,22 @@ function applyPrepareStatusFromWs(data) {
 
 restoreSession();
 updatePreviewOverlay();
+updatePreviewTransportUi();
+
+if (previewSection && typeof ResizeObserver !== "undefined") {
+  const previewLayoutObserver = new ResizeObserver(() => {
+    layoutPreviewMediaFrame();
+    updatePreviewOverlay();
+  });
+  previewLayoutObserver.observe(previewSection);
+}
+previewVideo?.addEventListener("loadeddata", () => {
+  layoutPreviewMediaFrame();
+  updatePreviewOverlay();
+});
+
+void showAdSense("editorBelowExport", "#editor-ad-preview-pane");
+void showAdSense("editorAboveWorkspace", "#editor-ad-subtitle-pane");
 
 document.addEventListener(
   "pointerdown",
