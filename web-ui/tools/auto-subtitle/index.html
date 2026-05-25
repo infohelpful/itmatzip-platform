@@ -226,47 +226,19 @@
 
   <script type="module" src="script.js?v=125"></script>
   <script>
-    // 레이아웃 진단 로그 (광고 로드 전/후 비교)
-    function logLayout(label) {
+    // AdSense가 shell height를 강제로 변경하는 것을 방지
+    (function() {
       const shell = document.querySelector('.as-shell');
-      const workspace = document.querySelector('.as-workspace');
-      const paneL = document.querySelector('.as-pane-preview');
-      const paneR = document.querySelector('.as-pane-subtitles');
-      const topbar = document.querySelector('.as-topbar');
-      const stylebar = document.querySelector('.as-stylebar');
-      const footer = document.querySelector('.as-footer');
-      const cs = (el) => el ? getComputedStyle(el) : null;
-      console.group(`[LAYOUT-DIAG] ${label}`);
-      console.log('viewport:', window.innerWidth, 'x', window.innerHeight);
-      console.log('html height:', document.documentElement.getBoundingClientRect().height);
-      console.log('body height:', document.body.getBoundingClientRect().height);
-      if(shell) {
-        const s = cs(shell);
-        console.log('shell:', shell.getBoundingClientRect().height, '| display:', s.display, '| flexDir:', s.flexDirection, '| height:', s.height);
-        console.log('shell children count:', shell.children.length);
-        for(let i=0; i<shell.children.length; i++) {
-          const c = shell.children[i];
-          const r = c.getBoundingClientRect();
-          const ccs = cs(c);
-          console.log(`  child[${i}] ${c.className.split(' ')[0]}:`, r.height.toFixed(1), '| flex:', ccs.flex, '| display:', ccs.display, '| position:', ccs.position);
-        }
+      if (!shell) return;
+      function enforceHeight() {
+        shell.style.setProperty('height', '100vh', 'important');
+        shell.style.setProperty('min-height', '100vh', 'important');
+        shell.style.setProperty('max-height', '100vh', 'important');
       }
-      if(workspace) {
-        const s = cs(workspace);
-        console.log('workspace:', workspace.getBoundingClientRect().height, '| display:', s.display, '| flex:', s.flex, '| gridRows:', s.gridTemplateRows);
-      }
-      if(paneL) console.log('pane-preview:', paneL.getBoundingClientRect().height);
-      if(paneR) console.log('pane-subtitles:', paneR.getBoundingClientRect().height);
-      console.groupEnd();
-    }
-    // 페이지 로드 직후
-    logLayout('DOMContentLoaded');
-    // 1초 후 (광고 로드 가능성)
-    setTimeout(() => logLayout('after 1s'), 1000);
-    // 3초 후
-    setTimeout(() => logLayout('after 3s'), 3000);
-    // 5초 후
-    setTimeout(() => logLayout('after 5s'), 5000);
+      enforceHeight();
+      new MutationObserver(enforceHeight).observe(shell, { attributes: true, attributeFilter: ['style', 'class'] });
+      setInterval(enforceHeight, 300);
+    })();
   </script>
 </body>
 </html>
