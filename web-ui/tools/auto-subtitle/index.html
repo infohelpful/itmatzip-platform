@@ -236,7 +236,11 @@
         shell.style.setProperty('max-height', '100vh', 'important');
       }
       enforceHeight();
-      new MutationObserver(enforceHeight).observe(shell, { attributes: true, attributeFilter: ['style', 'class'] });
+      try {
+        if (typeof MutationObserver !== 'undefined') {
+          new MutationObserver(enforceHeight).observe(shell, { attributes: true, attributeFilter: ['style', 'class'] });
+        }
+      } catch(e) {}
       setInterval(enforceHeight, 300);
     })();
   </script>
