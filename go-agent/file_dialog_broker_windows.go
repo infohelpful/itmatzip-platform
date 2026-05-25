@@ -287,11 +287,14 @@ func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
 	ps := "$ErrorActionPreference='Stop'; " +
 		"Add-Type -AssemblyName System.Windows.Forms; " +
 		"[System.Windows.Forms.Application]::EnableVisualStyles(); " +
+		"$owner=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false;Width=0;Height=0;StartPosition='Manual';Location=New-Object System.Drawing.Point(-32000,-32000)}; " +
+		"$owner.Show(); $owner.BringToFront(); " +
 		"$dlg=New-Object System.Windows.Forms.OpenFileDialog; " +
 		"$dlg.Title='" + psDialogQuote(title) + "'; " +
 		"$dlg.Filter='" + psDialogQuote(filter) + "'; " +
 		"$dlg.CheckFileExists=$true; $dlg.Multiselect=$false; " +
-		"$result=$dlg.ShowDialog(); " +
+		"$result=$dlg.ShowDialog($owner); " +
+		"$owner.Close(); " +
 		"$path=''; if($result -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.FileName){$path=$dlg.FileName}; " +
 		"[Console]::Out.WriteLine((@{path=$path}|ConvertTo-Json -Compress))"
 

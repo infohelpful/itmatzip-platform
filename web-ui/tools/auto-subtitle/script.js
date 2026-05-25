@@ -2722,7 +2722,7 @@ async function onPickLocalFile() {
 
   const agent = await checkAgentConnection();
   if (!agent.ok) {
-    await showInstallAgentDialog(installDialogOpts());
+    await showInstallAgentDialog(await installDialogOpts());
     return;
   }
 
