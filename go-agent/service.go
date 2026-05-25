@@ -59,11 +59,7 @@ func (p *program) Start(s service.Service) error {
 		}
 
 		p.sidecar = newFastAPISidecar(p.fastapiPort)
-		go func() {
-			if err := p.sidecar.Start(p.ctx, p.mgr); err != nil {
-				log.Printf("failed to start FastAPI sidecar: %v", err)
-			}
-		}()
+		startFastAPISidecarWithRetry(p.ctx, p.sidecar, p.mgr)
 
 		if err := startHTTPServer(p.ctx, p.hub, p.mgr, p.port, p.sidecar); err != nil {
 			log.Printf("service HTTP server stopped: %v", err)

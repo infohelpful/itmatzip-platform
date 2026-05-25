@@ -115,13 +115,48 @@ def _download_headers() -> dict[str, str]:
     return headers
 
 
-def _download_file(url: str, dest: Path, *, timeout_sec: float = 600.0) -> None:
+def _download_file(
+    url: str,
+    dest: Path,
+    *,
+    timeout_sec: float = 600.0,
+    on_progress: PrepareProgressCallback | None = None,
+    progress_label: str = "GPU 런타임",
+    progress_base: float = 2.0,
+    progress_span: float = 53.0,
+) -> None:
     dest_part = dest.with_suffix(dest.suffix + ".part")
     request = urllib.request.Request(url, headers=_download_headers(), method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+            total = int(response.headers.get("Content-Length") or 0)
+            downloaded = 0
+            chunk_size = 256 * 1024
             with dest_part.open("wb") as out:
-                shutil.copyfileobj(response, out, length=1024 * 256)
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    downloaded += len(chunk)
+                    if on_progress is not None:
+                        if total > 0:
+                            ratio = min(1.0, downloaded / total)
+                            pct = progress_base + ratio * progress_span
+                            mb_done = downloaded / (1024 * 1024)
+                            mb_total = total / (1024 * 1024)
+                            on_progress(
+                                pct,
+                                progress_label,
+                                f"다운로드 {mb_done:.1f}/{mb_total:.1f} MB ({ratio * 100:.0f}%)",
+                            )
+                        else:
+                            mb_done = downloaded / (1024 * 1024)
+                            on_progress(
+                                progress_base + progress_span * 0.5,
+                                progress_label,
+                                f"다운로드 {mb_done:.1f} MB…",
+                            )
         os.replace(dest_part, dest)
     except (urllib.error.URLError, OSError) as exc:
         try:
@@ -219,7 +254,15 @@ def install_gpu_runtime(
     extracted = base_tmp / "expanded"
     extracted.mkdir(parents=True, exist_ok=True)
     try:
-        _download_file(url, zip_path, timeout_sec=900.0)
+        _download_file(
+            url,
+            zip_path,
+            timeout_sec=900.0,
+            on_progress=on_progress,
+            progress_label="GPU 런타임",
+            progress_base=2.0,
+            progress_span=53.0,
+        )
         report(55.0, "GPU 런타임", "압축 해제")
         _extract_zip_windows(zip_path, extracted)
         source_dir = _find_directory_containing_required_dlls(extracted)

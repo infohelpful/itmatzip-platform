@@ -50,12 +50,8 @@ def _native_windows_pick_script(*, audio_only: bool) -> str:
         f"$dlg.Title={_ps_quote(title)}; "
         f"$dlg.Filter={_ps_quote(filt)}; "
         "$dlg.CheckFileExists=$true; $dlg.Multiselect=$false; "
-        "$owner=New-Object System.Windows.Forms.Form; "
-        "$owner.TopMost=$true; $owner.FormBorderStyle='None'; "
-        "$owner.ShowInTaskbar=$false; $owner.Opacity=0; "
-        "$owner.Width=1; $owner.Height=1; "
-        "$null=$dlg.ShowDialog($owner); $owner.Dispose(); "
-        "$path=''; if($dlg.FileName){$path=$dlg.FileName}; "
+        "$result=$dlg.ShowDialog(); "
+        "$path=''; if($result -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.FileName){$path=$dlg.FileName}; "
         "[Console]::Out.WriteLine((@{path=$path}|ConvertTo-Json -Compress))"
     )
 

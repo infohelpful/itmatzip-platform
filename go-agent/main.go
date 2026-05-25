@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -123,6 +124,18 @@ func setupLogging() {
 	}
 	log.SetOutput(fh)
 	log.Printf("logging to %s", logPath)
+}
+
+func withRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("HTTP PANIC (%s %s): %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+				http.Error(w, `{"detail":"internal server error"}`, http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port int, sidecar *fastapiSidecar) error {
@@ -257,7 +270,13 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 
 	addr := fmt.Sprintf("%s:%d", defaultHost, port)
-	srv := &http.Server{Addr: addr, Handler: withCORS(mux)}
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      withRecovery(withCORS(mux)),
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 10 * time.Minute,
+		IdleTimeout:  120 * time.Second,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -304,11 +323,8 @@ func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRP
 	var sidecar *fastapiSidecar
 	if startFastAPI {
 		sidecar = newFastAPISidecar(fastapiPort)
-		go func() {
-			if err := sidecar.Start(ctx, mgr); err != nil {
-				log.Printf("warning: fastapi sidecar failed to start: %v", err)
-			}
-		}()
+		startFastAPISidecarWithRetry(ctx, sidecar, mgr)
+		startFastAPISidecarWatchdog(ctx, sidecar, mgr)
 	}
 
 	return startHTTPServer(ctx, hub, mgr, port, sidecar)

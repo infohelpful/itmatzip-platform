@@ -137,6 +137,19 @@ func resolveAgentDir() (string, bool) {
 		}
 	}
 
+	if settingsRootPath != "" {
+		overrideFile := filepath.Join(settingsRootPath, "agent_dir.override")
+		if data, err := os.ReadFile(overrideFile); err == nil {
+			custom := strings.TrimSpace(string(data))
+			if custom != "" {
+				if _, err := os.Stat(filepath.Join(custom, "main.py")); err == nil {
+					return custom, true
+				}
+				log.Printf("agent_dir.override ignored (main.py missing): %s", custom)
+			}
+		}
+	}
+
 	candidates := []string{
 		filepath.Join(installRootPath, "agent"),
 	}

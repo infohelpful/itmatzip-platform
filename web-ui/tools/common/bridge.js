@@ -32,6 +32,88 @@ let _wsReconnectMs = 2000;
 /** @type {number} */
 let _connectTimeoutMs = 8000;
 
+/** @type {number} */
+let _agentLongOpDepth = 0;
+
+/** @param {boolean} active */
+export function setAgentLongOperationActive(active) {
+  if (active) {
+    _agentLongOpDepth += 1;
+  } else {
+    _agentLongOpDepth = Math.max(0, _agentLongOpDepth - 1);
+  }
+}
+
+export function isAgentLongOperationActive() {
+  return _agentLongOpDepth > 0;
+}
+
+/** @type {"CLOSED" | "OPEN" | "HALF_OPEN"} */
+let _circuitState = "CLOSED";
+let _circuitFailCount = 0;
+let _circuitOpenUntil = 0;
+
+const CIRCUIT_THRESHOLD = 5;
+const CIRCUIT_LONG_OP_THRESHOLD = 15;
+const CIRCUIT_COOLDOWN_MS = 10_000;
+const POLL_FAIL_STREAK_MAX = 15;
+
+function circuitThreshold() {
+  return isAgentLongOperationActive() ? CIRCUIT_LONG_OP_THRESHOLD : CIRCUIT_THRESHOLD;
+}
+
+/** @returns {{ state: string, failCount: number }} */
+export function getAgentCircuitBreakerState() {
+  return { state: _circuitState, failCount: _circuitFailCount };
+}
+
+/** @param {number} [status] */
+function isTransientHttpStatus(status) {
+  return status === 502 || status === 503 || status === 504 || status === 429;
+}
+
+/** @param {unknown} [err] @param {number} [status] */
+function isTransientAgentError(err, status) {
+  if (typeof status === "number" && isTransientHttpStatus(status)) return true;
+  const msg = err instanceof Error ? err.message : String(err ?? "");
+  return /Failed to fetch|NetworkError|ERR_FAILED|Load failed|timeout|abort|unavailable|준비|sidecar|502|503|504/i.test(
+    msg,
+  );
+}
+
+function assertCircuitAllowsRequest() {
+  if (_circuitState === "OPEN") {
+    if (Date.now() >= _circuitOpenUntil) {
+      _circuitState = "HALF_OPEN";
+    } else {
+      throw new Error(
+        "에이전트 통신이 불안정하여 일시적으로 연결이 차단되었습니다. 잠시 후 다시 시도하세요.",
+      );
+    }
+  }
+}
+
+function recordCircuitSuccess() {
+  if (_circuitState !== "CLOSED") {
+    _circuitState = "CLOSED";
+  }
+  _circuitFailCount = 0;
+}
+
+function recordCircuitFailure() {
+  _circuitFailCount += 1;
+  if (_circuitFailCount >= circuitThreshold()) {
+    _circuitState = "OPEN";
+    _circuitOpenUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    _circuitFailCount = 0;
+  }
+}
+
+/** @param {number} streak */
+function pollBackoffMs(streak) {
+  return Math.min(30_000, _jobPollMs * 2 ** Math.min(streak, 6));
+}
+
 /** @type {WebSocket | null} */
 let _ws = null;
 
@@ -439,6 +521,24 @@ export function formatAgentConnectionError(raw) {
  */
 export function applyConnectionStatusDot(el, ok, detail) {
   if (!el) return;
+  const apiReady = detail?.apiReady !== false;
+  const longOp = detail?.longOp === true;
+  if (ok && !apiReady) {
+    const ver =
+      detail && "agentVersion" in detail && detail.agentVersion
+        ? ` v${detail.agentVersion}`
+        : "";
+    if (longOp) {
+      el.textContent = `에이전트 작업 중${ver}`;
+      el.style.color = "#f59e0b";
+      el.title = "긴 작업 중입니다. FastAPI 응답이 느려질 수 있으나 연결은 유지됩니다.";
+      return;
+    }
+    el.textContent = `에이전트 API 준비 중${ver}`;
+    el.style.color = "#f59e0b";
+    el.title = "FastAPI가 재시작 중입니다. 10~30초 후 자동으로 복구됩니다.";
+    return;
+  }
   if (ok) {
     const ver =
       detail && "agentVersion" in detail && detail.agentVersion
@@ -527,7 +627,10 @@ function isItmatzipHealthPayload(data) {
 async function pingAgentOrigin(origin, signal) {
   const url = `${origin.replace(/\/+$/, "")}${_healthPath}`;
   const ctrl = new AbortController();
-  const healthTimeoutMs = Math.min(2500, _connectTimeoutMs);
+  const longOp = isAgentLongOperationActive();
+  const healthTimeoutMs = longOp
+    ? Math.min(8000, _connectTimeoutMs)
+    : Math.min(2500, _connectTimeoutMs);
   const t = setTimeout(() => ctrl.abort(), healthTimeoutMs);
   const merged = mergeSignals(signal, ctrl.signal);
   const started = performance.now();
@@ -569,6 +672,7 @@ async function pingAgentOrigin(origin, signal) {
       latencyMs,
       origin,
       agentVersion: body.agent_version,
+      apiReady: body.fastapi_ready !== false,
     };
   } catch (e) {
     const latencyMs = Math.round(performance.now() - started);
@@ -590,12 +694,14 @@ export async function checkAgentConnection(signal) {
     const detail = await pingAgentOrigin(origin, signal);
     if (detail.ok) {
       _origin = origin.replace(/\/+$/, "");
+      recordCircuitSuccess();
       return {
         ok: true,
         status: detail.status,
         latencyMs: detail.latencyMs,
         origin: _origin,
         agentVersion: detail.agentVersion,
+        apiReady: detail.apiReady !== false,
       };
     }
     lastFail = {
@@ -608,6 +714,7 @@ export async function checkAgentConnection(signal) {
   }
 
   const err = lastFail?.error;
+  if (err) recordCircuitFailure();
   return {
     ok: false,
     status: lastFail?.status,
@@ -666,13 +773,15 @@ export function startConnectionMonitor(opts = {}) {
     const prevOk = lastOk;
     if (detail.ok) {
       failStreak = 0;
+      recordCircuitSuccess();
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
       if (_installDialog?.open) dismissInstallAgentDialog();
       void connectAgentWebSocket();
-    } else {
+    } else if (!isAgentLongOperationActive()) {
       failStreak += 1;
-      if (failStreak >= 2) disconnectAgentWebSocket();
+      recordCircuitFailure();
+      if (failStreak >= 3) disconnectAgentWebSocket();
     }
     const changed = prevOk !== detail.ok;
     if (firstTick) firstTick = false;
@@ -683,7 +792,7 @@ export function startConnectionMonitor(opts = {}) {
       const shouldAlert =
         opts.autoShowInstallDialog &&
         !disconnectDialogShown &&
-        (prevOk === true || failStreak >= 2);
+        (prevOk === true || failStreak >= 3);
       if (shouldAlert && Date.now() >= _installAutoShowSuppressedUntil && !_installDialog?.open) {
         disconnectDialogShown = true;
         void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
@@ -884,6 +993,7 @@ export function dismissInstallAgentDialog() {
  * @returns {Promise<unknown>} JSON 본문(에이전트가 JSON이 아닌 경우 그대로 text로 파싱 시도)
  */
 export async function requestAgent(opts) {
+  assertCircuitAllowsRequest();
   const method = (opts.method ?? "GET").toUpperCase();
   const url = `${_origin}${opts.path.startsWith("/") ? opts.path : `/${opts.path}`}`;
   /** @type {(e: ProgressEvent) => void} */
@@ -902,7 +1012,19 @@ export async function requestAgent(opts) {
     init.body = JSON.stringify(opts.json);
   }
 
-  const res = await fetchAgent(url, init);
+  let res;
+  try {
+    res = await fetchAgent(url, init);
+  } catch (err) {
+    if (isTransientAgentError(err)) recordCircuitFailure();
+    throw err;
+  }
+
+  if (res.ok) {
+    recordCircuitSuccess();
+  } else if (isTransientHttpStatus(res.status)) {
+    recordCircuitFailure();
+  }
 
   if (res.status === 202) {
     const body = await safeJson(res);
@@ -937,14 +1059,19 @@ export async function requestAgent(opts) {
 async function pollJobUntilDone(jobId, onProgress, outer) {
   const statusUrl = `${_origin}${_jobStatusUrl(jobId)}`;
   const deadline = Date.now() + 2 * 60 * 60 * 1000;
+  let pollFailStreak = 0;
   while (true) {
     if (Date.now() > deadline) {
       onProgress({ progress: null, phase: "timeout", message: "작업 상태 폴링 시간 초과(2시간)" });
       throw new Error("작업 상태 폴링 시간 초과");
     }
     if (outer?.aborted) throw new DOMException("Aborted", "AbortError");
+    assertCircuitAllowsRequest();
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), _connectTimeoutMs);
+    const pollTimeoutMs = isAgentLongOperationActive()
+      ? Math.min(15_000, _connectTimeoutMs)
+      : _connectTimeoutMs;
+    const t = setTimeout(() => ctrl.abort(), pollTimeoutMs);
     let res;
     try {
       res = await fetchAgent(statusUrl, {
@@ -953,15 +1080,45 @@ async function pollJobUntilDone(jobId, onProgress, outer) {
         headers: { Accept: "application/json" },
         signal: mergeSignals(outer, ctrl.signal),
       });
+    } catch (err) {
+      if (isTransientAgentError(err) && pollFailStreak < POLL_FAIL_STREAK_MAX) {
+        pollFailStreak += 1;
+        recordCircuitFailure();
+        onProgress({
+          progress: null,
+          phase: "retry",
+          message: `에이전트 응답 지연 — 재시도 (${pollFailStreak}/${POLL_FAIL_STREAK_MAX})`,
+        });
+        await delay(pollBackoffMs(pollFailStreak), outer);
+        continue;
+      }
+      recordCircuitFailure();
+      throw err;
     } finally {
       clearTimeout(t);
     }
 
     const body = await safeJson(res);
     if (!res.ok) {
+      if (isTransientHttpStatus(res.status) && pollFailStreak < POLL_FAIL_STREAK_MAX) {
+        pollFailStreak += 1;
+        recordCircuitFailure();
+        onProgress({
+          progress: null,
+          phase: "retry",
+          message: `상태 조회 재시도 (${pollFailStreak}/${POLL_FAIL_STREAK_MAX}) — HTTP ${res.status}`,
+          raw: body,
+        });
+        await delay(pollBackoffMs(pollFailStreak), outer);
+        continue;
+      }
       onProgress({ progress: null, phase: "error", message: `상태 조회 실패 HTTP ${res.status}`, raw: body });
+      recordCircuitFailure();
       throw new Error(`작업 상태 조회 실패: HTTP ${res.status}`);
     }
+
+    pollFailStreak = 0;
+    recordCircuitSuccess();
 
     const st = body && typeof body === "object" ? /** @type {any} */ (body).status : null;
     const progressRaw = body && typeof body === "object" ? /** @type {any} */ (body).progress : null;
@@ -1278,8 +1435,12 @@ const Bridge = {
   isAgentWebSocketConnected,
   subscribeAgentEvents,
   startAgentEventStream,
+  getAgentCircuitBreakerState,
   mapAgentEventToPrepareStatus,
   mapAgentEventToProgress,
+  setAgentLongOperationActive,
+  isAgentLongOperationActive,
+  getAgentCircuitBreakerState,
 };
 
 const g = typeof globalThis !== "undefined" ? globalThis : window;

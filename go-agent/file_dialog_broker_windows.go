@@ -19,6 +19,7 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/text/encoding/korean"
 	"golang.org/x/text/transform"
 )
@@ -36,15 +37,105 @@ type pickDialogResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type fileDialogBrokerHealth struct {
+	OK        bool   `json:"ok"`
+	Broker    string `json:"broker"`
+	SessionID uint32 `json:"session_id"`
+}
+
 var fileDialogBrokerServer *http.Server
+
+func currentProcessSessionID() (uint32, error) {
+	var sid uint32
+	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &sid); err != nil {
+		return 0, err
+	}
+	return sid, nil
+}
+
+func brokerSessionIsInteractive(sessionID uint32) bool {
+	if sessionID == 0 {
+		return false
+	}
+	activeSid, ok := activeConsoleSessionID()
+	if !ok {
+		return sessionID != 0
+	}
+	return sessionID == activeSid
+}
+
+func getFileDialogBrokerHealth() (fileDialogBrokerHealth, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + fileDialogBrokerAddr + "/health")
+	if err != nil {
+		return fileDialogBrokerHealth{}, err
+	}
+	defer resp.Body.Close()
+	var health fileDialogBrokerHealth
+	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
+		return fileDialogBrokerHealth{}, err
+	}
+	return health, nil
+}
+
+func isFileDialogBrokerReadyInUserSession() bool {
+	if !isFileDialogBrokerListening() {
+		return false
+	}
+	health, err := getFileDialogBrokerHealth()
+	if err != nil || !health.OK {
+		return false
+	}
+	if health.SessionID == 0 {
+		// Legacy /health without session_id: reject only when this service process hosts the broker.
+		sid, err := currentProcessSessionID()
+		if err == nil && sid == 0 {
+			return fileDialogBrokerServer == nil
+		}
+		return true
+	}
+	return brokerSessionIsInteractive(health.SessionID)
+}
+
+func waitForUserSessionBroker(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if isFileDialogBrokerReadyInUserSession() {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return isFileDialogBrokerReadyInUserSession()
+}
+
+func stopWrongSessionFileDialogBrokerIfOwned() {
+	if isFileDialogBrokerReadyInUserSession() {
+		return
+	}
+	if !isFileDialogBrokerListening() {
+		return
+	}
+	if fileDialogBrokerServer != nil {
+		log.Printf("file-dialog broker: stopping non-interactive in-process broker (session 0)")
+		stopFileDialogBroker()
+		time.Sleep(300 * time.Millisecond)
+	}
+}
 
 func startFileDialogBroker() error {
 	if fileDialogBrokerServer != nil {
 		return nil
 	}
+	sid, err := currentProcessSessionID()
+	if err != nil {
+		return fmt.Errorf("current session id: %w", err)
+	}
+	if !brokerSessionIsInteractive(sid) {
+		return fmt.Errorf("file dialog broker requires interactive user session (current=%d)", sid)
+	}
 	ln, err := net.Listen("tcp", fileDialogBrokerAddr)
 	if err != nil {
-		if isFileDialogBrokerListening() {
+		if isFileDialogBrokerReadyInUserSession() {
 			return nil
 		}
 		return fmt.Errorf("listen broker %s: %w", fileDialogBrokerAddr, err)
@@ -52,7 +143,12 @@ func startFileDialogBroker() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "broker": "file-dialog"})
+		healthSid, _ := currentProcessSessionID()
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":         true,
+			"broker":     "file-dialog",
+			"session_id": healthSid,
+		})
 	})
 	mux.HandleFunc("/pick", handleFileDialogBrokerPick)
 	srv := &http.Server{
@@ -97,7 +193,7 @@ func runFileDialogBrokerOnly() error {
 	initPaths()
 	hideAgentConsole()
 	if err := startFileDialogBroker(); err != nil {
-		if isFileDialogBrokerListening() {
+		if isFileDialogBrokerReadyInUserSession() {
 			return nil
 		}
 		return err
@@ -131,18 +227,23 @@ func waitFileDialogBrokerListening(timeout time.Duration) bool {
 
 // ensureFileDialogBrokerReady — 서비스(19876)만 떠 있고 트레이/브로커(19879)가 없을 때 사용자 세션에 브로커 기동.
 func ensureFileDialogBrokerReady(timeout time.Duration) error {
-	if waitFileDialogBrokerListening(400 * time.Millisecond) {
+	if isFileDialogBrokerReadyInUserSession() {
 		return nil
 	}
-	_ = startFileDialogBroker()
-	if waitFileDialogBrokerListening(800 * time.Millisecond) {
+	stopWrongSessionFileDialogBrokerIfOwned()
+	if isFileDialogBrokerReadyInUserSession() {
 		return nil
 	}
 	if err := launchAgentModeInActiveUserSession("--broker"); err != nil {
 		return fmt.Errorf("파일 대화상자 브로커를 사용자 세션에서 시작하지 못했습니다: %w", err)
 	}
-	if waitFileDialogBrokerListening(timeout) {
+	if waitForUserSessionBroker(timeout) {
 		return nil
+	}
+	if isFileDialogBrokerListening() {
+		return fmt.Errorf(
+			"파일 대화상자가 사용자 화면에 표시되지 않는 시스템 세션에서 실행 중입니다. ItMatZip Agent 서비스를 재시작한 뒤, 작업 표시줄 트레이 아이콘이 있는지 확인하세요",
+		)
 	}
 	return fmt.Errorf(
 		"파일 대화상자 브로커(127.0.0.1:19879)가 준비되지 않았습니다. 작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요",
@@ -190,13 +291,8 @@ func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
 		"$dlg.Title='" + psDialogQuote(title) + "'; " +
 		"$dlg.Filter='" + psDialogQuote(filter) + "'; " +
 		"$dlg.CheckFileExists=$true; $dlg.Multiselect=$false; " +
-		"$owner=New-Object System.Windows.Forms.Form; " +
-		"$owner.TopMost=$true; $owner.FormBorderStyle='None'; " +
-		"$owner.ShowInTaskbar=$false; $owner.Opacity=0; $owner.StartPosition='CenterScreen'; " +
-		"$owner.Width=1; $owner.Height=1; " +
-		"$null=$dlg.ShowDialog($owner); " +
-		"$owner.Dispose(); " +
-		"$path=''; if($dlg.FileName){$path=$dlg.FileName}; " +
+		"$result=$dlg.ShowDialog(); " +
+		"$path=''; if($result -eq [System.Windows.Forms.DialogResult]::OK -and $dlg.FileName){$path=$dlg.FileName}; " +
 		"[Console]::Out.WriteLine((@{path=$path}|ConvertTo-Json -Compress))"
 
 	cmd := exec.Command(psExe, "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-STA", "-Command", ps)

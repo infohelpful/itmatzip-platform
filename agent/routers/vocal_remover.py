@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from common.async_io import run_sync
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
 from common.pick_local_file import behind_go_proxy, run_audio_pick_dialog
 from engines import silence_remover as silence_remover_engine
@@ -286,12 +287,13 @@ def post_pick_local_file() -> dict[str, str]:
 
 
 @router.post("/waveform-peaks")
-def post_waveform_peaks(body: VocalRemoverWaveformPeaksBody, _: VocalRemoverReady) -> dict[str, object]:
+async def post_waveform_peaks(body: VocalRemoverWaveformPeaksBody, _: VocalRemoverReady) -> dict[str, object]:
     path = Path(body.audio_path)
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
     try:
-        return silence_remover_engine.build_waveform_peaks_payload(
+        return await run_sync(
+            silence_remover_engine.build_waveform_peaks_payload,
             path,
             timeout_sec=body.timeout_sec,
             pixels_per_second=body.pixels_per_second,

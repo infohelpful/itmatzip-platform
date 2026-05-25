@@ -1,20 +1,25 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger(__name__)
+
+from common.async_io import run_sync
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
 from engines import auto_subtitle
 from engines import auto_subtitle_audiowaveform
 from engines import auto_subtitle_export
+from engines import auto_subtitle_burn_in_session
 from engines import auto_subtitle_png_export
 from engines import auto_subtitle_project
 from engines import auto_subtitle_gpu_runtime
@@ -26,10 +31,22 @@ router = APIRouter(prefix="/api/tools/auto-subtitle", tags=["auto-subtitle"])
 
 
 def _ensure_auto_subtitle_environment() -> None:
-    ensure_ffmpeg()
+    """경량 — workspace만. FFmpeg는 export/transcribe 등 필요한 라우트에서만."""
+    auto_subtitle.ensure_workspace()
+
+
+def _ensure_auto_subtitle_ffmpeg() -> None:
+    auto_subtitle.ensure_workspace()
+    try:
+        ensure_ffmpeg()
+    except TimeoutError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"FFmpeg 준비 실패: {exc}") from exc
 
 
 AutoSubtitleReady = Annotated[None, Depends(_ensure_auto_subtitle_environment)]
+AutoSubtitleFfmpeg = Annotated[None, Depends(_ensure_auto_subtitle_ffmpeg)]
 
 
 class AutoSubtitlePrepareStatus(BaseModel):
@@ -120,6 +137,15 @@ class AutoSubtitlePngExportBody(BaseModel):
     phase1_second_input: str | None = None
 
 
+class AutoSubtitleVideoBurnInPrepareBody(BaseModel):
+    video_path: str = Field(..., description="로컬 영상 절대 경로")
+
+
+class AutoSubtitleVideoBurnInFinishBody(BaseModel):
+    job_id: str
+    cut_ranges: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class AutoSubtitleWaveformPeaksBody(BaseModel):
     video_path: str
     timeout_sec: float = Field(900.0, ge=10.0, le=3600.0)
@@ -143,6 +169,14 @@ _prepare_state = AutoSubtitlePrepareStatus(
 )
 _prepare_lock = threading.RLock()
 _prepare_thread: threading.Thread | None = None
+
+_gpu_install_state = AutoSubtitlePrepareStatus(
+    phase="idle",
+    progress=0.0,
+    message="",
+)
+_gpu_install_lock = threading.RLock()
+_gpu_install_thread: threading.Thread | None = None
 
 
 def _set_prepare_state(
@@ -186,7 +220,12 @@ def _prepare_phase_for_step(step: str) -> str:
 
 
 def _run_prepare() -> None:
+    import time as _time
+
+    logger.info("[prepare] _run_prepare thread started")
+
     def report(pct: float, step: str, detail: str = "") -> None:
+        logger.info("[prepare] progress %.1f%% | %s | %s", pct, step, detail)
         phase = _prepare_phase_for_step(step)
         message = f"{step} — {detail}" if detail else step
         _set_prepare_state(phase, pct, message, step=step, detail=detail or None)
@@ -194,6 +233,7 @@ def _run_prepare() -> None:
     try:
         auto_subtitle.prepare_all(on_progress=report)
         device = auto_subtitle.model_device() or "cpu"
+        logger.info("[prepare] completed successfully, device=%s", device)
         _set_prepare_state(
             "ready",
             100.0,
@@ -202,11 +242,14 @@ def _run_prepare() -> None:
             detail=f"Whisper · {device}",
         )
     except Exception as exc:
+        logger.exception("[prepare] failed with exception")
         msg = str(exc)
         if "WinError 32" in msg or "다른 프로세스가 파일" in msg:
             msg += (
-                " — ItMatZipAgent 서비스를 재시작한 뒤 다시 시도하세요. "
-                "(설정 → 서비스 → ItMatZipAgent → 다시 시작)"
+                " — Windows에서 모델 파일 쓰기가 일시적으로 막혔습니다. "
+                "1~2분 후 「환경 준비」만 다시 시도하세요. "
+                "(백신 실시간 검사·동시 다운로드가 원인일 수 있습니다. "
+                f"모델 경로: {auto_subtitle.MODEL_ROOT})"
             )
         _set_prepare_state(
             "failed",
@@ -215,6 +258,60 @@ def _run_prepare() -> None:
             step="오류",
             detail=msg,
         )
+
+
+def _set_gpu_install_state(
+    phase: str,
+    progress: float,
+    message: str | None = None,
+    *,
+    step: str | None = None,
+    detail: str | None = None,
+) -> None:
+    with _gpu_install_lock:
+        _gpu_install_state.phase = phase
+        _gpu_install_state.progress = progress
+        _gpu_install_state.message = message
+        _gpu_install_state.step = step
+        _gpu_install_state.detail = detail
+
+
+def _get_gpu_install_state() -> AutoSubtitlePrepareStatus:
+    with _gpu_install_lock:
+        return AutoSubtitlePrepareStatus(
+            phase=_gpu_install_state.phase,
+            progress=_gpu_install_state.progress,
+            message=_gpu_install_state.message,
+            step=_gpu_install_state.step,
+            detail=_gpu_install_state.detail,
+        )
+
+
+def _run_gpu_install() -> None:
+    def report(pct: float, step: str, detail: str = "") -> None:
+        message = f"{step} — {detail}" if detail else step
+        _set_gpu_install_state("installing_dependencies", pct, message, step=step, detail=detail or None)
+
+    try:
+        result = auto_subtitle_gpu_runtime.install_gpu_runtime(on_progress=report)
+        src = str(result.get("source") or "")
+        _set_gpu_install_state(
+            "ready",
+            100.0,
+            "GPU 런타임 설치가 완료되었습니다.",
+            step="완료",
+            detail=src,
+        )
+    except Exception as exc:
+        _set_gpu_install_state(
+            "failed",
+            0.0,
+            f"GPU 런타임 설치 실패: {exc}",
+            step="오류",
+            detail=str(exc),
+        )
+    finally:
+        auto_subtitle_runtime.end_job()
 
 
 def _validate_project_path(raw: str) -> Path:
@@ -262,7 +359,11 @@ def _transcribe_status_payload(job: auto_subtitle.TranscribeJobStatus) -> AutoSu
 
 
 @router.get("/readiness")
-def get_readiness() -> dict[str, object]:
+async def get_readiness() -> dict[str, object]:
+    return await run_sync(_build_readiness_payload)
+
+
+def _build_readiness_payload() -> dict[str, object]:
     auto_subtitle.ensure_workspace()
     runtime = auto_subtitle_runtime.runtime_status()
     gpu_status = auto_subtitle_gpu_runtime.gpu_runtime_status()
@@ -297,36 +398,59 @@ def get_readiness() -> dict[str, object]:
 
 
 @router.get("/system-fonts")
-def get_system_fonts() -> dict[str, object]:
+async def get_system_fonts() -> dict[str, object]:
     """로컬 PC에 설치된 글꼴 패밀리 목록."""
-    return {"ok": True, "fonts": system_fonts.list_installed_font_families()}
+    fonts = await run_sync(system_fonts.list_installed_font_families)
+    return {"ok": True, "fonts": fonts}
 
 
 @router.post("/gpu-runtime/install")
-def post_gpu_runtime_install(_: AutoSubtitleReady) -> dict[str, object]:
+def post_gpu_runtime_install(_: AutoSubtitleReady) -> AutoSubtitlePrepareStatus:
     """AutoSubtitle runtime_dlls.zip — cuBLAS 등 GPU DLL 설치 (NVIDIA GPU 있을 때)."""
+    global _gpu_install_thread
     if not auto_subtitle.has_nvidia_gpu():
         raise HTTPException(
             status_code=400,
             detail="NVIDIA GPU가 감지되지 않아 GPU 런타임 설치가 필요하지 않습니다.",
         )
-    if auto_subtitle_runtime.is_job_busy():
-        raise HTTPException(status_code=409, detail="다른 작업이 진행 중입니다.")
-    try:
-        return auto_subtitle_gpu_runtime.install_gpu_runtime()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if auto_subtitle_gpu_runtime.is_gpu_runtime_installed():
+        _set_gpu_install_state("ready", 100.0, "GPU 런타임이 이미 설치되어 있습니다.", step="완료")
+        return _get_gpu_install_state()
+
+    with _gpu_install_lock:
+        if _gpu_install_thread is not None and _gpu_install_thread.is_alive():
+            return _get_gpu_install_state()
+        if auto_subtitle_runtime.is_job_busy():
+            raise HTTPException(status_code=409, detail="다른 작업이 진행 중입니다.")
+        try:
+            auto_subtitle_runtime.try_begin_job("gpu_install")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        _set_gpu_install_state(
+            "installing_dependencies",
+            2.0,
+            "GPU 런타임 설치를 시작합니다…",
+            step="시작",
+        )
+        _gpu_install_thread = threading.Thread(target=_run_gpu_install, daemon=True)
+        _gpu_install_thread.start()
+    return _get_gpu_install_state()
+
+
+@router.get("/gpu-runtime/install/status")
+def get_gpu_runtime_install_status() -> AutoSubtitlePrepareStatus:
+    return _get_gpu_install_state()
 
 
 @router.post("/model/unload")
-def post_model_unload() -> dict[str, object]:
+async def post_model_unload() -> dict[str, object]:
     """Whisper 모델을 메모리에서 해제합니다 (VRAM/RAM 절약)."""
     if auto_subtitle_runtime.is_job_busy():
         raise HTTPException(
             status_code=409,
             detail="작업이 진행 중일 때는 모델을 해제할 수 없습니다.",
         )
-    return auto_subtitle_runtime.unload_whisper_model(reason="api")
+    return await run_sync(auto_subtitle_runtime.unload_whisper_model, reason="api")
 
 
 class AutoSubtitleWorkspaceCleanupResponse(BaseModel):
@@ -384,7 +508,7 @@ def get_prepare_status() -> AutoSubtitlePrepareStatus:
 @router.post("/transcribe", response_model=AutoSubtitleTranscribeStatus)
 def post_transcribe(
     body: AutoSubtitleTranscribeBody,
-    _: AutoSubtitleReady,
+    _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleTranscribeStatus:
     if not auto_subtitle.is_model_loaded():
         raise HTTPException(
@@ -437,7 +561,7 @@ def _cut_ranges_payload(ranges: list[CutRangeModel]) -> list[dict[str, float]]:
 @router.post("/export", response_model=AutoSubtitleExportStatus)
 def post_export(
     body: AutoSubtitleExportBody,
-    _: AutoSubtitleReady,
+    _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleExportStatus:
     """자막 파일·영상 번인·오디오 보내기 job 시작."""
     fmt = body.format.lower().strip()
@@ -471,7 +595,7 @@ def post_export(
 
 
 @router.post("/export/sync", response_model=AutoSubtitleExportFileResponse)
-def post_export_sync(
+async def post_export_sync(
     body: AutoSubtitleExportBody,
     _: AutoSubtitleReady,
 ) -> AutoSubtitleExportFileResponse:
@@ -482,7 +606,8 @@ def post_export_sync(
     if not body.cues:
         raise HTTPException(status_code=400, detail="cues가 비어 있습니다.")
     try:
-        out = auto_subtitle_export.sync_export_text(
+        out = await run_sync(
+            auto_subtitle_export.sync_export_text,
             fmt,
             body.cues,
             cut_ranges=_cut_ranges_payload(body.cut_ranges),
@@ -506,10 +631,10 @@ def get_export_status() -> AutoSubtitleExportStatus:
 @router.post("/export/by-format", response_model=AutoSubtitleExportStatus)
 def post_export_by_format(
     body: AutoSubtitleExportBody,
-    ready: AutoSubtitleReady,
+    _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleExportStatus:
     """Electron export:by-format IPC 대응."""
-    return post_export(body, ready)
+    return post_export(body, _)
 
 
 @router.post("/export/show-in-folder")
@@ -536,7 +661,7 @@ def post_export_show_in_folder(
 
 
 @router.post("/export/srt", response_model=AutoSubtitleExportFileResponse)
-def post_export_srt_legacy(
+async def post_export_srt_legacy(
     body: AutoSubtitleExportBody,
     _: AutoSubtitleReady,
 ) -> AutoSubtitleExportFileResponse:
@@ -544,7 +669,8 @@ def post_export_srt_legacy(
     if not body.cues:
         raise HTTPException(status_code=400, detail="cues가 비어 있습니다.")
     try:
-        out = auto_subtitle_export.sync_export_text(
+        out = await run_sync(
+            auto_subtitle_export.sync_export_text,
             "srt",
             body.cues,
             cut_ranges=_cut_ranges_payload(body.cut_ranges),
@@ -563,7 +689,6 @@ def post_export_srt_legacy(
 @router.get("/media/stream")
 def get_media_stream(
     video_path: str = Query(..., description="로컬 미디어 절대 경로"),
-    _: AutoSubtitleReady = ...,
 ) -> FileResponse:
     """브라우저 <video> 미리보기 — Range 요청 지원."""
     media = _validate_media_path(video_path)
@@ -584,38 +709,34 @@ def get_media_stream(
     return FileResponse(media, media_type=media_type, filename=media.name)
 
 
-@router.post("/waveform-peaks")
-def post_waveform_peaks(
-    body: AutoSubtitleWaveformPeaksBody,
-    _: AutoSubtitleReady,
-) -> dict[str, object]:
+def _build_waveform_peaks_payload(body: AutoSubtitleWaveformPeaksBody) -> dict[str, object]:
     media = _validate_media_path(body.video_path)
+    payload = silence_remover_engine.build_waveform_peaks_payload(
+        media,
+        timeout_sec=body.timeout_sec,
+        pixels_per_second=body.pixels_per_second,
+        max_waveform_width=body.max_waveform_width,
+    )
+    payload["peaks_engine"] = "pcm_columns"
+    return payload
+
+
+@router.post("/waveform-peaks")
+async def post_waveform_peaks(
+    body: AutoSubtitleWaveformPeaksBody,
+    _: AutoSubtitleFfmpeg,
+) -> dict[str, object]:
     try:
-        payload = silence_remover_engine.build_waveform_peaks_payload(
-            media,
-            timeout_sec=body.timeout_sec,
-            pixels_per_second=body.pixels_per_second,
-            max_waveform_width=body.max_waveform_width,
-        )
-        payload["peaks_engine"] = "pcm_columns"
-        return payload
+        return await run_sync(_build_waveform_peaks_payload, body)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.post("/waveform-peaks/audiowaveform")
-def post_waveform_peaks_audiowaveform(
-    body: AutoSubtitleWaveformPeaksBody,
-    _: AutoSubtitleReady,
-) -> dict[str, object]:
-    """Peaks.js 호환 JSON (audiowaveform CLI) — AutoSubtitle main._waveform_peaks_impl."""
+def _build_audiowaveform_peaks_payload(body: AutoSubtitleWaveformPeaksBody) -> dict[str, object]:
     media = _validate_media_path(body.video_path)
     auto_subtitle.ensure_workspace()
     out = auto_subtitle.WORKSPACE_ROOT / f"peaks-aw-{uuid.uuid4().hex[:10]}.json"
-    try:
-        result = auto_subtitle_audiowaveform.waveform_peaks_impl(media, out)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    result = auto_subtitle_audiowaveform.waveform_peaks_impl(media, out)
     if not result.get("ok"):
         return {
             "ok": False,
@@ -627,7 +748,7 @@ def post_waveform_peaks_audiowaveform(
     try:
         peaks_json = json.loads(peaks_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=500, detail=f"peaks json read failed: {exc}") from exc
+        raise ValueError(f"peaks json read failed: {exc}") from exc
     return {
         **peaks_json,
         "ok": True,
@@ -638,10 +759,87 @@ def post_waveform_peaks_audiowaveform(
     }
 
 
+@router.post("/waveform-peaks/audiowaveform")
+async def post_waveform_peaks_audiowaveform(
+    body: AutoSubtitleWaveformPeaksBody,
+    _: AutoSubtitleReady,
+) -> dict[str, object]:
+    """Peaks.js 호환 JSON (audiowaveform CLI) — AutoSubtitle main._waveform_peaks_impl."""
+    try:
+        return await run_sync(_build_audiowaveform_peaks_payload, body)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/export/video-burn-in/prepare")
+async def post_export_video_burn_in_prepare(
+    body: AutoSubtitleVideoBurnInPrepareBody,
+    _: AutoSubtitleFfmpeg,
+) -> dict[str, object]:
+    """웹 자막 캡처 번인 — 세션·렌더 해상도 준비."""
+    media = _validate_media_path(body.video_path)
+    try:
+        sess = await run_sync(auto_subtitle_burn_in_session.create_session, media)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "job_id": sess.job_id,
+        "render_width": sess.render_w,
+        "render_height": sess.render_h,
+        "full_width": sess.full_w,
+        "full_height": sess.full_h,
+        "output_path": str(sess.output_path),
+        "duration_sec": sess.duration_sec,
+    }
+
+
+@router.post("/export/video-burn-in/frame")
+async def post_export_video_burn_in_frame(
+    request: Request,
+    _: AutoSubtitleReady,
+    job_id: str = Query(...),
+    index: int = Query(..., ge=0),
+    start: float = Query(..., ge=0.0),
+    end: float = Query(..., gt=0.0),
+) -> dict[str, object]:
+    """RGBA raw 프레임 업로드 (application/octet-stream)."""
+    try:
+        body = await request.body()
+        await run_sync(auto_subtitle_burn_in_session.save_frame, job_id, index, start, end, body)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "index": index}
+
+
+@router.post("/export/video-burn-in/finish")
+def post_export_video_burn_in_finish(
+    body: AutoSubtitleVideoBurnInFinishBody,
+    _: AutoSubtitleFfmpeg,
+) -> AutoSubtitleExportStatus:
+    """업로드 완료 후 FFmpeg 단일 패스 번인 시작 (export/status 폴링)."""
+    if auto_subtitle_runtime.is_job_busy():
+        raise HTTPException(status_code=409, detail="다른 작업이 진행 중입니다.")
+    try:
+        auto_subtitle_burn_in_session.finish_and_start_export(
+            body.job_id,
+            cut_ranges=body.cut_ranges,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _export_status_payload(auto_subtitle_export.get_export_job_status())
+
+
 @router.post("/export/video-png-overlay")
 def post_export_video_png_overlay(
     body: AutoSubtitlePngExportBody,
-    _: AutoSubtitleReady,
+    _: AutoSubtitleFfmpeg,
 ) -> dict[str, object]:
     """PNG 자막 시퀀스 + FFmpeg 2단계 합성 (AutoSubtitle processor.export_video_png_overlay)."""
     if len(body.timing) != len(body.png_paths):

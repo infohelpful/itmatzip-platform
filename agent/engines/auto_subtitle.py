@@ -64,6 +64,9 @@ WORKSPACE_ROOT = AUTO_SUBTITLE_ROOT / "workspace"
 LOCAL_MODEL_DIR = MODEL_ROOT / LOCAL_MODEL_NAME
 _STAGING_MODEL_DIR = MODEL_ROOT / f".{LOCAL_MODEL_NAME}.staging"
 _ACTIVE_MODEL_MARKER = MODEL_ROOT / "active_model_dir.txt"
+_MODEL_DOWNLOAD_LOCK = MODEL_ROOT / ".model_download.lock"
+_HF_HUB_CACHE_DIR = MODEL_ROOT / ".hf-cache"
+_STALE_MODEL_LOCK_SEC = 600.0
 
 _transcribe_lock = threading.RLock()
 _transcribe_thread: threading.Thread | None = None
@@ -270,26 +273,110 @@ def _reset_prepare_progress() -> None:
     _prepare_progress_max = -1.0
 
 
+def _release_model_download_lock() -> None:
+    try:
+        _MODEL_DOWNLOAD_LOCK.unlink(missing_ok=True)  # type: ignore[arg-type]
+    except OSError:
+        pass
+
+
+def _clear_stale_model_download_lock() -> None:
+    if not _MODEL_DOWNLOAD_LOCK.is_file():
+        return
+    try:
+        age = time.time() - _MODEL_DOWNLOAD_LOCK.stat().st_mtime
+    except OSError:
+        return
+    if age >= _STALE_MODEL_LOCK_SEC:
+        _release_model_download_lock()
+
+
+def _try_acquire_model_download_lock() -> bool:
+    MODEL_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(str(_MODEL_DOWNLOAD_LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
+
+def _clear_staging_dir_with_retry(staging: Path, *, retries: int = 8) -> None:
+    if not staging.exists():
+        return
+    last: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(staging)
+            return
+        except OSError as exc:
+            last = exc
+            if not is_file_locked_error(exc):
+                raise
+            time.sleep(0.45 * (attempt + 1))
+    if last:
+        raise last
+
+
+def _rename_path_with_retry(src: Path, dst: Path, *, retries: int = 8) -> None:
+    last: BaseException | None = None
+    for attempt in range(retries):
+        try:
+            src.rename(dst)
+            return
+        except OSError as exc:
+            last = exc
+            if not is_file_locked_error(exc):
+                raise
+            time.sleep(0.45 * (attempt + 1))
+    if last:
+        raise last
+
+
 def _promote_staging_dir(staging: Path, target: Path) -> None:
     """다운로드 스테이징 폴더를 최종 경로로 옮깁니다 (WinError 32 완화)."""
     if not staging.is_dir():
         raise FileNotFoundError(f"스테이징 폴더 없음: {staging}")
     target.parent.mkdir(parents=True, exist_ok=True)
     if not target.exists():
-        staging.rename(target)
+        _rename_path_with_retry(staging, target)
         return
     backup = target.parent / f"{target.name}.bak"
-    shutil.rmtree(backup, ignore_errors=True)
+    _clear_staging_dir_with_retry(backup)
     for attempt in range(8):
         try:
             target.rename(backup)
             break
-        except OSError:
-            time.sleep(0.4 * (attempt + 1))
-    else:
-        shutil.rmtree(target, ignore_errors=True)
-    staging.rename(target)
-    shutil.rmtree(backup, ignore_errors=True)
+        except OSError as exc:
+            if not is_file_locked_error(exc) or attempt >= 7:
+                _clear_staging_dir_with_retry(target)
+                break
+            time.sleep(0.45 * (attempt + 1))
+    _rename_path_with_retry(staging, target)
+    _clear_staging_dir_with_retry(backup)
+
+
+def _snapshot_download_model(*, staging: Path, tqdm_class: type) -> None:
+    from huggingface_hub import snapshot_download
+
+    _HF_HUB_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    kwargs: dict[str, Any] = {
+        "repo_id": HF_REPO_ID,
+        "local_dir": str(staging),
+        "local_dir_use_symlinks": False,
+        "tqdm_class": tqdm_class,
+    }
+    if os.name == "nt":
+        kwargs["max_workers"] = 1
+    prev_cache = os.environ.get("HF_HUB_CACHE")
+    os.environ["HF_HUB_CACHE"] = str(_HF_HUB_CACHE_DIR.resolve())
+    try:
+        snapshot_download(**kwargs)
+    finally:
+        if prev_cache is None:
+            os.environ.pop("HF_HUB_CACHE", None)
+        else:
+            os.environ["HF_HUB_CACHE"] = prev_cache
 
 
 def _repo_download_bytes_total() -> int | None:
@@ -332,15 +419,39 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
 
     _emit_prepare_progress(
         on_progress,
-        8.0,
+        6.0,
         "Python 패키지",
-        f"pip install: {', '.join(missing)}",
+        f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
     )
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", *missing]
-    proc = run_hidden(cmd, capture_output=True, text=True, timeout=1800)
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=no_window_creationflags(),
+    )
+    lines_seen = 0
+    last_line = ""
+    while True:
+        line = proc.stdout.readline()  # type: ignore[union-attr]
+        if not line and proc.poll() is not None:
+            break
+        if not line:
+            continue
+        lines_seen += 1
+        stripped = line.strip()
+        if stripped:
+            last_line = stripped
+        if on_progress is not None and lines_seen % 3 == 0:
+            pct = min(17.0, 7.0 + lines_seen * 0.1)
+            short = last_line[:80] if last_line else "설치 중…"
+            _emit_prepare_progress(on_progress, pct, "Python 패키지 설치", short)
+    proc.wait()
     if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
-        raise RuntimeError(f"pip install 실패: {err}")
+        raise RuntimeError(f"pip install 실패 (exit {proc.returncode}): {last_line}")
     prepend_cuda_runtime_dll_dirs()
     _emit_prepare_progress(on_progress, 18.0, "Python 패키지", "설치 완료")
 
@@ -354,46 +465,87 @@ def download_whisper_model(on_progress: PrepareProgressCallback | None = None) -
         _emit_prepare_progress(on_progress, 88.0, "AI 모델", "이미 다운로드됨")
         return False
 
-    from huggingface_hub import snapshot_download
     from tqdm.auto import tqdm as std_tqdm
 
-    _emit_prepare_progress(on_progress, 20.0, "AI 모델", f"Hugging Face · {HF_REPO_ID}")
-    grand_total = _repo_download_bytes_total()
-    download_cap = 85.0
+    _clear_stale_model_download_lock()
+    deadline = time.monotonic() + 120.0
+    held_lock = False
+    while time.monotonic() < deadline:
+        if is_model_present():
+            _set_active_model_dir(resolve_model_dir())
+            _emit_prepare_progress(on_progress, 88.0, "AI 모델", "이미 다운로드됨")
+            return False
+        if _try_acquire_model_download_lock():
+            held_lock = True
+            break
+        time.sleep(0.25)
+        _clear_stale_model_download_lock()
 
-    def make_json_tqdm(grand: int | None) -> type:
-        class JsonProgressTqdm(std_tqdm):
-            def __init__(self, *args: Any, **kwargs: Any):
-                kwargs.setdefault("mininterval", 0.15)
-                super().__init__(*args, **kwargs)
-                self._last_emitted: float = -1.0
-
-            def update(self, n: int | float = 1) -> bool | None:
-                r = super().update(n)
-                if grand and grand > 0:
-                    pct = download_cap * min(float(self.n), float(grand)) / float(grand)
-                else:
-                    t = float(self.total) if self.total else 0.0
-                    if t <= 0:
-                        return r
-                    pct = download_cap * min(float(self.n), t) / t
-                if pct - self._last_emitted >= 0.5 or pct <= 0.5 or pct >= download_cap - 0.01:
-                    self._last_emitted = pct
-                    _emit_prepare_progress(on_progress, pct, "AI 모델 다운로드", HF_REPO_ID)
-                return r
-
-        return JsonProgressTqdm
-
-    staging = _STAGING_MODEL_DIR
-    shutil.rmtree(staging, ignore_errors=True)
-    promoted = False
-    try:
-        snapshot_download(
-            repo_id=HF_REPO_ID,
-            local_dir=str(staging),
-            local_dir_use_symlinks=False,
-            tqdm_class=make_json_tqdm(grand_total),
+    if not held_lock:
+        raise TimeoutError(
+            "Whisper 모델 다운로드가 다른 작업과 겹칩니다. 1~2분 후 환경 준비를 다시 시도하세요."
         )
+
+    try:
+        if is_model_present():
+            _set_active_model_dir(resolve_model_dir())
+            _emit_prepare_progress(on_progress, 88.0, "AI 모델", "이미 다운로드됨")
+            return False
+
+        _emit_prepare_progress(on_progress, 20.0, "AI 모델", f"Hugging Face · {HF_REPO_ID}")
+        grand_total = _repo_download_bytes_total()
+        download_cap = 85.0
+
+        def make_json_tqdm(grand: int | None) -> type:
+            class JsonProgressTqdm(std_tqdm):
+                def __init__(self, *args: Any, **kwargs: Any):
+                    kwargs.setdefault("mininterval", 0.15)
+                    super().__init__(*args, **kwargs)
+                    self._last_emitted: float = -1.0
+
+                def update(self, n: int | float = 1) -> bool | None:
+                    r = super().update(n)
+                    if grand and grand > 0:
+                        pct = download_cap * min(float(self.n), float(grand)) / float(grand)
+                    else:
+                        t = float(self.total) if self.total else 0.0
+                        if t <= 0:
+                            return r
+                        pct = download_cap * min(float(self.n), t) / t
+                    if pct - self._last_emitted >= 0.5 or pct <= 0.5 or pct >= download_cap - 0.01:
+                        self._last_emitted = pct
+                        if grand and grand > 0:
+                            ratio = min(float(self.n), float(grand)) / float(grand)
+                            mb_done = float(self.n) / (1024 * 1024)
+                            mb_total = float(grand) / (1024 * 1024)
+                            detail = f"{HF_REPO_ID} · {mb_done:.0f}/{mb_total:.0f} MB ({ratio * 100:.0f}%)"
+                        elif self.total and float(self.total) > 0:
+                            ratio = min(float(self.n), float(self.total)) / float(self.total)
+                            detail = f"{HF_REPO_ID} · {ratio * 100:.0f}%"
+                        else:
+                            detail = f"{HF_REPO_ID} · {pct:.0f}%"
+                        _emit_prepare_progress(on_progress, pct, "AI 모델 다운로드", detail)
+                    return r
+
+            return JsonProgressTqdm
+
+        staging = _STAGING_MODEL_DIR
+        promoted = False
+        last_err: BaseException | None = None
+        for attempt in range(3):
+            try:
+                _clear_staging_dir_with_retry(staging)
+                _snapshot_download_model(staging=staging, tqdm_class=make_json_tqdm(grand_total))
+                last_err = None
+                break
+            except OSError as exc:
+                last_err = exc
+                if not is_file_locked_error(exc) or attempt >= 2:
+                    raise
+                time.sleep(1.0 * (attempt + 1))
+        if last_err is not None:
+            raise last_err
+
         if not _is_ct2_model_dir(staging):
             raise RuntimeError("모델 다운로드 후 model.bin을 찾지 못했습니다.")
         try:
@@ -404,14 +556,17 @@ def download_whisper_model(on_progress: PrepareProgressCallback | None = None) -
             if not is_file_locked_error(exc):
                 raise
             _set_active_model_dir(staging)
-    finally:
-        if promoted:
-            shutil.rmtree(staging, ignore_errors=True)
+        finally:
+            if promoted:
+                _clear_staging_dir_with_retry(staging)
 
-    if not _is_ct2_model_dir(resolve_model_dir()):
-        raise RuntimeError("모델 다운로드 후 model.bin을 찾지 못했습니다.")
-    _emit_prepare_progress(on_progress, 88.0, "AI 모델", "다운로드 완료")
-    return True
+        if not _is_ct2_model_dir(resolve_model_dir()):
+            raise RuntimeError("모델 다운로드 후 model.bin을 찾지 못했습니다.")
+        _emit_prepare_progress(on_progress, 88.0, "AI 모델", "다운로드 완료")
+        return True
+    finally:
+        if held_lock:
+            _release_model_download_lock()
 
 
 def load_whisper_model(on_progress: PrepareProgressCallback | None = None) -> dict[str, Any]:
@@ -466,13 +621,15 @@ def prepare_all(on_progress: PrepareProgressCallback | None = None) -> dict[str,
 
     auto_subtitle_runtime.cancel_scheduled_unload()
     prepend_ffmpeg_bin_to_env(os.environ)
-    ensure_ffmpeg(download_timeout_sec=300.0)
+    _emit_prepare_progress(on_progress, 3.0, "FFmpeg", "FFmpeg 준비 확인…")
+    ensure_ffmpeg(download_timeout_sec=300.0, on_progress=on_progress)
     _emit_prepare_progress(on_progress, 5.0, "FFmpeg", "준비 완료")
     install_python_dependencies(on_progress)
     if has_nvidia_gpu():
         from engines import auto_subtitle_gpu_runtime as gpu_rt
 
         if not gpu_rt.is_gpu_runtime_installed():
+            _emit_prepare_progress(on_progress, 18.0, "GPU 런타임", "cuBLAS DLL 다운로드 시작…")
 
             def _gpu_progress(pct: float, step: str, detail: str) -> None:
                 mapped = 18.0 + (pct / 100.0) * 12.0

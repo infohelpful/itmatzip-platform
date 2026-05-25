@@ -446,6 +446,7 @@ body.as-app {
   word-break: keep-all;
   transform: translateY(-50%);
   box-sizing: border-box;
+  paint-order: stroke fill;
 }
 
 .as-preview-empty {
@@ -1356,14 +1357,12 @@ body.as-app {
 
 /* Loading overlays — export only (full-screen modal) */
 .export-loading {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(5, 8, 14, 0.72);
-  backdrop-filter: blur(4px);
+  position: static;
+  display: none;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: auto;
 }
 
 .export-loading[hidden] {
@@ -1371,7 +1370,7 @@ body.as-app {
 }
 
 .export-loading.is-active {
-  display: flex;
+  display: block;
 }
 
 /* In-app busy — unified blur over shell; ads stay above (as-ad-exempt) */
@@ -1428,7 +1427,8 @@ body.as-app {
 }
 
 .setup-loading,
-.transcribe-loading {
+.transcribe-loading,
+.gpu-install-prompt {
   position: static;
   display: none;
   background: none;
@@ -1438,12 +1438,14 @@ body.as-app {
 }
 
 .setup-loading[hidden],
-.transcribe-loading[hidden] {
+.transcribe-loading[hidden],
+.gpu-install-prompt[hidden] {
   display: none !important;
 }
 
 .setup-loading.is-active,
-.transcribe-loading.is-active {
+.transcribe-loading.is-active,
+.gpu-install-prompt.is-active {
   display: block;
 }
 
@@ -1503,57 +1505,15 @@ body.as-app {
   user-select: none;
 }
 
+.gpu-install-prompt__actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .as-gapfill-toggle input {
   accent-color: var(--as-accent);
-}
-
-.as-modal[hidden] {
-  display: none !important;
-}
-
-.as-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 3000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.55);
-  pointer-events: auto;
-}
-
-.as-modal.is-open {
-  display: flex;
-}
-
-.as-modal__panel {
-  position: relative;
-  z-index: 1;
-  width: min(420px, 92vw);
-  padding: 20px 22px;
-  border-radius: 12px;
-  background: var(--as-panel-elevated, #1a2030);
-  border: 1px solid var(--as-border);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-  pointer-events: auto;
-}
-
-.as-modal__title {
-  margin: 0 0 10px;
-  font-size: 1.05rem;
-}
-
-.as-modal__body {
-  margin: 0 0 16px;
-  font-size: 0.88rem;
-  color: var(--as-text-dim);
-  line-height: 1.45;
-}
-
-.as-modal__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 @media (max-width: 900px) {

@@ -18,6 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from common.async_io import run_sync
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
 from engines import silence_remover
@@ -520,7 +521,7 @@ def _waveform_analyzed_png_bytes(path: Path, body: SilenceRemoverWaveformAnalyze
 
 
 @router.post("/waveform-peaks")
-def post_waveform_peaks(
+async def post_waveform_peaks(
     _: SilenceRemoverReady,
     body: SilenceRemoverWaveformPeaksBody,
 ) -> dict[str, object]:
@@ -529,7 +530,8 @@ def post_waveform_peaks(
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
     try:
-        return silence_remover.build_waveform_peaks_payload(
+        return await run_sync(
+            silence_remover.build_waveform_peaks_payload,
             path,
             timeout_sec=body.timeout_sec,
             pixels_per_second=body.pixels_per_second,
@@ -584,62 +586,41 @@ async def post_waveform_preview_analyzed(
     return Response(content=png_bytes, media_type="image/png")
 
 
-@router.post("/analyze")
-def post_analyze(
-    _: SilenceRemoverReady,
-    body: SilenceRemoverAnalyzeBody,
-) -> dict[str, object]:
-    """영상 경로를 받아 무음 구간을 분석하고, CMX 3600 EDL과 파형 표시용 구간 목록을 반환합니다."""
+def _analyze_video_payload(body: SilenceRemoverAnalyzeBody) -> dict[str, object]:
     path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
-
-    try:
-        (
-            edl,
-            segments,
-            duration_sec,
-            waveform_width,
-            fps_edl,
-            native_fps,
-            raw_silences,
-            vocal_ms,
-            applied_noise_db,
-            waveform_timeline_sec,
-            waveform_pcm_decoded_sec,
-            waveform_pixels_per_second,
-            silence_column_ranges,
-        ) = silence_remover.analyze_video_to_edl_with_metadata(
-                path,
-                noise_db=body.noise_db,
-                min_silence_sec=body.min_silence_sec,
-                padding_ms=body.padding_ms,
-                remove_silent=body.remove_silent,
-                use_autocutter_pipeline=body.use_autocutter_pipeline,
-                use_recommended_noise=body.use_recommended_noise,
-                use_pcm_preview=body.use_pcm_preview,
-                require_cached_peaks=body.require_cached_peaks,
-                timeout_sec=body.timeout_sec,
-                pixels_per_second=body.pixels_per_second,
-                max_waveform_width=body.max_waveform_width,
-                title=body.title,
-                reel=body.reel,
-                fcm=body.fcm,
-                fps_rational=body.fps_rational,
-                fps_float=body.fps,
-            )
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except subprocess.TimeoutExpired as e:
-        raise HTTPException(
-            status_code=504,
-            detail=f"FFmpeg 실행이 시간 초과되었습니다: {e}",
-        ) from e
-    except RuntimeError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
+    (
+        edl,
+        segments,
+        duration_sec,
+        waveform_width,
+        fps_edl,
+        native_fps,
+        raw_silences,
+        vocal_ms,
+        applied_noise_db,
+        waveform_timeline_sec,
+        waveform_pcm_decoded_sec,
+        waveform_pixels_per_second,
+        silence_column_ranges,
+    ) = silence_remover.analyze_video_to_edl_with_metadata(
+        path,
+        noise_db=body.noise_db,
+        min_silence_sec=body.min_silence_sec,
+        padding_ms=body.padding_ms,
+        remove_silent=body.remove_silent,
+        use_autocutter_pipeline=body.use_autocutter_pipeline,
+        use_recommended_noise=body.use_recommended_noise,
+        use_pcm_preview=body.use_pcm_preview,
+        require_cached_peaks=body.require_cached_peaks,
+        timeout_sec=body.timeout_sec,
+        pixels_per_second=body.pixels_per_second,
+        max_waveform_width=body.max_waveform_width,
+        title=body.title,
+        reel=body.reel,
+        fcm=body.fcm,
+        fps_rational=body.fps_rational,
+        fps_float=body.fps,
+    )
     detection = "pcm_columns" if body.use_pcm_preview else "silencedetect"
     out: dict[str, object] = {
         "format": "cmx3600",
@@ -675,6 +656,31 @@ def post_analyze(
     )
     out["edl_total_frames"] = edl_timing.total_frames
     return out
+
+
+@router.post("/analyze")
+async def post_analyze(
+    _: SilenceRemoverReady,
+    body: SilenceRemoverAnalyzeBody,
+) -> dict[str, object]:
+    """영상 경로를 받아 무음 구간을 분석하고, CMX 3600 EDL과 파형 표시용 구간 목록을 반환합니다."""
+    path = Path(body.video_path)
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+
+    try:
+        return await run_sync(_analyze_video_payload, body)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except subprocess.TimeoutExpired as e:
+        raise HTTPException(
+            status_code=504,
+            detail=f"FFmpeg 실행이 시간 초과되었습니다: {e}",
+        ) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/build-edl")

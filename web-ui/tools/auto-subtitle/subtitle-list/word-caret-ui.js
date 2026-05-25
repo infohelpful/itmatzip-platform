@@ -38,6 +38,8 @@ const rowCaretByIndex = new Map();
 
 /** @type {((container: HTMLElement, cues: object[], opts: object) => void) | null} */
 let rerenderHook = null;
+/** @type {((cardIndex: number) => void) | null} */
+let previewOverlaySyncHook = null;
 /** 전체 카드 리렌더 중 focusout 으로 캐럿 상태가 지워지지 않게 */
 let caretListRerenderInProgress = false;
 /** 구조 변경 직후 focusout 1~2틱 무시 (Electron blurCapture 타이밍) */
@@ -71,6 +73,20 @@ function getPlayheadSec(opts) {
 export function setCaretRerenderHook(fn) {
   rerenderHook = fn;
   installCaretDocumentFocusGuard();
+}
+
+/**
+ * @param {(cardIndex: number) => void} fn
+ */
+export function setPreviewOverlaySyncHook(fn) {
+  previewOverlaySyncHook = fn;
+}
+
+/** @returns {number} */
+export function getFocusedSubtitleCardIndex() {
+  if (activeCaretCardIndex != null && activeCaretCardIndex >= 0) return activeCaretCardIndex;
+  if (lastCardFocusIndex != null && lastCardFocusIndex >= 0) return lastCardFocusIndex;
+  return -1;
 }
 
 export function clearAllRowCaretState() {
@@ -445,6 +461,7 @@ function activateCaretAt(cardIndex, words, storageCaret, blink, armSpaceSeek = t
     listPlayFromCaretPreferred = true;
   }
   focusRenderableCaretButton(cardIndex, rc);
+  previewOverlaySyncHook?.(cardIndex);
 }
 
 /**

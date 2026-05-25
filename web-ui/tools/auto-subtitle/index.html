@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>Auto Subtitle</title>
-  <link rel="stylesheet" href="style.css?v=73">
+  <link rel="stylesheet" href="style.css?v=75">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body class="as-app">
@@ -186,6 +186,7 @@
           <div class="setup-loading__track" id="setup-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="setup-loading-bar"></div>
           </div>
+          <p class="transcribe-percent" id="setup-loading-percent"></p>
         </div>
       </div>
       <div class="transcribe-loading" id="transcribe-loading" hidden aria-hidden="true">
@@ -199,32 +200,30 @@
           <p class="transcribe-percent" id="transcribe-loading-percent"></p>
         </div>
       </div>
-    </div>
-  </div>
-
-  <div class="export-loading" id="export-loading" hidden aria-hidden="true">
-    <div class="setup-loading__panel">
-      <p class="setup-loading__title" id="export-loading-title">보내기</p>
-      <p class="setup-loading__step" id="export-loading-step"></p>
-      <p class="setup-loading__desc" id="export-loading-message">파일을 생성하고 있습니다…</p>
-      <div class="setup-loading__track" id="export-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
-        <div class="setup-loading__bar" id="export-loading-bar"></div>
+      <div class="gpu-install-prompt" id="gpu-install-prompt" hidden aria-hidden="true">
+        <div class="setup-loading__panel" role="dialog" aria-labelledby="gpu-install-title">
+          <h2 class="setup-loading__title" id="gpu-install-title">GPU 가속 런타임</h2>
+          <p class="setup-loading__desc" id="gpu-install-message">NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 GPU로 자막 추출을 사용할 수 있습니다.</p>
+          <div class="gpu-install-prompt__actions">
+            <button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost">나중에</button>
+            <button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary">준비 실행</button>
+          </div>
+        </div>
       </div>
-      <p class="transcribe-percent" id="export-loading-percent"></p>
-    </div>
-  </div>
-
-  <div class="as-modal" id="gpu-install-modal" hidden aria-hidden="true">
-    <div class="as-modal__panel" role="dialog" aria-labelledby="gpu-install-title">
-      <h2 class="as-modal__title" id="gpu-install-title">GPU 가속 런타임</h2>
-      <p class="as-modal__body" id="gpu-install-message">NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 추출이 빨라질 수 있습니다.</p>
-      <div class="as-modal__actions">
-        <button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost">나중에</button>
-        <button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary">준비 실행</button>
+      <div class="export-loading" id="export-loading" hidden aria-hidden="true">
+        <div class="setup-loading__panel">
+          <p class="setup-loading__title" id="export-loading-title">보내기</p>
+          <p class="setup-loading__step" id="export-loading-step"></p>
+          <p class="setup-loading__desc" id="export-loading-message">파일을 생성하고 있습니다…</p>
+          <div class="setup-loading__track" id="export-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="setup-loading__bar" id="export-loading-bar"></div>
+          </div>
+          <p class="transcribe-percent" id="export-loading-percent"></p>
+        </div>
       </div>
     </div>
   </div>
 
-  <script type="module" src="script.js?v=109"></script>
+  <script type="module" src="script.js?v=125"></script>
 </body>
 </html>

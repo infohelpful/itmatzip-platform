@@ -44,7 +44,7 @@ export function buildExportRequestPayload(lastCues, cutRanges, style, format, vi
   const fmt = normalizeExportFormat(format);
   const needsMedia = ["video", "mp3", "wav"].includes(fmt);
   const textFormats = TEXT_EXPORT_FORMATS;
-  const exportCues = textFormats.includes(fmt) ? buildExportCueLines(lastCues) : lastCues;
+  const exportCues = buildExportCueLines(lastCues);
   return {
     format: fmt,
     cues: exportCues,

@@ -10,7 +10,10 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=as5";
+  setAgentLongOperationActive,
+  isAgentLongOperationActive,
+  getAgentCircuitBreakerState,
+} from "../common/bridge.js?v=as8";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { showAdSense } from "../common/adsense.js";
 import {
@@ -43,12 +46,19 @@ import {
   syncPlaybackCaretVisibility,
   clearListPlayFromCaretPreferred,
   prepareCaretAtWord,
+  getFocusedSubtitleCardIndex,
+  setPreviewOverlaySyncHook,
 } from "./subtitle-list/word-caret-ui.js";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
 } from "./shared/subtitle-word-caret-map.js?v=21";
-import { syncAllCuesFromWords, ensureCueWords, MIN_WORD_SPAN_SEC } from "./subtitle-words.js?v=21";
+import {
+  syncAllCuesFromWords,
+  ensureCueWords,
+  displayTextFromWords,
+  MIN_WORD_SPAN_SEC,
+} from "./subtitle-words.js?v=21";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
@@ -62,7 +72,8 @@ import {
   buildExportRequestPayload,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=22";
+} from "./export/export-client.js?v=23";
+import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=7";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -162,6 +173,7 @@ const setupLoadingStep = document.getElementById("setup-loading-step");
 const setupLoadingMessage = document.getElementById("setup-loading-message");
 const setupLoadingBar = document.getElementById("setup-loading-bar");
 const setupLoadingTrack = document.getElementById("setup-loading-track");
+const setupLoadingPercent = document.getElementById("setup-loading-percent");
 
 const transcribeLoading = document.getElementById("transcribe-loading");
 const transcribeLoadingTitle = document.getElementById("transcribe-loading-title");
@@ -205,7 +217,7 @@ const btnUndo = document.getElementById("btn-undo");
 const btnRedo = document.getElementById("btn-redo");
 /** Electron: 단어 구간 기반 재생 스케줄 */
 globalThis.__AUTO_SUBTITLE_WORD_PLAYBACK__ = true;
-const gpuInstallModal = document.getElementById("gpu-install-modal");
+const gpuInstallPrompt = document.getElementById("gpu-install-prompt");
 const gpuInstallMessage = document.getElementById("gpu-install-message");
 const btnGpuInstallRun = document.getElementById("btn-gpu-install-run");
 const btnGpuInstallDismiss = document.getElementById("btn-gpu-install-dismiss");
@@ -645,18 +657,33 @@ function getMediaStreamUrl() {
   return `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
 }
 
-function getActiveCueForPreview() {
-  const t = playheadSec;
+function getPreviewCueIndex() {
+  const caretIdx = getFocusedSubtitleCardIndex();
+  if (caretIdx >= 0 && lastCues[caretIdx] && !lastCues[caretIdx].is_silence) {
+    return caretIdx;
+  }
   if (isPreviewMediaPlaying()) {
-    const { ai } = resolvePlaybackIndices(t);
-    if (ai >= 0) return lastCues[ai];
-    return null;
+    const { ai } = resolvePlaybackIndices(playheadSec);
+    return ai;
   }
   if (selectedCueIndex >= 0 && lastCues[selectedCueIndex] && !lastCues[selectedCueIndex].is_silence) {
-    return lastCues[selectedCueIndex];
+    return selectedCueIndex;
   }
-  const { ai } = resolvePlaybackIndices(t);
+  const { ai } = resolvePlaybackIndices(playheadSec);
+  return ai;
+}
+
+function getActiveCueForPreview() {
+  const ai = getPreviewCueIndex();
   return ai >= 0 ? lastCues[ai] : null;
+}
+
+function getPreviewCueText(cue) {
+  if (!cue) return "";
+  ensureCueWords(cue);
+  const fromWords = displayTextFromWords(cue.words);
+  if (String(fromWords || "").trim()) return String(fromWords).trim();
+  return String(cue.text || "").trim();
 }
 
 function armDeleteGuard(ms = 280) {
@@ -847,9 +874,10 @@ function commitPlayheadUi({
   lastPlaybackCueIndex = ai;
   lastPlaybackWordIndex = wi;
 
-  if (!mediaPlaying || ai !== lastOverlayCueIndex) {
+  const previewIdx = getPreviewCueIndex();
+  if (previewIdx !== lastOverlayCueIndex) {
     updatePreviewOverlay();
-    lastOverlayCueIndex = ai;
+    lastOverlayCueIndex = previewIdx;
   }
 
   const highlightNeedsUpdate =
@@ -1154,8 +1182,9 @@ function updatePreviewOverlay() {
   if (!previewOverlay) return;
   layoutPreviewMediaFrame();
   const cue = getActiveCueForPreview();
+  const previewText = getPreviewCueText(cue);
   const style = readSubtitleStyleFromDom();
-  if (!cue || !String(cue.text || "").trim()) {
+  if (!cue || !previewText) {
     previewOverlay.hidden = true;
     previewOverlay.innerHTML = "";
     return;
@@ -1174,20 +1203,36 @@ function updatePreviewOverlay() {
       right: ${PREVIEW_SUBTITLE_SIDE_MARGIN_PCT}%;
       top: ${y}%;
       text-align: ${previewSubtitleTextAlign(x)};
-      font-family: ${JSON.stringify(style.fontFamily).slice(1, -1)};
+      font-family: '${(style.fontFamily || "Malgun Gothic").replace(/'/g, "\\'")}', 'Malgun Gothic', sans-serif;
       font-size: ${previewFontSize}px;
       font-weight: ${style.fontWeight || 700};
       color: ${style.textColor || "#fff"};
       -webkit-text-stroke: ${previewStrokeWidth}px ${style.strokeColor || "#000"};
+      paint-order: stroke fill;
       background: ${hexWithAlpha(style.bgColor, Math.round(bgAlpha * 255))};
       padding: ${chrome.padding};
       line-height: ${chrome.lineHeight};
       border-radius: ${chrome.borderRadius}px;
       border: ${chrome.border};
       box-sizing: ${chrome.boxSizing};
-    ">${escapeHtml(String(cue.text || "").trim())}</div>
+    ">${escapeHtml(previewText)}</div>
   `;
 }
+
+setPreviewOverlaySyncHook((cardIndex) => {
+  if (
+    cardIndex >= 0 &&
+    cardIndex !== selectedCueIndex &&
+    lastCues[cardIndex] &&
+    !lastCues[cardIndex].is_silence
+  ) {
+    const prev = selectedCueIndex;
+    selectedCueIndex = cardIndex;
+    if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, cardIndex);
+  }
+  lastOverlayCueIndex = -1;
+  updatePreviewOverlay();
+});
 
 function escapeHtml(s) {
   return String(s)
@@ -1308,8 +1353,10 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true }
   }
 }
 let preparePollTimer = null;
+let _lastPrepareProgress = -1;
 let transcribePollTimer = null;
 let exportPollTimer = null;
+let gpuInstallPollTimer = null;
 
 function installDialogOpts() {
   return agentInstallDialogOptions(() => checkAgentConnection());
@@ -1332,7 +1379,9 @@ function formatTime(sec) {
 function syncInAppBusyShell() {
   const setupActive = Boolean(setupLoading?.classList.contains("is-active"));
   const transcribeActive = Boolean(transcribeLoading?.classList.contains("is-active"));
-  const busy = setupActive || transcribeActive;
+  const exportActive = Boolean(exportLoading?.classList.contains("is-active"));
+  const gpuPromptActive = Boolean(gpuInstallPrompt?.classList.contains("is-active"));
+  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive;
   asShell?.classList.toggle("is-inapp-busy", busy);
   if (inappBusyHost) {
     inappBusyHost.hidden = !busy;
@@ -1342,7 +1391,10 @@ function syncInAppBusyShell() {
 
 function setSetupLoading(active, { title, step, message, progress } = {}) {
   if (!setupLoading) return;
+  const wasActive = setupLoading.classList.contains("is-active");
   if (active) {
+    if (!wasActive) setAgentLongOperationActive(true);
+    closeGpuInstallModal();
     transcribeLoading?.classList.remove("is-active");
     if (transcribeLoading) {
       transcribeLoading.hidden = true;
@@ -1359,14 +1411,17 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
         const pct = Math.max(0, Math.min(100, progress));
         setupLoadingBar.style.width = `${pct}%`;
         setupLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
+        if (setupLoadingPercent) setupLoadingPercent.textContent = `${Math.round(pct)}%`;
       } else {
         setupLoadingBar.style.width = "30%";
         setupLoadingTrack.setAttribute("aria-valuenow", "0");
+        if (setupLoadingPercent) setupLoadingPercent.textContent = "";
       }
     }
     syncInAppBusyShell();
     return;
   }
+  if (wasActive) setAgentLongOperationActive(false);
   setupLoading.hidden = true;
   setupLoading.classList.remove("is-active");
   setupLoading.setAttribute("aria-hidden", "true");
@@ -1375,7 +1430,10 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
 
 function setTranscribeLoading(active, { title, step, message, progress } = {}) {
   if (!transcribeLoading) return;
+  const wasActive = transcribeLoading.classList.contains("is-active");
   if (active) {
+    if (!wasActive) setAgentLongOperationActive(true);
+    closeGpuInstallModal();
     setupLoading?.classList.remove("is-active");
     if (setupLoading) {
       setupLoading.hidden = true;
@@ -1398,6 +1456,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
     syncInAppBusyShell();
     return;
   }
+  if (wasActive) setAgentLongOperationActive(false);
   transcribeLoading.hidden = true;
   transcribeLoading.classList.remove("is-active");
   transcribeLoading.setAttribute("aria-hidden", "true");
@@ -1423,7 +1482,19 @@ function updateActionButtons() {
 
 function setExportLoading(active, { title, step, message, progress } = {}) {
   if (!exportLoading) return;
+  const wasActive = exportLoading.classList.contains("is-active");
   if (active) {
+    if (!wasActive) setAgentLongOperationActive(true);
+    setupLoading?.classList.remove("is-active");
+    if (setupLoading) {
+      setupLoading.hidden = true;
+      setupLoading.setAttribute("aria-hidden", "true");
+    }
+    transcribeLoading?.classList.remove("is-active");
+    if (transcribeLoading) {
+      transcribeLoading.hidden = true;
+      transcribeLoading.setAttribute("aria-hidden", "true");
+    }
     exportLoading.hidden = false;
     exportLoading.classList.add("is-active");
     exportLoading.setAttribute("aria-hidden", "false");
@@ -1436,11 +1507,24 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
       exportLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
       if (exportLoadingPercent) exportLoadingPercent.textContent = `${Math.round(pct)}%`;
     }
+    syncInAppBusyShell();
     return;
   }
+  if (wasActive) setAgentLongOperationActive(false);
   exportLoading.hidden = true;
   exportLoading.classList.remove("is-active");
   exportLoading.setAttribute("aria-hidden", "true");
+  syncInAppBusyShell();
+}
+
+function showExportError(msg) {
+  setExportLoading(true, {
+    title: "보내기 실패",
+    step: "",
+    message: msg || "오류가 발생했습니다.",
+    progress: 0,
+  });
+  setTimeout(() => setExportLoading(false), 5000);
 }
 
 function stopExportPoll() {
@@ -1525,12 +1609,20 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       splitSubtitleAtWord(subtitleHub, index, wordIndex);
       finalizeRowCaretAfterCueSplit(index, lastCues);
       renderCuesTable(lastCues);
+      const nextIndex = index + 1;
+      if (lastCues[nextIndex] && !lastCues[nextIndex].is_silence) {
+        const prev = selectedCueIndex;
+        selectedCueIndex = nextIndex;
+        if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, nextIndex);
+        lastOverlayCueIndex = -1;
+        updatePreviewOverlay();
+      }
       if (subtitleList) {
         requestFocusCaretDeferred(
           subtitleList,
           lastCues,
           buildSubtitleCardOpts(lastCues),
-          index + 1,
+          nextIndex,
           0,
         );
       }
@@ -1881,50 +1973,106 @@ function applyReadiness(data) {
 let gpuDialogShown = false;
 
 function closeGpuInstallModal() {
-  if (!gpuInstallModal) return;
-  gpuInstallModal.hidden = true;
-  gpuInstallModal.classList.remove("is-open");
-  gpuInstallModal.setAttribute("aria-hidden", "true");
+  if (!gpuInstallPrompt) return;
+  gpuInstallPrompt.hidden = true;
+  gpuInstallPrompt.classList.remove("is-active");
+  gpuInstallPrompt.setAttribute("aria-hidden", "true");
+  syncInAppBusyShell();
 }
 
 function openGpuInstallModal(message) {
-  if (!gpuInstallModal) return;
+  if (!gpuInstallPrompt) return;
   if (gpuInstallMessage && message) gpuInstallMessage.textContent = message;
-  gpuInstallModal.hidden = false;
-  gpuInstallModal.classList.add("is-open");
-  gpuInstallModal.setAttribute("aria-hidden", "false");
+  setupLoading?.classList.remove("is-active");
+  if (setupLoading) {
+    setupLoading.hidden = true;
+    setupLoading.setAttribute("aria-hidden", "true");
+  }
+  transcribeLoading?.classList.remove("is-active");
+  if (transcribeLoading) {
+    transcribeLoading.hidden = true;
+    transcribeLoading.setAttribute("aria-hidden", "true");
+  }
+  gpuInstallPrompt.hidden = false;
+  gpuInstallPrompt.classList.add("is-active");
+  gpuInstallPrompt.setAttribute("aria-hidden", "false");
+  syncInAppBusyShell();
 }
 
 function maybeShowGpuInstallDialog(readiness) {
   const b = readiness?.binaries || {};
   if (!b.gpu_detected || b.gpu_runtime_installed || gpuDialogShown) return;
-  if (!gpuInstallModal) return;
+  if (!gpuInstallPrompt) return;
   gpuDialogShown = true;
   openGpuInstallModal(
     "NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 GPU로 자막 추출을 사용할 수 있습니다.",
   );
 }
 
-async function runGpuRuntimeInstall() {
-  closeGpuInstallModal();
+function stopGpuInstallPoll() {
+  if (gpuInstallPollTimer) {
+    clearInterval(gpuInstallPollTimer);
+    gpuInstallPollTimer = null;
+  }
+}
+
+async function pollGpuInstallStatus() {
+  const data = await requestAgent({ path: `${TOOL_PREFIX}/gpu-runtime/install/status` });
+  const phase = data?.phase || "";
   setSetupLoading(true, {
     title: "GPU 가속 런타임",
-    step: "다운로드",
-    message: "runtime_dlls.zip 설치 중… (수 분 걸릴 수 있습니다)",
-    progress: 5,
+    step: data?.step || phase,
+    message: data?.detail || data?.message || "설치 중…",
+    progress: typeof data?.progress === "number" ? data.progress : undefined,
+  });
+  if (phase === "ready") {
+    stopGpuInstallPoll();
+    setSetupLoading(false);
+    await fetchReadiness();
+    return true;
+  }
+  if (phase === "failed") {
+    stopGpuInstallPoll();
+    setSetupLoading(false);
+    alert(friendlyAgentError(data?.error || data?.message || data?.detail || "GPU 런타임 설치에 실패했습니다."));
+    return false;
+  }
+  return null;
+}
+
+async function runGpuRuntimeInstall() {
+  closeGpuInstallModal();
+  stopGpuInstallPoll();
+  setSetupLoading(true, {
+    title: "GPU 가속 런타임",
+    step: "시작",
+    message: "runtime_dlls.zip 설치를 시작합니다…",
+    progress: 2,
   });
   try {
-    const res = await requestAgent({
+    await requestAgent({
       path: `${TOOL_PREFIX}/gpu-runtime/install`,
       method: "POST",
     });
-    await fetchReadiness();
-    const src = res?.source === "existing" ? "이미 설치되어 있습니다." : "설치가 완료되었습니다.";
-    alert(`GPU 런타임 ${src}`);
+    await new Promise((resolve) => {
+      gpuInstallPollTimer = setInterval(async () => {
+        try {
+          const done = await pollGpuInstallStatus();
+          if (done === true) resolve(true);
+          if (done === false) resolve(false);
+        } catch (err) {
+          if (/503|502|timeout|fetch|준비/i.test(String(err))) return;
+          stopGpuInstallPoll();
+          setSetupLoading(false);
+          alert(friendlyAgentError(err));
+          resolve(false);
+        }
+      }, 800);
+    });
   } catch (err) {
-    alert(friendlyAgentError(err));
-  } finally {
+    stopGpuInstallPoll();
     setSetupLoading(false);
+    alert(friendlyAgentError(err));
   }
 }
 
@@ -1957,11 +2105,19 @@ function stopTranscribePoll() {
 async function pollPrepareStatus() {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/prepare/status` });
   const phase = data?.phase || "";
+  const step = data?.step || phase;
+  const progress = typeof data?.progress === "number" ? data.progress : undefined;
+  _lastPrepareProgress = progress ?? _lastPrepareProgress;
+  let title = "환경 준비";
+  if (phase === "downloading_models") title = "AI 모델 다운로드";
+  else if (/FFmpeg/i.test(step)) title = "FFmpeg 다운로드";
+  else if (/Python|pip|패키지/i.test(step)) title = "Python 패키지 설치";
+  else if (/GPU|DLL|runtime/i.test(step)) title = "GPU 런타임 설치";
   setSetupLoading(true, {
-    title: phase === "downloading_models" ? "AI 모델 다운로드" : "환경 준비",
-    step: data?.step || phase,
+    title,
+    step,
     message: data?.detail || data?.message || "준비 중…",
-    progress: typeof data?.progress === "number" ? data.progress : undefined,
+    progress,
   });
   if (phase === "ready") {
     stopPreparePoll();
@@ -1992,16 +2148,55 @@ async function ensurePrepared() {
     progress: 2,
   });
 
-  await requestAgent({ path: `${TOOL_PREFIX}/prepare`, method: "POST" });
+  try {
+    await requestAgent({ path: `${TOOL_PREFIX}/prepare`, method: "POST" });
+  } catch (e) {
+    console.warn("[ensurePrepared] POST /prepare failed, will poll status anyway:", e);
+  }
 
   return new Promise((resolve) => {
     stopPreparePoll();
+    let stallCount = 0;
+    let lastProgress = -1;
+    let transientFailStreak = 0;
     preparePollTimer = setInterval(async () => {
       try {
         const done = await pollPrepareStatus();
+        transientFailStreak = 0;
         if (done === true) resolve(true);
         if (done === false) resolve(false);
+        const curProg = _lastPrepareProgress;
+        if (typeof curProg === "number" && curProg === lastProgress) {
+          stallCount++;
+        } else {
+          stallCount = 0;
+          lastProgress = curProg;
+        }
+        if (stallCount > 450) {
+          stopPreparePoll();
+          setSetupLoading(false);
+          alert("환경 준비가 6분 이상 진행되지 않고 있습니다. 에이전트를 재시작하고 다시 시도해 주세요.");
+          resolve(false);
+        }
       } catch (err) {
+        if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) {
+          transientFailStreak++;
+          if (transientFailStreak > 15) {
+            setSetupLoading(true, {
+              title: "에이전트 API 대기",
+              step: "연결 재시도 중",
+              message: "에이전트가 아직 준비 중입니다. 잠시만 기다려 주세요…",
+              progress: 2,
+            });
+          }
+          if (transientFailStreak > 90) {
+            stopPreparePoll();
+            setSetupLoading(false);
+            alert("에이전트 API에 1분 이상 연결할 수 없습니다. 에이전트가 실행 중인지 확인해 주세요.");
+            resolve(false);
+          }
+          return;
+        }
         stopPreparePoll();
         setSetupLoading(false);
         alert(friendlyAgentError(err));
@@ -2261,8 +2456,17 @@ async function pollExportStatus(fmt) {
   }
   if (phase === "failed") {
     stopExportPoll();
-    setExportLoading(false);
-    alert(data?.error || data?.message || "보내기에 실패했습니다.");
+    const raw = data?.error || data?.message || "보내기에 실패했습니다.";
+    const friendly = /Broken pipe|Errno 32|비정상 종료/i.test(raw)
+      ? "영상 인코딩 중 오류가 발생했습니다. GPU 인코더 문제일 수 있습니다. 다시 시도해 주세요."
+      : raw;
+    setExportLoading(true, {
+      title: "보내기 실패",
+      step: "",
+      message: friendly,
+      progress: 0,
+    });
+    setTimeout(() => setExportLoading(false), 5000);
     return false;
   }
   return null;
@@ -2287,7 +2491,13 @@ async function runExport() {
     alert("전사 결과가 없습니다.");
     return;
   }
-  const payload = buildExportPayload(fmt);
+  const videoPath = videoPathInput?.value?.trim() || null;
+  if (fmt === "video" && !videoPath) {
+    alert("영상 파일을 선택하세요.");
+    return;
+  }
+
+  syncCuesFromDom();
   const label = exportFormatLabel(fmt);
 
   setExportLoading(true, {
@@ -2300,6 +2510,7 @@ async function runExport() {
   });
 
   if (EXPORT_TEXT_FORMATS.includes(fmt)) {
+    const payload = buildExportPayload(fmt);
     try {
       const res = await requestAgent({
         path: `${TOOL_PREFIX}/export/sync`,
@@ -2313,17 +2524,66 @@ async function runExport() {
       openDownload(lastExportPath);
       return;
     } catch (err) {
-      setExportLoading(false);
-      alert(friendlyAgentError(err));
+      showExportError(friendlyAgentError(err));
       return;
     }
   }
 
+  if (fmt === "video") {
+    try {
+      await runVideoBurnInExport({
+        toolPrefix: TOOL_PREFIX,
+        videoPath,
+        lastCues,
+        cutRanges: lastCutRanges,
+        style: readSubtitleStyleFromDom(),
+        onUiProgress: ({ progress, step, message }) => {
+          setExportLoading(true, {
+            title: "보내기",
+            step: step || `${label} · 처리 중`,
+            message: message || "처리 중…",
+            progress,
+          });
+        },
+      });
+
+      return new Promise((resolve) => {
+        stopExportPoll();
+        exportPollTimer = setInterval(async () => {
+          try {
+            const done = await pollExportStatus(fmt);
+            if (done === true) {
+              openDownload(lastExportPath);
+              resolve(true);
+            }
+            if (done === false) resolve(false);
+          } catch (err) {
+            if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) return;
+            stopExportPoll();
+            showExportError(friendlyAgentError(err));
+            resolve(false);
+          }
+        }, 1000);
+      });
+    } catch (err) {
+      if (!isVideoBurnInNotFoundError(err)) {
+        showExportError(friendlyAgentError(err));
+        return;
+      }
+      setExportLoading(true, {
+        title: "보내기",
+        step: `${label} · ASS 번인`,
+        message: "에이전트 업데이트 필요 — ASS 방식으로 보냅니다…",
+        progress: 10,
+      });
+    }
+  }
+
+  const payload = buildExportPayload(fmt);
   try {
     await requestAgent({ path: `${TOOL_PREFIX}/export`, method: "POST", json: payload });
   } catch (err) {
-    setExportLoading(false);
-    alert(friendlyAgentError(err));
+    showExportError(friendlyAgentError(err));
     return;
   }
 
@@ -2338,9 +2598,9 @@ async function runExport() {
         }
         if (done === false) resolve(false);
       } catch (err) {
+        if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) return;
         stopExportPoll();
-        setExportLoading(false);
-        alert(friendlyAgentError(err));
+        showExportError(friendlyAgentError(err));
         resolve(false);
       }
     }, 1000);
@@ -2357,6 +2617,7 @@ function resetJob() {
   stopPreparePoll();
   stopTranscribePoll();
   stopExportPoll();
+  stopGpuInstallPoll();
   setSetupLoading(false);
   setTranscribeLoading(false);
   setExportLoading(false);
@@ -2629,12 +2890,8 @@ btnGpuInstallRun?.addEventListener("click", (e) => {
   void runGpuRuntimeInstall();
 });
 
-gpuInstallModal?.addEventListener("click", (e) => {
-  if (e.target === gpuInstallModal) closeGpuInstallModal();
-});
-
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !gpuInstallModal || gpuInstallModal.hidden) return;
+  if (e.key !== "Escape" || !gpuInstallPrompt || gpuInstallPrompt.hidden) return;
   closeGpuInstallModal();
 });
 
@@ -2789,17 +3046,23 @@ populateFontSelect(SYSTEM_FONT_CANDIDATES);
 loadAndApplyUserPreferences();
 
 startConnectionMonitor({
-  onChange: async (connected) => {
-    agentConnected = connected;
+  onChange: async (connected, detail) => {
+    const longOp = isAgentLongOperationActive();
+    const apiReady = detail?.apiReady !== false;
+    agentConnected = connected && (apiReady || longOp);
     const connEl = document.getElementById("connection-status");
-    applyConnectionStatusDot(connEl, connected);
-    connEl?.classList.toggle("is-connected", connected);
-    if (connected) {
+    applyConnectionStatusDot(connEl, connected, { ...detail, longOp });
+    connEl?.classList.toggle("is-connected", agentConnected);
+    if (agentConnected) {
       await fetchReadiness();
       await loadSystemFontsFromAgent();
     } else {
       toolReady = false;
-      if (binReadiness) binReadiness.textContent = `${LOCAL_HELPER_NAME} 연결 필요`;
+      if (binReadiness) {
+        binReadiness.textContent = connected && !apiReady
+          ? (longOp ? "Auto Subtitle · 작업 중…" : "Auto Subtitle · API 준비 중…")
+          : `${LOCAL_HELPER_NAME} 연결 필요`;
+      }
     }
     updateActionButtons();
   },

@@ -223,6 +223,7 @@ def ensure_ffmpeg(
     *,
     bundle_url: str | None = None,
     download_timeout_sec: float = 120.0,
+    on_progress: "PrepareProgressCallback | None" = None,
 ) -> Path:
     """
     `ITMATZIP_AGENT_DATA/bin` 또는 `%APPDATA%/ItMatZip/bin/`에 ffmpeg·ffprobe를 둡니다.
@@ -278,7 +279,19 @@ def ensure_ffmpeg(
             shutil.rmtree(extract_dir, ignore_errors=True)
         extract_dir.mkdir(parents=True, exist_ok=True)
 
-        _download_file(url, archive_path, timeout_sec=download_timeout_sec)
+        if on_progress:
+            on_progress(2.0, "FFmpeg", "FFmpeg 번들 다운로드 중…")
+        _download_file(
+            url,
+            archive_path,
+            timeout_sec=download_timeout_sec,
+            on_progress=on_progress,
+            progress_label="FFmpeg",
+            progress_base=2.0,
+            progress_span=3.0,
+        )
+        if on_progress:
+            on_progress(4.5, "FFmpeg", "압축 해제 중…")
         _extract_zip_safe(archive_path, extract_dir)
 
         runtime_dir = _find_ffmpeg_shared_runtime_dir(extract_dir)
@@ -330,7 +343,16 @@ def _release_download_lock() -> None:
         pass
 
 
-def _download_file(url: str, dest: Path, *, timeout_sec: float) -> None:
+def _download_file(
+    url: str,
+    dest: Path,
+    *,
+    timeout_sec: float,
+    on_progress: "PrepareProgressCallback | None" = None,
+    progress_label: str = "다운로드",
+    progress_base: float = 0.0,
+    progress_span: float = 100.0,
+) -> None:
     dest_part = dest.with_suffix(dest.suffix + ".part")
     try:
         request = urllib.request.Request(
@@ -338,9 +360,40 @@ def _download_file(url: str, dest: Path, *, timeout_sec: float) -> None:
             headers={"User-Agent": "ItMatZip-Agent/1.0"},
             method="GET",
         )
-        with urllib.request.urlopen(request, timeout=timeout_sec) as response:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            total = int(response.headers.get("Content-Length") or 0)
+            downloaded = 0
+            last_reported_pct = -1.0
+            chunk_size = 256 * 1024
+            stall_deadline = time.monotonic() + 120.0
             with dest_part.open("wb") as out:
-                shutil.copyfileobj(response, out, length=1024 * 256)
+                while True:
+                    chunk = response.read(chunk_size)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    downloaded += len(chunk)
+                    stall_deadline = time.monotonic() + 120.0
+                    if on_progress is not None:
+                        if total > 0:
+                            ratio = min(1.0, downloaded / total)
+                            pct = progress_base + ratio * progress_span
+                            if pct - last_reported_pct >= 0.5 or ratio >= 1.0:
+                                last_reported_pct = pct
+                                mb_done = downloaded / (1024 * 1024)
+                                mb_total = total / (1024 * 1024)
+                                on_progress(
+                                    pct,
+                                    progress_label,
+                                    f"다운로드 {mb_done:.0f}/{mb_total:.0f} MB ({ratio * 100:.0f}%)",
+                                )
+                        elif downloaded % (2 * 1024 * 1024) < chunk_size:
+                            mb_done = downloaded / (1024 * 1024)
+                            on_progress(
+                                progress_base + progress_span * 0.5,
+                                progress_label,
+                                f"다운로드 {mb_done:.0f} MB…",
+                            )
         for attempt in range(8):
             try:
                 os.replace(dest_part, dest)
@@ -349,12 +402,12 @@ def _download_file(url: str, dest: Path, *, timeout_sec: float) -> None:
                 if not is_file_locked_error(exc) or attempt >= 7:
                     raise
                 time.sleep(0.35 * (attempt + 1))
-    except (urllib.error.URLError, OSError) as e:
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
         try:
             dest_part.unlink(missing_ok=True)  # type: ignore[arg-type]
         except OSError:
             pass
-        raise RuntimeError(f"FFmpeg 번들 다운로드에 실패했습니다: {url}") from e
+        raise RuntimeError(f"다운로드에 실패했습니다 (연결 또는 읽기 타임아웃): {url}") from e
 
 
 def _extract_zip_safe(archive: Path, dest: Path) -> None:
