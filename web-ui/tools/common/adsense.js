@@ -100,15 +100,15 @@ export function ensureAdSenseScript() {
   if (_scriptLoadPromise) return _scriptLoadPromise;
 
   _scriptLoadPromise = new Promise((resolve, reject) => {
-    if (document.querySelector('script[data-itmatzip-adsense="1"]')) {
+    const adSrc = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(_client)}`;
+    if (document.querySelector(`script[src*="adsbygoogle.js"]`)) {
       resolve();
       return;
     }
     const s = document.createElement("script");
     s.async = true;
-    s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(_client)}`;
+    s.src = adSrc;
     s.crossOrigin = "anonymous";
-    s.dataset.itmatzipAdsense = "1";
     s.onload = () => resolve();
     s.onerror = () => {
       _scriptUnavailable = true;
