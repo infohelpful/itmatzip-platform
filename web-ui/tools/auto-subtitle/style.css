@@ -27,11 +27,11 @@ body.as-app {
 }
 
 .as-shell {
-  display: flex !important;
-  flex-direction: column !important;
+  display: grid !important;
+  grid-template-rows: auto auto 1fr auto !important;
+  grid-template-columns: 1fr !important;
   height: 100vh !important;
   height: 100dvh !important;
-  min-height: 0;
   position: relative;
   overflow: hidden;
 }
@@ -259,12 +259,12 @@ body.as-app {
 
 /* Workspace 4:6 */
 .as-workspace {
-  flex: 1 !important;
-  min-height: calc(100vh - 200px) !important;
+  min-height: 0;
   display: grid;
   grid-template-columns: 4fr 6fr;
   grid-template-rows: 1fr;
   gap: 0;
+  overflow: hidden;
 }
 
 .as-pane {
