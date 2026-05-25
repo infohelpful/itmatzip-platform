@@ -776,7 +776,7 @@ export function startConnectionMonitor(opts = {}) {
       recordCircuitSuccess();
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
-      if (_installDialog?.open) dismissInstallAgentDialog();
+      if (_installBackdrop && !_installBackdrop.hasAttribute("hidden")) dismissInstallAgentDialog();
       void connectAgentWebSocket();
     } else if (!isAgentLongOperationActive()) {
       failStreak += 1;
@@ -791,9 +791,8 @@ export function startConnectionMonitor(opts = {}) {
       if (changed) opts.onDisconnected?.(detail);
       const shouldAlert =
         opts.autoShowInstallDialog &&
-        !disconnectDialogShown &&
-        (prevOk === true || failStreak >= 3);
-      if (shouldAlert && Date.now() >= _installAutoShowSuppressedUntil && !_installDialog?.open) {
+        !disconnectDialogShown;
+      if (shouldAlert && !(_installBackdrop && !_installBackdrop.hasAttribute("hidden"))) {
         disconnectDialogShown = true;
         void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
           showInstallAgentDialog(dialogOpts),
@@ -837,17 +836,15 @@ function _finishInstallDialogPromise() {
 }
 
 function _closeInstallDialogElement() {
-  const dlg = _installDialog;
-  if (!dlg?.open) return;
-  try {
-    dlg.close();
-  } catch {
-    dlg.removeAttribute("open");
-  }
+  if (!_installBackdrop) return;
+  const isHidden = _installBackdrop.hasAttribute("hidden");
+  if (isHidden) return;
+  _installBackdrop.setAttribute("hidden", "");
+  _installDialog?.setAttribute("hidden", "");
+  document.body?.classList.remove("itz-install-visible");
 }
 
 function _closeInstallDialogByUser() {
-  _installAutoShowSuppressedUntil = Date.now() + 120_000;
   _finishInstallDialogPromise();
   _closeInstallDialogElement();
 }
@@ -907,22 +904,10 @@ function _bindInstallDialogHandlersOnce() {
     const btn = t.closest("button[data-act]");
     if (!btn || !dlg.contains(btn)) return;
     const act = btn.getAttribute("data-act");
-    if (act === "close") {
-      ev.preventDefault();
-      _closeInstallDialogByUser();
-    } else if (act === "retry") {
+    if (act === "retry") {
       ev.preventDefault();
       void _retryInstallDialogConnection();
     }
-  });
-
-  dlg.addEventListener("cancel", (ev) => {
-    ev.preventDefault();
-    _closeInstallDialogByUser();
-  });
-
-  dlg.addEventListener("close", () => {
-    _finishInstallDialogPromise();
   });
 }
 
@@ -932,10 +917,10 @@ export function showInstallAgentDialog(options = {}) {
   }
 
   ensureInstallDialog();
-  const dlg = /** @type {HTMLDialogElement} */ (_installDialog);
+  const dlg = _installDialog;
   _bindInstallDialogHandlersOnce();
   _installDialogOptions = options;
-  const alreadyOpen = Boolean(dlg.open);
+  const alreadyOpen = !_installBackdrop?.hasAttribute("hidden");
   const title = options.title ?? "로컬 에이전트에 연결할 수 없습니다";
   const body =
     options.bodyHtml ??
@@ -951,7 +936,6 @@ export function showInstallAgentDialog(options = {}) {
         <p class="itz-install__status" data-install-status aria-live="polite"></p>
       </div>
       <footer class="itz-install__foot">
-        <button type="button" class="itz-install__btn itz-install__btn--ghost" data-act="close">닫기</button>
         <button type="button" class="itz-install__btn itz-install__btn--primary" data-act="retry">${escapeHtml(
           options.primaryLabel ?? "다시 연결 확인"
         )}</button>
@@ -962,12 +946,14 @@ export function showInstallAgentDialog(options = {}) {
   return new Promise((resolve) => {
     _installPendingResolve = resolve;
     if (!alreadyOpen) {
-      try {
-        if (typeof dlg.showModal === "function") dlg.showModal();
-        else dlg.setAttribute("open", "");
-      } catch {
-        dlg.setAttribute("open", "");
-      }
+      _installBackdrop?.removeAttribute("hidden");
+      dlg.removeAttribute("hidden");
+      document.body?.classList.add("itz-install-visible");
+      requestAnimationFrame(() => {
+        _positionDialogBetweenAds();
+        dlg.scrollIntoView({ behavior: "smooth", block: "center" });
+        dlg.focus?.();
+      });
     }
     requestAnimationFrame(() => {
       options.onShown?.();
@@ -1154,18 +1140,42 @@ function ensureInstallDialogStyles() {
   const style = document.createElement("style");
   style.id = "itmatzip-bridge-install-dialog-styles";
   style.textContent = `
+    .itz-install-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 9990;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      background: rgba(8, 10, 14, 0.52);
+      pointer-events: none;
+    }
+    .itz-install-backdrop[hidden] {
+      display: none !important;
+    }
+    /* 광고 영역: 블러 위에 표시 */
+    body.itz-install-visible .editor-ad,
+    body.itz-install-visible [class*="ad-exempt"] {
+      position: relative !important;
+      z-index: 9995 !important;
+    }
+    /* 다이얼로그: 광고 사이 중앙에 absolute 배치 */
     #itmatzip-bridge-install-dialog {
+      position: absolute;
+      z-index: 9993;
+      left: 50%;
+      transform: translateX(-50%);
+      pointer-events: auto;
       border: 1px solid #2d333f;
       border-radius: 16px;
       padding: 0;
       width: 820px;
-      max-width: 820px;
+      max-width: min(820px, 92vw);
       box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
       background: #1a1d23;
       color: #e2e8f0;
     }
-    #itmatzip-bridge-install-dialog::backdrop {
-      background: rgba(0, 0, 0, 0.72);
+    #itmatzip-bridge-install-dialog[hidden] {
+      display: none !important;
     }
     .itz-install {
       font-family: "Pretendard", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1176,6 +1186,7 @@ function ensureInstallDialogStyles() {
       padding: 1.35rem 2rem 1.1rem;
       border-bottom: 1px solid #2d333f;
       background: #151820;
+      border-radius: 16px 16px 0 0;
     }
     .itz-install__title {
       margin: 0;
@@ -1308,6 +1319,7 @@ function ensureInstallDialogStyles() {
       padding: 1rem 2rem 1.4rem;
       border-top: 1px solid #2d333f;
       background: #151820;
+      border-radius: 0 0 16px 16px;
     }
     .itz-install__btn {
       min-width: 7rem;
@@ -1339,13 +1351,83 @@ function ensureInstallDialogStyles() {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
+/** @type {HTMLElement|null} */
+let _installBackdrop = null;
+
+function _getAbsoluteTop(el) {
+  let top = 0;
+  let current = el;
+  while (current) {
+    top += current.offsetTop || 0;
+    current = current.offsetParent;
+  }
+  return top;
+}
+
+function _positionDialogBetweenAds() {
+  const dlg = _installDialog;
+  if (!dlg) return;
+
+  const ads = Array.from(document.querySelectorAll(".editor-ad, [class*='ad-exempt']"));
+  const unique = [...new Set(ads)];
+
+  const adRects = [];
+  for (const ad of unique) {
+    if (ad.offsetWidth === 0 && ad.offsetHeight === 0) continue;
+    const absTop = _getAbsoluteTop(ad);
+    adRects.push({ top: absTop, bottom: absTop + ad.offsetHeight });
+  }
+
+  if (adRects.length === 0) {
+    const pageH = document.documentElement.scrollHeight;
+    dlg.style.top = (pageH / 2) + "px";
+    return;
+  }
+
+  adRects.sort((a, b) => a.top - b.top);
+
+  const topAd = adRects[0];
+  const bottomAd = adRects[adRects.length - 1];
+
+  let firstAdBottom, lastAdTop;
+
+  if (adRects.length === 1) {
+    firstAdBottom = topAd.bottom;
+    lastAdTop = document.documentElement.scrollHeight;
+  } else if (bottomAd.top >= topAd.bottom) {
+    firstAdBottom = topAd.bottom;
+    lastAdTop = bottomAd.top;
+  } else {
+    const maxBottom = Math.max(...adRects.map(r => r.bottom));
+    firstAdBottom = maxBottom;
+    lastAdTop = document.documentElement.scrollHeight;
+  }
+
+  const centerY = firstAdBottom + (lastAdTop - firstAdBottom) / 2;
+  const dlgH = dlg.offsetHeight || 600;
+  const top = Math.max(firstAdBottom + 16, centerY - dlgH / 2);
+
+  dlg.style.top = top + "px";
+}
+
 function ensureInstallDialog() {
   ensureInstallDialogStyles();
   if (_installDialog) return;
-  const dlg = document.createElement("dialog");
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "itz-install-backdrop";
+  backdrop.setAttribute("hidden", "");
+
+  const dlg = document.createElement("div");
   dlg.id = "itmatzip-bridge-install-dialog";
+  dlg.setAttribute("hidden", "");
+  dlg.setAttribute("tabindex", "-1");
+
   const root = document.body ?? document.documentElement;
+  root.appendChild(backdrop);
   root.appendChild(dlg);
+
+  _installBackdrop = backdrop;
   _installDialog = dlg;
   _bindInstallDialogHandlersOnce();
 }

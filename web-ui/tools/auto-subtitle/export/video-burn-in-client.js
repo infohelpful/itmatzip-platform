@@ -2,7 +2,7 @@
  * Electron exportByFormat(video) 웹 대응 — 자막 캡처 + 단일 패스 FFmpeg 번인.
  */
 
-import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as8";
+import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
 import { buildExportCueLines } from "../shared/export-cue-pipeline.js";
 import { buildMappedSubtitles } from "./export-timeline.js";
 import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=4";

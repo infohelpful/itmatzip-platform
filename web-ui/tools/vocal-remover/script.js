@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=ws1";
+} from "../common/bridge.js?v=ws2";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp2";
@@ -291,7 +291,7 @@ async function navigateToDownloadPage(exportLinkEl) {
   try {
     const agent = await checkAgentConnection();
     if (!agent.ok) {
-      await showInstallAgentDialog(installDialogOpts());
+      await showInstallAgentDialog(await installDialogOpts());
       return;
     }
     navigating = true;
@@ -712,7 +712,7 @@ async function pickLocalFile() {
 
   const agent = await checkAgentConnection();
   if (!agent.ok) {
-    await showInstallAgentDialog(installDialogOpts());
+    await showInstallAgentDialog(await installDialogOpts());
     return;
   }
 
@@ -1060,7 +1060,7 @@ void showAdSense("editorBelowExport", "#editor-ad-below-export");
 void (async () => {
   const agent = await checkAgentConnection();
   if (!agent.ok) {
-    await showInstallAgentDialog(installDialogOpts());
+    await showInstallAgentDialog(await installDialogOpts());
     return;
   }
   await checkVocalToolReadiness(true);

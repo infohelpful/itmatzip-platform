@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, fetchAgent, getAgentOrigin } from "../common/bridge.js?v=lna6";
+import { checkAgentConnection, configureBridge, fetchAgent, getAgentOrigin } from "../common/bridge.js?v=lna8";
 import { showAdSense } from "../common/adsense.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 

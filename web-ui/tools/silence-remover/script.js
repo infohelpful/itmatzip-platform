@@ -8,7 +8,7 @@ import {
   requestAgent,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna7";
+} from "../common/bridge.js?v=lna8";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
