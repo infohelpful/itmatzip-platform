@@ -658,13 +658,13 @@ function getMediaStreamUrl() {
 }
 
 function getPreviewCueIndex() {
-  const caretIdx = getFocusedSubtitleCardIndex();
-  if (caretIdx >= 0 && lastCues[caretIdx] && !lastCues[caretIdx].is_silence) {
-    return caretIdx;
-  }
   if (isPreviewMediaPlaying()) {
     const { ai } = resolvePlaybackIndices(playheadSec);
     return ai;
+  }
+  const caretIdx = getFocusedSubtitleCardIndex();
+  if (caretIdx >= 0 && lastCues[caretIdx] && !lastCues[caretIdx].is_silence) {
+    return caretIdx;
   }
   if (selectedCueIndex >= 0 && lastCues[selectedCueIndex] && !lastCues[selectedCueIndex].is_silence) {
     return selectedCueIndex;
@@ -877,6 +877,9 @@ function commitPlayheadUi({
   const previewIdx = getPreviewCueIndex();
   if (previewIdx !== lastOverlayCueIndex) {
     updatePreviewOverlay();
+    console.log("[PREVIEW-DBG] overlay updated: idx=%d→%d, playing=%s, text=%s",
+      lastOverlayCueIndex, previewIdx, mediaPlaying,
+      getPreviewCueText(lastCues[previewIdx])?.slice(0, 25));
     lastOverlayCueIndex = previewIdx;
   }
 
@@ -1232,6 +1235,8 @@ setPreviewOverlaySyncHook((cardIndex) => {
   }
   lastOverlayCueIndex = -1;
   updatePreviewOverlay();
+  console.log("[SYNC-HOOK] cardIndex=%d, selectedCue=%d, text=%s",
+    cardIndex, selectedCueIndex, getPreviewCueText(lastCues[cardIndex])?.slice(0, 25));
 });
 
 function escapeHtml(s) {
@@ -1616,6 +1621,8 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, nextIndex);
         lastOverlayCueIndex = -1;
         updatePreviewOverlay();
+        console.log("[SPLIT-DBG] split done → selectedCueIndex=%d, previewCueIdx=%d, text=%s",
+          nextIndex, getPreviewCueIndex(), getPreviewCueText(lastCues[nextIndex])?.slice(0, 30));
       }
       if (subtitleList) {
         requestFocusCaretDeferred(
