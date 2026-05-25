@@ -1020,11 +1020,12 @@ function playbackTick() {
 
 function startPlaybackLoop(opts = {}) {
   if (isDeleteGuardActive()) {
+    console.log("[PLAY-DBG] startLoop DELAYED (deleteGuard active)");
     window.setTimeout(() => startPlaybackLoop(opts), 35);
     return;
   }
-  if (!previewVideo || !previewAudio) return;
-  if (isVideoPlaying && playbackRafId) return;
+  if (!previewVideo || !previewAudio) { console.log("[PLAY-DBG] startLoop ABORT: no media"); return; }
+  if (isVideoPlaying && playbackRafId) { console.log("[PLAY-DBG] startLoop SKIP: already playing"); return; }
 
   if (playbackRafId) {
     cancelAnimationFrame(playbackRafId);
@@ -1158,14 +1159,16 @@ function applyPlaybackSkipIfNeeded() {
 }
 
 function togglePreviewPlayback(opts = {}) {
-  if (!previewVideo) return;
+  if (!previewVideo) { console.log("[PLAY-DBG] toggle: no previewVideo"); return; }
   const playing = isPreviewMediaPlaying() || isVideoPlaying;
   if (playing) {
+    console.log("[PLAY-DBG] toggle → PAUSE (wasPlaying=%s, isVideoPlaying=%s)", playing, isVideoPlaying);
     userRequestedPreviewPause = true;
     stopPlaybackLoop();
     userRequestedPreviewPause = false;
     return;
   }
+  console.log("[PLAY-DBG] toggle → PLAY (playheadSec=%.2f, selectedCue=%d)", playheadSec, selectedCueIndex);
   resetSpaceSeekIntent();
   if (!isVideoPlaying) startPlaybackLoop();
 }
@@ -1174,9 +1177,10 @@ function togglePreviewPlayback(opts = {}) {
 function playAtSubtitleCaret(cardIndex, storageCaret) {
   waveformPlayRangeEndEdit = null;
   const cue = lastCues[cardIndex];
-  if (!cue) return;
+  if (!cue) { console.log("[PLAY-DBG] playAtCaret: no cue at %d", cardIndex); return; }
   const editSec = editSecForStorageWord(cue, storageCaret);
-  if (!Number.isFinite(editSec)) return;
+  if (!Number.isFinite(editSec)) { console.log("[PLAY-DBG] playAtCaret: bad editSec for card=%d", cardIndex); return; }
+  console.log("[PLAY-DBG] playAtCaret: card=%d, editSec=%.2f, text=%s", cardIndex, editSec, getPreviewCueText(cue)?.slice(0, 20));
   selectCueLine(cardIndex, { seek: false, scroll: false, rerender: false });
   seekEditSecAndPlay(editSec);
 }
@@ -1232,11 +1236,14 @@ setPreviewOverlaySyncHook((cardIndex) => {
     const prev = selectedCueIndex;
     selectedCueIndex = cardIndex;
     if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, cardIndex);
+    lastOverlayCueIndex = -1;
+    updatePreviewOverlay();
+    console.log("[SYNC-HOOK] navigate → card=%d, text=%s",
+      cardIndex, getPreviewCueText(lastCues[cardIndex])?.slice(0, 25));
+  } else if (lastOverlayCueIndex !== cardIndex) {
+    lastOverlayCueIndex = -1;
+    updatePreviewOverlay();
   }
-  lastOverlayCueIndex = -1;
-  updatePreviewOverlay();
-  console.log("[SYNC-HOOK] cardIndex=%d, selectedCue=%d, text=%s",
-    cardIndex, selectedCueIndex, getPreviewCueText(lastCues[cardIndex])?.slice(0, 25));
 });
 
 function escapeHtml(s) {
