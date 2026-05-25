@@ -7,18 +7,10 @@
   <title>Auto Subtitle</title>
   <link rel="stylesheet" href="style.css?v=82">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-  <style>
-    html, body.as-app { margin:0; height:100%; overflow:hidden; }
-    .as-shell { display:flex!important; flex-direction:column!important; height:100vh!important; height:100dvh!important; overflow:hidden!important; position:relative; }
-    .as-workspace { display:grid!important; grid-template-columns:4fr 6fr!important; grid-template-rows:1fr!important; flex:1!important; min-height:0!important; overflow:hidden!important; }
-    .as-pane { display:flex!important; flex-direction:column!important; min-height:0!important; overflow:hidden!important; }
-    .as-preview-main, .as-subtitle-main { flex:1!important; min-height:0!important; overflow:hidden; }
-    .as-preview-ad-wrap, .as-subtitle-ad-wrap { flex-shrink:0!important; max-height:100px!important; overflow:hidden!important; }
-  </style>
 </head>
 <body class="as-app">
-  <div class="as-shell" style="display:flex!important;flex-direction:column!important;height:100vh!important;height:100dvh!important;overflow:hidden!important;">
-    <header class="as-topbar" style="flex:0 0 auto!important;">
+  <div class="as-shell">
+    <header class="as-topbar">
       <div class="as-topbar-left">
         <h1 class="as-logo">Auto <span class="as-logo-accent">Subtitle</span></h1>
         <span id="connection-status" class="as-status-dot">에이전트 확인 중…</span>
@@ -33,7 +25,7 @@
       </div>
     </header>
 
-    <section class="as-stylebar" id="style-section" style="flex:0 0 auto!important;">
+    <section class="as-stylebar" id="style-section">
       <div class="as-stylebar-controls">
         <div class="as-style-col">
           <label class="as-style-field as-style-field--font">
@@ -132,9 +124,9 @@
       </div>
     </section>
 
-    <div class="as-workspace" style="flex:1!important;min-height:0!important;display:grid!important;grid-template-columns:4fr 6fr!important;grid-template-rows:1fr!important;overflow:hidden!important;">
-      <section class="as-pane as-pane-preview" style="display:flex!important;flex-direction:column!important;min-height:0!important;overflow:hidden!important;">
-        <div class="as-preview-main" style="flex:1!important;min-height:0!important;display:flex!important;flex-direction:column!important;">
+    <div class="as-workspace">
+      <section class="as-pane as-pane-preview">
+        <div class="as-preview-main">
           <div class="as-pane-toolbar as-pane-toolbar--preview">
             <label class="as-load-label" for="video-path">영상 불러오기</label>
             <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="로컬 파일 경로">
@@ -157,16 +149,16 @@
             <span id="preview-time-total" class="as-transport-time">0:00</span>
           </div>
         </div>
-        <div class="as-preview-ad-wrap" style="flex-shrink:0!important;max-height:100px!important;overflow:hidden!important;">
+        <div class="as-preview-ad-wrap">
           <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-preview-pane" aria-label="광고"></div>
         </div>
       </section>
 
-      <section class="as-pane as-pane-subtitles" style="display:flex!important;flex-direction:column!important;min-height:0!important;overflow:hidden!important;">
-        <div class="as-subtitle-ad-wrap" style="flex-shrink:0!important;max-height:100px!important;overflow:hidden!important;">
+      <section class="as-pane as-pane-subtitles">
+        <div class="as-subtitle-ad-wrap">
           <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-subtitle-pane" aria-label="광고"></div>
         </div>
-        <div class="as-subtitle-main" style="flex:1!important;min-height:0!important;overflow:hidden;">
+        <div class="as-subtitle-main">
           <div class="as-subtitle-list" id="subtitle-list"></div>
           <p class="as-subtitle-empty" id="subtitle-empty">영상을 불러오면 자막이 여기에 표시됩니다.</p>
           <span id="results-meta" class="as-results-meta" hidden></span>
@@ -174,7 +166,7 @@
       </section>
     </div>
 
-    <footer class="as-footer" style="flex:0 0 auto!important;">
+    <footer class="as-footer">
       <span id="bin-readiness">Auto Subtitle · 준비 대기</span>
       <div class="as-footer-actions">
         <button type="button" id="btn-new-job" class="as-btn as-btn-ghost as-btn-sm">새 작업</button>
@@ -185,7 +177,7 @@
       </div>
     </footer>
 
-    <div class="as-inapp-busy-host" id="as-inapp-busy-host" hidden aria-hidden="true" style="position:absolute!important;inset:0!important;">
+    <div class="as-inapp-busy-host" id="as-inapp-busy-host" hidden aria-hidden="true">
       <div class="setup-loading" id="setup-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
           <p class="setup-loading__title" id="setup-loading-title">AI 환경 준비</p>
@@ -233,5 +225,48 @@
   </div>
 
   <script type="module" src="script.js?v=125"></script>
+  <script>
+    // 레이아웃 진단 로그 (광고 로드 전/후 비교)
+    function logLayout(label) {
+      const shell = document.querySelector('.as-shell');
+      const workspace = document.querySelector('.as-workspace');
+      const paneL = document.querySelector('.as-pane-preview');
+      const paneR = document.querySelector('.as-pane-subtitles');
+      const topbar = document.querySelector('.as-topbar');
+      const stylebar = document.querySelector('.as-stylebar');
+      const footer = document.querySelector('.as-footer');
+      const cs = (el) => el ? getComputedStyle(el) : null;
+      console.group(`[LAYOUT-DIAG] ${label}`);
+      console.log('viewport:', window.innerWidth, 'x', window.innerHeight);
+      console.log('html height:', document.documentElement.getBoundingClientRect().height);
+      console.log('body height:', document.body.getBoundingClientRect().height);
+      if(shell) {
+        const s = cs(shell);
+        console.log('shell:', shell.getBoundingClientRect().height, '| display:', s.display, '| flexDir:', s.flexDirection, '| height:', s.height);
+        console.log('shell children count:', shell.children.length);
+        for(let i=0; i<shell.children.length; i++) {
+          const c = shell.children[i];
+          const r = c.getBoundingClientRect();
+          const ccs = cs(c);
+          console.log(`  child[${i}] ${c.className.split(' ')[0]}:`, r.height.toFixed(1), '| flex:', ccs.flex, '| display:', ccs.display, '| position:', ccs.position);
+        }
+      }
+      if(workspace) {
+        const s = cs(workspace);
+        console.log('workspace:', workspace.getBoundingClientRect().height, '| display:', s.display, '| flex:', s.flex, '| gridRows:', s.gridTemplateRows);
+      }
+      if(paneL) console.log('pane-preview:', paneL.getBoundingClientRect().height);
+      if(paneR) console.log('pane-subtitles:', paneR.getBoundingClientRect().height);
+      console.groupEnd();
+    }
+    // 페이지 로드 직후
+    logLayout('DOMContentLoaded');
+    // 1초 후 (광고 로드 가능성)
+    setTimeout(() => logLayout('after 1s'), 1000);
+    // 3초 후
+    setTimeout(() => logLayout('after 3s'), 3000);
+    // 5초 후
+    setTimeout(() => logLayout('after 5s'), 5000);
+  </script>
 </body>
 </html>
