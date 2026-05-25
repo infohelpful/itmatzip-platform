@@ -7,6 +7,14 @@
   <title>Auto Subtitle</title>
   <link rel="stylesheet" href="style.css?v=82">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <style>
+    html, body.as-app { margin:0; height:100%; overflow:hidden; }
+    .as-shell { display:flex!important; flex-direction:column!important; height:100vh!important; height:100dvh!important; overflow:hidden!important; position:relative; }
+    .as-workspace { display:grid!important; grid-template-columns:4fr 6fr!important; grid-template-rows:1fr!important; flex:1!important; min-height:0!important; overflow:hidden!important; }
+    .as-pane { display:flex!important; flex-direction:column!important; min-height:0!important; overflow:hidden!important; }
+    .as-preview-main, .as-subtitle-main { flex:1!important; min-height:0!important; overflow:hidden; }
+    .as-preview-ad-wrap, .as-subtitle-ad-wrap { flex-shrink:0!important; max-height:100px!important; overflow:hidden!important; }
+  </style>
 </head>
 <body class="as-app">
   <div class="as-shell">
