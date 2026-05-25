@@ -27,13 +27,11 @@ body.as-app {
 }
 
 .as-shell {
-  display: grid !important;
-  grid-template-rows: auto auto 1fr auto !important;
-  grid-template-columns: 1fr !important;
-  height: 100vh !important;
-  height: 100dvh !important;
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   overflow: hidden;
+  position: relative;
 }
 
 /* Top bar */
@@ -259,6 +257,7 @@ body.as-app {
 
 /* Workspace 4:6 */
 .as-workspace {
+  flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 4fr 6fr;
