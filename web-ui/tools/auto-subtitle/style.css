@@ -262,6 +262,7 @@ body.as-app {
   min-height: 0;
   display: grid;
   grid-template-columns: 4fr 6fr;
+  grid-template-rows: 1fr;
   gap: 0;
 }
 
