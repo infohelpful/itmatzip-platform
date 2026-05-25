@@ -258,7 +258,7 @@ body.as-app {
 
 /* Workspace 4:6 */
 .as-workspace {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-height: 0;
   display: grid;
   grid-template-columns: 4fr 6fr;
