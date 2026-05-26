@@ -2,7 +2,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?define ProductName = "ItMatZip Agent" ?>
-  <?define ProductVersion = "1.2.0.0" ?>
+  <?define ProductVersion = "1.2.1.0" ?>
   <?define Manufacturer = "ItMatZip" ?>
   <?define UpgradeCode = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" ?>
 
@@ -16,8 +16,8 @@
              Compressed="yes"
              InstallScope="perMachine"
              Platform="x64"
-             Description="$(var.ProductName) local service"
-             Comments="Go controller + Python AI worker" />
+             Description="$(var.ProductName) tray application"
+             Comments="Go controller + Python AI worker (tray mode)" />
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -60,29 +60,13 @@
       </Component>
     </ComponentGroup>
 
-    <CustomAction Id="InstallService"
+    <CustomAction Id="RegisterTrayAutostart"
                   Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]itmatzip-agent.exe&quot; --install"
                   Execute="deferred"
                   Impersonate="no"
                   Return="check" />
 
-    <!-- 일반 사용자가 트레이에서 서비스 시작/중지 (SYSTEM 설치 시 sc sdset) -->
-    <CustomAction Id="GrantServiceUserControl"
-                  Directory="INSTALLFOLDER"
-                  ExeCommand="cmd.exe /c sc sdset ItMatZipAgent &quot;D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRRC;;;BA)(A;;RPWP;;;AU)(A;;CCLCSWRPWPDTLOCRRC;;;IU)&quot;"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="ignore" />
-
-    <CustomAction Id="StartAgentService"
-                  Directory="INSTALLFOLDER"
-                  ExeCommand="cmd.exe /c sc start ItMatZipAgent"
-                  Execute="deferred"
-                  Impersonate="no"
-                  Return="ignore" />
-
-    <!-- 설치 직후 트레이만 표시 (서비스는 InstallService에서 이미 시작) -->
     <CustomAction Id="StartTrayIcon"
                   Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]itmatzip-agent.exe&quot; --tray"
@@ -90,21 +74,21 @@
                   Impersonate="yes"
                   Return="asyncNoWait" />
 
-    <CustomAction Id="StopAgentServiceOnUpgrade"
+    <CustomAction Id="StopTrayOnUpgrade"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="cmd.exe /c sc stop ItMatZipAgent"
+                  ExeCommand="cmd.exe /c taskkill /IM itmatzip-agent.exe /F"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
 
-    <CustomAction Id="StopAgentServiceOnRemove"
+    <CustomAction Id="StopTrayOnRemove"
                   Directory="INSTALLFOLDER"
-                  ExeCommand="cmd.exe /c sc stop ItMatZipAgent"
+                  ExeCommand="cmd.exe /c taskkill /IM itmatzip-agent.exe /F"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />
 
-    <CustomAction Id="UninstallService"
+    <CustomAction Id="UnregisterTrayAutostart"
                   Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]itmatzip-agent.exe&quot; --uninstall"
                   Execute="deferred"
@@ -112,13 +96,11 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="StopAgentServiceOnUpgrade" Before="InstallFiles">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
-      <Custom Action="InstallService" After="InstallFiles">NOT REMOVE</Custom>
-      <Custom Action="GrantServiceUserControl" After="InstallService">NOT REMOVE</Custom>
-      <Custom Action="StartAgentService" After="GrantServiceUserControl">NOT REMOVE</Custom>
-      <Custom Action="StartTrayIcon" After="StartAgentService">NOT REMOVE</Custom>
-      <Custom Action="StopAgentServiceOnRemove" Before="UninstallService">REMOVE="ALL"</Custom>
-      <Custom Action="UninstallService" Before="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="StopTrayOnUpgrade" Before="InstallFiles">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
+      <Custom Action="RegisterTrayAutostart" After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="StartTrayIcon" After="RegisterTrayAutostart">NOT REMOVE</Custom>
+      <Custom Action="StopTrayOnRemove" Before="UnregisterTrayAutostart">REMOVE="ALL"</Custom>
+      <Custom Action="UnregisterTrayAutostart" Before="RemoveFiles">REMOVE="ALL"</Custom>
     </InstallExecuteSequence>
   </Product>
 </Wix>

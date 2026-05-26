@@ -2,26 +2,10 @@
 
 package main
 
-import (
-	"fmt"
-	"time"
-)
+import "fmt"
 
-func startFileDialogBroker() error { return nil }
-func stopFileDialogBroker()        {}
-func runFileDialogBrokerOnly() error {
-	return fmt.Errorf("file dialog broker is only available on Windows")
-}
-func isFileDialogBrokerListening() bool { return false }
+func isCurrentProcessInteractive() bool { return false }
 
-func ensureFileDialogBrokerReady(timeout time.Duration) error {
-	_ = timeout
-	return fmt.Errorf("file dialog broker is only available on Windows")
-}
-
-func requestFileDialogBroker(audioOnly bool, projectOnly bool, timeout time.Duration) (string, error) {
-	_ = audioOnly
-	_ = projectOnly
-	_ = timeout
-	return "", fmt.Errorf("file dialog broker is only available on Windows")
+func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
+	return "", fmt.Errorf("file dialog is only available on Windows")
 }

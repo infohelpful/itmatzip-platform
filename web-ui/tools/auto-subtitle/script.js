@@ -1972,7 +1972,13 @@ async function onLoadProject() {
     alert(MSG_SUBTITLE_NEED_APP);
     return;
   }
-  const pick = await requestAgent({ path: "/api/agent/pick-local-project-file", method: "POST" });
+  let pick;
+  try {
+    pick = await requestAgent({ path: "/api/agent/pick-local-project-file", method: "POST" });
+  } catch (err) {
+    if (/취소|cancel/i.test(String(err))) return;
+    throw err;
+  }
   const projectPath = pick?.project_path || pick?.path || "";
   if (!projectPath) return;
 
@@ -2001,7 +2007,51 @@ function applyReadiness(data) {
   agentAudiowaveformAvailable = Boolean(b.audiowaveform);
   toolReady = Boolean(b.ffmpeg && modelLoaded);
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  setComputeCapabilityBadge(data);
   maybeShowGpuInstallDialog(data);
+}
+
+function setComputeCapabilityBadge(data) {
+  const el = document.getElementById("compute-capability");
+  if (!el) return;
+  el.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
+
+  if (!agentConnected) {
+    el.classList.add("is-pending");
+    el.textContent = "연산 장치 확인 불가";
+    el.title = "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.";
+    return;
+  }
+
+  const b = data?.binaries || {};
+  const model = data?.model || {};
+
+  if (!b.gpu_detected && !b.gpu_runtime_installed && !model.device) {
+    el.classList.add("is-pending");
+    el.textContent = "연산 장치 확인 중…";
+    el.title = "";
+    return;
+  }
+
+  const device = (model.device || "").toLowerCase();
+
+  if (device === "cuda" || b.gpu_runtime_installed) {
+    el.classList.add("is-gpu");
+    el.textContent = "GPU · CUDA 사용 중";
+    el.title = "CUDA GPU로 자막 추출이 동작합니다.";
+    return;
+  }
+
+  if (b.gpu_detected && !b.gpu_runtime_installed) {
+    el.classList.add("is-warn");
+    el.textContent = "GPU 감지됨 · CUDA 미설치";
+    el.title = "NVIDIA GPU가 있습니다. 환경 준비에서 CUDA DLL을 설치하면 GPU를 사용할 수 있습니다.";
+    return;
+  }
+
+  el.classList.add("is-cpu");
+  el.textContent = "CPU만 가능";
+  el.title = "NVIDIA GPU가 감지되지 않았습니다. CPU로 자막 추출이 동작합니다.";
 }
 
 let gpuDialogShown = false;
@@ -2010,7 +2060,6 @@ function closeGpuInstallModal() {
   if (!gpuInstallPrompt) return;
   gpuInstallPrompt.hidden = true;
   gpuInstallPrompt.classList.remove("is-active");
-  gpuInstallPrompt.setAttribute("aria-hidden", "true");
   syncInAppBusyShell();
 }
 
@@ -2029,7 +2078,6 @@ function openGpuInstallModal(message) {
   }
   gpuInstallPrompt.hidden = false;
   gpuInstallPrompt.classList.add("is-active");
-  gpuInstallPrompt.setAttribute("aria-hidden", "false");
   syncInAppBusyShell();
 }
 
@@ -2879,10 +2927,8 @@ async function onPickLocalFile() {
       data && typeof data === "object"
         ? String(data.video_path || data.path || "").trim()
         : "";
-    if (!path || !videoPathInput) {
-      alert("에이전트가 경로를 반환하지 않았습니다.");
-      return;
-    }
+    if (!path) return;
+    if (!videoPathInput) return;
 
     const prev = sessionVideoPath || videoPathInput.value.trim();
     if (path !== prev) {
@@ -2900,12 +2946,16 @@ async function onPickLocalFile() {
     loadWaveformPeaks();
     shouldTranscribe = true;
   } catch (e) {
-    const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
-    if (name === "AbortError") {
-      alert("파일 선택이 시간 초과되었습니다. 다시 시도해 주세요.");
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/취소|cancel/i.test(msg)) {
+      // 사용자 취소 — 팝업 없이 조용히 무시
     } else {
-      const msg = e instanceof Error ? e.message : String(e);
-      alert(`파일 찾아보기 실패: ${formatAgentConnectionError(e) || msg}`);
+      const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
+      if (name === "AbortError") {
+        alert("파일 선택이 시간 초과되었습니다. 다시 시도해 주세요.");
+      } else {
+        alert(`파일 찾아보기 실패: ${formatAgentConnectionError(e) || msg}`);
+      }
     }
   } finally {
     userRequestedPreviewPause = false;

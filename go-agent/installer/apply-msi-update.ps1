@@ -14,7 +14,7 @@ function Write-UpdateLog([string]$Message) {
 function Invoke-MsiExecQuoted {
   param([string[]]$Arguments)
   $argLine = ($Arguments | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-  $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $argLine -Wait -PassThru
+  $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $argLine -Wait -PassThru -WindowStyle Hidden
   return $p.ExitCode
 }
 
@@ -28,7 +28,10 @@ try {
     exit $exit
   }
   Start-Sleep -Seconds 2
-  Start-Service -Name $ServiceName
+  $sc = Start-Process -FilePath "sc.exe" -ArgumentList "start $ServiceName" -Wait -PassThru -WindowStyle Hidden -NoNewWindow
+  if ($sc.ExitCode -ne 0) {
+    Start-Service -Name $ServiceName -ErrorAction SilentlyContinue
+  }
   Write-UpdateLog "MSI update completed"
 } catch {
   Write-UpdateLog ("MSI update error: " + $_.Exception.Message)

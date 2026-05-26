@@ -80,7 +80,7 @@ try {
     Write-Host "Version check OK: agent/version.py matches product.wxs" -ForegroundColor Green
 
     Write-Host "Building itmatzip-agent.exe..." -ForegroundColor Cyan
-    go build -o itmatzip-agent.exe .
+    go build -ldflags "-H windowsgui" -o itmatzip-agent.exe .
 
     Write-Host "Building tray icon (16x16)..." -ForegroundColor Cyan
     & (Join-Path $Root "scripts\build-tray-icon.ps1") -Python $Python

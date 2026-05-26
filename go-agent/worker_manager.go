@@ -30,7 +30,6 @@ type workerManager struct {
 	grpcClient *grpcWorkerClient
 
 	mu       sync.Mutex
-	stdio    *workerProcess
 	grpcProc *workerProcess
 }
 
@@ -62,9 +61,6 @@ func (wm *workerManager) Close() {
 func (wm *workerManager) stopAll() {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	if wm.stdio != nil && wm.stdio.cancel != nil {
-		wm.stdio.cancel()
-	}
 	if wm.grpcProc != nil && wm.grpcProc.cancel != nil {
 		wm.grpcProc.cancel()
 	}
@@ -79,7 +75,7 @@ func (wm *workerManager) resetWorkers() {
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		wm.mu.Lock()
-		busy := wm.stdio != nil || wm.grpcProc != nil
+		busy := wm.grpcProc != nil
 		wm.mu.Unlock()
 		if !busy {
 			return
@@ -87,57 +83,10 @@ func (wm *workerManager) resetWorkers() {
 		time.Sleep(120 * time.Millisecond)
 	}
 	wm.mu.Lock()
-	wm.stdio = nil
 	wm.grpcProc = nil
 	wm.mu.Unlock()
 }
 
-func (wm *workerManager) startPythonWorker(ctx context.Context) error {
-	wm.mu.Lock()
-	defer wm.mu.Unlock()
-	if wm.stdio != nil {
-		return fmt.Errorf("stdio worker already running")
-	}
-
-	pythonPath := resolvePythonExecutable()
-	workerPath := pythonWorkerScript("worker.py")
-	workerDir := filepath.Dir(workerPath)
-
-	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, pythonPath, filepath.Base(workerPath), "--serve")
-	hideExec(cmd)
-	cmd.Dir = workerDir
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
-		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
-		fmt.Sprintf("PYTHONPATH=%s", workerDir),
-		"PYTHONNOUSERSITE=1",
-	)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		cancel()
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		cancel()
-		return err
-	}
-
-	wm.stdio = &workerProcess{id: "stdio", kind: "python-stdio", cmd: cmd, cancel: cancel}
-	wm.upsertWorker("stdio", "python-stdio", cmd.Process.Pid, "running", "")
-
-	go wm.scanWorkerOutput(stdout, "stdout")
-	go wm.scanWorkerOutput(stderr, "stderr")
-	go wm.waitWorker(wm.stdio)
-
-	wm.hub.broadcast(wsEvent{Type: "worker", Status: "started", Message: "Python stdio worker launched", Source: "python"})
-	return nil
-}
 
 func (wm *workerManager) startGRPCWorker(ctx context.Context) error {
 	wm.mu.Lock()
@@ -231,9 +180,6 @@ func (wm *workerManager) waitWorker(proc *workerProcess) {
 
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
-	if wm.stdio == proc {
-		wm.stdio = nil
-	}
 	if wm.grpcProc == proc {
 		wm.grpcProc = nil
 	}

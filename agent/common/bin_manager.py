@@ -126,7 +126,13 @@ def _adopt_system_path_binaries() -> None:
     ffprobe_on_path = shutil.which("ffprobe")
     if not ffmpeg_on_path or not ffprobe_on_path:
         return
-    _publish_ffmpeg_runtime_files(Path(ffmpeg_on_path).parent, dest_dir=get_ffmpeg_shared_dir())
+    source_dir = Path(ffmpeg_on_path).resolve().parent
+    if not any(source_dir.glob("*.dll")):
+        return
+    try:
+        _publish_ffmpeg_runtime_files(source_dir, dest_dir=get_ffmpeg_shared_dir())
+    except FileNotFoundError:
+        pass
 
 
 def _ffmpeg_shared_runtime_complete() -> bool:

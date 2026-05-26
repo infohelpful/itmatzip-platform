@@ -15,6 +15,8 @@
     <header class="as-topbar">
       <div class="as-topbar-left">
         <h1 class="as-logo">Auto <span class="as-logo-accent">Subtitle</span></h1>
+        <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+        <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
         <span id="connection-status" class="as-status-dot">에이전트 확인 중…</span>
       </div>
       <div class="as-topbar-actions">
@@ -202,7 +204,7 @@
           <p class="transcribe-percent" id="transcribe-loading-percent"></p>
         </div>
       </div>
-      <div class="gpu-install-prompt" id="gpu-install-prompt" hidden aria-hidden="true">
+      <div class="gpu-install-prompt" id="gpu-install-prompt" hidden>
         <div class="setup-loading__panel" role="dialog" aria-labelledby="gpu-install-title">
           <h2 class="setup-loading__title" id="gpu-install-title">GPU 가속 런타임</h2>
           <p class="setup-loading__desc" id="gpu-install-message">NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 GPU로 자막 추출을 사용할 수 있습니다.</p>

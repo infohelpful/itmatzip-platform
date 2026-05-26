@@ -288,12 +288,13 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	return srv.ListenAndServe()
 }
 
-func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRPC bool, startFastAPI bool) error {
+func runAgent(port int, grpcPort int, fastapiPort int, startGRPC bool, startFastAPI bool) error {
 	initPaths()
 	if err := ensurePaths(); err != nil {
 		return fmt.Errorf("ensure paths: %w", err)
 	}
 	setupLogging()
+	initJobObject()
 
 	grpcAddr := fmt.Sprintf("%s:%d", defaultHost, grpcPort)
 	hub := newHub()
@@ -304,11 +305,6 @@ func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRP
 	defer cancel()
 	initUpdateManager(ctx)
 
-	if startStdio {
-		if err := mgr.startPythonWorker(ctx); err != nil {
-			log.Printf("warning: stdio python worker failed to start: %v", err)
-		}
-	}
 	if startGRPC {
 		if err := mgr.startGRPCWorker(ctx); err != nil {
 			log.Printf("warning: grpc python worker failed to start: %v", err)
@@ -332,27 +328,20 @@ func runAgent(port int, grpcPort int, fastapiPort int, startStdio bool, startGRP
 
 func main() {
 	var (
-		install      = flag.Bool("install", false, "install Windows service")
-		uninstall    = flag.Bool("uninstall", false, "uninstall Windows service")
-		serviceMode  = flag.Bool("service", false, "run as Windows service")
-		checkUpdate  = flag.Bool("check-update", false, "check GitHub manifest for MSI update")
-		applyUpdate  = flag.Bool("apply-update", false, "download and apply MSI update if available")
-		trayMode     = flag.Bool("tray", false, "show tray icon only (does not start/stop service)")
-		brokerMode   = flag.Bool("broker", false, "file dialog broker only on :19879 (user session)")
-		launchMode   = flag.Bool("launch", false, "restart service and show tray; quitting tray stops service")
-		port         = flag.Int("port", defaultPort, "HTTP/WebSocket port")
-		grpcPort     = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
-		fastapiPort  = flag.Int("fastapi-port", defaultFastAPIPort, "FastAPI sidecar port")
-		noPython     = flag.Bool("no-python", false, "skip launching Python workers")
-		noGRPC       = flag.Bool("no-grpc", false, "skip launching Python gRPC worker")
-		noFastAPI    = flag.Bool("no-fastapi", false, "skip launching FastAPI sidecar")
+		install     = flag.Bool("install", false, "register tray autostart and launch tray")
+		uninstall   = flag.Bool("uninstall", false, "unregister tray autostart")
+		checkUpdate = flag.Bool("check-update", false, "check GitHub manifest for MSI update")
+		applyUpdate = flag.Bool("apply-update", false, "download and apply MSI update if available")
+		trayMode    = flag.Bool("tray", false, "run as tray application (full agent)")
+		port        = flag.Int("port", defaultPort, "HTTP/WebSocket port")
+		grpcPort    = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
+		fastapiPort = flag.Int("fastapi-port", defaultFastAPIPort, "FastAPI sidecar port")
+		noGRPC      = flag.Bool("no-grpc", false, "skip launching Python gRPC worker")
+		noFastAPI   = flag.Bool("no-fastapi", false, "skip launching FastAPI sidecar")
 	)
 	flag.Parse()
 
 	if *install {
-		if err := installService(*port, *grpcPort, *fastapiPort); err != nil {
-			log.Fatalf("install service: %v", err)
-		}
 		if err := registerTrayAutostart(); err != nil {
 			log.Printf("warning: tray autostart register failed: %v", err)
 		}
@@ -362,7 +351,7 @@ func main() {
 		if err := launchTrayProcess(); err != nil {
 			log.Printf("warning: start tray after install: %v (reboot or run: itmatzip-agent.exe --tray)", err)
 		}
-		fmt.Println("service installed and started")
+		fmt.Println("agent installed (tray autostart registered)")
 		return
 	}
 	if *uninstall {
@@ -372,23 +361,7 @@ func main() {
 		if err := removeLaunchShortcuts(); err != nil {
 			log.Printf("warning: remove shortcuts failed: %v", err)
 		}
-		if err := uninstallService(); err != nil {
-			log.Fatalf("uninstall service: %v", err)
-		}
-		fmt.Println("service uninstalled (or was not registered)")
-		return
-	}
-	if *launchMode {
-		hideAgentConsole()
-		if err := runLaunch(*port); err != nil {
-			log.Fatalf("launch: %v", err)
-		}
-		return
-	}
-	if *brokerMode {
-		if err := runFileDialogBrokerOnly(); err != nil {
-			log.Fatalf("broker: %v", err)
-		}
+		fmt.Println("agent uninstalled (tray autostart removed)")
 		return
 	}
 	if *trayMode {
@@ -410,17 +383,10 @@ func main() {
 		}
 		return
 	}
-	if *serviceMode {
-		if err := runService(*port, *grpcPort, *fastapiPort); err != nil {
-			log.Fatalf("service run failed: %v", err)
-		}
-		return
-	}
 
-	startStdio := !*noPython
-	startGRPC := !*noPython && !*noGRPC
+	startGRPC := !*noGRPC
 	startFastAPI := !*noFastAPI
-	if err := runAgent(*port, *grpcPort, *fastapiPort, startStdio, startGRPC, startFastAPI); err != nil && err != http.ErrServerClosed {
+	if err := runAgent(*port, *grpcPort, *fastapiPort, startGRPC, startFastAPI); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("agent failed: %v", err)
 	}
 }
@@ -430,30 +396,20 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	if err := ensureFileDialogBrokerReady(10 * time.Second); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"detail": err.Error(),
-		})
-		return
-	}
-	path, err := requestFileDialogBroker(audioOnly, projectOnly, 10*time.Minute)
+
+	path, err := pickFileViaUserDialog(audioOnly, projectOnly)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"detail": fmt.Sprintf(
-				"파일 대화상자 브로커를 사용할 수 없습니다. 트레이(사용자 세션) 실행 여부를 확인하세요. (%v)",
-				err,
-			),
+			"detail": fmt.Sprintf("파일 대화상자 오류: %v", err),
 		})
 		return
 	}
 	if strings.TrimSpace(path) == "" {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"detail": "파일 선택이 취소되었습니다."})
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{"path": "", "cancelled": true})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

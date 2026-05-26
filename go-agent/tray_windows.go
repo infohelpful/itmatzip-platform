@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -21,19 +21,10 @@ import (
 )
 
 const (
-	// Local: 세션별 트레이. Global은 서비스(SYSTEM)와 충돌해 Access denied가 납니다.
-	trayMutexName     = "Local\\ItMatZipAgentTray_v1"
-	trayRunValue      = "ItMatZipAgentTray"
-	trayPollInterval  = 8 * time.Second
-	trayServicePollMs = 3 * time.Second
+	trayMutexName = "Local\\ItMatZipAgentTray_v1"
+	trayRunValue  = "ItMatZipAgentTray"
 )
 
-var (
-	trayMenuMu            sync.Mutex
-	trayStopSvc           *systray.MenuItem
-	trayStartSvc          *systray.MenuItem
-	trayExitStopsService  bool // true only for --launch (legacy); normal --tray must not stop the service
-)
 
 func toolsWebBase() string {
 	if v := strings.TrimSpace(os.Getenv("ITMATZIP_TOOLS_WEB_BASE")); v != "" {
@@ -92,84 +83,71 @@ func acquireTraySingleInstance() (windows.Handle, bool, error) {
 }
 
 func runTray(port int) error {
-	return runTrayWithOptions(port, false, false)
+	return runTrayWithOptions(port)
 }
 
-// ensureServiceForLaunch starts or restarts the Windows service only when needed.
-// Normal users cannot run sc stop/start (exit 5); skip restart if the service is already healthy.
-func ensureServiceForLaunch(port int) {
-	if isWindowsServiceRunning() {
-		if waitForAgentHealth(port, 12*time.Second) {
-			return
-		}
-		log.Print("service running but agent not healthy; attempting reload")
-		if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
-			log.Printf("reload via HTTP failed: %v; trying SCM restart", err)
-		} else if waitForAgentHealth(port, 30*time.Second) {
-			return
-		}
-		if err := restartWindowsService(); err != nil {
-			if isServiceAccessDenied(err) {
-				log.Print("service restart skipped (administrator rights required)")
-			} else {
-				log.Printf("warning: service restart failed: %v", err)
-			}
-		}
-		if !waitForAgentHealth(port, 60*time.Second) {
-			log.Printf("warning: agent health not ready within timeout")
-		}
-		return
-	}
-	if err := startWindowsService(); err != nil {
-		if isServiceAccessDenied(err) {
-			log.Print("service start skipped (administrator rights required)")
-		} else {
-			log.Printf("warning: service start failed: %v", err)
-		}
-		return
-	}
-	if !waitForAgentHealth(port, 60*time.Second) {
-		log.Printf("warning: agent health not ready within timeout")
-	}
-}
 
-func isServiceAccessDenied(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "exit status 5") ||
-		strings.Contains(strings.ToLower(s), "access is denied") ||
-		strings.Contains(s, "액세스가 거부")
-}
+var trayAgentCancel context.CancelFunc
 
-func runTrayWithOptions(port int, restartServiceFirst bool, exitStopsService bool) error {
+func runTrayWithOptions(port int) error {
 	initPaths()
-	trayExitStopsService = exitStopsService
-
-	if restartServiceFirst {
-		ensureServiceForLaunch(port)
+	if err := ensurePaths(); err != nil {
+		return fmt.Errorf("ensure paths: %w", err)
 	}
+	setupLogging()
 
 	mutex, ok, err := acquireTraySingleInstance()
 	if err != nil {
 		return fmt.Errorf("tray mutex: %w", err)
 	}
 	if !ok {
-		if restartServiceFirst {
-			log.Print("tray already running (service restarted)")
-		} else {
-			log.Print("tray already running, exiting")
-		}
+		log.Print("tray already running, exiting")
 		return nil
 	}
 	defer windows.CloseHandle(mutex)
+
+	initJobObject()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	trayAgentCancel = cancel
+	initUpdateManager(ctx)
+
+	grpcAddr := fmt.Sprintf("%s:%d", defaultHost, defaultGRPCPort)
+	hub := newHub()
+	mgr := newWorkerManager(hub, grpcAddr)
+
+	go func() {
+		if err := mgr.startGRPCWorker(ctx); err != nil {
+			log.Printf("warning: grpc python worker failed to start: %v", err)
+		} else {
+			time.Sleep(500 * time.Millisecond)
+			if err := mgr.grpcClient.Connect(ctx); err != nil {
+				log.Printf("warning: grpc client connect failed: %v", err)
+			}
+		}
+	}()
+
+	sidecar := newFastAPISidecar(defaultFastAPIPort)
+	go func() {
+		startFastAPISidecarWithRetry(ctx, sidecar, mgr)
+		startFastAPISidecarWatchdog(ctx, sidecar, mgr)
+	}()
+
+	go func() {
+		if err := startHTTPServer(ctx, hub, mgr, port, sidecar); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
 
 	iconData := loadTrayIconData()
 	runtime.LockOSThread()
 	systray.Run(func() {
 		onTrayReady(port, iconData)
-	}, onTrayExit)
+	}, func() {
+		onTrayExit()
+		cancel()
+		mgr.Close()
+	})
 	return nil
 }
 
@@ -215,9 +193,6 @@ func applyTrayIcon(iconData []byte) {
 }
 
 func onTrayReady(port int, iconData []byte) {
-	if err := startFileDialogBroker(); err != nil {
-		log.Printf("warning: file-dialog broker start failed: %v", err)
-	}
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
@@ -228,205 +203,34 @@ func onTrayReady(port int, iconData []byte) {
 	mVocal := systray.AddMenuItem("Vocal Remover", vocalURL)
 	mAutosub := systray.AddMenuItem("Auto Subtitle", autosubURL)
 	systray.AddSeparator()
+	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 
-	mStopSvc := systray.AddMenuItem("서비스 종료", "에이전트 Windows 서비스만 중지합니다 (트레이는 유지)")
-	mStartSvc := systray.AddMenuItem("서비스 재시작", "중지된 에이전트 서비스를 다시 시작합니다")
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("트레이 종료", "트레이 아이콘만 닫습니다 (Windows 서비스는 계속 실행)")
-	if trayExitStopsService {
-		mQuit.SetTitle("종료")
-		mQuit.SetTooltip("서비스를 중지하고 트레이 아이콘을 닫습니다 (--launch 전용)")
-	}
+	updateTrayTooltip(port, "실행 중 · v"+readAgentVersion())
 
-	trayMenuMu.Lock()
-	trayStopSvc = mStopSvc
-	trayStartSvc = mStartSvc
-	trayMenuMu.Unlock()
-
-	refreshTrayServiceMenuItems(port)
-	updateTrayTooltipFromState(port)
-
-	go trayStatusPoller(port)
-	go trayMenuEventLoop(port, dashboardURL, silenceURL, vocalURL, autosubURL, mDashboard, mSilence, mVocal, mAutosub, mStopSvc, mStartSvc, mQuit)
-}
-
-func trayMenuEventLoop(
-	port int,
-	dashboardURL, silenceURL, vocalURL, autosubURL string,
-	mDashboard, mSilence, mVocal, mAutosub, mStopSvc, mStartSvc, mQuit *systray.MenuItem,
-) {
-	for {
-		select {
-		case <-mDashboard.ClickedCh:
-			openURL(dashboardURL)
-		case <-mSilence.ClickedCh:
-			openURL(silenceURL)
-		case <-mVocal.ClickedCh:
-			openURL(vocalURL)
-		case <-mAutosub.ClickedCh:
-			openURL(autosubURL)
-		case <-mStopSvc.ClickedCh:
-			if err := stopWindowsService(); err != nil {
-				log.Printf("tray stop service: %v", err)
-				updateTrayTooltip(port, "서비스 중지 실패 · "+shortTrayErr(err))
-			} else {
-				updateTrayTooltip(port, "서비스 중지됨")
-			}
-			refreshTrayServiceMenuItems(port)
-		case <-mStartSvc.ClickedCh:
-			updateTrayTooltip(port, "서비스 시작 중…")
-			go func() {
-				trayRestartOrStartService(port)
-				refreshTrayServiceMenuItems(port)
-			}()
-		case <-mQuit.ClickedCh:
-			if trayExitStopsService {
-				if err := stopWindowsService(); err != nil {
-					log.Printf("stop service on tray exit: %v", err)
-				}
-			}
-			stopFileDialogBroker()
-			systray.Quit()
-			return
-		}
-	}
-}
-
-func refreshTrayServiceMenuItems(port int) {
-	trayMenuMu.Lock()
-	stopItem := trayStopSvc
-	startItem := trayStartSvc
-	trayMenuMu.Unlock()
-	if stopItem == nil || startItem == nil {
-		return
-	}
-	if isWindowsServiceRunning() || isAgentResponding(port) {
-		stopItem.Enable()
-		startItem.Enable()
-		startItem.SetTitle("서비스 재시작")
-		startItem.SetTooltip("Windows 서비스를 중지한 뒤 다시 시작합니다")
-	} else {
-		stopItem.Disable()
-		startItem.Enable()
-		startItem.SetTitle("서비스 시작")
-		startItem.SetTooltip("중지된 ItMatZip Agent Windows 서비스를 시작합니다")
-	}
-}
-
-func isAgentResponding(port int) bool {
-	return waitForAgentHealth(port, 1500*time.Millisecond)
-}
-
-func shortTrayErr(err error) string {
-	if err == nil {
-		return ""
-	}
-	s := err.Error()
-	if len(s) > 72 {
-		return s[:72] + "…"
-	}
-	return s
-}
-
-func trayRestartOrStartService(port int) {
-	if isWindowsServiceRunning() || isAgentResponding(port) {
-		updateTrayTooltip(port, "Windows 서비스 재시작 중…")
-		if err := restartWindowsServiceAndWait(); err != nil {
-			log.Printf("tray SCM restart: %v", err)
-			if isServiceAccessDenied(err) {
-				updateTrayTooltip(port, "SCM 재시작 거부 · HTTP reload 시도…")
-				if err := restartAgentViaHTTP(port, 90*time.Second); err != nil {
-					log.Printf("tray reload via HTTP: %v", err)
-					updateTrayTooltip(port, "재시작 실패 · "+shortTrayErr(err))
-					return
-				}
-			} else {
-				updateTrayTooltip(port, "재시작 실패 · "+shortTrayErr(err))
+	go func() {
+		for {
+			select {
+			case <-mDashboard.ClickedCh:
+				openURL(dashboardURL)
+			case <-mSilence.ClickedCh:
+				openURL(silenceURL)
+			case <-mVocal.ClickedCh:
+				openURL(vocalURL)
+			case <-mAutosub.ClickedCh:
+				openURL(autosubURL)
+			case <-mQuit.ClickedCh:
+				systray.Quit()
 				return
 			}
 		}
-		if waitForAgentHealth(port, 90*time.Second) {
-			updateTrayTooltipFromState(port)
-			return
-		}
-		updateTrayTooltip(port, "서비스 재시작됨 (health 대기 중)")
-		return
-	}
-
-	updateTrayTooltip(port, "서비스 시작 중…")
-	if err := startWindowsService(); err != nil {
-		log.Printf("tray start service: %v", err)
-		updateTrayTooltip(port, "서비스 시작 실패 · "+shortTrayErr(err))
-		return
-	}
-	if waitForAgentHealth(port, 60*time.Second) {
-		updateTrayTooltipFromState(port)
-	} else {
-		updateTrayTooltip(port, "서비스 시작됨 (health 대기 중)")
-	}
+	}()
 }
 
-func trayStatusPoller(port int) {
-	tick := time.NewTicker(trayPollInterval)
-	defer tick.Stop()
-	svcTick := time.NewTicker(trayServicePollMs)
-	defer svcTick.Stop()
-	for {
-		select {
-		case <-tick.C:
-			updateTrayTooltipFromState(port)
-		case <-svcTick.C:
-			refreshTrayServiceMenuItems(port)
-		}
-	}
-}
 
 func onTrayExit() {
-	stopFileDialogBroker()
 }
 
-func waitForAgentHealth(port int, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	url := fmt.Sprintf("http://%s:%d/health", defaultHost, port)
-	client := &http.Client{Timeout: 2 * time.Second}
-	for time.Now().Before(deadline) {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return true
-			}
-		}
-		time.Sleep(400 * time.Millisecond)
-	}
-	return false
-}
 
-func runLaunch(port int) error {
-	return runTrayWithOptions(port, true, true)
-}
-
-func updateTrayTooltipFromState(port int) {
-	if !isWindowsServiceRunning() && !isAgentResponding(port) {
-		updateTrayTooltip(port, "서비스 중지됨")
-		return
-	}
-	updateTrayTooltip(port, fetchTrayHealthLabel(port))
-}
-
-func fetchTrayHealthLabel(port int) string {
-	client := &http.Client{Timeout: 2 * time.Second}
-	url := fmt.Sprintf("http://%s:%d/health", defaultHost, port)
-	resp, err := client.Get(url)
-	if err != nil {
-		return "서비스 실행 중 · API 응답 없음"
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("서비스 실행 중 · HTTP %d", resp.StatusCode)
-	}
-	return "실행 중 · v" + readAgentVersion()
-}
 
 func updateTrayTooltip(port int, status string) {
 	systray.SetTooltip(fmt.Sprintf("ItMatZip Agent — %s\nhttp://%s:%d", status, defaultHost, port))
