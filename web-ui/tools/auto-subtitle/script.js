@@ -2432,29 +2432,42 @@ function buildExportPayload(fmt) {
   );
 }
 
+function buildProjectJson() {
+  return JSON.stringify({
+    format: "autosubtitle-project",
+    version: 1,
+    videoPath: videoPathInput?.value?.trim() || null,
+    cutRanges: lastCutRanges,
+    subtitleStyle: readSubtitleStyleFromDom(),
+    subtitles: lastCues,
+  }, null, 2);
+}
+
 async function saveProject() {
   if (!lastCues.length) {
     alert("저장할 전사 결과가 없습니다.");
     return;
   }
   syncCuesFromDom();
-  const name = prompt("프로젝트 이름 (선택)", "autosub-project");
-  const res = await requestAgent({
-    path: `${TOOL_PREFIX}/project/save`,
-    method: "POST",
-    json: {
-      name: name || undefined,
-      project: {
-        format: "autosubtitle-project",
-        version: 1,
-        videoPath: videoPathInput?.value?.trim() || null,
-        cutRanges: lastCutRanges,
-        subtitleStyle: readSubtitleStyleFromDom(),
-        subtitles: lastCues,
-      },
-    },
+  await saveProjectAs();
+}
+
+async function saveProjectAs() {
+  if (!lastCues.length) {
+    alert("저장할 전사 결과가 없습니다.");
+    return;
+  }
+  syncCuesFromDom();
+  const handle = await window.showSaveFilePicker({
+    suggestedName: "AutoSubtitle",
+    types: [{
+      description: "AutoSubtitle 프로젝트",
+      accept: { "application/json": [".json"] },
+    }],
   });
-  alert(`프로젝트를 저장했습니다.\n${res.project_path || ""}`);
+  const writable = await handle.createWritable();
+  await writable.write(buildProjectJson());
+  await writable.close();
 }
 
 async function unloadModel() {
@@ -2463,18 +2476,80 @@ async function unloadModel() {
   alert("AI 모델을 메모리에서 해제했습니다. 다음 자막 추출 시 다시 불러옵니다.");
 }
 
+let smoothedProgress = 0;
+let smoothProgressRafId = 0;
+let smoothProgressTarget = 0;
+
+function resetSmoothProgress() {
+  smoothedProgress = 0;
+  smoothProgressTarget = 0;
+  cancelAnimationFrame(smoothProgressRafId);
+  smoothProgressRafId = 0;
+}
+
+function animateSmoothProgress(setFn) {
+  if (smoothProgressRafId) return;
+  const step = () => {
+    if (smoothedProgress >= smoothProgressTarget) {
+      smoothProgressRafId = 0;
+      return;
+    }
+    const diff = smoothProgressTarget - smoothedProgress;
+    const increment = Math.max(0.3, diff * 0.08);
+    smoothedProgress = Math.min(smoothProgressTarget, smoothedProgress + increment);
+    setFn(Math.round(smoothedProgress));
+    if (smoothedProgress < smoothProgressTarget) {
+      smoothProgressRafId = requestAnimationFrame(step);
+    } else {
+      smoothProgressRafId = 0;
+    }
+  };
+  smoothProgressRafId = requestAnimationFrame(step);
+}
+
 async function pollExportStatus(fmt) {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/export/status` });
   const phase = data?.phase || "";
-  setExportLoading(true, {
-    title: "보내기",
-    step: exportPhaseStepLabel(phase, data?.format || fmt),
-    message: data?.message || "처리 중…",
-    progress: typeof data?.progress === "number" ? data.progress : undefined,
-  });
+
+  const rawProgress = typeof data?.progress === "number" ? data.progress : undefined;
+  if (rawProgress != null && rawProgress > smoothProgressTarget) {
+    smoothProgressTarget = Math.min(rawProgress, 99);
+  }
+
+  const applyProgress = (val) => {
+    setExportLoading(true, {
+      title: "보내기",
+      step: exportPhaseStepLabel(phase, data?.format || fmt),
+      message: data?.message || "처리 중…",
+      progress: val,
+    });
+  };
+
+  if (rawProgress != null) {
+    animateSmoothProgress(applyProgress);
+  } else {
+    setExportLoading(true, {
+      title: "보내기",
+      step: exportPhaseStepLabel(phase, data?.format || fmt),
+      message: data?.message || "처리 중…",
+      progress: undefined,
+    });
+  }
+
   if (phase === "completed") {
     stopExportPoll();
-    setExportLoading(false);
+    smoothProgressTarget = 100;
+    smoothedProgress = 100;
+    setExportLoading(true, {
+      title: "보내기",
+      step: exportPhaseStepLabel(phase, data?.format || fmt),
+      message: "완료!",
+      progress: 100,
+    });
+    setTimeout(() => {
+      setExportLoading(false);
+      resetSmoothProgress();
+    }, 400);
     lastExportPath = data.result_path || null;
     if (lastExportPath) {
       try {
@@ -2488,6 +2563,7 @@ async function pollExportStatus(fmt) {
   }
   if (phase === "failed") {
     stopExportPoll();
+    resetSmoothProgress();
     const raw = data?.error || data?.message || "보내기에 실패했습니다.";
     const friendly = /Broken pipe|Errno 32|비정상 종료/i.test(raw)
       ? "영상 인코딩 중 오류가 발생했습니다. GPU 인코더 문제일 수 있습니다. 다시 시도해 주세요."
@@ -2581,6 +2657,8 @@ async function runExport() {
 
       return new Promise((resolve) => {
         stopExportPoll();
+        smoothedProgress = 40;
+        smoothProgressTarget = 40;
         exportPollTimer = setInterval(async () => {
           try {
             const done = await pollExportStatus(fmt);
@@ -2621,6 +2699,9 @@ async function runExport() {
 
   return new Promise((resolve) => {
     stopExportPoll();
+    resetSmoothProgress();
+    smoothedProgress = 5;
+    smoothProgressTarget = 5;
     exportPollTimer = setInterval(async () => {
       try {
         const done = await pollExportStatus(fmt);
@@ -2641,8 +2722,17 @@ async function runExport() {
 
 function openDownload(filePath) {
   if (!filePath || !agentConnected) return;
-  const url = `${getAgentOrigin()}${TOOL_PREFIX}/download?file_path=${encodeURIComponent(filePath)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+  const fmt = exportFormatSelect?.value || "srt";
+  try {
+    sessionStorage.setItem("auto-subtitle:dl-file-path", filePath);
+    sessionStorage.setItem("auto-subtitle:dl-format", fmt);
+    sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
+    sessionStorage.setItem(STORAGE_CUTS, JSON.stringify(lastCutRanges));
+    const vp = videoPathInput?.value?.trim() || sessionVideoPath;
+    if (vp) sessionStorage.setItem(STORAGE_VIDEO_PATH, vp);
+    sessionStorage.setItem(STORAGE_RETURN_FROM_DL, "1");
+  } catch { /* ignore */ }
+  window.location.href = "download.html";
 }
 
 function resetJob() {
@@ -2827,8 +2917,34 @@ async function onPickLocalFile() {
   }
 }
 
+const STORAGE_RETURN_FROM_DL = "auto-subtitle:return-from-download";
+
 function restoreSession() {
-  // 자막은 전사·프로젝트 불러오기 후에만 표시. F5 새로고침 시 이전 sessionStorage 자막은 복원하지 않음.
+  const returningFromDownload = sessionStorage.getItem(STORAGE_RETURN_FROM_DL) === "1";
+  if (returningFromDownload) {
+    sessionStorage.removeItem(STORAGE_RETURN_FROM_DL);
+    try {
+      const raw = sessionStorage.getItem(STORAGE_CUES);
+      const cutsRaw = sessionStorage.getItem(STORAGE_CUTS);
+      const vp = sessionStorage.getItem(STORAGE_VIDEO_PATH);
+      if (raw) {
+        lastCues = JSON.parse(raw);
+        lastCutRanges = cutsRaw ? JSON.parse(cutsRaw) : [];
+        if (vp) {
+          if (videoPathInput) videoPathInput.value = vp;
+          sessionVideoPath = vp;
+        }
+        renderCuesTable(lastCues);
+        if (resultsMeta) {
+          resultsMeta.textContent = `${lastCues.length} cues`;
+          resultsMeta.hidden = false;
+        }
+      }
+    } catch { /* ignore */ }
+    updateActionButtons();
+    return;
+  }
+
   try {
     sessionStorage.removeItem(STORAGE_CUES);
     sessionStorage.removeItem(STORAGE_CUTS);
@@ -2851,26 +2967,9 @@ btnLoadProject?.addEventListener("click", async () => {
 
 btnSaveProjectAs?.addEventListener("click", async () => {
   try {
-    syncCuesFromDom();
-    const name = prompt("다른 이름으로 저장", "autosub-project-copy");
-    if (name == null) return;
-    const res = await requestAgent({
-      path: `${TOOL_PREFIX}/project/save`,
-      method: "POST",
-      json: {
-        name: name || undefined,
-        project: {
-          format: "autosubtitle-project",
-          version: 1,
-          videoPath: videoPathInput?.value?.trim() || null,
-          cutRanges: lastCutRanges,
-          subtitleStyle: readSubtitleStyleFromDom(),
-          subtitles: lastCues,
-        },
-      },
-    });
-    alert(`프로젝트를 저장했습니다.\n${res.project_path || ""}`);
+    await saveProjectAs();
   } catch (err) {
+    if (err.name === "AbortError") return;
     alert(friendlyAgentError(err));
   }
 });
@@ -2879,6 +2978,7 @@ btnSaveProject?.addEventListener("click", async () => {
   try {
     await saveProject();
   } catch (err) {
+    if (err.name === "AbortError") return;
     alert(friendlyAgentError(err));
   }
 });
@@ -3090,6 +3190,9 @@ startConnectionMonitor({
     if (agentConnected) {
       await fetchReadiness();
       await loadSystemFontsFromAgent();
+      if (sessionVideoPath && previewVideo && !previewVideo.src) {
+        updatePreview(sessionVideoPath);
+      }
     } else {
       toolReady = false;
       if (binReadiness) {
