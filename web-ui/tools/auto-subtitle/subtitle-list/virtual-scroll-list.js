@@ -273,8 +273,8 @@ function renderAllCards(container, cues, opts) {
 
     const ta = document.createElement("textarea");
     ta.className = "subtitle-card-textarea";
+    ta.name = `subtitle-cue-${i}`;
     ta.rows = 2;
-    // 프리뷰용 줄 텍스트 — 단어 블록(words)과 분리 (Electron updateSubtitleAt)
     ta.value = String(cue.text ?? "");
     ta.setAttribute("aria-label", "자막 편집");
     ta.dataset.subtitleEdit = "1";
