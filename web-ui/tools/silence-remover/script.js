@@ -476,7 +476,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  /* 드래그 앤 드롭은 지원하지 않음 — 영역 위에 파일을 놓아도 브라우저가 페이지를 바꾸지 않도록 막음 */
   if (dropZoneContainer) {
     dropZoneContainer.addEventListener("dragover", (e) => {
       e.preventDefault();

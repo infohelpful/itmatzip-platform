@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -278,8 +279,8 @@ class SilenceRemoverWaveformAnalyzedBody(BaseModel):
 
 def _silence_binaries_payload() -> dict[str, object]:
     return {
-        "ffmpeg": get_ffmpeg_exe().is_file(),
-        "ffprobe": get_ffprobe_exe().is_file(),
+        "ffmpeg": get_ffmpeg_exe().is_file() or shutil.which("ffmpeg") is not None,
+        "ffprobe": get_ffprobe_exe().is_file() or shutil.which("ffprobe") is not None,
         "bin_dir": str(get_bin_root()),
     }
 

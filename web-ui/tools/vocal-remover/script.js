@@ -879,6 +879,8 @@ async function runTorchWheelFixupIfNeeded(w, b) {
   }
 }
 
+let _readinessCheckedOnce = false;
+
 /** @param {boolean} [knownOk] */
 async function checkVocalToolReadiness(knownOk) {
   const binEl = document.getElementById("bin-readiness");
@@ -899,15 +901,16 @@ async function checkVocalToolReadiness(knownOk) {
     return;
   }
 
-  setComputeCapabilityBadge({ agentOk: true });
-
-  binEl.className = "bin-readiness is-warn";
-  binEl.textContent = "FFmpeg · Demucs · diffq 확인 중…";
-
-  setSetupLoading(true, {
-    title: "환경 확인",
-    message: "FFmpeg·Demucs 설치 여부를 확인하고 있습니다…",
-  });
+  if (!toolReady) {
+    binEl.className = "bin-readiness is-warn";
+    binEl.textContent = "FFmpeg · Demucs · diffq 확인 중…";
+    if (!_readinessCheckedOnce) {
+      setSetupLoading(true, {
+        title: "환경 확인",
+        message: "FFmpeg·Demucs 설치 여부를 확인하고 있습니다…",
+      });
+    }
+  }
 
   try {
     const data = await requestAgent({
@@ -920,6 +923,7 @@ async function checkVocalToolReadiness(knownOk) {
         }
       },
     });
+    _readinessCheckedOnce = true;
     const b = data && typeof data === "object" ? data.binaries : null;
     const w = data && typeof data === "object" ? data.wheels : null;
     setComputeCapabilityBadge({ agentOk: true, wheels: w, binaries: b });

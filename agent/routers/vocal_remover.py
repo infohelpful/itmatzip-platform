@@ -10,7 +10,21 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from common.async_io import run_sync
+import shutil
+
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
+
+
+def _ffmpeg_available() -> bool:
+    if FFMPEG_EXE.is_file():
+        return True
+    return shutil.which("ffmpeg") is not None
+
+
+def _ffprobe_available() -> bool:
+    if FFPROBE_EXE.is_file():
+        return True
+    return shutil.which("ffprobe") is not None
 from common.pick_local_file import behind_go_proxy, run_audio_pick_dialog
 from engines import silence_remover as silence_remover_engine
 from engines import vocal_remover
@@ -230,8 +244,8 @@ def get_readiness() -> dict[str, object]:
             "torch_version": vocal_remover.installed_torch_version(),
         },
         "binaries": {
-            "ffmpeg": FFMPEG_EXE.is_file(),
-            "ffprobe": FFPROBE_EXE.is_file(),
+            "ffmpeg": _ffmpeg_available(),
+            "ffprobe": _ffprobe_available(),
             "demucs": vocal_remover.is_demucs_installed(),
             "diffq": vocal_remover._is_diffq_installed(),
             "model_ready": vocal_remover.is_model_ready(),

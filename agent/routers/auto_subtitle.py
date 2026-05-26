@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import threading
 import uuid
 from pathlib import Path
@@ -16,6 +17,18 @@ logger = logging.getLogger(__name__)
 
 from common.async_io import run_sync
 from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
+
+
+def _ffmpeg_available() -> bool:
+    if FFMPEG_EXE.is_file():
+        return True
+    return shutil.which("ffmpeg") is not None
+
+
+def _ffprobe_available() -> bool:
+    if FFPROBE_EXE.is_file():
+        return True
+    return shutil.which("ffprobe") is not None
 from engines import auto_subtitle
 from engines import auto_subtitle_audiowaveform
 from engines import auto_subtitle_export
@@ -372,8 +385,8 @@ def _build_readiness_payload() -> dict[str, object]:
         "ok": True,
         "tool": "auto-subtitle",
         "binaries": {
-            "ffmpeg": FFMPEG_EXE.is_file(),
-            "ffprobe": FFPROBE_EXE.is_file(),
+            "ffmpeg": _ffmpeg_available(),
+            "ffprobe": _ffprobe_available(),
             "faster_whisper": auto_subtitle.is_faster_whisper_installed(),
             "model_present": auto_subtitle.is_model_present(),
             "model_loaded": auto_subtitle.is_model_loaded(),
