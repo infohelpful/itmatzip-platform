@@ -14,11 +14,12 @@ export {
   resetPlaybackHighlightCache,
   patchSelectedCueHighlight,
   requestFocusCaret,
-} from "./subtitle-list/virtual-scroll-list.js?v=56";
+} from "./subtitle-list/virtual-scroll-list.js?v=57";
 export {
   requestFocusCaretDeferred,
   syncPlaybackCaretVisibility,
   clearListPlayFromCaretPreferred,
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
-} from "./subtitle-list/word-caret-ui.js?v=44";
+  hintActiveCaretCardIndex,
+} from "./subtitle-list/word-caret-ui.js?v=48";

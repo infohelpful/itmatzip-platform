@@ -225,7 +225,9 @@ func waitFileDialogBrokerListening(timeout time.Duration) bool {
 	return isFileDialogBrokerListening()
 }
 
-// ensureFileDialogBrokerReady — 서비스(19876)만 떠 있고 트레이/브로커(19879)가 없을 때 사용자 세션에 브로커 기동.
+// ensureFileDialogBrokerReady — 브로커(19879)가 없을 때 기동.
+// 현재 프로세스가 이미 interactive 세션이면 in-process로 시작하고,
+// 서비스(Session 0)인 경우에만 CreateProcessAsUser를 시도한다.
 func ensureFileDialogBrokerReady(timeout time.Duration) error {
 	if isFileDialogBrokerReadyInUserSession() {
 		return nil
@@ -234,6 +236,21 @@ func ensureFileDialogBrokerReady(timeout time.Duration) error {
 	if isFileDialogBrokerReadyInUserSession() {
 		return nil
 	}
+
+	// 현재 프로세스가 interactive 세션이면 직접 broker 시작 (CreateProcessAsUser 불필요)
+	sid, sidErr := currentProcessSessionID()
+	if sidErr == nil && brokerSessionIsInteractive(sid) {
+		if err := startFileDialogBroker(); err != nil {
+			log.Printf("file-dialog broker in-process start failed: %v", err)
+		} else {
+			time.Sleep(100 * time.Millisecond)
+			if isFileDialogBrokerReadyInUserSession() {
+				return nil
+			}
+		}
+	}
+
+	// Session 0 (서비스)인 경우에만 새 프로세스 생성 시도
 	if err := launchAgentModeInActiveUserSession("--broker"); err != nil {
 		return fmt.Errorf("파일 대화상자 브로커를 사용자 세션에서 시작하지 못했습니다: %w", err)
 	}

@@ -14,7 +14,7 @@ import { SyncEngineHost } from "../sync/sync-engine-host.js";
 import { VideoSeekUiController } from "../sync/video-seek-ui-controller.js";
 import { virtualBlocksForSyncEngine } from "../sync/virtual-blocks.js";
 import { playbackWordBlocks } from "../sync/word-jump-cut.js";
-import { assignMasterAudioTimelineSecIfNeeded } from "./html-audio-master-playback.js";
+import { assignMasterAudioTimelineSecIfNeeded } from "./html-audio-master-playback.js?v=2";
 
 export class PlaybackOrchestrator {
   constructor() {

@@ -30,6 +30,7 @@ import {
   requestFocusCaretDeferred,
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
+  hintActiveCaretCardIndex,
   syncExpandedPanelPlayhead,
   refreshExpandedPanelSkipRanges,
   finishExpandedPanelRangePlay,
@@ -37,7 +38,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=56";
+} from "./cue-cards.js?v=58";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -48,7 +49,7 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js";
+} from "./subtitle-list/word-caret-ui.js?v=48";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
@@ -90,8 +91,8 @@ import {
   startSyncedPlayback,
   stopSyncedPlayback,
   syncVideoFromHtmlAudioMaster,
-} from "./hub/synced-playback.js?v=30";
-import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js";
+} from "./hub/synced-playback.js?v=31";
+import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=2";
 import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=24";
 import {
   splitSubtitleAt,
@@ -664,6 +665,9 @@ function getPreviewCueIndex() {
   }
   const caretIdx = getFocusedSubtitleCardIndex();
   if (caretIdx >= 0 && lastCues[caretIdx] && !lastCues[caretIdx].is_silence) {
+    if (caretIdx !== selectedCueIndex) {
+      console.log("[PREVIEW-IDX] caret=%d vs selected=%d (caret wins)", caretIdx, selectedCueIndex);
+    }
     return caretIdx;
   }
   if (selectedCueIndex >= 0 && lastCues[selectedCueIndex] && !lastCues[selectedCueIndex].is_silence) {
@@ -725,6 +729,7 @@ function seekEditSecAndPlay(editSec) {
   playheadSec = orch.mapMediaToEditSec(media);
   commitPlayheadUi();
   startPlaybackLoop();
+  console.log("[PLAY-DBG] seekEditSecAndPlay done: isVideoPlaying=%s, rafId=%s", isVideoPlaying, playbackRafId);
   return true;
 }
 
@@ -962,6 +967,13 @@ function playbackTick() {
   if (previewAudio && isHtmlAudioMasterActive()) {
     if (previewAudio.paused) {
       if (isVideoPlaying) {
+        if (previewAudio.readyState >= 3) {
+          previewAudio.play().then(() => {
+            if (previewVideo && previewVideo.paused) {
+              previewVideo.play().catch(() => {});
+            }
+          }).catch(() => {});
+        }
         playbackRafId = requestAnimationFrame(playbackTick);
       } else {
         playbackRafId = 0;
@@ -1068,7 +1080,10 @@ function startPlaybackLoop(opts = {}) {
   }
   playheadSec = orch.mapMediaToEditSec(media);
 
+  console.log("[PLAY-DBG] startLoop: beginSyncedPlayback media=%.3f, audio.paused=%s, audio.readyState=%d, audio.src=%s",
+    media, previewAudio?.paused, previewAudio?.readyState, previewAudio?.src ? "set" : "empty");
   beginPreviewSyncedPlayback(media);
+  playbackTick._stallLogged = null;
   playbackTick();
 }
 
@@ -1114,6 +1129,7 @@ function syncPauseCaretAtPlayhead(pausedAtCue, pausedAtWord, resolvedPause, wasW
 function stopPlaybackLoop(opts = {}) {
   const wasMediaPlaying = isVideoPlaying || playbackRafId || isPreviewMediaPlaying();
   if (!wasMediaPlaying) return;
+  console.trace("[PLAY-DBG] stopPlaybackLoop called");
   const wasWaveformRange = waveformPlayRangeEndEdit != null;
   const shouldSyncPauseCaret =
     opts.waveformRangeNaturalEnd !== true && subtitleList && lastCues.length;
@@ -1159,16 +1175,17 @@ function applyPlaybackSkipIfNeeded() {
 }
 
 function togglePreviewPlayback(opts = {}) {
-  if (!previewVideo) { console.log("[PLAY-DBG] toggle: no previewVideo"); return; }
+  if (!previewVideo) return;
   const playing = isPreviewMediaPlaying() || isVideoPlaying;
   if (playing) {
-    console.log("[PLAY-DBG] toggle → PAUSE (wasPlaying=%s, isVideoPlaying=%s)", playing, isVideoPlaying);
+    console.log("[PLAY-DBG] toggle → PAUSE");
+    console.trace("[PLAY-DBG] PAUSE call stack");
     userRequestedPreviewPause = true;
     stopPlaybackLoop();
     userRequestedPreviewPause = false;
     return;
   }
-  console.log("[PLAY-DBG] toggle → PLAY (playheadSec=%.2f, selectedCue=%d)", playheadSec, selectedCueIndex);
+  console.log("[PLAY-DBG] toggle → PLAY (selectedCue=%d)", selectedCueIndex);
   resetSpaceSeekIntent();
   if (!isVideoPlaying) startPlaybackLoop();
 }
@@ -1625,6 +1642,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (lastCues[nextIndex] && !lastCues[nextIndex].is_silence) {
         const prev = selectedCueIndex;
         selectedCueIndex = nextIndex;
+        hintActiveCaretCardIndex(nextIndex);
         if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, nextIndex);
         lastOverlayCueIndex = -1;
         updatePreviewOverlay();
@@ -2917,6 +2935,8 @@ document.addEventListener("keydown", (e) => {
   if (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
   /** AutoSubtitle App.tsx — 카드 밖에서만 연속 재생 토글 */
   if (target instanceof Element && target.closest(".subtitle-card")) return;
+  console.log("[DOC-SPACE] toggle, target=%s, ts=%.1f, now=%.1f",
+    target?.tagName ?? "null", e.timeStamp, performance.now());
   e.preventDefault();
   if (!previewVideo) return;
   togglePreviewPlayback();

@@ -51,6 +51,8 @@ let caretFocusGeneration = 0;
 /** @type {{ container: HTMLElement, cues: object[], opts: object, cardIndex: number, storageCaret: number, detail?: object } | null} */
 let pendingFocusCaret = null;
 let documentFocusGuardInstalled = false;
+/** Space로 재생 시작 직후 키보드 반복(auto-repeat)으로 인한 즉시 PAUSE 방지 */
+let lastCaretPlayStartMs = 0;
 
 /**
  * @param {object} opts
@@ -87,6 +89,10 @@ export function getFocusedSubtitleCardIndex() {
   if (activeCaretCardIndex != null && activeCaretCardIndex >= 0) return activeCaretCardIndex;
   if (lastCardFocusIndex != null && lastCardFocusIndex >= 0) return lastCardFocusIndex;
   return -1;
+}
+
+export function hintActiveCaretCardIndex(idx) {
+  activeCaretCardIndex = typeof idx === "number" && idx >= 0 ? idx : null;
 }
 
 export function clearAllRowCaretState() {
@@ -1191,20 +1197,30 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
   };
 
   if (e.key === " " || e.code === "Space") {
-    if (e.defaultPrevented) return;
+    if (e.repeat || e.defaultPrevented) return;
+    const nowMs = performance.now();
+    console.log("[CARET-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
+      cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
     e.preventDefault();
     e.stopPropagation();
     if (wasPlaying) {
+      const elapsed = nowMs - lastCaretPlayStartMs;
+      if (elapsed < 600) {
+        console.log("[CARET-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
+        return;
+      }
       opts.onTogglePlayback?.(true);
       return;
     }
     if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
     if (spaceSeekIntent === "caret") {
+      lastCaretPlayStartMs = nowMs;
       playAtCaret(cardIndex, ci, opts);
       dismissSpaceSeekIntent(container, cardIndex, words, opts, cues);
       return;
     }
     if (tryWaveformSpaceWhenExpanded(opts)) return;
+    lastCaretPlayStartMs = nowMs;
     opts.onTogglePlayback?.(true);
     return;
   }
@@ -1399,9 +1415,10 @@ function appendCaretsOverlay(
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       if (k > 0) st.selectionAnchor = null;
-      activateCaretAt(cardIndex, words, storageK, true);
+      const armSeek = !isPlaybackActive(opts);
+      activateCaretAt(cardIndex, words, storageK, true, armSeek);
       globalHoveredRowIndex = cardIndex;
-      patchCaretVisibility(listContainer, cardIndex, words, playing);
+      patchCaretVisibility(listContainer, cardIndex, words, isPlaybackActive(opts));
       btn.focus({ preventScroll: true });
     });
     btn.addEventListener("focus", () => syncCaretFromFocus(cardIndex, words, k));
@@ -1509,6 +1526,10 @@ export function buildWordChipsAndCarets(
     });
     pill.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (isPlaybackActive(opts)) {
+        console.warn("[CHIP-CLICK-PAUSE] card=%d word=%d detail=%d clientXY=%d,%d trusted=%s ts=%s",
+          cardIndex, storageWi, e.detail, e.clientX, e.clientY, e.isTrusted, e.timeStamp);
+      }
       const st = getRowCaret(cardIndex, words);
       st.selectionAnchor = null;
       const liveExpandedCue =
@@ -1592,14 +1613,23 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
   const wasPlaying = isPlaybackActive(opts);
 
   if (e.key === " " || e.code === "Space") {
-    if (e.defaultPrevented) return;
+    if (e.repeat || e.defaultPrevented) return;
+    const nowMs = performance.now();
+    console.log("[CARD-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
+      cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
     e.preventDefault();
     e.stopPropagation();
     if (wasPlaying) {
+      const elapsed = nowMs - lastCaretPlayStartMs;
+      if (elapsed < 600) {
+        console.log("[CARD-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
+        return;
+      }
       opts.onTogglePlayback?.(true);
       return;
     }
     if (spaceSeekIntent === "wholeLine") {
+      lastCaretPlayStartMs = nowMs;
       opts.onWaveformSeekAndPlay?.(cues[cardIndex]?.start ?? 0);
       spaceSeekIntent = "none";
       listPlayFromCaretPreferred = false;
@@ -1607,12 +1637,14 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
     }
     if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
     if (spaceSeekIntent === "caret") {
+      lastCaretPlayStartMs = nowMs;
       playAtCaret(cardIndex, ci, opts);
       spaceSeekIntent = "none";
       listPlayFromCaretPreferred = false;
       return;
     }
     if (cardIndex === opts.getExpandedCueIndex?.() && tryWaveformSpaceWhenExpanded(opts)) return;
+    lastCaretPlayStartMs = nowMs;
     opts.onTogglePlayback?.(true);
     return;
   }

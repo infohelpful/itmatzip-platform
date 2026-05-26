@@ -7,7 +7,7 @@ import { WebAudioMasterPlayback } from "./web-audio-master-playback.js";
 import {
   assignMasterAudioTimelineSecIfNeeded,
   playMasterVideoSynced,
-} from "./html-audio-master-playback.js";
+} from "./html-audio-master-playback.js?v=2";
 import { mergeCutRanges, skipCutRangeAt } from "../playback.js";
 import { getPlaybackOrchestrator } from "./playback-orchestrator.js";
 

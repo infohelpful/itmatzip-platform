@@ -107,15 +107,17 @@ export function playMasterVideoSynced(masterAudio, videoEl, opts = {}) {
 
   let videoSeekDone = !shouldSeekVideo;
   let audioSeekDone = !shouldSeekAudio;
-  const haveBothReady = () =>
-    masterAudio.readyState >= HAVE_FUTURE && videoEl.readyState >= HAVE_FUTURE;
+  const audioReady = () => masterAudio.readyState >= HAVE_FUTURE;
 
   let done = false;
   const playSync = () => {
     if (done) return;
-    if (!videoSeekDone || !audioSeekDone) return;
-    if (!haveBothReady()) return;
+    if (!audioSeekDone) return;
+    if (!audioReady()) return;
     done = true;
+    if (!videoSeekDone) {
+      seekWithNudge(videoEl, Number(targetVideoSec), () => {});
+    }
     playBoth();
   };
 
@@ -123,7 +125,6 @@ export function playMasterVideoSynced(masterAudio, videoEl, opts = {}) {
     if (shouldSeekVideo && Number.isFinite(targetVideoSec)) {
       seekWithNudge(videoEl, Number(targetVideoSec), () => {
         videoSeekDone = true;
-        playSync();
       });
     }
     if (shouldSeekAudio && Number.isFinite(targetAudioSec)) {
@@ -131,9 +132,6 @@ export function playMasterVideoSynced(masterAudio, videoEl, opts = {}) {
         audioSeekDone = true;
         playSync();
       });
-    }
-    if (videoEl.readyState < HAVE_FUTURE) {
-      videoEl.addEventListener("canplay", playSync, { once: true });
     }
     if (masterAudio.readyState < HAVE_FUTURE) {
       masterAudio.addEventListener("canplay", playSync, { once: true });

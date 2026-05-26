@@ -7,7 +7,7 @@ import {
   getCueWords,
 } from "../subtitle-words.js";
 import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=24";
-import { LineWaveformPanel } from "../line-waveform-panel.js";
+import { LineWaveformPanel } from "../line-waveform-panel.js?v=4";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
   applySubwavePanelLeftPx,
@@ -27,7 +27,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=44";
+} from "./word-caret-ui.js?v=48";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
