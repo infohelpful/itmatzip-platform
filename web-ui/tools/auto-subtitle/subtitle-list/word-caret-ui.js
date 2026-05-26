@@ -1199,14 +1199,14 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
   if (e.key === " " || e.code === "Space") {
     if (e.repeat || e.defaultPrevented) return;
     const nowMs = performance.now();
-    console.log("[CARET-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
-      cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
+    // console.log("[CARET-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
+    //   cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
     e.preventDefault();
     e.stopPropagation();
     if (wasPlaying) {
       const elapsed = nowMs - lastCaretPlayStartMs;
       if (elapsed < 600) {
-        console.log("[CARET-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
+        // console.log("[CARET-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
         return;
       }
       opts.onTogglePlayback?.(true);
@@ -1527,8 +1527,8 @@ export function buildWordChipsAndCarets(
     pill.addEventListener("click", (e) => {
       e.stopPropagation();
       if (isPlaybackActive(opts)) {
-        console.warn("[CHIP-CLICK-PAUSE] card=%d word=%d detail=%d clientXY=%d,%d trusted=%s ts=%s",
-          cardIndex, storageWi, e.detail, e.clientX, e.clientY, e.isTrusted, e.timeStamp);
+        // console.warn("[CHIP-CLICK-PAUSE] card=%d word=%d detail=%d clientXY=%d,%d trusted=%s ts=%s",
+        //   cardIndex, storageWi, e.detail, e.clientX, e.clientY, e.isTrusted, e.timeStamp);
       }
       const st = getRowCaret(cardIndex, words);
       st.selectionAnchor = null;
@@ -1615,14 +1615,14 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
   if (e.key === " " || e.code === "Space") {
     if (e.repeat || e.defaultPrevented) return;
     const nowMs = performance.now();
-    console.log("[CARD-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
-      cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
+    // console.log("[CARD-SPACE] card=%d, wasPlaying=%s, intent=%s, ts=%.1f, now=%.1f, trusted=%s",
+    //   cardIndex, wasPlaying, spaceSeekIntent, e.timeStamp, nowMs, e.isTrusted);
     e.preventDefault();
     e.stopPropagation();
     if (wasPlaying) {
       const elapsed = nowMs - lastCaretPlayStartMs;
       if (elapsed < 600) {
-        console.log("[CARD-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
+        // console.log("[CARD-SPACE] SKIP pause — play-start guard (elapsed=%.0f ms)", elapsed);
         return;
       }
       opts.onTogglePlayback?.(true);

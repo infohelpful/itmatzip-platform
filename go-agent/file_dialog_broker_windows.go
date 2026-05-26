@@ -304,8 +304,10 @@ func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
 	ps := "$ErrorActionPreference='Stop'; " +
 		"Add-Type -AssemblyName System.Windows.Forms; " +
 		"[System.Windows.Forms.Application]::EnableVisualStyles(); " +
+		"Add-Type -Name WinAPI -Namespace User32 -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();'; " +
 		"$owner=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false;Width=0;Height=0;StartPosition='Manual';Location=New-Object System.Drawing.Point(-32000,-32000)}; " +
-		"$owner.Show(); $owner.BringToFront(); " +
+		"$owner.Show(); $owner.Activate(); $owner.BringToFront(); " +
+		"[User32.WinAPI]::SetForegroundWindow($owner.Handle)|Out-Null; " +
 		"$dlg=New-Object System.Windows.Forms.OpenFileDialog; " +
 		"$dlg.Title='" + psDialogQuote(title) + "'; " +
 		"$dlg.Filter='" + psDialogQuote(filter) + "'; " +
