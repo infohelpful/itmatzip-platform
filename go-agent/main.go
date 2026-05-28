@@ -112,6 +112,7 @@ func ensurePaths() error {
 			return err
 		}
 	}
+	ensureDataFolderWritable()
 	return nil
 }
 

@@ -2,7 +2,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?define ProductName = "ItMatZip Agent" ?>
-  <?define ProductVersion = "1.2.2.0" ?>
+  <?define ProductVersion = "1.2.3.0" ?>
   <?define Manufacturer = "ItMatZip" ?>
   <?define UpgradeCode = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" ?>
 
@@ -60,6 +60,13 @@
       </Component>
     </ComponentGroup>
 
+    <CustomAction Id="GrantDataFolderPermissions"
+                  Directory="INSTALLFOLDER"
+                  ExeCommand="cmd.exe /c icacls &quot;[DATAFOLDER].&quot; /grant *S-1-5-32-545:(OI)(CI)M /T /Q"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
     <CustomAction Id="RegisterTrayAutostart"
                   Directory="INSTALLFOLDER"
                   ExeCommand="&quot;[INSTALLFOLDER]itmatzip-agent.exe&quot; --install"
@@ -97,7 +104,8 @@
 
     <InstallExecuteSequence>
       <Custom Action="StopTrayOnUpgrade" Before="InstallFiles">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
-      <Custom Action="RegisterTrayAutostart" After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="GrantDataFolderPermissions" After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="RegisterTrayAutostart" After="GrantDataFolderPermissions">NOT REMOVE</Custom>
       <Custom Action="StartTrayIcon" After="RegisterTrayAutostart">NOT REMOVE</Custom>
       <Custom Action="StopTrayOnRemove" Before="UnregisterTrayAutostart">REMOVE="ALL"</Custom>
       <Custom Action="UnregisterTrayAutostart" Before="RemoveFiles">REMOVE="ALL"</Custom>

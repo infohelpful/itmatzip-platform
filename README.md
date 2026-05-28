@@ -236,8 +236,8 @@ GitHub **manifest JSON** 기반.
 | GPU 사용 가능 | `wheels_gpu.zip.001` + `wheels_gpu.zip.002` | **두 파일 모두** 다운로드 → 순서대로 이어붙여 `wheels_gpu.zip` 생성 → 압축 해제 → 동일 pip 설치 |
 
 - v1.0.4 URL 예:
-  - CPU: `https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.4/wheel.zip`
-  - GPU 1/2: `…/wheels_gpu.zip.001`, `…/wheels_gpu.zip.002`
+  - CPU: `https://github.com/infohelpful/library-hub/releases/download/VocalRemover-Lib/wheel.zip`
+  - GPU 1/2: `…/wheels_gpu.zip.001`, `…/wheels_gpu.zip.002` (VocalRemover-Lib Release)
 - 자동 선택: `nvidia-smi`로 GPU가 보이면 GPU 번들, 아니면 CPU 번들.
 - 강제 지정: 환경 변수 `ITMATZIP_WHEEL_VARIANT=cpu` 또는 `gpu` (기본 `auto`).
 

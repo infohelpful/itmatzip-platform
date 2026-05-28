@@ -55,4 +55,17 @@ export const TOOLS = [
     badge: "AI",
     tags: ["보컬", "vocal", "mr", "분리", "audio", "demucs", "ai"],
   },
+  {
+    id: "create-music",
+    href: "create-music/",
+    title: "Create Music",
+    subtitle: "AI 음악 생성 · ACE-Step 1.5",
+    description:
+      "텍스트와 가사로 AI 음악을 생성합니다. LoRA 학습으로 나만의 스타일을 커스터마이징할 수 있습니다.",
+    icon: "🎵",
+    accent: "#f59e0b",
+    available: true,
+    badge: "AI",
+    tags: ["음악", "music", "ai", "생성", "작곡", "ace-step", "lora", "노래"],
+  },
 ];

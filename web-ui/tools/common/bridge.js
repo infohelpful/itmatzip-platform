@@ -57,6 +57,10 @@ const CIRCUIT_THRESHOLD = 5;
 const CIRCUIT_LONG_OP_THRESHOLD = 15;
 const CIRCUIT_COOLDOWN_MS = 10_000;
 const POLL_FAIL_STREAK_MAX = 15;
+/** 연속 실패 이 횟수 이상일 때만 UI·팝업에 ‘끊김’ 반영 (일시적 타임아웃 무시) */
+const MONITOR_DISCONNECT_UI_STREAK = 2;
+const MONITOR_DISCONNECT_DIALOG_STREAK = 3;
+const INSTALL_DIALOG_SUPPRESS_MS = 5 * 60 * 1000;
 
 function circuitThreshold() {
   return isAgentLongOperationActive() ? CIRCUIT_LONG_OP_THRESHOLD : CIRCUIT_THRESHOLD;
@@ -522,7 +526,7 @@ export function formatAgentConnectionError(raw) {
 export function applyConnectionStatusDot(el, ok, detail) {
   if (!el) return;
   const apiReady = detail?.apiReady !== false;
-  const longOp = detail?.longOp === true;
+  const longOp = detail?.longOp === true || isAgentLongOperationActive();
   if (ok && !apiReady) {
     const ver =
       detail && "agentVersion" in detail && detail.agentVersion
@@ -629,8 +633,8 @@ async function pingAgentOrigin(origin, signal) {
   const ctrl = new AbortController();
   const longOp = isAgentLongOperationActive();
   const healthTimeoutMs = longOp
-    ? Math.min(8000, _connectTimeoutMs)
-    : Math.min(2500, _connectTimeoutMs);
+    ? Math.min(15_000, _connectTimeoutMs)
+    : Math.min(4500, _connectTimeoutMs);
   const t = setTimeout(() => ctrl.abort(), healthTimeoutMs);
   const merged = mergeSignals(signal, ctrl.signal);
   const started = performance.now();
@@ -768,9 +772,24 @@ export function startConnectionMonitor(opts = {}) {
   }
 
   async function tick() {
+    if (stopped) return;
+
+    // 음악 생성·환경 준비 등으로 FastAPI가 바쁠 때 /health 타임아웃 → 오탐 끊김 방지
+    if (isAgentLongOperationActive() && lastOk === true) {
+      opts.onChange?.(true, {
+        ok: true,
+        longOp: true,
+        apiReady: false,
+      });
+      scheduleNext();
+      return;
+    }
+
     const detail = await checkAgentConnection();
     if (stopped) return;
-    const prevOk = lastOk;
+
+    const prevReportOk = lastOk === true;
+
     if (detail.ok) {
       failStreak = 0;
       recordCircuitSuccess();
@@ -778,20 +797,28 @@ export function startConnectionMonitor(opts = {}) {
       _installAutoShowSuppressedUntil = 0;
       if (_installBackdrop && !_installBackdrop.hasAttribute("hidden")) dismissInstallAgentDialog();
       void connectAgentWebSocket();
+      lastOk = true;
     } else if (!isAgentLongOperationActive()) {
       failStreak += 1;
       recordCircuitFailure();
-      if (failStreak >= 3) disconnectAgentWebSocket();
+      if (failStreak >= MONITOR_DISCONNECT_DIALOG_STREAK) disconnectAgentWebSocket();
+      if (failStreak >= MONITOR_DISCONNECT_UI_STREAK) lastOk = false;
     }
-    const changed = prevOk !== detail.ok;
+
+    const reportOk = lastOk === true;
+    const changed = prevReportOk !== reportOk;
     if (firstTick) firstTick = false;
-    lastOk = detail.ok;
-    opts.onChange?.(detail.ok, detail);
-    if (!detail.ok) {
+
+    opts.onChange?.(reportOk, { ...detail, ok: reportOk });
+
+    if (!reportOk) {
       if (changed) opts.onDisconnected?.(detail);
       const shouldAlert =
         opts.autoShowInstallDialog &&
-        !disconnectDialogShown;
+        !disconnectDialogShown &&
+        failStreak >= MONITOR_DISCONNECT_DIALOG_STREAK &&
+        !isAgentLongOperationActive() &&
+        Date.now() >= _installAutoShowSuppressedUntil;
       if (shouldAlert && !(_installBackdrop && !_installBackdrop.hasAttribute("hidden"))) {
         disconnectDialogShown = true;
         void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
@@ -845,6 +872,7 @@ function _closeInstallDialogElement() {
 }
 
 function _closeInstallDialogByUser() {
+  _installAutoShowSuppressedUntil = Date.now() + INSTALL_DIALOG_SUPPRESS_MS;
   _finishInstallDialogPromise();
   _closeInstallDialogElement();
 }
@@ -962,6 +990,7 @@ export function showInstallAgentDialog(options = {}) {
 }
 
 export function dismissInstallAgentDialog() {
+  _installAutoShowSuppressedUntil = Date.now() + INSTALL_DIALOG_SUPPRESS_MS;
   _finishInstallDialogPromise();
   _closeInstallDialogElement();
 }

@@ -1,0 +1,32 @@
+.dl-meta {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  min-height: 1.4em;
+}
+
+.dl-btn-mp3 {
+  background: linear-gradient(135deg, #2ea043 0%, #3fb950 45%, #56d364 100%);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(63, 185, 80, 0.35);
+}
+
+.dl-btn-mp3:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+.dl-nle-item__logo--mp3 {
+  background: linear-gradient(135deg, #2ea043, #56d364);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.dl-nle-item__steps {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-dim);
+}

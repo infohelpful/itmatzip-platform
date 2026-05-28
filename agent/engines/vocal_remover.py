@@ -340,7 +340,7 @@ def cleanup_workspace() -> dict[str, object]:
 
 WHEEL_RELEASE_BASE = os.environ.get(
     "ITMATZIP_WHEEL_RELEASE_BASE",
-    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.0.4",
+    "https://github.com/infohelpful/library-hub/releases/download/VocalRemover-Lib",
 )
 WHEEL_CPU_URL = os.environ.get(
     "ITMATZIP_WHEEL_CPU_URL",
