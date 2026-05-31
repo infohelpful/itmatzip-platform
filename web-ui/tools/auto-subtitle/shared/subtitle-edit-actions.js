@@ -5,8 +5,9 @@
 import {
   displayTextFromSubtitleWords,
   lineTextIsUserLocked,
+  markLineTextUserEdited,
+  clearLineTextUserEdited,
   subtitleLineEditDisplayText,
-  visibleSubtitleWords,
   wordIsDeleted,
 } from "./subtitles.js?v=24";
 import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
@@ -14,11 +15,50 @@ import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-ed
 import { timelineEditLog } from "./timeline-edit-log.js";
 
 function textFromWords(line, words, fallback) {
-  if (lineTextIsUserLocked(line)) {
-    return subtitleLineEditDisplayText(line);
-  }
   const t = displayTextFromSubtitleWords(words);
   return t.length > 0 ? t : fallback;
+}
+
+/** @param {import("./subtitles.js").SubtitleLine} line @param {number} storageSplitIndex */
+function splitLockedLineTextAtStorageIndex(line, storageSplitIndex) {
+  const full = subtitleLineEditDisplayText(line);
+  const words = line.words ?? [];
+  let leftVisCount = 0;
+  for (let i = 0; i < storageSplitIndex && i < words.length; i += 1) {
+    const w = words[i];
+    if (wordIsDeleted(w)) continue;
+    if (!String(w.word ?? "").trim()) continue;
+    leftVisCount += 1;
+  }
+  const tokens = full.split(/\s+/).filter(Boolean);
+  if (leftVisCount <= 0) return { left: "", right: full };
+  if (leftVisCount >= tokens.length) return { left: full, right: "" };
+  return {
+    left: tokens.slice(0, leftVisCount).join(" "),
+    right: tokens.slice(leftVisCount).join(" "),
+  };
+}
+
+/** @param {import("./subtitles.js").SubtitleLine} line @param {string} text */
+function withLineEditText(line, text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) {
+    const next = { ...line, text: "" };
+    clearLineTextUserEdited(next);
+    return next;
+  }
+  const next = { ...line, text: trimmed };
+  if (lineTextIsUserLocked(line)) markLineTextUserEdited(next);
+  return next;
+}
+
+/** @param {...import("./subtitles.js").SubtitleLine} lines */
+function mergeLockedLineTexts(...lines) {
+  return lines
+    .map((line) => (lineTextIsUserLocked(line) ? subtitleLineEditDisplayText(line) : line?.text ?? ""))
+    .map((t) => String(t).trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 /**
@@ -74,19 +114,30 @@ export function splitSubtitleAtWord(hub, index, wordIndex) {
     splitTime = Math.max(cur.start + 0.1, Math.min(cur.end - 0.1, splitTime));
     if (!(splitTime > cur.start && splitTime < cur.end)) return prev;
 
-    const first = {
-      ...cur,
-      end: splitTime,
-      words: leftWords,
-      text: textFromWords(cur, leftWords, cur.text),
-    };
-    const second = {
-      ...cur,
-      start: splitTime,
-      end: cur.end,
-      words: rightWords,
-      text: textFromWords(cur, rightWords, cur.text),
-    };
+    const locked = lineTextIsUserLocked(cur);
+    const { left: lockedLeft, right: lockedRight } = locked
+      ? splitLockedLineTextAtStorageIndex(cur, wordIndex)
+      : { left: "", right: "" };
+    const leftText = locked ? lockedLeft : textFromWords(cur, leftWords, cur.text);
+    const rightText = locked ? lockedRight : textFromWords(cur, rightWords, cur.text);
+
+    const first = withLineEditText(
+      {
+        ...cur,
+        end: splitTime,
+        words: leftWords,
+      },
+      leftText,
+    );
+    const second = withLineEditText(
+      {
+        ...cur,
+        start: splitTime,
+        end: cur.end,
+        words: rightWords,
+      },
+      rightText,
+    );
     return [...prev.slice(0, index), first, second, ...prev.slice(index + 1)];
   });
 }
@@ -119,7 +170,9 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
         start: nextStart,
         end: Math.max(nextStart + 0.1, nextEnd),
         words: nextWords,
-        text: textFromWords(cur, nextWords, cur.text),
+        text: lineTextIsUserLocked(cur)
+          ? subtitleLineEditDisplayText(cur)
+          : textFromWords(cur, nextWords, cur.text),
       };
       return [...prev.slice(0, cardIndex), updated, ...prev.slice(cardIndex + 1)];
     }
@@ -129,13 +182,17 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
     const upWords = up.words ?? [];
     const mergedWords = [...upWords, ...words];
     if (mergedWords.length === 0) return prev;
-    const merged = {
-      ...up,
-      start: Math.min(up.start, mergedWords[0].start),
-      end: Math.max(up.end, mergedWords[mergedWords.length - 1].end),
-      words: mergedWords,
-      text: textFromWords(up, mergedWords, up.text),
-    };
+    const merged = withLineEditText(
+      {
+        ...up,
+        start: Math.min(up.start, mergedWords[0].start),
+        end: Math.max(up.end, mergedWords[mergedWords.length - 1].end),
+        words: mergedWords,
+      },
+      lineTextIsUserLocked(up) || lineTextIsUserLocked(cur)
+        ? mergeLockedLineTexts(up, cur)
+        : textFromWords(up, mergedWords, up.text),
+    );
     return [...prev.slice(0, cardIndex - 1), merged, ...prev.slice(cardIndex + 1)];
   });
 }
@@ -180,12 +237,16 @@ export function deleteWordAt(hub, cardIndex, caretIndex) {
       if (caretIndex === words.length && cardIndex < prev.length - 1) {
         const nextLine = prev[cardIndex + 1];
         const mergedWords = [...words, ...(nextLine.words ?? [])];
-        const merged = {
-          ...cur,
-          end: nextLine.end,
-          words: mergedWords,
-          text: textFromWords(cur, mergedWords, cur.text),
-        };
+        const merged = withLineEditText(
+          {
+            ...cur,
+            end: nextLine.end,
+            words: mergedWords,
+          },
+          lineTextIsUserLocked(cur) || lineTextIsUserLocked(nextLine)
+            ? mergeLockedLineTexts(cur, nextLine)
+            : textFromWords(cur, mergedWords, cur.text),
+        );
         return [...prev.slice(0, cardIndex), merged, ...prev.slice(cardIndex + 2)];
       }
 

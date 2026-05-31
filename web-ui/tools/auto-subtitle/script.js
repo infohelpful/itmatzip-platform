@@ -112,7 +112,7 @@ import {
   backspaceWordAt,
   deleteWordAt,
   deleteWordRangeAt,
-} from "./shared/subtitle-edit-actions.js?v=21";
+} from "./shared/subtitle-edit-actions.js?v=22";
 
 configureBridge({ healthPath: "/health" });
 
