@@ -57,7 +57,7 @@ import {
 import {
   syncAllCuesFromWords,
   ensureCueWords,
-  displayTextFromWords,
+  subtitleLineEditDisplayText,
   MIN_WORD_SPAN_SEC,
 } from "./subtitle-words.js?v=21";
 import {
@@ -80,7 +80,11 @@ import {
   postProcessCuesAfterTranscribe,
 } from "./shared/cues-ssot.js?v=29";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
-import { getSubtitleBoxChromeInline } from "./shared/subtitle-box-chrome.js?v=21";
+import {
+  applySubtitleOverlayTextLayout,
+  buildSubtitleOverlayInnerStyle,
+  normalizePreviewSubtitleText,
+} from "./shared/subtitle-box-chrome.js?v=25";
 import { SubtitleAppHub } from "./hub/app-hub.js?v=21";
 import {
   applyPlaybackSkipToPreviewMedia,
@@ -214,6 +218,7 @@ const btnSaveProjectAs = document.getElementById("btn-save-project-as");
 const btnUnloadModel = document.getElementById("btn-unload-model");
 const btnLoadProject = document.getElementById("btn-load-project");
 const btnPrepare = document.getElementById("btn-prepare");
+const btnAddFont = document.getElementById("btn-add-font");
 const btnUndo = document.getElementById("btn-undo");
 const btnRedo = document.getElementById("btn-redo");
 /** Electron: 단어 구간 기반 재생 스케줄 */
@@ -222,6 +227,12 @@ const gpuInstallPrompt = document.getElementById("gpu-install-prompt");
 const gpuInstallMessage = document.getElementById("gpu-install-message");
 const btnGpuInstallRun = document.getElementById("btn-gpu-install-run");
 const btnGpuInstallDismiss = document.getElementById("btn-gpu-install-dismiss");
+const fontAddModal = document.getElementById("font-add-modal");
+const fontAddTitle = document.getElementById("font-add-title");
+const fontAddMessage = document.getElementById("font-add-message");
+const fontAddTrack = document.getElementById("font-add-track");
+const fontAddActions = document.getElementById("font-add-actions");
+const btnFontAddOk = document.getElementById("btn-font-add-ok");
 
 let toolReady = false;
 let modelLoaded = false;
@@ -408,15 +419,6 @@ function clearSubtitleWorkspace() {
   stopPlaybackLoop();
   commitPlayheadUi();
   updateActionButtons();
-}
-
-const PREVIEW_SUBTITLE_SIDE_MARGIN_PCT = 3;
-
-function previewSubtitleTextAlign(x) {
-  const pct = Number(x) || 50;
-  if (pct < 34) return "left";
-  if (pct > 66) return "right";
-  return "center";
 }
 
 function clampStylePercent(value, min, max) {
@@ -684,10 +686,18 @@ function getActiveCueForPreview() {
 
 function getPreviewCueText(cue) {
   if (!cue) return "";
+  const previewIdx = getPreviewCueIndex();
+  if (previewIdx >= 0 && subtitleList) {
+    const ta = subtitleList.querySelector(
+      `.subtitle-card[data-cue-index="${previewIdx}"] .subtitle-card-textarea`,
+    );
+    if (ta instanceof HTMLTextAreaElement) {
+      const live = normalizePreviewSubtitleText(ta.value);
+      if (live) return live;
+    }
+  }
   ensureCueWords(cue);
-  const fromWords = displayTextFromWords(cue.words);
-  if (String(fromWords || "").trim()) return String(fromWords).trim();
-  return String(cue.text || "").trim();
+  return normalizePreviewSubtitleText(subtitleLineEditDisplayText(cue));
 }
 
 function armDeleteGuard(ms = 280) {
@@ -1206,41 +1216,43 @@ function updatePreviewOverlay() {
   if (!previewOverlay) return;
   layoutPreviewMediaFrame();
   const cue = getActiveCueForPreview();
-  const previewText = getPreviewCueText(cue);
+  const previewText = normalizePreviewSubtitleText(getPreviewCueText(cue));
   const style = readSubtitleStyleFromDom();
   if (!cue || !previewText) {
     previewOverlay.hidden = true;
-    previewOverlay.innerHTML = "";
+    previewOverlay.replaceChildren();
     return;
   }
-  const x = clampStylePercent(style.x ?? 50, 5, 95);
-  const y = clampStylePercent(style.y ?? 90, 2, 98);
   const scale = getPreviewOverlayScale(style);
-  const previewFontSize = Math.max(8, Math.round((style.fontSize || 47) * scale));
-  const previewStrokeWidth = Math.max(0, (style.strokeWidth || 0) * scale);
-  const chrome = getSubtitleBoxChromeInline(previewFontSize, style.bgSize ?? 50);
+  const { fontSize: previewFontSize, strokeWidth: previewStrokeWidth, chrome, position } =
+    buildSubtitleOverlayInnerStyle(style, scale);
   const bgAlpha = Math.max(0, Math.min(1, (style.bgOpacity ?? 60) / 100));
   previewOverlay.hidden = false;
-  previewOverlay.innerHTML = `
-    <div class="as-preview-overlay-inner" style="
-      left: ${PREVIEW_SUBTITLE_SIDE_MARGIN_PCT}%;
-      right: ${PREVIEW_SUBTITLE_SIDE_MARGIN_PCT}%;
-      top: ${y}%;
-      text-align: ${previewSubtitleTextAlign(x)};
-      font-family: '${(style.fontFamily || "Malgun Gothic").replace(/'/g, "\\'")}', 'Malgun Gothic', sans-serif;
-      font-size: ${previewFontSize}px;
-      font-weight: ${style.fontWeight || 700};
-      color: ${style.textColor || "#fff"};
-      -webkit-text-stroke: ${previewStrokeWidth}px ${style.strokeColor || "#000"};
-      paint-order: stroke fill;
-      background: ${hexWithAlpha(style.bgColor, Math.round(bgAlpha * 255))};
-      padding: ${chrome.padding};
-      line-height: ${chrome.lineHeight};
-      border-radius: ${chrome.borderRadius}px;
-      border: ${chrome.border};
-      box-sizing: ${chrome.boxSizing};
-    ">${escapeHtml(previewText)}</div>
-  `;
+  previewOverlay.replaceChildren();
+
+  const inner = document.createElement("div");
+  inner.className = "as-preview-overlay-inner";
+  inner.textContent = previewText;
+  inner.style.top = position.top;
+  inner.style.left = position.left;
+  inner.style.right = position.right;
+  inner.style.transform = position.transform;
+  inner.style.textAlign = position.textAlign;
+  inner.style.display = "inline-block";
+  inner.style.fontFamily = `'${(style.fontFamily || "Malgun Gothic").replace(/'/g, "\\'")}', 'Malgun Gothic', sans-serif`;
+  inner.style.fontSize = `${previewFontSize}px`;
+  inner.style.fontWeight = String(style.fontWeight || 700);
+  inner.style.color = style.textColor || "#fff";
+  inner.style.webkitTextStroke = `${previewStrokeWidth}px ${style.strokeColor || "#000"}`;
+  inner.style.paintOrder = "stroke fill";
+  inner.style.background = hexWithAlpha(style.bgColor, Math.round(bgAlpha * 255));
+  inner.style.padding = chrome.padding;
+  inner.style.lineHeight = String(chrome.lineHeight);
+  inner.style.borderRadius = `${chrome.borderRadius}px`;
+  inner.style.border = chrome.border;
+  inner.style.boxSizing = chrome.boxSizing;
+  previewOverlay.appendChild(inner);
+  applySubtitleOverlayTextLayout(inner, previewOverlay);
 }
 
 setPreviewOverlaySyncHook((cardIndex) => {
@@ -1326,15 +1338,130 @@ function syncFontSelectTitle() {
   styleFontFamily.title = label;
 }
 
-async function loadSystemFontsFromAgent() {
+let customFontCatalog = [];
+
+/** @type {HTMLStyleElement | null} */
+let customFontFacesEl = null;
+
+function injectCustomFontFaces(customFonts) {
+  if (!customFontFacesEl) {
+    customFontFacesEl = document.createElement("style");
+    customFontFacesEl.id = "as-custom-font-faces";
+    document.head.appendChild(customFontFacesEl);
+  }
+  const origin = getAgentOrigin();
+  const rules = (customFonts || [])
+    .map((f) => {
+      const family = String(f?.family || "").trim();
+      const url = String(f?.url || "").trim();
+      if (!family || !url) return "";
+      const abs = /^https?:\/\//i.test(url) ? url : `${origin}${url.startsWith("/") ? url : `/${url}`}`;
+      return `@font-face{font-family:${JSON.stringify(family)};src:url(${JSON.stringify(abs)});font-display:swap;}`;
+    })
+    .filter(Boolean);
+  customFontFacesEl.textContent = rules.join("\n");
+}
+
+async function ensureCustomFontsLoaded(customFonts, preferredFamily = "") {
+  injectCustomFontFaces(customFonts);
+  const loads = [];
+  for (const f of customFonts || []) {
+    const family = String(f?.family || "").trim();
+    if (!family) continue;
+    loads.push(document.fonts.load(`700 16px ${JSON.stringify(family)}`).catch(() => {}));
+  }
+  const pref = String(preferredFamily || "").trim();
+  if (pref && !(customFonts || []).some((f) => f?.family === pref)) {
+    loads.push(document.fonts.load(`700 16px ${JSON.stringify(pref)}`).catch(() => {}));
+  }
+  if (loads.length) await Promise.all(loads);
+  await document.fonts.ready;
+}
+
+async function loadSystemFontsFromAgent({ selectFamily = "" } = {}) {
   if (!agentConnected) return;
   try {
     const data = await requestAgent({ path: `${TOOL_PREFIX}/system-fonts` });
     const fonts = Array.isArray(data?.fonts) ? data.fonts : [];
+    customFontCatalog = Array.isArray(data?.custom_fonts) ? data.custom_fonts : [];
+    await ensureCustomFontsLoaded(customFontCatalog, selectFamily || styleFontFamily?.value || "");
     if (fonts.length) populateFontSelect(fonts);
+    if (selectFamily) {
+      ensureFontSelectOption(selectFamily);
+      if (styleFontFamily) styleFontFamily.value = selectFamily;
+      syncFontSelectTitle();
+    }
   } catch (err) {
     console.warn("[auto-subtitle] system-fonts", err);
     populateFontSelect(SYSTEM_FONT_CANDIDATES);
+  }
+}
+
+async function addCustomFontFromDialog() {
+  if (!agentConnected) {
+    openFontAddModal({
+      title: "폰트 추가",
+      message: `${LOCAL_HELPER_NAME}에 연결된 뒤 폰트를 추가할 수 있습니다.`,
+      showOk: true,
+    });
+    return;
+  }
+  if (btnAddFont) btnAddFont.disabled = true;
+  try {
+    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-font-file`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    const pick = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      openFontAddModal({
+        title: "폰트 추가 실패",
+        message: formatPickErrorDetail(pick, res.statusText),
+        showOk: true,
+      });
+      return;
+    }
+    const sourcePath = String(pick?.path || "").trim();
+    if (!sourcePath || pick?.cancelled) return;
+
+    openFontAddModal({
+      title: "폰트 추가",
+      message: "글꼴 파일을 복사하고 등록하는 중…",
+      loading: true,
+    });
+
+    const installed = await requestAgent({
+      path: `${TOOL_PREFIX}/custom-fonts/install`,
+      method: "POST",
+      json: { source_path: sourcePath },
+    });
+    const family = String(installed?.family || "").trim();
+    if (!family) {
+      await loadSystemFontsFromAgent();
+      openFontAddModal({
+        title: "폰트 추가",
+        message: "글꼴을 추가했지만 패밀리 이름을 확인하지 못했습니다.",
+        showOk: true,
+      });
+      return;
+    }
+    await loadSystemFontsFromAgent({ selectFamily: family });
+    updatePreviewOverlay();
+    scheduleSaveUserPreferences();
+    openFontAddModal({
+      title: "폰트 추가 완료",
+      message: `${family}\n저장 위치: ${installed?.fonts_dir || "C:\\ProgramData\\Itmatzip\\Font"}`,
+      showOk: true,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    openFontAddModal({
+      title: "폰트 추가 실패",
+      message: msg,
+      showOk: true,
+    });
+  } finally {
+    if (btnAddFont) btnAddFont.disabled = !agentConnected;
   }
 }
 
@@ -1410,12 +1537,48 @@ function syncInAppBusyShell() {
   const transcribeActive = Boolean(transcribeLoading?.classList.contains("is-active"));
   const exportActive = Boolean(exportLoading?.classList.contains("is-active"));
   const gpuPromptActive = Boolean(gpuInstallPrompt?.classList.contains("is-active"));
-  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive;
+  const fontAddActive = Boolean(fontAddModal?.classList.contains("is-active"));
+  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive || fontAddActive;
   asShell?.classList.toggle("is-inapp-busy", busy);
   if (inappBusyHost) {
     inappBusyHost.hidden = !busy;
     inappBusyHost.setAttribute("aria-hidden", busy ? "false" : "true");
   }
+}
+
+function closeFontAddModal() {
+  if (!fontAddModal) return;
+  fontAddModal.hidden = true;
+  fontAddModal.classList.remove("is-active");
+  fontAddModal.setAttribute("aria-hidden", "true");
+  if (fontAddTrack) fontAddTrack.hidden = true;
+  if (fontAddActions) fontAddActions.hidden = true;
+  syncInAppBusyShell();
+}
+
+/** @param {{ title?: string, message?: string, loading?: boolean, showOk?: boolean }} opts */
+function openFontAddModal({ title = "폰트 추가", message = "", loading = false, showOk = false } = {}) {
+  if (!fontAddModal) return;
+  closeGpuInstallModal();
+  setupLoading?.classList.remove("is-active");
+  if (setupLoading) {
+    setupLoading.hidden = true;
+    setupLoading.setAttribute("aria-hidden", "true");
+  }
+  transcribeLoading?.classList.remove("is-active");
+  if (transcribeLoading) {
+    transcribeLoading.hidden = true;
+    transcribeLoading.setAttribute("aria-hidden", "true");
+  }
+  if (fontAddTitle) fontAddTitle.textContent = title;
+  if (fontAddMessage) fontAddMessage.textContent = message;
+  if (fontAddTrack) fontAddTrack.hidden = !loading;
+  if (fontAddActions) fontAddActions.hidden = !showOk;
+  fontAddModal.hidden = false;
+  fontAddModal.classList.add("is-active");
+  fontAddModal.setAttribute("aria-hidden", "false");
+  syncInAppBusyShell();
+  if (showOk) btnFontAddOk?.focus({ preventScroll: true });
 }
 
 function setSetupLoading(active, { title, step, message, progress } = {}) {
@@ -1424,6 +1587,7 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
     closeGpuInstallModal();
+    closeFontAddModal();
     transcribeLoading?.classList.remove("is-active");
     if (transcribeLoading) {
       transcribeLoading.hidden = true;
@@ -1463,6 +1627,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
     closeGpuInstallModal();
+    closeFontAddModal();
     setupLoading?.classList.remove("is-active");
     if (setupLoading) {
       setupLoading.hidden = true;
@@ -1495,6 +1660,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
 function updateActionButtons() {
   const hasCues = lastCues.some((c) => !c.is_silence && String(c.text || "").trim());
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  if (btnAddFont) btnAddFont.disabled = !agentConnected;
   if (btnExport) btnExport.disabled = !agentConnected || !hasCues;
   if (btnUnloadModel) btnUnloadModel.disabled = !agentConnected || !modelLoaded;
   if (btnDownloadResult) {
@@ -1516,6 +1682,8 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
   const wasActive = exportLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
+    closeGpuInstallModal();
+    closeFontAddModal();
     setupLoading?.classList.remove("is-active");
     if (setupLoading) {
       setupLoading.hidden = true;
@@ -2007,6 +2175,7 @@ function applyReadiness(data) {
   agentAudiowaveformAvailable = Boolean(b.audiowaveform);
   toolReady = Boolean(b.ffmpeg && modelLoaded);
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  if (btnAddFont) btnAddFont.disabled = !agentConnected;
   setComputeCapabilityBadge(data);
   maybeShowGpuInstallDialog(data);
 }
@@ -2066,6 +2235,7 @@ function closeGpuInstallModal() {
 function openGpuInstallModal(message) {
   if (!gpuInstallPrompt) return;
   if (gpuInstallMessage && message) gpuInstallMessage.textContent = message;
+  closeFontAddModal();
   setupLoading?.classList.remove("is-active");
   if (setupLoading) {
     setupLoading.hidden = true;
@@ -3055,6 +3225,14 @@ btnPrepare?.addEventListener("click", async () => {
   }
 });
 
+btnAddFont?.addEventListener("click", () => {
+  void addCustomFontFromDialog();
+});
+
+btnFontAddOk?.addEventListener("click", () => {
+  closeFontAddModal();
+});
+
 btnUndo?.addEventListener("click", () => {
   if (subtitleHub.undo()) renderCuesTable(lastCues);
 });
@@ -3076,8 +3254,15 @@ btnGpuInstallRun?.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape" || !gpuInstallPrompt || gpuInstallPrompt.hidden) return;
-  closeGpuInstallModal();
+  if (e.key !== "Escape") return;
+  if (fontAddModal && !fontAddModal.hidden) {
+    if (fontAddTrack && !fontAddTrack.hidden) return;
+    closeFontAddModal();
+    return;
+  }
+  if (gpuInstallPrompt && !gpuInstallPrompt.hidden) {
+    closeGpuInstallModal();
+  }
 });
 
 document.addEventListener("keydown", (e) => {
@@ -3213,6 +3398,7 @@ previewAudio?.addEventListener("ended", () => {
 
 styleFontFamily?.addEventListener("change", () => {
   syncFontSelectTitle();
+  void ensureCustomFontsLoaded(customFontCatalog, styleFontFamily?.value || "");
   updatePreviewOverlay();
 });
 

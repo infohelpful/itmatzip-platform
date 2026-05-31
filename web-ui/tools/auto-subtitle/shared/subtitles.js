@@ -53,6 +53,10 @@ export function displayTextFromSubtitleWords(words) {
     .map((w) => scrubTimelineNoiseFromWordPiece(w.word))
     .filter((piece) => piece.length > 0 && !shouldOmitFromSubtitleEditLineText(piece))
     .join(" ")
+    .replace(/[\u2028\u2029\u000B\u000C\u0085\r\n]/g, " ")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[^\S ]+/g, " ")
+    .replace(/ {2,}/g, " ")
     .trim();
 }
 

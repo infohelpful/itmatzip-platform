@@ -773,6 +773,16 @@ body {
   text-align: center;
 }
 
+.waveform-analyze-meta {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(200, 220, 210, 0.82);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .waveform-analyze-hint {
   margin: 10px 0 0;
   font-size: 11px;
@@ -799,9 +809,9 @@ body {
 
 .waveform-analyze-progress-bar.is-determinate {
   width: 0%;
-  min-width: 4%;
+  min-width: 0;
   animation: none;
-  transition: width 0.22s ease-out;
+  transition: none;
   box-shadow: 0 0 12px rgba(94, 234, 212, 0.45);
 }
 

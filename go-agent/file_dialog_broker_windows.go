@@ -26,14 +26,20 @@ func isCurrentProcessInteractive() bool {
 	return sid != 0
 }
 
-func pickFileViaUserDialog(audioOnly bool, projectOnly bool) (string, error) {
+func pickFileViaUserDialog(audioOnly bool, projectOnly bool, fontOnly bool) (string, error) {
 	title := "ItMatZip — 미디어 파일 선택"
 	filters := zenity.FileFilters{
 		{Name: "동영상 파일", Patterns: []string{"*.mp4", "*.mov", "*.mkv", "*.webm", "*.avi", "*.m4v"}},
 		{Name: "오디오/동영상", Patterns: []string{"*.mp4", "*.mov", "*.mkv", "*.webm", "*.avi", "*.m4a", "*.wav", "*.mp3", "*.aac", "*.flac"}},
 		{Name: "모든 파일", Patterns: []string{"*.*"}},
 	}
-	if projectOnly {
+	if fontOnly {
+		title = "ItMatZip — 글꼴 파일 선택"
+		filters = zenity.FileFilters{
+			{Name: "글꼴 파일", Patterns: []string{"*.ttf", "*.otf", "*.ttc"}},
+			{Name: "모든 파일", Patterns: []string{"*.*"}},
+		}
+	} else if projectOnly {
 		title = "ItMatZip — 프로젝트 불러오기"
 		filters = zenity.FileFilters{
 			{Name: "Auto Subtitle 프로젝트", Patterns: []string{"*.autosub", "*.json"}},

@@ -157,7 +157,10 @@
             </div>
             <div class="waveform-analyze-loading" id="waveform-analyze-loading" hidden aria-hidden="true">
               <div class="waveform-analyze-loading-inner">
-                <p class="waveform-analyze-label" id="waveform-analyze-label">무음 구간 분석 중…</p>
+                <p class="waveform-analyze-label" id="waveform-analyze-label">
+                  <span id="waveform-analyze-status">무음 구간 분석 중…</span>
+                  <span class="waveform-analyze-meta" id="waveform-analyze-meta">0%</span>
+                </p>
                 <div class="waveform-analyze-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                   <div class="waveform-analyze-progress-bar" id="waveform-analyze-progress-bar"></div>
                 </div>
@@ -195,7 +198,7 @@
     </div>
   </div>
   <script src="mobile-only.js?v=2"></script>
-  <script type="module" src="script.js?v=lna19"></script>
+  <script type="module" src="script.js?v=lna20"></script>
   <script src="../common/site-guard.js?v=1"></script>
 </body>
 </html>

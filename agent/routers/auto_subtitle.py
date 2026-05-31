@@ -38,6 +38,7 @@ from engines import auto_subtitle_project
 from engines import auto_subtitle_gpu_runtime
 from engines import auto_subtitle_runtime
 from engines import silence_remover as silence_remover_engine
+from engines import custom_fonts
 from engines import system_fonts
 
 router = APIRouter(prefix="/api/tools/auto-subtitle", tags=["auto-subtitle"])
@@ -412,9 +413,46 @@ def _build_readiness_payload() -> dict[str, object]:
 
 @router.get("/system-fonts")
 async def get_system_fonts() -> dict[str, object]:
-    """로컬 PC에 설치된 글꼴 패밀리 목록."""
+    """로컬 PC에 설치된 글꼴 패밀리 목록 + 사용자 추가 글꼴."""
     fonts = await run_sync(system_fonts.list_installed_font_families)
-    return {"ok": True, "fonts": fonts}
+    custom = await run_sync(custom_fonts.list_custom_fonts)
+    return {"ok": True, "fonts": fonts, "custom_fonts": custom, "fonts_dir": str(custom_fonts.get_fonts_dir())}
+
+
+class InstallCustomFontBody(BaseModel):
+    source_path: str = Field(..., min_length=1, description="로컬 글꼴 파일 경로 (.ttf/.otf/.ttc)")
+
+
+@router.post("/custom-fonts/install")
+async def post_custom_font_install(body: InstallCustomFontBody) -> dict[str, object]:
+    """선택한 글꼴 파일을 ProgramData/Font 로 복사·등록."""
+    try:
+        result = await run_sync(custom_fonts.install_custom_font_from_path, body.source_path)
+        return result
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/custom-fonts/file/{file_name}")
+async def get_custom_font_file(file_name: str) -> FileResponse:
+    """미리보기 @font-face 용 사용자 글꼴 파일."""
+    try:
+        path = await run_sync(custom_fonts.resolve_custom_font_file, file_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="글꼴 파일을 찾을 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    suffix = path.suffix.lower()
+    media = "font/ttf"
+    if suffix == ".otf":
+        media = "font/otf"
+    elif suffix == ".ttc":
+        media = "font/collection"
+    return FileResponse(path, media_type=media, filename=path.name)
 
 
 @router.post("/gpu-runtime/install")

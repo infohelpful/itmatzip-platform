@@ -3,9 +3,15 @@
  * text-stroke 포함 전체 CSS 렌더링을 그대로 캡처합니다.
  */
 
-import { getSubtitleBoxChromeInline } from "../shared/subtitle-box-chrome.js";
+import {
+  applySubtitleOverlayTextLayout,
+  buildSubtitleOverlayInnerStyle,
+  getSubtitleBoxChromeInline,
+  normalizePreviewSubtitleText,
+  PREVIEW_SUBTITLE_SIDE_MARGIN_PCT,
+  subtitlePreviewTextAlign,
+} from "../shared/subtitle-box-chrome.js?v=25";
 
-const PREVIEW_SUBTITLE_SIDE_MARGIN_PCT = 3;
 const CAPTURE_SCALE = 2;
 
 let captureHostRoot = null;
@@ -17,10 +23,7 @@ function clampStylePercent(v, min, max) {
 }
 
 function previewSubtitleTextAlign(xPct) {
-  const x = clampStylePercent(xPct, 0, 100);
-  if (x <= 33) return "left";
-  if (x >= 67) return "right";
-  return "center";
+  return subtitlePreviewTextAlign(xPct);
 }
 
 function parseBgRgba(style) {
@@ -47,16 +50,15 @@ function hexWithAlpha(hex, alpha255) {
 function buildExportSubtitleInnerStyle(style, renderW, renderH) {
   const fullH = style.videoHeight || renderH;
   const scale = fullH > 0 ? renderH / fullH : 1;
-  const fontSize = Math.max(8, Math.round((style.fontSize || 47) * scale));
-  const strokeWidth = Math.max(0, (style.strokeWidth || 0) * scale);
-  const chrome = getSubtitleBoxChromeInline(fontSize, style.bgSize ?? 50);
+  const { fontSize, strokeWidth, chrome, position } = buildSubtitleOverlayInnerStyle(style, scale);
   return {
     fontSize,
     strokeWidth,
     chrome,
+    position,
     x: clampStylePercent(style.x ?? 50, 5, 95),
     y: clampStylePercent(style.y ?? 90, 2, 98),
-    align: previewSubtitleTextAlign(style.x ?? 50),
+    align: position.textAlign,
     fontFamily: style.fontFamily || "Malgun Gothic",
     fontWeight: style.fontWeight || 700,
     textColor: style.textColor || "#ffffff",
@@ -88,14 +90,15 @@ function ensureCaptureHost(w, h) {
 function mountSubtitleOnHost(host, text, st) {
   const inner = document.createElement("div");
   inner.className = "as-preview-overlay-inner";
-  inner.textContent = String(text || "").trim();
+  inner.textContent = normalizePreviewSubtitleText(text);
+  const pos = st.position;
   inner.style.cssText = `
     position: absolute;
-    left: ${st.marginPct}%;
-    right: ${st.marginPct}%;
-    top: ${st.y}%;
-    transform: translateY(-50%);
-    text-align: ${st.align};
+    top: ${pos.top};
+    left: ${pos.left};
+    right: ${pos.right};
+    transform: ${pos.transform};
+    text-align: ${pos.textAlign};
     font-family: ${JSON.stringify(st.fontFamily)}, "Malgun Gothic", sans-serif;
     font-size: ${st.fontSize}px;
     font-weight: ${st.fontWeight};
@@ -108,13 +111,11 @@ function mountSubtitleOnHost(host, text, st) {
     border-radius: ${st.chrome.borderRadius}px;
     border: ${st.chrome.border};
     box-sizing: ${st.chrome.boxSizing};
-    width: auto;
-    max-width: none;
     word-break: keep-all;
     overflow-wrap: normal;
-    white-space: normal;
   `;
   host.appendChild(inner);
+  applySubtitleOverlayTextLayout(inner, host, st.marginPct);
   return inner;
 }
 

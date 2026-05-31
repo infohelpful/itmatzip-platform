@@ -7,7 +7,7 @@
   <title>Auto Subtitle</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=84">
+  <link rel="stylesheet" href="style.css?v=86">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body class="as-app">
@@ -21,6 +21,7 @@
       </div>
       <div class="as-topbar-actions">
         <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>환경 준비</button>
+        <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="글꼴 파일(.ttf/.otf)을 ProgramData에 추가">폰트 추가</button>
         <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="실행 취소 (Ctrl+Z)">↩</button>
         <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="다시 실행 (Ctrl+Y)">↪</button>
         <button type="button" id="btn-load-project" class="as-btn as-btn-ghost">불러오기</button>
@@ -214,6 +215,26 @@
           </div>
         </div>
       </div>
+      <div class="font-add-modal" id="font-add-modal" hidden aria-hidden="true">
+        <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="font-add-title">
+          <h2 class="setup-loading__title" id="font-add-title">폰트 추가</h2>
+          <p class="setup-loading__desc font-add-modal__message" id="font-add-message"></p>
+          <div
+            class="setup-loading__track font-add-modal__track"
+            id="font-add-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+            hidden
+          >
+            <div class="setup-loading__bar font-add-modal__bar" id="font-add-bar"></div>
+          </div>
+          <div class="gpu-install-prompt__actions" id="font-add-actions" hidden>
+            <button type="button" id="btn-font-add-ok" class="as-btn as-btn-primary">확인</button>
+          </div>
+        </div>
+      </div>
       <div class="export-loading" id="export-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
           <p class="setup-loading__title" id="export-loading-title">보내기</p>
@@ -228,7 +249,7 @@
     </div>
   </div>
 
-  <script type="module" src="script.js?v=140"></script>
+  <script type="module" src="script.js?v=146"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

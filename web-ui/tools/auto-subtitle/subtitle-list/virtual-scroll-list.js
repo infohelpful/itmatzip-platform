@@ -16,6 +16,7 @@ import {
 import { visibleWordStorageIndices } from "../shared/subtitle-word-caret-map.js";
 import { subtitleLinesToVrewRows } from "../shared/vrew-subtitle-adapter.js";
 import { wordIsDeleted } from "../shared/subtitles.js";
+import { normalizePreviewSubtitleText } from "../shared/subtitle-box-chrome.js?v=25";
 import {
   buildWordChipsAndCarets,
   clearAllRowCaretState,
@@ -275,7 +276,7 @@ function renderAllCards(container, cues, opts) {
     ta.className = "subtitle-card-textarea";
     ta.name = `subtitle-cue-${i}`;
     ta.rows = 2;
-    ta.value = String(cue.text ?? "");
+    ta.value = normalizePreviewSubtitleText(cue.text ?? "");
     ta.setAttribute("aria-label", "자막 편집");
     ta.dataset.subtitleEdit = "1";
     ta.addEventListener("click", (e) => e.stopPropagation());

@@ -502,12 +502,12 @@ body.as-app {
 
 .as-preview-overlay-inner {
   position: absolute;
-  width: auto;
-  max-width: none;
+  display: inline-block;
   text-align: center;
   line-height: 1.35;
   word-break: keep-all;
-  transform: translateY(-50%);
+  overflow-wrap: normal;
+  white-space: nowrap;
   box-sizing: border-box;
   paint-order: stroke fill;
 }
@@ -1493,7 +1493,8 @@ body.as-app {
 
 .setup-loading,
 .transcribe-loading,
-.gpu-install-prompt {
+.gpu-install-prompt,
+.font-add-modal {
   position: static;
   display: none;
   background: none;
@@ -1504,13 +1505,15 @@ body.as-app {
 
 .setup-loading[hidden],
 .transcribe-loading[hidden],
-.gpu-install-prompt[hidden] {
+.gpu-install-prompt[hidden],
+.font-add-modal[hidden] {
   display: none !important;
 }
 
 .setup-loading.is-active,
 .transcribe-loading.is-active,
-.gpu-install-prompt.is-active {
+.gpu-install-prompt.is-active,
+.font-add-modal.is-active {
   display: block;
 }
 
@@ -1568,6 +1571,30 @@ body.as-app {
   font-size: 0.8rem;
   color: var(--as-text-dim);
   user-select: none;
+}
+
+.font-add-modal__message {
+  white-space: pre-line;
+}
+
+.font-add-modal__track[hidden] {
+  display: none !important;
+}
+
+.font-add-modal__bar {
+  width: 36%;
+  animation: as-font-add-indeterminate 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes as-font-add-indeterminate {
+  from {
+    width: 18%;
+    margin-left: 0;
+  }
+  to {
+    width: 46%;
+    margin-left: 54%;
+  }
 }
 
 .gpu-install-prompt__actions {

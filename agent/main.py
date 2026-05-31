@@ -41,6 +41,12 @@ from version import AGENT_VERSION  # noqa: E402
 async def _app_lifespan(_app: FastAPI):
     silence_remover_engine.schedule_disk_cache_purge()
     schedule_background_update_checks()
+    try:
+        from engines import custom_fonts
+
+        custom_fonts.register_all_custom_fonts()
+    except Exception:
+        pass
     yield
 
 
