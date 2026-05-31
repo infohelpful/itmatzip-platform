@@ -26,14 +26,20 @@ func isCurrentProcessInteractive() bool {
 	return sid != 0
 }
 
-func pickFileViaUserDialog(audioOnly bool, projectOnly bool, fontOnly bool) (string, error) {
+func pickFileViaUserDialog(audioOnly bool, projectOnly bool, fontOnly bool, imageOnly bool) (string, error) {
 	title := "ItMatZip — 미디어 파일 선택"
 	filters := zenity.FileFilters{
 		{Name: "동영상 파일", Patterns: []string{"*.mp4", "*.mov", "*.mkv", "*.webm", "*.avi", "*.m4v"}},
 		{Name: "오디오/동영상", Patterns: []string{"*.mp4", "*.mov", "*.mkv", "*.webm", "*.avi", "*.m4a", "*.wav", "*.mp3", "*.aac", "*.flac"}},
 		{Name: "모든 파일", Patterns: []string{"*.*"}},
 	}
-	if fontOnly {
+	if imageOnly {
+		title = "ItMatZip — 워터마크 이미지 선택"
+		filters = zenity.FileFilters{
+			{Name: "이미지 파일", Patterns: []string{"*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif", "*.bmp"}},
+			{Name: "모든 파일", Patterns: []string{"*.*"}},
+		}
+	} else if fontOnly {
 		title = "ItMatZip — 글꼴 파일 선택"
 		filters = zenity.FileFilters{
 			{Name: "글꼴 파일", Patterns: []string{"*.ttf", "*.otf", "*.ttc"}},

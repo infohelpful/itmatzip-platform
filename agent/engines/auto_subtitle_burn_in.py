@@ -58,6 +58,109 @@ def get_subtitle_render_dimensions(full_width: int, full_height: int) -> tuple[i
     return max(16, round(w * ratio)), max(16, round(h * ratio))
 
 
+WATERMARK_POSITIONS = frozenset({
+    "top-left",
+    "top-center",
+    "top-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+})
+
+WATERMARK_MAX_WIDTH_RATIO = 0.045
+WATERMARK_MARGIN_RATIO = 0.005
+
+
+def normalize_watermark_position(raw: str | None) -> str:
+    pos = str(raw or "top-right").strip().lower()
+    if pos not in WATERMARK_POSITIONS:
+        return "top-right"
+    return pos
+
+
+def compute_watermark_dimensions(
+    full_width: int,
+    full_height: int,
+    image_width: int,
+    image_height: int,
+    *,
+    max_width_ratio: float = WATERMARK_MAX_WIDTH_RATIO,
+) -> tuple[int, int]:
+    fw = max(1, int(full_width))
+    fh = max(1, int(full_height))
+    iw = max(1, int(image_width))
+    ih = max(1, int(image_height))
+    max_w = max(8, round(fw * max_width_ratio))
+    scale = min(1.0, max_w / iw)
+    out_w = max(1, round(iw * scale))
+    out_h = max(1, round(ih * scale))
+    if out_h > fh:
+        scale = fh / out_h
+        out_w = max(1, round(out_w * scale))
+        out_h = max(1, round(out_h * scale))
+    return out_w, out_h
+
+
+def watermark_overlay_xy(
+    position: str,
+    full_width: int,
+    full_height: int,
+    watermark_width: int,
+    watermark_height: int,
+    *,
+    margin_ratio: float = WATERMARK_MARGIN_RATIO,
+) -> tuple[int, int]:
+    fw = max(1, int(full_width))
+    fh = max(1, int(full_height))
+    ww = max(1, int(watermark_width))
+    wh = max(1, int(watermark_height))
+    mx = max(0, round(fw * margin_ratio))
+    my = max(0, round(fh * margin_ratio))
+    pos = normalize_watermark_position(position)
+    if pos == "top-left":
+        return mx, my
+    if pos == "top-center":
+        return max(0, (fw - ww) // 2), my
+    if pos == "top-right":
+        return max(0, fw - ww - mx), my
+    if pos == "bottom-left":
+        return mx, max(0, fh - wh - my)
+    if pos == "bottom-center":
+        return max(0, (fw - ww) // 2), max(0, fh - wh - my)
+    return max(0, fw - ww - mx), max(0, fh - wh - my)
+
+
+def probe_image_dimensions(image_path: Path) -> tuple[int, int]:
+    from PIL import Image, ImageOps
+
+    with Image.open(image_path) as img:
+        img = ImageOps.exif_transpose(img)
+        w, h = img.size
+    return max(1, int(w)), max(1, int(h))
+
+
+def prepare_watermark_for_burn_in(
+    source: Path,
+    dest: Path,
+    *,
+    full_width: int,
+    full_height: int,
+    position: str,
+) -> tuple[Path, int, int, int, int]:
+    """프리뷰(CSS max-width 4.5%)와 동일 비율로 1회 리사이즈 → (path, x, y, w, h)."""
+    from PIL import Image, ImageOps
+
+    with Image.open(source) as img:
+        img = ImageOps.exif_transpose(img)
+        iw, ih = img.size
+        wm_w, wm_h = compute_watermark_dimensions(full_width, full_height, iw, ih)
+        wm_x, wm_y = watermark_overlay_xy(position, full_width, full_height, wm_w, wm_h)
+        rgba = img.convert("RGBA").resize((wm_w, wm_h), Image.Resampling.LANCZOS)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        rgba.save(dest, format="PNG")
+    return dest, wm_x, wm_y, wm_w, wm_h
+
+
 def estimate_overlay_duration_sec(
     input_dur: float | None,
     cut_ranges: list[dict[str, Any]] | None,
@@ -196,6 +299,8 @@ def run_single_pass_subtitle_burn_in(
     h264_encoder: str,
     raw_frame_buffers: list[bytes] | None = None,
     frame_paths: list[Path] | None = None,
+    watermark_path: Path | None = None,
+    watermark_position: str | None = None,
     on_progress: ExportProgressCallback | None = None,
     timeout_sec: float = 7200.0,
 ) -> None:
@@ -256,11 +361,45 @@ def run_single_pass_subtitle_burn_in(
 
     w = max(1, round(full_video_width))
     h = max(1, round(full_video_height))
-    filter_complex = (
-        f"[0:v]setpts=PTS-STARTPTS[vmain];"
-        f"[1:v]format=rgba,scale={w}:{h}:flags=lanczos[sub];"
-        f"[vmain][sub]overlay=0:0:shortest=1[vout]"
-    )
+    wm_path: Path | None = None
+    wm_x = 0
+    wm_y = 0
+    wm_pos = normalize_watermark_position(watermark_position)
+    if watermark_path is not None:
+        candidate = Path(watermark_path)
+        if candidate.is_file():
+            prepared = output_path.parent / "_watermark_prepared.png"
+            wm_path, wm_x, wm_y, wm_w, wm_h = prepare_watermark_for_burn_in(
+                candidate,
+                prepared,
+                full_width=w,
+                full_height=h,
+                position=wm_pos,
+            )
+            _log.info(
+                "워터마크 번인: %s → %dx%d @ (%d,%d) on %dx%d",
+                candidate.name,
+                wm_w,
+                wm_h,
+                wm_x,
+                wm_y,
+                w,
+                h,
+            )
+
+    if wm_path is not None:
+        filter_complex = (
+            f"[0:v]setpts=PTS-STARTPTS[vmain];"
+            f"[1:v]format=rgba,scale={w}:{h}:flags=lanczos[sub];"
+            f"[vmain][sub]overlay=0:0:shortest=1[vsub];"
+            f"[vsub][2:v]overlay={wm_x}:{wm_y}[vout]"
+        )
+    else:
+        filter_complex = (
+            f"[0:v]setpts=PTS-STARTPTS[vmain];"
+            f"[1:v]format=rgba,scale={w}:{h}:flags=lanczos[sub];"
+            f"[vmain][sub]overlay=0:0:shortest=1[vout]"
+        )
 
     if on_progress:
         on_progress(32.0, "FFmpeg 자막 합성·인코딩…")
@@ -284,6 +423,10 @@ def run_single_pass_subtitle_burn_in(
             str(EXPORT_FPS),
             "-i",
             "-",
+        ]
+        if wm_path is not None:
+            cmd.extend(["-loop", "1", "-i", str(wm_path)])
+        cmd.extend([
             "-filter_complex",
             filter_complex,
             "-map",
@@ -302,7 +445,7 @@ def run_single_pass_subtitle_burn_in(
             "pipe:2",
             "-nostats",
             str(output_path),
-        ]
+        ])
         return subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,

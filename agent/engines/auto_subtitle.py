@@ -43,6 +43,15 @@ ALLOWED_MEDIA_SUFFIXES = {
     ".opus",
 }
 
+ALLOWED_IMAGE_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".bmp",
+}
+
 _whisper_model: Any | None = None
 _model_device: str | None = None
 _prepare_progress_max: float = -1.0

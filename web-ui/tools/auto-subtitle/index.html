@@ -7,7 +7,7 @@
   <title>Auto Subtitle</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=86">
+  <link rel="stylesheet" href="style.css?v=90">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body class="as-app">
@@ -21,6 +21,7 @@
       </div>
       <div class="as-topbar-actions">
         <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>환경 준비</button>
+        <button type="button" id="btn-add-watermark" class="as-btn as-btn-ghost" disabled title="워터마크 이미지 추가">워터마크 추가</button>
         <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="글꼴 파일(.ttf/.otf)을 ProgramData에 추가">폰트 추가</button>
         <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="실행 취소 (Ctrl+Z)">↩</button>
         <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="다시 실행 (Ctrl+Y)">↪</button>
@@ -142,6 +143,7 @@
               <video id="preview-video" class="as-preview-video" playsinline preload="metadata"></video>
               <audio id="preview-audio" class="as-preview-audio" preload="metadata" aria-hidden="true"></audio>
               <div id="preview-subtitle-overlay" class="as-preview-overlay" hidden aria-hidden="true"></div>
+              <div id="preview-watermark-overlay" class="as-preview-watermark" hidden aria-hidden="true"></div>
             </div>
             <p class="as-preview-empty" id="preview-empty">영상·오디오 파일을 선택하세요.</p>
           </div>
@@ -235,6 +237,17 @@
           </div>
         </div>
       </div>
+      <div class="watermark-position-modal" id="watermark-position-modal" hidden aria-hidden="true">
+        <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="watermark-position-title">
+          <h2 class="setup-loading__title" id="watermark-position-title">워터마크 위치</h2>
+          <p class="setup-loading__desc" id="watermark-position-desc">영상에 표시할 위치를 선택하세요.</p>
+          <div class="watermark-position-grid" id="watermark-position-grid"></div>
+          <div class="gpu-install-prompt__actions">
+            <button type="button" id="btn-watermark-position-cancel" class="as-btn as-btn-ghost">취소</button>
+            <button type="button" id="btn-watermark-position-confirm" class="as-btn as-btn-primary">확인</button>
+          </div>
+        </div>
+      </div>
       <div class="export-loading" id="export-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
           <p class="setup-loading__title" id="export-loading-title">보내기</p>
@@ -249,8 +262,8 @@
     </div>
   </div>
 
-  <!-- as-build:161 split-locked-line-text -->
-  <script type="module" src="script.js?v=161"></script>
+  <!-- as-build:166 watermark-aspect -->
+  <script type="module" src="script.js?v=166"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

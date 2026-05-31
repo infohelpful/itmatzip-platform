@@ -512,6 +512,55 @@ body.as-app {
   paint-order: stroke fill;
 }
 
+.as-preview-watermark {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 3;
+}
+
+.as-preview-watermark img {
+  position: absolute;
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+  object-fit: contain;
+}
+
+.as-preview-watermark img[data-pos="top-left"] {
+  top: 0.5%;
+  left: 0.5%;
+}
+
+.as-preview-watermark img[data-pos="top-center"] {
+  top: 0.5%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.as-preview-watermark img[data-pos="top-right"] {
+  top: 0.5%;
+  right: 0.5%;
+}
+
+.as-preview-watermark img[data-pos="bottom-left"] {
+  bottom: 0.5%;
+  left: 0.5%;
+}
+
+.as-preview-watermark img[data-pos="bottom-center"] {
+  bottom: 0.5%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.as-preview-watermark img[data-pos="bottom-right"] {
+  bottom: 0.5%;
+  right: 0.5%;
+}
+
 .as-preview-empty {
   position: absolute;
   inset: 0;
@@ -1494,7 +1543,8 @@ body.as-app {
 .setup-loading,
 .transcribe-loading,
 .gpu-install-prompt,
-.font-add-modal {
+.font-add-modal,
+.watermark-position-modal {
   position: static;
   display: none;
   background: none;
@@ -1506,14 +1556,16 @@ body.as-app {
 .setup-loading[hidden],
 .transcribe-loading[hidden],
 .gpu-install-prompt[hidden],
-.font-add-modal[hidden] {
+.font-add-modal[hidden],
+.watermark-position-modal[hidden] {
   display: none !important;
 }
 
 .setup-loading.is-active,
 .transcribe-loading.is-active,
 .gpu-install-prompt.is-active,
-.font-add-modal.is-active {
+.font-add-modal.is-active,
+.watermark-position-modal.is-active {
   display: block;
 }
 
@@ -1602,6 +1654,35 @@ body.as-app {
   justify-content: center;
   gap: 8px;
   margin-top: 4px;
+}
+
+.watermark-position-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 16px;
+  text-align: left;
+}
+
+.watermark-position-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--as-border);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.watermark-position-option:has(input:checked) {
+  border-color: var(--as-accent);
+  background: rgba(91, 159, 212, 0.12);
+}
+
+.watermark-position-option input {
+  accent-color: var(--as-accent);
 }
 
 .as-gapfill-toggle input {

@@ -104,12 +104,17 @@ async function uploadBurnInFrame(toolPrefix, jobId, frame) {
  * @param {string} toolPrefix
  * @param {string} jobId
  * @param {readonly object[]} cutRanges
+ * @param {{ path?: string, position?: string } | null | undefined} watermark
  */
-async function finishBurnIn(toolPrefix, jobId, cutRanges) {
+async function finishBurnIn(toolPrefix, jobId, cutRanges, watermark) {
   return fetchAgentResilient(`${getAgentOrigin()}${toolPrefix}/export/video-burn-in/finish`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ job_id: jobId, cut_ranges: cutRanges || [] }),
+    body: JSON.stringify({
+      job_id: jobId,
+      cut_ranges: cutRanges || [],
+      watermark: watermark?.path ? watermark : null,
+    }),
     cache: "no-store",
   }).then(async (res) => {
     const data = await res.json().catch(() => ({}));
@@ -128,6 +133,7 @@ async function finishBurnIn(toolPrefix, jobId, cutRanges) {
  * @param {readonly object[]} lastCues
  * @param {readonly object[]} cutRanges
  * @param {object} style
+ * @param {{ path?: string, position?: string } | null | undefined} [opts.watermark]
  * @param {(patch: { progress?: number, step?: string, message?: string }) => void} [opts.onUiProgress]
  */
 export async function runVideoBurnInExport({
@@ -136,6 +142,7 @@ export async function runVideoBurnInExport({
   lastCues,
   cutRanges,
   style,
+  watermark,
   onUiProgress,
 }) {
   const exportCues = buildExportCueLines(lastCues);
@@ -180,6 +187,6 @@ export async function runVideoBurnInExport({
   }
 
   onUiProgress?.({ progress: 40, step: "영상 · 인코딩", message: "FFmpeg 번인 시작…" });
-  await finishBurnIn(toolPrefix, prep.job_id, cutRanges);
+  await finishBurnIn(toolPrefix, prep.job_id, cutRanges, watermark);
   return prep;
 }

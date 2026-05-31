@@ -80,7 +80,7 @@ import {
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
 } from "./export/export-client.js?v=25";
-import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=9";
+import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=10";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -122,7 +122,20 @@ const STORAGE_CUTS = "auto-subtitle:cut-ranges";
 const STORAGE_EXPORT_PATH = "auto-subtitle:export-path";
 const STORAGE_VIDEO_PATH = "auto-subtitle:last-video-path";
 const STORAGE_USER_PREFS = "auto-subtitle:user-preferences";
-const USER_PREFS_VERSION = 1;
+const USER_PREFS_VERSION = 2;
+
+const WATERMARK_POSITIONS = [
+  { value: "top-left", label: "왼쪽 상단" },
+  { value: "top-center", label: "중앙 상단" },
+  { value: "top-right", label: "우측 상단" },
+  { value: "bottom-left", label: "왼쪽 하단" },
+  { value: "bottom-center", label: "중앙 하단" },
+  { value: "bottom-right", label: "우측 하단" },
+];
+
+const DEFAULT_WATERMARK_POSITION = "top-right";
+const WATERMARK_MAX_WIDTH_RATIO = 0.045;
+const WATERMARK_MARGIN_RATIO = 0.005;
 
 const DEFAULT_SUBTITLE_STYLE = {
   fontFamily: "Malgun Gothic",
@@ -171,6 +184,7 @@ const previewMediaFrame = document.getElementById("preview-media-frame");
 const previewVideo = document.getElementById("preview-video");
 const previewAudio = document.getElementById("preview-audio");
 const previewOverlay = document.getElementById("preview-subtitle-overlay");
+const previewWatermarkOverlay = document.getElementById("preview-watermark-overlay");
 const previewEmpty = document.getElementById("preview-empty");
 const btnPreviewPlay = document.getElementById("btn-preview-play");
 const previewSeek = document.getElementById("preview-seek");
@@ -225,6 +239,7 @@ const btnSaveProjectAs = document.getElementById("btn-save-project-as");
 const btnUnloadModel = document.getElementById("btn-unload-model");
 const btnLoadProject = document.getElementById("btn-load-project");
 const btnPrepare = document.getElementById("btn-prepare");
+const btnAddWatermark = document.getElementById("btn-add-watermark");
 const btnAddFont = document.getElementById("btn-add-font");
 const btnUndo = document.getElementById("btn-undo");
 const btnRedo = document.getElementById("btn-redo");
@@ -240,6 +255,11 @@ const fontAddMessage = document.getElementById("font-add-message");
 const fontAddTrack = document.getElementById("font-add-track");
 const fontAddActions = document.getElementById("font-add-actions");
 const btnFontAddOk = document.getElementById("btn-font-add-ok");
+const watermarkPositionModal = document.getElementById("watermark-position-modal");
+const watermarkPositionGrid = document.getElementById("watermark-position-grid");
+const watermarkPositionDesc = document.getElementById("watermark-position-desc");
+const btnWatermarkPositionCancel = document.getElementById("btn-watermark-position-cancel");
+const btnWatermarkPositionConfirm = document.getElementById("btn-watermark-position-confirm");
 
 let toolReady = false;
 let modelLoaded = false;
@@ -340,6 +360,9 @@ let deleteGuardUntil = 0;
 let lastPlaybackCueIndex = -1;
 let lastPlaybackWordIndex = -1;
 let lastOverlayCueIndex = -1;
+/** @type {{ path: string, position: string }} */
+let watermarkConfig = { path: "", position: "" };
+let pendingWatermarkPath = "";
 let lastHighlightSelectedCue = -1;
 let lastCommitMediaPlaying = false;
 /** 재생 UI 갱신 스로틀 (~15fps) — 비디오 디코드와 분리 */
@@ -533,6 +556,212 @@ function readSubtitleStyleFromDom() {
   return style;
 }
 
+function normalizeWatermarkPosition(raw) {
+  const pos = String(raw || DEFAULT_WATERMARK_POSITION).trim().toLowerCase();
+  return WATERMARK_POSITIONS.some((item) => item.value === pos) ? pos : DEFAULT_WATERMARK_POSITION;
+}
+
+function normalizeWatermarkConfig(raw) {
+  if (!raw || typeof raw !== "object") return { path: "", position: "" };
+  const path = String(raw.path || "").trim();
+  if (!path) return { path: "", position: "" };
+  return { path, position: normalizeWatermarkPosition(raw.position) };
+}
+
+function watermarkImageUrl(path) {
+  const p = String(path || "").trim();
+  if (!p) return "";
+  return `${getAgentOrigin()}${TOOL_PREFIX}/media/image?image_path=${encodeURIComponent(p)}`;
+}
+
+function computeWatermarkDisplaySize(videoW, videoH, imgW, imgH) {
+  const fw = Math.max(1, Number(videoW) || 1920);
+  const fh = Math.max(1, Number(videoH) || 1080);
+  const iw = Math.max(1, Number(imgW) || 1);
+  const ih = Math.max(1, Number(imgH) || 1);
+  const maxW = Math.max(8, Math.round(fw * WATERMARK_MAX_WIDTH_RATIO));
+  let scale = Math.min(1, maxW / iw);
+  let outW = Math.max(1, Math.round(iw * scale));
+  let outH = Math.max(1, Math.round(ih * scale));
+  if (outH > fh) {
+    scale = fh / outH;
+    outW = Math.max(1, Math.round(outW * scale));
+    outH = Math.max(1, Math.round(outH * scale));
+  }
+  return { width: outW, height: outH };
+}
+
+function layoutWatermarkPreviewImage(img, position) {
+  if (!img?.naturalWidth) return;
+  const native = getPreviewNativeMediaSize();
+  const frame = layoutPreviewMediaFrame();
+  if (!frame) return;
+  const { width, height } = computeWatermarkDisplaySize(
+    native.width,
+    native.height,
+    img.naturalWidth,
+    img.naturalHeight,
+  );
+  img.style.maxWidth = "none";
+  img.style.width = `${width * frame.scale}px`;
+  img.style.height = `${height * frame.scale}px`;
+  img.dataset.pos = normalizeWatermarkPosition(position);
+}
+
+function applyWatermarkFromProject(raw) {
+  if (raw != null) {
+    const next = normalizeWatermarkConfig(raw);
+    if (next.path) watermarkConfig = next;
+  }
+  updatePreviewWatermark();
+}
+
+function updatePreviewWatermark() {
+  if (!previewWatermarkOverlay) return;
+  const { path, position } = watermarkConfig;
+  if (!path) {
+    previewWatermarkOverlay.hidden = true;
+    previewWatermarkOverlay.setAttribute("aria-hidden", "true");
+    previewWatermarkOverlay.replaceChildren();
+    return;
+  }
+  const hasMedia = Boolean(previewVideo?.src || previewAudio?.src);
+  if (!hasMedia) {
+    previewWatermarkOverlay.hidden = true;
+    previewWatermarkOverlay.setAttribute("aria-hidden", "true");
+    return;
+  }
+  layoutPreviewMediaFrame();
+  previewWatermarkOverlay.hidden = false;
+  previewWatermarkOverlay.setAttribute("aria-hidden", "false");
+  let img = previewWatermarkOverlay.querySelector("img");
+  if (!img) {
+    img = document.createElement("img");
+    img.alt = "워터마크";
+    img.decoding = "async";
+    img.addEventListener("load", () => {
+      layoutWatermarkPreviewImage(img, watermarkConfig.position);
+    });
+    previewWatermarkOverlay.replaceChildren(img);
+  }
+  const url = watermarkImageUrl(path);
+  if (img.dataset.src !== url) {
+    img.dataset.src = url;
+    img.src = url;
+  } else if (img.complete && img.naturalWidth) {
+    layoutWatermarkPreviewImage(img, position);
+  } else {
+    img.dataset.pos = normalizeWatermarkPosition(position);
+  }
+}
+
+function initWatermarkPositionGrid() {
+  if (!watermarkPositionGrid || watermarkPositionGrid.childElementCount) return;
+  for (const item of WATERMARK_POSITIONS) {
+    const label = document.createElement("label");
+    label.className = "watermark-position-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "watermark-position";
+    input.value = item.value;
+    if (item.value === DEFAULT_WATERMARK_POSITION) input.checked = true;
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(item.label));
+    watermarkPositionGrid.appendChild(label);
+  }
+}
+
+function getSelectedWatermarkPosition() {
+  const checked = watermarkPositionGrid?.querySelector('input[name="watermark-position"]:checked');
+  return normalizeWatermarkPosition(checked?.value || DEFAULT_WATERMARK_POSITION);
+}
+
+function setSelectedWatermarkPosition(position) {
+  const pos = normalizeWatermarkPosition(position);
+  const input = watermarkPositionGrid?.querySelector(`input[name="watermark-position"][value="${pos}"]`);
+  if (input instanceof HTMLInputElement) input.checked = true;
+}
+
+function closeWatermarkPositionModal() {
+  if (!watermarkPositionModal) return;
+  watermarkPositionModal.hidden = true;
+  watermarkPositionModal.classList.remove("is-active");
+  watermarkPositionModal.setAttribute("aria-hidden", "true");
+  pendingWatermarkPath = "";
+  syncInAppBusyShell();
+}
+
+function openWatermarkPositionModal(sourcePath) {
+  const path = String(sourcePath || "").trim();
+  if (!path || !watermarkPositionModal) return;
+  pendingWatermarkPath = path;
+  initWatermarkPositionGrid();
+  setSelectedWatermarkPosition(watermarkConfig.position || DEFAULT_WATERMARK_POSITION);
+  if (watermarkPositionDesc) {
+    const name = path.split(/[/\\]/).pop() || path;
+    watermarkPositionDesc.textContent = `${name}\n영상에 표시할 위치를 선택하세요.`;
+  }
+  closeGpuInstallModal();
+  closeFontAddModal();
+  setupLoading?.classList.remove("is-active");
+  if (setupLoading) {
+    setupLoading.hidden = true;
+    setupLoading.setAttribute("aria-hidden", "true");
+  }
+  transcribeLoading?.classList.remove("is-active");
+  if (transcribeLoading) {
+    transcribeLoading.hidden = true;
+    transcribeLoading.setAttribute("aria-hidden", "true");
+  }
+  watermarkPositionModal.hidden = false;
+  watermarkPositionModal.classList.add("is-active");
+  watermarkPositionModal.setAttribute("aria-hidden", "false");
+  syncInAppBusyShell();
+  btnWatermarkPositionConfirm?.focus({ preventScroll: true });
+}
+
+function confirmWatermarkPositionSelection() {
+  const path = String(pendingWatermarkPath || "").trim();
+  if (!path) {
+    closeWatermarkPositionModal();
+    return;
+  }
+  watermarkConfig = {
+    path,
+    position: getSelectedWatermarkPosition(),
+  };
+  pendingWatermarkPath = "";
+  closeWatermarkPositionModal();
+  updatePreviewWatermark();
+  scheduleSaveUserPreferences();
+}
+
+async function addWatermarkFromDialog() {
+  if (!agentConnected) {
+    alert(`${LOCAL_HELPER_NAME}에 연결된 뒤 워터마크를 추가할 수 있습니다.`);
+    return;
+  }
+  if (btnAddWatermark) btnAddWatermark.disabled = true;
+  try {
+    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-image-file`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    const pick = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(formatPickErrorDetail(pick, res.statusText));
+      return;
+    }
+    const sourcePath = String(pick?.path || "").trim();
+    if (!sourcePath || pick?.cancelled) return;
+    openWatermarkPositionModal(sourcePath);
+  } catch (err) {
+    alert(err instanceof Error ? err.message : String(err));
+  } finally {
+    if (btnAddWatermark) btnAddWatermark.disabled = !agentConnected;
+  }
+}
+
 function exportPhaseStepLabel(phase, fmt) {
   const label = exportFormatLabel(fmt || "srt");
   if (phase === "queued") return `${label} · 대기`;
@@ -597,6 +826,7 @@ function collectUserPreferences() {
     language: languageSelect?.value ?? "",
     exportFormat: exportFormatSelect?.value ?? "srt",
     subtitleStyle: stripSubtitleStyleForStorage(readSubtitleStyleFromDom()),
+    watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
   };
 }
 
@@ -620,7 +850,7 @@ function loadUserPreferences() {
     if (!raw) return null;
     const data = JSON.parse(raw);
     if (!data || typeof data !== "object") return null;
-    if (data.version != null && Number(data.version) !== USER_PREFS_VERSION) return null;
+    if (data.version != null && Number(data.version) > USER_PREFS_VERSION) return null;
     return data;
   } catch {
     return null;
@@ -640,6 +870,7 @@ function applyUserPreferences(prefs) {
     const has = Array.from(exportFormatSelect.options).some((o) => o.value === fmt);
     if (has) exportFormatSelect.value = fmt;
   }
+  if (prefs.watermark) applyWatermarkFromProject(prefs.watermark);
 }
 
 function loadAndApplyUserPreferences() {
@@ -1253,6 +1484,7 @@ function updatePreviewOverlay() {
   if (!cue || !previewText) {
     previewOverlay.hidden = true;
     previewOverlay.replaceChildren();
+    updatePreviewWatermark();
     return;
   }
   const scale = getPreviewOverlayScale(style);
@@ -1285,6 +1517,7 @@ function updatePreviewOverlay() {
   inner.style.boxSizing = chrome.boxSizing;
   previewOverlay.appendChild(inner);
   applySubtitleOverlayTextLayout(inner, previewOverlay);
+  updatePreviewWatermark();
 }
 
 setPreviewOverlaySyncHook((cardIndex) => {
@@ -1570,7 +1803,8 @@ function syncInAppBusyShell() {
   const exportActive = Boolean(exportLoading?.classList.contains("is-active"));
   const gpuPromptActive = Boolean(gpuInstallPrompt?.classList.contains("is-active"));
   const fontAddActive = Boolean(fontAddModal?.classList.contains("is-active"));
-  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive || fontAddActive;
+  const watermarkModalActive = Boolean(watermarkPositionModal?.classList.contains("is-active"));
+  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive || fontAddActive || watermarkModalActive;
   asShell?.classList.toggle("is-inapp-busy", busy);
   if (inappBusyHost) {
     inappBusyHost.hidden = !busy;
@@ -1592,6 +1826,7 @@ function closeFontAddModal() {
 function openFontAddModal({ title = "폰트 추가", message = "", loading = false, showOk = false } = {}) {
   if (!fontAddModal) return;
   closeGpuInstallModal();
+  closeWatermarkPositionModal();
   setupLoading?.classList.remove("is-active");
   if (setupLoading) {
     setupLoading.hidden = true;
@@ -1620,6 +1855,7 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
     if (!wasActive) setAgentLongOperationActive(true);
     closeGpuInstallModal();
     closeFontAddModal();
+    closeWatermarkPositionModal();
     transcribeLoading?.classList.remove("is-active");
     if (transcribeLoading) {
       transcribeLoading.hidden = true;
@@ -1660,6 +1896,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
     if (!wasActive) setAgentLongOperationActive(true);
     closeGpuInstallModal();
     closeFontAddModal();
+    closeWatermarkPositionModal();
     setupLoading?.classList.remove("is-active");
     if (setupLoading) {
       setupLoading.hidden = true;
@@ -1692,6 +1929,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
 function updateActionButtons() {
   const hasCues = lastCues.some((c) => !c.is_silence && String(c.text || "").trim());
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  if (btnAddWatermark) btnAddWatermark.disabled = !agentConnected;
   if (btnAddFont) btnAddFont.disabled = !agentConnected;
   if (btnExport) btnExport.disabled = !agentConnected || !hasCues;
   if (btnUnloadModel) btnUnloadModel.disabled = !agentConnected || !modelLoaded;
@@ -1716,6 +1954,7 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
     if (!wasActive) setAgentLongOperationActive(true);
     closeGpuInstallModal();
     closeFontAddModal();
+    closeWatermarkPositionModal();
     setupLoading?.classList.remove("is-active");
     if (setupLoading) {
       setupLoading.hidden = true;
@@ -2174,6 +2413,7 @@ async function applyLoadedProject(res) {
     cutRanges: Array.isArray(cuts) ? cuts : [],
   });
   applySubtitleStyleFromProject(style);
+  applyWatermarkFromProject(project?.watermark ?? res?.watermark ?? res?.normalized?.watermark);
   scheduleSaveUserPreferences();
 
   try {
@@ -2248,6 +2488,7 @@ function applyReadiness(data) {
   agentAudiowaveformAvailable = Boolean(b.audiowaveform);
   toolReady = Boolean(b.ffmpeg && modelLoaded);
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
+  if (btnAddWatermark) btnAddWatermark.disabled = !agentConnected;
   if (btnAddFont) btnAddFont.disabled = !agentConnected;
   setComputeCapabilityBadge(data);
   maybeShowGpuInstallDialog(data);
@@ -2309,6 +2550,7 @@ function openGpuInstallModal(message) {
   if (!gpuInstallPrompt) return;
   if (gpuInstallMessage && message) gpuInstallMessage.textContent = message;
   closeFontAddModal();
+  closeWatermarkPositionModal();
   setupLoading?.classList.remove("is-active");
   if (setupLoading) {
     setupLoading.hidden = true;
@@ -2732,6 +2974,7 @@ function buildProjectJson() {
     videoPath: videoPathInput?.value?.trim() || null,
     cutRanges: lastCutRanges,
     subtitleStyle: readSubtitleStyleFromDom(),
+    watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     subtitles: lastCues,
   }, null, 2);
 }
@@ -2938,6 +3181,7 @@ async function runExport() {
         lastCues,
         cutRanges: lastCutRanges,
         style: readSubtitleStyleFromDom(),
+        watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
         onUiProgress: ({ progress, step, message }) => {
           setExportLoading(true, {
             title: "보내기",
@@ -3083,6 +3327,7 @@ function updatePreview(videoPath) {
     }
     layoutPreviewMediaFrame();
     updatePreviewOverlay();
+    updatePreviewWatermark();
     updatePreviewTransportUi();
     return;
   }
@@ -3113,6 +3358,7 @@ function updatePreview(videoPath) {
         if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
         layoutPreviewMediaFrame();
         updatePreviewOverlay();
+        updatePreviewWatermark();
         updatePreviewTransportUi();
         const orch = getPlaybackOrchestrator();
         if (!orch.video) {
@@ -3239,6 +3485,7 @@ async function onPickLocalFile() {
       /* ignore */
     }
     updatePreview(path);
+    updatePreviewWatermark();
     updateActionButtons();
     loadWaveformPeaks();
     shouldTranscribe = true;
@@ -3356,6 +3603,18 @@ btnAddFont?.addEventListener("click", () => {
   void addCustomFontFromDialog();
 });
 
+btnAddWatermark?.addEventListener("click", () => {
+  void addWatermarkFromDialog();
+});
+
+btnWatermarkPositionCancel?.addEventListener("click", () => {
+  closeWatermarkPositionModal();
+});
+
+btnWatermarkPositionConfirm?.addEventListener("click", () => {
+  confirmWatermarkPositionSelection();
+});
+
 btnFontAddOk?.addEventListener("click", () => {
   closeFontAddModal();
 });
@@ -3450,6 +3709,7 @@ videoPathInput?.addEventListener("input", () => {
     }
   }
   updatePreview(p);
+  updatePreviewWatermark();
   updateActionButtons();
 });
 
@@ -3591,20 +3851,25 @@ function applyPrepareStatusFromWs(data) {
   });
 }
 
+initWatermarkPositionGrid();
+
 restoreSession();
 updatePreviewOverlay();
+updatePreviewWatermark();
 updatePreviewTransportUi();
 
 if (previewSection && typeof ResizeObserver !== "undefined") {
   const previewLayoutObserver = new ResizeObserver(() => {
     layoutPreviewMediaFrame();
     updatePreviewOverlay();
+    updatePreviewWatermark();
   });
   previewLayoutObserver.observe(previewSection);
 }
 previewVideo?.addEventListener("loadeddata", () => {
   layoutPreviewMediaFrame();
   updatePreviewOverlay();
+  updatePreviewWatermark();
 });
 
 void showAdSense("editorBelowExport", "#editor-ad-preview-pane");

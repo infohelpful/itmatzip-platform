@@ -158,6 +158,10 @@ class AutoSubtitleVideoBurnInPrepareBody(BaseModel):
 class AutoSubtitleVideoBurnInFinishBody(BaseModel):
     job_id: str
     cut_ranges: list[dict[str, Any]] = Field(default_factory=list)
+    watermark: dict[str, Any] | None = Field(
+        default=None,
+        description='{"path": "C:\\\\logo.png", "position": "top-right"}',
+    )
 
 
 class AutoSubtitleWaveformPeaksBody(BaseModel):
@@ -350,6 +354,19 @@ def _validate_media_path(raw: str) -> Path:
         raise HTTPException(
             status_code=400,
             detail=f"지원하지 않는 형식입니다: {resolved.suffix}",
+        )
+    return resolved
+
+
+def _validate_image_path(raw: str) -> Path:
+    norm = auto_subtitle.normalize_media_path(raw)
+    resolved = auto_subtitle.resolve_existing_file(norm)
+    if resolved is None:
+        raise HTTPException(status_code=400, detail=f"이미지 파일을 찾을 수 없습니다: {norm}")
+    if resolved.suffix.lower() not in auto_subtitle.ALLOWED_IMAGE_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 이미지 형식입니다: {resolved.suffix}",
         )
     return resolved
 
@@ -760,6 +777,25 @@ def get_media_stream(
     return FileResponse(media, media_type=media_type, filename=media.name)
 
 
+@router.get("/media/image")
+def get_image_stream(
+    image_path: str = Query(..., description="로컬 워터마크 이미지 절대 경로"),
+) -> FileResponse:
+    """브라우저 미리보기 — PNG/JPEG 등 로컬 이미지."""
+    image = _validate_image_path(image_path)
+    suffix = image.suffix.lower()
+    media_types = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+    }
+    media_type = media_types.get(suffix, "application/octet-stream")
+    return FileResponse(image, media_type=media_type, filename=image.name)
+
+
 def _build_waveform_peaks_payload(body: AutoSubtitleWaveformPeaksBody) -> dict[str, object]:
     media = _validate_media_path(body.video_path)
     payload = silence_remover_engine.build_waveform_peaks_payload(
@@ -877,6 +913,7 @@ def post_export_video_burn_in_finish(
         auto_subtitle_burn_in_session.finish_and_start_export(
             body.job_id,
             cut_ranges=body.cut_ranges,
+            watermark=body.watermark,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

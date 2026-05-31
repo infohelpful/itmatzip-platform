@@ -130,6 +130,8 @@ def _burn_in_worker(
     sess: BurnInSession,
     *,
     cut_ranges: list[dict[str, Any]] | None,
+    watermark_path: Path | None = None,
+    watermark_position: str | None = None,
 ) -> None:
     try:
         def report(pct: float, msg: str) -> None:
@@ -155,6 +157,8 @@ def _burn_in_worker(
             frame_paths=frame_paths,
             timing=timing,
             h264_encoder=encoder,
+            watermark_path=watermark_path,
+            watermark_position=watermark_position,
             on_progress=report,
         )
         _set_export_job(
@@ -175,6 +179,7 @@ def finish_and_start_export(
     job_id: str,
     *,
     cut_ranges: list[dict[str, Any]] | None = None,
+    watermark: dict[str, Any] | None = None,
 ) -> None:
     from engines import auto_subtitle_runtime
 
@@ -182,12 +187,31 @@ def finish_and_start_export(
     if not sess.frame_meta:
         raise ValueError("업로드된 자막 프레임이 없습니다.")
 
+    wm_path: Path | None = None
+    wm_position: str | None = None
+    if watermark and isinstance(watermark, dict):
+        raw_path = str(watermark.get("path") or "").strip()
+        if raw_path:
+            norm = auto_subtitle.normalize_media_path(raw_path)
+            resolved = auto_subtitle.resolve_existing_file(norm)
+            if resolved is None:
+                raise ValueError(f"워터마크 이미지를 찾을 수 없습니다: {norm}")
+            if resolved.suffix.lower() not in auto_subtitle.ALLOWED_IMAGE_SUFFIXES:
+                raise ValueError(f"지원하지 않는 워터마크 형식입니다: {resolved.suffix}")
+            wm_path = resolved
+            wm_position = str(watermark.get("position") or "top-right")
+
     auto_subtitle_runtime.try_begin_job("export")
     _set_export_job("queued", 0.0, "영상 번인 대기…", fmt="video")
 
     def _target() -> None:
         try:
-            _burn_in_worker(sess, cut_ranges=cut_ranges)
+            _burn_in_worker(
+                sess,
+                cut_ranges=cut_ranges,
+                watermark_path=wm_path,
+                watermark_position=wm_position,
+            )
         finally:
             auto_subtitle_runtime.end_job()
 

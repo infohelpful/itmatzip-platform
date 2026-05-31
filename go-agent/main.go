@@ -214,16 +214,19 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 
 	mux.HandleFunc(serviceRestartPath, handleServiceRestart)
 	mux.HandleFunc("/api/agent/pick-local-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, false, false, false)
+		handlePickLocalFile(w, r, false, false, false, false)
 	})
 	mux.HandleFunc("/api/agent/pick-local-audio-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, true, false, false)
+		handlePickLocalFile(w, r, true, false, false, false)
 	})
 	mux.HandleFunc("/api/agent/pick-local-project-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, false, true, false)
+		handlePickLocalFile(w, r, false, true, false, false)
 	})
 	mux.HandleFunc("/api/agent/pick-local-font-file", func(w http.ResponseWriter, r *http.Request) {
-		handlePickLocalFile(w, r, false, false, true)
+		handlePickLocalFile(w, r, false, false, true, false)
+	})
+	mux.HandleFunc("/api/agent/pick-local-image-file", func(w http.ResponseWriter, r *http.Request) {
+		handlePickLocalFile(w, r, false, false, false, true)
 	})
 
 	if sidecar != nil {
@@ -397,13 +400,13 @@ func main() {
 	}
 }
 
-func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool, projectOnly bool, fontOnly bool) {
+func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool, projectOnly bool, fontOnly bool, imageOnly bool) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	path, err := pickFileViaUserDialog(audioOnly, projectOnly, fontOnly)
+	path, err := pickFileViaUserDialog(audioOnly, projectOnly, fontOnly, imageOnly)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -419,7 +422,7 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if fontOnly {
+	if fontOnly || imageOnly {
 		_ = json.NewEncoder(w).Encode(map[string]any{"path": path})
 		return
 	}
