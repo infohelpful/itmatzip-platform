@@ -922,6 +922,16 @@ body {
   margin-left: 8px;
 }
 
+.file-name-label.is-set {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+#vocal-ref-row.has-ref {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+
 /* Progress */
 .progress-area {
   margin: 16px 0;

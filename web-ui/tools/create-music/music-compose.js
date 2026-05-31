@@ -4,6 +4,7 @@
 
 export const SECTION_TYPE_DEFS = {
   verse: { tag: "Verse", label: "절 (Verse)", instrumental: false },
+  pre_chorus: { tag: "Pre-Chorus", label: "프리코러스 (Pre-Chorus)", instrumental: false },
   chorus: { tag: "Chorus", label: "후렴 (Chorus)", instrumental: false },
   bridge: { tag: "Bridge", label: "브릿지 (Bridge)", instrumental: false },
   outro: { tag: "Outro", label: "아웃트로 (Outro)", instrumental: false },

@@ -5,7 +5,7 @@ import * as Bridge from "../common/bridge.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { createMusicWaveformPlayer } from "./waveform-player.js";
-import { initMusicComposeEditor } from "./music-compose.js?v=9";
+import { initMusicComposeEditor } from "./music-compose.js?v=10";
 
 Bridge.configureBridge();
 
@@ -526,21 +526,39 @@ async function pickAudioFile() {
     return null;
   }
   const origin = Bridge.getAgentOrigin();
-  const res = await fetch(`${origin}/api/agent/pick-local-audio-file`, { method: "POST" });
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.path || null;
+  try {
+    const res = await Bridge.fetchAgent(`${origin}/api/agent/pick-local-audio-file`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const detail = typeof data?.detail === "string" ? data.detail : res.statusText || "요청 실패";
+      if (res.status === 400 && (detail.includes("취소") || /cancel/i.test(detail))) return null;
+      alert(`파일 선택 실패: ${detail}`);
+      return null;
+    }
+    const path = String(data.audio_path || data.video_path || data.path || "").trim();
+    if (!path) return null;
+    return path;
+  } catch (e) {
+    alert(`파일 선택 실패: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
 }
 
 function syncVocalRefUi() {
   const hasRef = Boolean(refAudioPath);
+  const fileName = hasRef ? refAudioPath.split(/[\\/]/).pop() : "";
   if ($vocalRefName) {
-    $vocalRefName.textContent = hasRef ? refAudioPath.split(/[\\/]/).pop() : "";
+    $vocalRefName.textContent = fileName;
+    $vocalRefName.classList.toggle("is-set", hasRef);
   }
   if ($refAudioName && hasRef) {
-    $refAudioName.textContent = refAudioPath.split(/[\\/]/).pop();
+    $refAudioName.textContent = fileName;
   }
   $vocalRefStrengthRow?.classList.toggle("is-hidden", !hasRef);
+  document.getElementById("vocal-ref-row")?.classList.toggle("has-ref", hasRef);
 }
 
 function setReferenceAudioPath(path) {
@@ -562,8 +580,13 @@ $btnRefAudio.addEventListener("click", async () => {
 });
 
 $btnVocalRef?.addEventListener("click", async () => {
-  const path = await pickAudioFile();
-  if (path) setReferenceAudioPath(path);
+  $btnVocalRef.disabled = true;
+  try {
+    const path = await pickAudioFile();
+    if (path) setReferenceAudioPath(path);
+  } finally {
+    $btnVocalRef.disabled = false;
+  }
 });
 
 $btnVocalRefClear?.addEventListener("click", () => {
