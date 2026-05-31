@@ -7,13 +7,15 @@ import {
   getAgentOrigin,
   mapAgentEventToPrepareStatus,
   requestAgent,
+  resolveAgentMediaObjectUrl,
+  revokeAgentMediaObjectUrl,
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
   setAgentLongOperationActive,
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
-} from "../common/bridge.js?v=as9";
+} from "../common/bridge.js?v=as10";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { showAdSense } from "../common/adsense.js";
 import {
@@ -316,7 +318,7 @@ function syncPausedPreviewMediaToPlayhead() {
 
 /** @param {number} startMediaSec */
 function beginPreviewSyncedPlayback(startMediaSec) {
-  const url = getMediaStreamUrl();
+  const url = getPreviewMediaPlaybackUrl();
   if (!url || !previewVideo || !previewAudio) return false;
   masterMediaUrl = url;
   void startSyncedPlayback(url, previewVideo, previewAudio, {
@@ -344,6 +346,26 @@ let playbackLoopGeneration = 0;
 let userRequestedPreviewPause = false;
 let previewSeekDragging = false;
 let previewResumeAfterSeek = false;
+/** @type {AbortController | null} */
+let previewMediaLoadAbort = null;
+/** @type {string} */
+let previewMediaDirectUrl = "";
+/** @type {string} */
+let previewMediaResolvedUrl = "";
+let previewMediaLoadGen = 0;
+
+function releasePreviewMediaBlob() {
+  if (previewMediaDirectUrl) {
+    revokeAgentMediaObjectUrl(previewMediaDirectUrl);
+    previewMediaDirectUrl = "";
+  }
+  previewMediaResolvedUrl = "";
+  if (previewMediaLoadAbort) {
+    previewMediaLoadAbort.abort();
+    previewMediaLoadAbort = null;
+  }
+}
+
 /** 현재 작업에 묶인 영상 경로 (다른 파일 선택 시 자막 초기화) */
 let sessionVideoPath = "";
 /** @type {string | null} */
@@ -658,6 +680,11 @@ function getMediaStreamUrl() {
   const p = videoPathInput?.value?.trim() || sessionVideoPath;
   if (!p || !agentConnected) return null;
   return `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+}
+
+function getPreviewMediaPlaybackUrl() {
+  if (previewMediaResolvedUrl) return previewMediaResolvedUrl;
+  return getMediaStreamUrl();
 }
 
 function getPreviewCueIndex() {
@@ -2991,39 +3018,93 @@ function updatePreview(videoPath) {
   setPreviewPlaybackUiActive(false);
   detachPreviewMasterAudio();
   const p = String(videoPath || "").trim();
+  const loadGen = ++previewMediaLoadGen;
+  releasePreviewMediaBlob();
+
   if (!p || !agentConnected) {
     previewVideo.removeAttribute("src");
-    if (previewEmpty) previewEmpty.hidden = false;
+    if (previewAudio) {
+      previewAudio.removeAttribute("src");
+      try {
+        previewAudio.load();
+      } catch {
+        /* ignore */
+      }
+    }
+    if (previewEmpty) {
+      previewEmpty.hidden = false;
+      previewEmpty.textContent = "영상·오디오 파일을 선택하세요.";
+    }
     layoutPreviewMediaFrame();
     updatePreviewOverlay();
     updatePreviewTransportUi();
     return;
   }
-  const url = `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
-  previewVideo.src = url;
-  if (previewAudio) {
-    previewAudio.src = url;
-    previewAudio.preload = "auto";
+
+  const directUrl = `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+  previewMediaDirectUrl = directUrl;
+  if (previewEmpty) {
+    previewEmpty.hidden = false;
+    previewEmpty.textContent = "미디어 불러오는 중…";
   }
-  if (previewEmpty) previewEmpty.hidden = true;
-  previewVideo.onloadedmetadata = () => {
-    if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
-    layoutPreviewMediaFrame();
-    updatePreviewOverlay();
-    updatePreviewTransportUi();
-    const orch = getPlaybackOrchestrator();
-    if (!orch.video) {
-      orch.attachVideo(previewVideo, {
-        masterAudio: previewAudio ?? undefined,
-        onPlayheadChange: ({ editSec }) => {
-          if (!isVideoPlaying) playheadSec = editSec;
-        },
-      });
-    } else if (previewAudio) {
-      orch.masterAudio = previewAudio;
-    }
-    rebuildPlaybackSync();
-  };
+
+  previewMediaLoadAbort = new AbortController();
+  const { signal } = previewMediaLoadAbort;
+
+  void resolveAgentMediaObjectUrl(directUrl, { signal })
+    .then((url) => {
+      if (loadGen !== previewMediaLoadGen) return;
+      previewMediaResolvedUrl = url;
+      masterMediaUrl = url;
+      previewVideo.src = url;
+      if (previewAudio) {
+        previewAudio.src = url;
+        previewAudio.preload = "auto";
+      }
+      if (previewEmpty) previewEmpty.hidden = true;
+      previewVideo.onloadedmetadata = () => {
+        if (loadGen !== previewMediaLoadGen) return;
+        if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
+        layoutPreviewMediaFrame();
+        updatePreviewOverlay();
+        updatePreviewTransportUi();
+        const orch = getPlaybackOrchestrator();
+        if (!orch.video) {
+          orch.attachVideo(previewVideo, {
+            masterAudio: previewAudio ?? undefined,
+            onPlayheadChange: ({ editSec }) => {
+              if (!isVideoPlaying) playheadSec = editSec;
+            },
+          });
+        } else if (previewAudio) {
+          orch.masterAudio = previewAudio;
+        }
+        rebuildPlaybackSync();
+      };
+    })
+    .catch((err) => {
+      if (loadGen !== previewMediaLoadGen) return;
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      console.warn("[auto-subtitle] preview media load", err);
+      previewVideo.removeAttribute("src");
+      if (previewAudio) {
+        previewAudio.removeAttribute("src");
+        try {
+          previewAudio.load();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (previewEmpty) {
+        previewEmpty.hidden = false;
+        previewEmpty.textContent =
+          formatAgentConnectionError(err) ||
+          "미디어를 불러올 수 없습니다. Chrome 사이트 설정에서 「로컬 네트워크」를 허용해 주세요.";
+      }
+      layoutPreviewMediaFrame();
+      updatePreviewOverlay();
+      updatePreviewTransportUi();
+    });
 }
 
 let pickBusy = false;

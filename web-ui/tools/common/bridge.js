@@ -568,6 +568,65 @@ export async function fetchAgent(url, init = {}) {
   return fetch(url, { ...init, targetAddressSpace: space });
 }
 
+/** @type {Map<string, string>} direct stream URL → blob object URL */
+const _mediaBlobByDirectUrl = new Map();
+
+/**
+ * HTTPS 공개 사이트 → 로컬 에이전트 HTTP 미디어는 `<video src>` 직접 로드 시 LNA/CORS 차단.
+ * @param {string} url
+ */
+export function needsAgentMediaFetchProxy(url) {
+  if (typeof window === "undefined") return false;
+  if (window.location.protocol !== "https:") return false;
+  try {
+    const target = new URL(url, window.location.href);
+    if (target.protocol !== "http:") return false;
+    const h = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return h === "127.0.0.1" || h === "localhost" || h === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 미리보기 `<video>` / `<audio>`용 URL — 필요 시 fetchAgent로 blob URL 생성.
+ * @param {string} directUrl
+ * @param {{ signal?: AbortSignal }} [opts]
+ * @returns {Promise<string>}
+ */
+export async function resolveAgentMediaObjectUrl(directUrl, opts = {}) {
+  const key = String(directUrl || "").trim();
+  if (!key) throw new Error("미디어 URL이 비어 있습니다.");
+  if (!needsAgentMediaFetchProxy(key)) return key;
+
+  const cached = _mediaBlobByDirectUrl.get(key);
+  if (cached) return cached;
+
+  await primeLocalNetworkAccess();
+  const res = await fetchAgent(key, {
+    method: "GET",
+    cache: "no-store",
+    signal: opts.signal,
+  });
+  if (!res.ok) {
+    throw new Error(`미디어 로드 실패 (HTTP ${res.status})`);
+  }
+  const blob = await res.blob();
+  const objUrl = URL.createObjectURL(blob);
+  _mediaBlobByDirectUrl.set(key, objUrl);
+  return objUrl;
+}
+
+/** @param {string} directUrl */
+export function revokeAgentMediaObjectUrl(directUrl) {
+  const key = String(directUrl || "").trim();
+  if (!key) return;
+  const objUrl = _mediaBlobByDirectUrl.get(key);
+  if (!objUrl) return;
+  URL.revokeObjectURL(objUrl);
+  _mediaBlobByDirectUrl.delete(key);
+}
+
 /** @param {string} [err] */
 function isLikelyLocalNetworkBlock(err) {
   const m = err != null ? String(err) : "";
@@ -1532,6 +1591,9 @@ const Bridge = {
   getAgentOrigin,
   setAgentOrigin,
   fetchAgent,
+  needsAgentMediaFetchProxy,
+  resolveAgentMediaObjectUrl,
+  revokeAgentMediaObjectUrl,
   extractAgentErrorMessage,
   formatAgentConnectionError,
   applyConnectionStatusDot,
