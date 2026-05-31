@@ -2,12 +2,21 @@
  * AutoSubtitle App.tsx ??deleteWordAt, splitSubtitleAtWord, backspaceWordAt, ??
  */
 
-import { displayTextFromSubtitleWords, visibleSubtitleWords, wordIsDeleted } from "./subtitles.js?v=20";
+import {
+  displayTextFromSubtitleWords,
+  lineTextIsUserLocked,
+  subtitleLineEditDisplayText,
+  visibleSubtitleWords,
+  wordIsDeleted,
+} from "./subtitles.js?v=24";
 import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
 import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-edit-ops.js";
 import { timelineEditLog } from "./timeline-edit-log.js";
 
-function textFromWords(words, fallback) {
+function textFromWords(line, words, fallback) {
+  if (lineTextIsUserLocked(line)) {
+    return subtitleLineEditDisplayText(line);
+  }
   const t = displayTextFromSubtitleWords(words);
   return t.length > 0 ? t : fallback;
 }
@@ -69,14 +78,14 @@ export function splitSubtitleAtWord(hub, index, wordIndex) {
       ...cur,
       end: splitTime,
       words: leftWords,
-      text: textFromWords(leftWords, cur.text),
+      text: textFromWords(cur, leftWords, cur.text),
     };
     const second = {
       ...cur,
       start: splitTime,
       end: cur.end,
       words: rightWords,
-      text: textFromWords(rightWords, cur.text),
+      text: textFromWords(cur, rightWords, cur.text),
     };
     return [...prev.slice(0, index), first, second, ...prev.slice(index + 1)];
   });
@@ -110,7 +119,7 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
         start: nextStart,
         end: Math.max(nextStart + 0.1, nextEnd),
         words: nextWords,
-        text: textFromWords(nextWords, cur.text),
+        text: textFromWords(cur, nextWords, cur.text),
       };
       return [...prev.slice(0, cardIndex), updated, ...prev.slice(cardIndex + 1)];
     }
@@ -125,7 +134,7 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
       start: Math.min(up.start, mergedWords[0].start),
       end: Math.max(up.end, mergedWords[mergedWords.length - 1].end),
       words: mergedWords,
-      text: textFromWords(mergedWords, up.text),
+      text: textFromWords(up, mergedWords, up.text),
     };
     return [...prev.slice(0, cardIndex - 1), merged, ...prev.slice(cardIndex + 1)];
   });
@@ -175,7 +184,7 @@ export function deleteWordAt(hub, cardIndex, caretIndex) {
           ...cur,
           end: nextLine.end,
           words: mergedWords,
-          text: textFromWords(mergedWords, cur.text),
+          text: textFromWords(cur, mergedWords, cur.text),
         };
         return [...prev.slice(0, cardIndex), merged, ...prev.slice(cardIndex + 2)];
       }

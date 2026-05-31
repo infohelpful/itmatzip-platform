@@ -28,7 +28,7 @@ import {
 import { splitWordAtMediaSecInLines } from "./shared/split-word-actions.js";
 import {
   shouldDeferWaveformSpaceToCaret,
-} from "./subtitle-list/word-caret-ui.js?v=48";
+} from "./subtitle-list/word-caret-ui.js?v=50";
 import { registerWaveformPanel, unregisterWaveformPanel } from "./waveform-panel-registry.js";
 
 const MIN_SPLIT_SEC = 0.02;
@@ -1031,11 +1031,8 @@ export class LineWaveformPanel {
       if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
       if (!this.root?.querySelector("[data-subwave-flow]")) return;
       if (shouldDeferWaveformSpaceToCaret()) {
-        console.log("[WAVE-SPACE] DEFERRED ts=%.1f, now=%.1f", e.timeStamp, performance.now());
         return;
       }
-      console.log("[WAVE-SPACE] INTERCEPT isPlaying=%s, ts=%.1f, now=%.1f",
-        this.deps.isPlaying?.(), e.timeStamp, performance.now());
       e.preventDefault();
       e.stopPropagation();
       if (this.deps.isPlaying?.()) {

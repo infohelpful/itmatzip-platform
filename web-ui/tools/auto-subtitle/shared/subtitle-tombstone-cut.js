@@ -1,12 +1,14 @@
 /**
- * AutoSubtitle subtitleTombstoneCut.ts ???„ë¡œê·¸ëž¨ ì¶?tombstone ì»?
+ * AutoSubtitle subtitleTombstoneCut.ts ?????? ?tombstone ?
  */
 
 import {
   displayTextFromSubtitleWords,
+  lineTextIsUserLocked,
+  subtitleLineEditDisplayText,
   visibleSubtitleWords,
   wordIsDeleted,
-} from "./subtitles.js?v=20";
+} from "./subtitles.js?v=24";
 import { snapTimelineSec } from "./timeline-collapse.js";
 import { splitWordTextAtMediaCut } from "./subtitle-word-text-split.js";
 
@@ -128,7 +130,9 @@ function rebuildCueAfterWordCuts(cue, newWords) {
   cue.words = newWords;
   cue.start = Math.min(...vis.map((w) => w.start));
   cue.end = Math.max(...vis.map((w) => w.end));
-  cue.text = displayTextFromSubtitleWords(newWords);
+  cue.text = lineTextIsUserLocked(cue)
+    ? subtitleLineEditDisplayText(cue)
+    : displayTextFromSubtitleWords(newWords);
   return cue;
 }
 

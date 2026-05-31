@@ -5,14 +5,15 @@
 
 import {
   displayTextFromSubtitleWords,
+  lineTextIsUserLocked,
   normalizeSilenceWordsForLineWords,
   subtitleLineEditDisplayText,
   subtitleLineTextDiffersFromWords,
   visibleSubtitleWords,
-} from "./subtitles.js?v=20";
+} from "./subtitles.js?v=24";
 
 /** @typedef {{ id: string, text: string, start_original: number, end_original: number, is_deleted?: boolean, isSilence?: boolean, splitChain?: string }} TimelineToken */
-/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean, editedDisplayText?: string }} TimelineSentence */
+/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean, editedDisplayText?: string, lineTextUserEdited?: boolean, line_text_user_edited?: boolean }} TimelineSentence */
 /** @typedef {TimelineSentence[]} SentenceTokenTimeline */
 
 /** @type {WeakMap<object, TimelineSentence>} */
@@ -54,8 +55,12 @@ function buildSentenceFromLine(line, li) {
       tokens,
       is_deleted: line.is_deleted || line.isDeleted ? true : false,
     };
-    if (subtitleLineTextDiffersFromWords(line)) {
+    if (lineTextIsUserLocked(line) || subtitleLineTextDiffersFromWords(line)) {
       sentence.editedDisplayText = subtitleLineEditDisplayText(line);
+    }
+    if (lineTextIsUserLocked(line)) {
+      sentence.lineTextUserEdited = true;
+      sentence.line_text_user_edited = true;
     }
     return sentence;
   }
@@ -120,6 +125,10 @@ function buildLineFromSentence(sentence) {
   if (sentence.is_deleted) {
     line.is_deleted = true;
     line.isDeleted = true;
+  }
+  if (sentence.lineTextUserEdited || sentence.line_text_user_edited) {
+    line.lineTextUserEdited = true;
+    line.line_text_user_edited = true;
   }
   return line;
 }

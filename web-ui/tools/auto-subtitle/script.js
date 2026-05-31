@@ -27,6 +27,7 @@ import {
 import {
   renderSubtitleCards,
   readCuesFromCards,
+  captureTextareaEditsIntoCues,
   scrollCueIntoView,
   requestFocusCaret,
   requestFocusCaretDeferred,
@@ -40,7 +41,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=59";
+} from "./cue-cards.js?v=65";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -51,7 +52,7 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=48";
+} from "./subtitle-list/word-caret-ui.js?v=50";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
@@ -60,8 +61,10 @@ import {
   syncAllCuesFromWords,
   ensureCueWords,
   subtitleLineEditDisplayText,
+  rebuildWordsFromLineText,
+  markLineTextUserEdited,
   MIN_WORD_SPAN_SEC,
-} from "./subtitle-words.js?v=22";
+} from "./subtitle-words.js?v=24";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
@@ -75,19 +78,19 @@ import {
   buildExportRequestPayload,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=24";
-import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=8";
+} from "./export/export-client.js?v=25";
+import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=9";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
-} from "./shared/cues-ssot.js?v=30";
+} from "./shared/cues-ssot.js?v=32";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
   buildSubtitleOverlayInnerStyle,
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
-import { SubtitleAppHub } from "./hub/app-hub.js?v=22";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=24";
 import {
   applyPlaybackSkipToPreviewMedia,
   applyThrottledVideoSkipCut,
@@ -1924,6 +1927,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onCloseWaveform: (opts) => closeWordWaveform(opts ?? {}),
     onPreviewLineTextInput: (cueIndex, text) => {
       if (lastCues[cueIndex]) {
+        markLineTextUserEdited(lastCues[cueIndex]);
         lastCues[cueIndex].text = text;
         updatePreviewOverlay();
       }
@@ -1931,9 +1935,13 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onSubtitleTextCommit: (cueIndex, text) => {
       subtitleHub.applySubtitleChange((cues) => {
         const next = [...cues];
-        next[cueIndex] = { ...next[cueIndex], text };
+        const cue = { ...next[cueIndex], text };
+        markLineTextUserEdited(cue);
+        rebuildWordsFromLineText(cue);
+        next[cueIndex] = cue;
         return next;
       });
+      renderCuesTable(lastCues);
     },
     onSeek: (sec) => {
       if (previewVideo && Number.isFinite(sec)) {
@@ -1995,6 +2003,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       });
     },
     onApplySubtitleChange: (updater, meta) => {
+      if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
       subtitleHub.applySubtitleChange(updater);
       let focusAfterRender = null;
       if (meta && meta.cueIndex >= 0 && meta.focusWordIndex >= 0) {
@@ -2075,6 +2084,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
 
 function renderCuesTable(cues, { scrollActive = false } = {}) {
   if (!subtitleList) return;
+  captureTextareaEditsIntoCues(subtitleList, lastCues);
   const opts = buildSubtitleCardOpts(cues, { scrollActive });
   renderSubtitleCards(subtitleList, cues, opts);
   updateActionButtons();

@@ -1,19 +1,22 @@
 /**
- * ?�막 줄·단????shared SSOT ?�퍼 (기존 import 경로 ?��?).
+ * ??? ???????shared SSOT ??? (?? import ?? ????).
  */
 
 import {
   displayTextFromSubtitleWords,
+  lineTextIsUserLocked,
+  markLineTextUserEdited,
   parseSubtitleLines,
   storageWordIndexFromVisibleNonDeletedIndex,
   subtitleLineEditDisplayText,
+  subtitleLineTextDiffersFromWords,
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
   visibleSubtitleWords,
   wordIsDeleted,
   wordIsSilence,
-} from "./shared/subtitles.js?v=20";
-import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=17";
+} from "./shared/subtitles.js?v=24";
+import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=18";
 import { SILENCE_PLACEHOLDER_TEXT } from "./shared/word-contract.js";
 
 export const MIN_WORD_SPAN_SEC = MIN_WORD_DURATION_SEC;
@@ -71,7 +74,7 @@ export function displayTextFromWords(words) {
   return displayTextFromSubtitleWords(words);
 }
 
-export { subtitleLineEditDisplayText, storageWordIndexFromVisibleNonDeletedIndex, parseSubtitleLines };
+export { subtitleLineEditDisplayText, storageWordIndexFromVisibleNonDeletedIndex, parseSubtitleLines, markLineTextUserEdited, lineTextIsUserLocked };
 
 /**
  * @param {SubtitleCue} cue
@@ -181,6 +184,33 @@ export function rebuildWordsFromLineText(cue) {
     is_deleted: false,
   }));
   return syncCueFromWords(cue);
+}
+
+/**
+ * ?? ??(textarea) ???? ?? ??? ??? words? ? ???? ??.
+ * ?????????? SSOT ? words? ??? ? text? ?? ??? ????.
+ *
+ * @param {SubtitleCue} cue
+ */
+export function reconcileCueWordsToLineText(cue) {
+  if (!cue || cue.is_silence || cue.isSilence) return cue;
+  ensureCueWords(cue);
+  if (lineTextIsUserLocked(cue)) {
+    const next = { ...cue, text: subtitleLineEditDisplayText(cue) };
+    markLineTextUserEdited(next);
+    return rebuildWordsFromLineText(next);
+  }
+  if (!subtitleLineTextDiffersFromWords(cue)) return cue;
+  const next = { ...cue, text: subtitleLineEditDisplayText(cue) };
+  markLineTextUserEdited(next);
+  return rebuildWordsFromLineText(next);
+}
+
+/**
+ * @param {SubtitleCue[]} cues
+ */
+export function reconcileAllCuesWordsToLineText(cues) {
+  return (cues || []).map((cue) => reconcileCueWordsToLineText(cue));
 }
 
 /**

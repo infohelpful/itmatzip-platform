@@ -1,8 +1,8 @@
 /**
- * AutoSubtitle phase5EditPolicy.ts ???∏Ïßë ??gap-fill ?ïÏ±Ö.
+ * AutoSubtitle phase5EditPolicy.ts ???ù? ??gap-fill ?ù?.
  */
 
-import { displayTextFromSubtitleWords } from "./subtitles.js?v=20";
+import { displayTextFromSubtitleWords, lineTextIsUserLocked, subtitleLineEditDisplayText } from "./subtitles.js?v=24";
 import { visibleSubtitleWords } from "./subtitles.js?v=20";
 
 export const NO_AUTO_GAP_FILL_AFTER_EDIT = true;
@@ -29,7 +29,9 @@ export function removeSilenceWordsFromSubtitleLines(lines) {
       start,
       end,
       words,
-      text: displayTextFromSubtitleWords(words),
+      text: lineTextIsUserLocked(line)
+        ? subtitleLineEditDisplayText(line)
+        : displayTextFromSubtitleWords(words),
     });
   }
   return out;

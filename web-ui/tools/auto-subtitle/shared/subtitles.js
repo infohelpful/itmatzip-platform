@@ -64,13 +64,33 @@ function normSubtitleLineEdit(s) {
   return s.replace(/\s+/g, " ").trim();
 }
 
+/** @param {{ lineTextUserEdited?: boolean, line_text_user_edited?: boolean } | null | undefined} line */
+export function lineTextIsUserLocked(line) {
+  return line?.lineTextUserEdited === true || line?.line_text_user_edited === true;
+}
+
+/** @param {Record<string, unknown> | null | undefined} line */
+export function markLineTextUserEdited(line) {
+  if (!line || typeof line !== "object") return line;
+  line.lineTextUserEdited = true;
+  line.line_text_user_edited = true;
+  return line;
+}
+
+/** @param {Record<string, unknown> | null | undefined} line */
+export function clearLineTextUserEdited(line) {
+  if (!line || typeof line !== "object") return line;
+  delete line.lineTextUserEdited;
+  delete line.line_text_user_edited;
+  return line;
+}
+
 /**
  * @param {{ text?: string, words?: readonly SubtitleWord[] }} line
  */
 export function subtitleLineEditDisplayText(line) {
   const words = line.words;
   const fromWords = words?.length ? displayTextFromSubtitleWords(words) : "";
-
   const raw = String(line.text ?? "").trim();
   const fromTextSanitized = raw
     .split(/\s+/)
@@ -79,16 +99,8 @@ export function subtitleLineEditDisplayText(line) {
     .join(" ")
     .trim();
 
-  if (fromTextSanitized.length === 0) return fromWords;
-
-  if (fromWords.length > 0) {
-    if (normSubtitleLineEdit(fromTextSanitized) !== normSubtitleLineEdit(fromWords)) {
-      return fromTextSanitized;
-    }
-    return fromWords;
-  }
-
-  return fromTextSanitized;
+  if (fromTextSanitized.length > 0) return fromTextSanitized;
+  return fromWords;
 }
 
 /** @param {{ text?: string, words?: readonly SubtitleWord[] }} line */
@@ -105,6 +117,24 @@ export function subtitleLineTextDiffersFromWords(line) {
   if (fromTextSanitized.length === 0) return false;
   if (fromWords.length === 0) return true;
   return normSubtitleLineEdit(fromTextSanitized) !== normSubtitleLineEdit(fromWords);
+}
+
+/**
+ * 단어(words) 변경 후 줄 text — 편집 영역 수정본이 있으면 유지.
+ *
+ * @param {{ text?: string, words?: readonly SubtitleWord[] }} line
+ * @param {readonly SubtitleWord[]} newWords
+ * @param {string} fromWordsText
+ */
+export function subtitleLineTextAfterWordMutation(line, newWords, fromWordsText) {
+  if (lineTextIsUserLocked(line)) {
+    return subtitleLineEditDisplayText(line);
+  }
+  const candidate = { ...line, words: newWords };
+  if (subtitleLineTextDiffersFromWords(candidate)) {
+    return subtitleLineEditDisplayText(line);
+  }
+  return fromWordsText;
 }
 
 function isGapLikeTimelineToken(w) {
@@ -230,7 +260,9 @@ export function mergeConsecutiveSilenceWordsInLine(line) {
     start,
     end: Math.max(start + 0.01, end),
     words: merged,
-    text: displayTextFromSubtitleWords(merged) || line.text,
+    text: lineTextIsUserLocked(line)
+      ? subtitleLineEditDisplayText(line)
+      : displayTextFromSubtitleWords(merged) || line.text,
   };
 }
 
@@ -373,12 +405,15 @@ export function parseSubtitleLines(raw) {
       mergedWords.length > 0
         ? subtitleLineEditDisplayText({ text, words: mergedWords })
         : text.trim();
+    const locked =
+      item.lineTextUserEdited === true || item.line_text_user_edited === true;
     out.push({
       start,
       end,
       text: lineText,
       words: mergedWords,
       is_silence: item.is_silence === true || item.isSilence === true,
+      ...(locked ? { lineTextUserEdited: true, line_text_user_edited: true } : {}),
     });
   }
   return out;
@@ -389,12 +424,12 @@ export function syncSubtitleLineFromWords(line) {
   if (!line?.words?.length) return line;
   const vis = visibleSubtitleWords(line.words);
   if (!vis.length) {
-    line.text = "";
+    if (!lineTextIsUserLocked(line)) line.text = "";
     return line;
   }
   line.start = Math.min(...vis.map((w) => w.start));
   line.end = Math.max(...vis.map((w) => w.end));
-  if (!subtitleLineTextDiffersFromWords(line)) {
+  if (!lineTextIsUserLocked(line) && !subtitleLineTextDiffersFromWords(line)) {
     line.text = displayTextFromSubtitleWords(line.words);
   }
   return line;

@@ -6,7 +6,7 @@
 
 
 
-import { displayTextFromSubtitleWords, wordIsDeleted } from "./subtitles.js?v=20";
+import { displayTextFromSubtitleWords, subtitleLineTextAfterWordMutation, wordIsDeleted } from "./subtitles.js?v=24";
 
 import { splitWordTextAtMediaCut } from "./subtitle-word-text-split.js";
 
@@ -46,7 +46,7 @@ const MIN_SPAN = 0.01;
 
  * @param {number} lineIndex
 
- * @param {number} visibleWordIndex Í∞Ä??ÎπÑÏÇ≠?? ?®Ïñ¥ ?∏Îç±??
+ * @param {number} visibleWordIndex ??????? ?ù? ?ù???
 
  * @param {number} splitMediaSec
 
@@ -180,14 +180,11 @@ export function splitWordAtMediaSecInLines(lines, lineIndex, visibleWordIndex, s
 
   const nextWords = [...words.slice(0, storageIdx), left, right, ...words.slice(storageIdx + 1)];
 
+  const fromWords = displayTextFromSubtitleWords(nextWords);
   const updated = {
-
     ...line,
-
     words: nextWords,
-
-    text: displayTextFromSubtitleWords(nextWords),
-
+    text: subtitleLineTextAfterWordMutation(line, nextWords, fromWords),
   };
 
   const nextLines = [...lines.slice(0, lineIndex), updated, ...lines.slice(lineIndex + 1)];

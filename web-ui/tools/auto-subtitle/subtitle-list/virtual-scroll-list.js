@@ -1,13 +1,15 @@
 /**
- * AutoSubtitle SubtitleVirtualList.tsx ?????????·? ???·???·???.
+ * AutoSubtitle SubtitleVirtualList.tsx ??????????? ???????????.
  */
 
 import {
   ensureCueWords,
   getCueWords,
-} from "../subtitle-words.js";
+  markLineTextUserEdited,
+  reconcileCueWordsToLineText,
+} from "../subtitle-words.js?v=24";
 import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=24";
-import { LineWaveformPanel } from "../line-waveform-panel.js?v=4";
+import { LineWaveformPanel } from "../line-waveform-panel.js?v=5";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
   applySubwavePanelLeftPx,
@@ -28,7 +30,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=48";
+} from "./word-caret-ui.js?v=50";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -213,7 +215,7 @@ function renderAllCards(container, cues, opts) {
 
     const times = document.createElement("div");
     times.className = "subtitle-card-times";
-    times.textContent = `${formatFull(cue.start)} ??${formatFull(cue.end)}`;
+    times.textContent = `${formatFull(cue.start)} ~ ${formatFull(cue.end)}`;
     card.appendChild(times);
 
     ensureCueWords(cue);
@@ -279,9 +281,14 @@ function renderAllCards(container, cues, opts) {
     ta.value = normalizePreviewSubtitleText(cue.text ?? "");
     ta.setAttribute("aria-label", "\uC790\uB9C9 \uD3B8\uC9D1");
     ta.dataset.subtitleEdit = "1";
+    if (cue.lineTextUserEdited || cue.line_text_user_edited) {
+      ta.dataset.lineTextUserEdited = "1";
+    }
     ta.addEventListener("click", (e) => e.stopPropagation());
     ta.addEventListener("mousedown", (e) => e.stopPropagation());
     ta.addEventListener("input", () => {
+      ta.dataset.lineTextUserEdited = "1";
+      markLineTextUserEdited(cue);
       opts.onPreviewLineTextInput?.(i, ta.value);
     });
     ta.addEventListener("blur", () => {
@@ -289,6 +296,8 @@ function renderAllCards(container, cues, opts) {
       const prev = String(cue.text ?? "");
       if (cur !== prev) {
         cue.text = cur;
+        markLineTextUserEdited(cue);
+        ta.dataset.lineTextUserEdited = "1";
         opts.onSubtitleTextCommit?.(i, cur);
       }
     });
@@ -574,15 +583,29 @@ function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
   }
 }
 
-export function readCuesFromCards(container, cues) {
-  if (!container) return cues;
+export function captureTextareaEditsIntoCues(container, cues) {
+  if (!container || !cues?.length) return cues;
   container.querySelectorAll(".subtitle-card").forEach((card) => {
     const idx = Number(card.dataset.cueIndex);
     if (!Number.isFinite(idx) || !cues[idx]) return;
     const ta = card.querySelector(".subtitle-card-textarea");
-    if (ta) {
+    if (ta instanceof HTMLTextAreaElement) {
       cues[idx].text = ta.value;
+      if (ta.dataset.lineTextUserEdited === "1") {
+        markLineTextUserEdited(cues[idx]);
+      }
     }
+  });
+  return cues;
+}
+
+export function readCuesFromCards(container, cues) {
+  if (!container) return cues;
+  captureTextareaEditsIntoCues(container, cues);
+  container.querySelectorAll(".subtitle-card").forEach((card) => {
+    const idx = Number(card.dataset.cueIndex);
+    if (!Number.isFinite(idx) || !cues[idx]) return;
+    cues[idx] = reconcileCueWordsToLineText(cues[idx]);
   });
   return cues;
 }

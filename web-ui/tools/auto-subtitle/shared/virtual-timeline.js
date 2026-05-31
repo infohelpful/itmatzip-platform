@@ -1,8 +1,8 @@
 /**
- * AutoSubtitle virtualTimeline.ts ??tombstone¬∑ÎØ∏Îîî??Ïª?(???µÏã¨ Î∂ÄÎ∂?.
+ * AutoSubtitle virtualTimeline.ts ??tombstone∑????ù?(???ù? ?ù?.
  */
 
-import { wordIsDeleted, displayTextFromSubtitleWords, visibleSubtitleWords } from "./subtitles.js?v=20";
+import { wordIsDeleted, displayTextFromSubtitleWords, visibleSubtitleWords, lineTextIsUserLocked, subtitleLineEditDisplayText } from "./subtitles.js?v=24";
 import { mergeCutRanges, snapTimelineSec } from "./timeline-collapse.js";
 
 const DELETE_RANGE_MIN_SEC = 1e-5;
@@ -17,7 +17,9 @@ function rebuildLineMetaAfterWordsChange(line, newWords) {
     return {
       ...line,
       words: newWords,
-      text: displayTextFromSubtitleWords(newWords),
+      text: lineTextIsUserLocked(line)
+        ? subtitleLineEditDisplayText(line)
+        : displayTextFromSubtitleWords(newWords),
     };
   }
   return {
@@ -25,7 +27,9 @@ function rebuildLineMetaAfterWordsChange(line, newWords) {
     words: newWords,
     start: vis[0].start,
     end: Math.max(vis[0].start + 0.1, vis[vis.length - 1].end),
-    text: displayTextFromSubtitleWords(newWords),
+    text: lineTextIsUserLocked(line)
+      ? subtitleLineEditDisplayText(line)
+      : displayTextFromSubtitleWords(newWords),
   };
 }
 
@@ -154,7 +158,7 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts) {
 }
 
 /**
- * Peaks/?¨ÏÉù EDL ???òÎìú Ïª?+ tombstone ?®Ïñ¥ + Í∞Ä????†ú Î∏îÎ°ù.
+ * Peaks/?ù? EDL ???ù? ù?+ tombstone ?ù? + ?????ùù ??.
  *
  * @param {readonly { start: number, end: number }[]} mergedCuts
  * @param {readonly import("./subtitles.js").SubtitleLine[]} lines

@@ -7,15 +7,16 @@ import {
   mergeWaveformPeaksStitchCutRanges,
   mergeDeletedMediaIntoTimeline,
 } from "../shared/virtual-timeline.js";
-import { visibleSubtitleWords, wordIsDeleted } from "../shared/subtitles.js?v=20";
+import { visibleSubtitleWords, wordIsDeleted } from "../shared/subtitles.js?v=24";
 import {
   syncCuesAfterWordEdit,
   postProcessCuesAfterTranscribe,
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
-} from "../shared/cues-ssot.js?v=30";
-import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=2";
-import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=20";
+} from "../shared/cues-ssot.js?v=32";
+import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=3";
+import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
+import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
 
 const MAX_HISTORY = 100;
 
@@ -248,7 +249,9 @@ export class SubtitleAppHub {
    */
   ingestFromProject(raw, opts = {}) {
     const lines = commitSubtitleLinesThroughTimeline(
-      syncAllSubtitleLinesFromWords(normalizeCuesFromAgent(raw)),
+      syncAllSubtitleLinesFromWords(
+        reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
+      ),
     );
     this.setCues(lines, { cutRanges: opts.cutRanges, recordHistory: false });
   }

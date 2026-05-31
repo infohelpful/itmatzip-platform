@@ -3,7 +3,7 @@
  */
 
 import { buildTextExport, TEXT_EXPORT_FORMATS } from "../shared/export-subtitle-formats.js";
-import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=2";
+import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=3";
 
 export const EXPORT_FORMATS = ["video", "srt", "vtt", "ass", "txt", "mp3", "wav"];
 

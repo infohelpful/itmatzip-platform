@@ -282,17 +282,22 @@ export function resetSpaceSeekIntent() {
   listPlayFromCaretPreferred = false;
 }
 
-/** 칩/캐럿 클릭 직후 Space → playAtCaret (파형 cut~end 보다 우선) */
+/** 파형 패널이 열려 있으면 Space는 항상 cut~단어 끝 구간 재생 (캐럿 playAtCaret 보다 우선) */
 export function shouldDeferWaveformSpaceToCaret() {
-  return spaceSeekIntent === "caret" && listPlayFromCaretPreferred;
+  return false;
 }
 
 export function clearListPlayFromCaretPreferred() {
   listPlayFromCaretPreferred = false;
 }
 
+function isWaveformExpandedOnCard(opts, cardIndex) {
+  const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
+  const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
+  return ci === cardIndex && wi >= 0;
+}
+
 function tryWaveformSpaceWhenExpanded(opts) {
-  if (spaceSeekIntent !== "none") return false;
   const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
   const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
   if (ci < 0 || wi < 0) return false;
@@ -310,12 +315,9 @@ export function prepareCaretAtWord(cardIndex, words, storageWordIndex, armSpaceS
   activateCaretAt(cardIndex, words, storageWordIndex, true, armSpaceSeek);
 }
 
-/** 파형 열린 줄 — 칩/캐럿 클릭 직후가 아니면 Space → cut~trim 구간 재생 */
+/** 파형 열린 줄 — Space → cut~trim 구간 재생 */
 function preferWaveformSpaceWhenExpanded(opts, cardIndex) {
-  if (listPlayFromCaretPreferred && spaceSeekIntent === "caret") return false;
-  const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
-  const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
-  if (ci !== cardIndex || wi < 0) return false;
+  if (!isWaveformExpandedOnCard(opts, cardIndex)) return false;
   return tryWaveformSpaceWhenExpanded(opts);
 }
 
@@ -429,7 +431,10 @@ function refreshCaretRowUi(container, cardIndex, words, opts) {
  * @param {object} opts
  */
 function enterTextareaEditMode(cardIndex, words, container, opts) {
-  if (isPlaybackActive(opts)) opts.onPausePlayback?.();
+  if (isPlaybackActive(opts)) {
+    setSkipPlayheadCaretSyncOnPause(true);
+    opts.onPausePlayback?.();
+  }
   spaceSeekIntent = "none";
   listPlayFromCaretPreferred = false;
   activeCaretCardIndex = null;
@@ -441,6 +446,26 @@ function enterTextareaEditMode(cardIndex, words, container, opts) {
   st.focusedRenderable = null;
   st.hoveredRenderable = null;
   patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
+}
+
+/** @param {HTMLTextAreaElement} ta @param {number} clientX @param {number} clientY */
+function focusTextareaAtPointer(ta, clientX, clientY) {
+  ta.focus({ preventScroll: true });
+  const doc = ta.ownerDocument;
+  let index = ta.value.length;
+  if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(clientX, clientY);
+    if (range?.startContainer === ta) {
+      index = range.startOffset;
+    }
+  } else if (typeof doc.caretPositionFromPoint === "function") {
+    const pos = doc.caretPositionFromPoint(clientX, clientY);
+    if (pos?.offsetNode === ta) {
+      index = pos.offset;
+    }
+  }
+  index = Math.max(0, Math.min(index, ta.value.length));
+  ta.setSelectionRange(index, index);
 }
 
 /**
@@ -486,7 +511,7 @@ function focusRenderableCaretButton(cardIndex, renderableCi) {
   });
 }
 
-function syncCaretFromFocus(cardIndex, words, renderableCaret) {
+function syncCaretFromFocus(cardIndex, words, renderableCaret, opts) {
   const st = getRowCaret(cardIndex, words);
   const storage = renderableCaretToStorageCaret(words, renderableCaret);
   st.storageCaret = storage;
@@ -496,7 +521,12 @@ function syncCaretFromFocus(cardIndex, words, renderableCaret) {
   st.focusedRenderable = renderableCaret;
   st.hoveredRenderable = null;
   lastCardFocusIndex = cardIndex;
-  spaceSeekIntent = "caret";
+  if (isWaveformExpandedOnCard(opts, cardIndex)) {
+    spaceSeekIntent = "none";
+    listPlayFromCaretPreferred = false;
+  } else {
+    spaceSeekIntent = "caret";
+  }
 }
 
 /**
@@ -1212,14 +1242,17 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
       opts.onTogglePlayback?.(true);
       return;
     }
-    if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
+    if (isWaveformExpandedOnCard(opts, cardIndex)) {
+      lastCaretPlayStartMs = nowMs;
+      tryWaveformSpaceWhenExpanded(opts);
+      return;
+    }
     if (spaceSeekIntent === "caret") {
       lastCaretPlayStartMs = nowMs;
       playAtCaret(cardIndex, ci, opts);
       dismissSpaceSeekIntent(container, cardIndex, words, opts, cues);
       return;
     }
-    if (tryWaveformSpaceWhenExpanded(opts)) return;
     lastCaretPlayStartMs = nowMs;
     opts.onTogglePlayback?.(true);
     return;
@@ -1415,13 +1448,13 @@ function appendCaretsOverlay(
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       if (k > 0) st.selectionAnchor = null;
-      const armSeek = !isPlaybackActive(opts);
+      const armSeek = !isPlaybackActive(opts) && !isExpanded;
       activateCaretAt(cardIndex, words, storageK, true, armSeek);
       globalHoveredRowIndex = cardIndex;
       patchCaretVisibility(listContainer, cardIndex, words, isPlaybackActive(opts));
       btn.focus({ preventScroll: true });
     });
-    btn.addEventListener("focus", () => syncCaretFromFocus(cardIndex, words, k));
+    btn.addEventListener("focus", () => syncCaretFromFocus(cardIndex, words, k, opts));
     btn.addEventListener("mouseenter", () => {
       setHoverCaretAt(cardIndex, words, k, listContainer, opts, cues);
     });
@@ -1542,7 +1575,7 @@ export function buildWordChipsAndCarets(
         const isActiveChip = liveExpandedWi === storageWi;
         opts.onWaveformChipClick(cardIndex, vi, storageWi, isActiveChip, e.detail);
         if (isPlaybackActive(opts)) opts.onPausePlayback?.();
-        activateCaretAt(cardIndex, words, storageWi, true, true);
+        activateCaretAt(cardIndex, words, storageWi, true, false);
         onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
         seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
@@ -1628,6 +1661,11 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
       opts.onTogglePlayback?.(true);
       return;
     }
+    if (isWaveformExpandedOnCard(opts, cardIndex)) {
+      lastCaretPlayStartMs = nowMs;
+      tryWaveformSpaceWhenExpanded(opts);
+      return;
+    }
     if (spaceSeekIntent === "wholeLine") {
       lastCaretPlayStartMs = nowMs;
       opts.onWaveformSeekAndPlay?.(cues[cardIndex]?.start ?? 0);
@@ -1635,7 +1673,6 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
       listPlayFromCaretPreferred = false;
       return;
     }
-    if (preferWaveformSpaceWhenExpanded(opts, cardIndex)) return;
     if (spaceSeekIntent === "caret") {
       lastCaretPlayStartMs = nowMs;
       playAtCaret(cardIndex, ci, opts);
@@ -1643,7 +1680,6 @@ function onCardKeyDown(e, cardIndex, words, cues, container, opts) {
       listPlayFromCaretPreferred = false;
       return;
     }
-    if (cardIndex === opts.getExpandedCueIndex?.() && tryWaveformSpaceWhenExpanded(opts)) return;
     lastCaretPlayStartMs = nowMs;
     opts.onTogglePlayback?.(true);
     return;
@@ -1808,7 +1844,14 @@ export function wireTextareaCaretNavigation(ta, cardIndex, cues, container, opts
 
   ta.addEventListener("mousedown", (e) => {
     e.stopPropagation();
+    const playing = isPlaybackActive(opts);
+    if (playing) {
+      e.preventDefault();
+    }
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);
+    if (playing) {
+      focusTextareaAtPointer(ta, e.clientX, e.clientY);
+    }
   });
   ta.addEventListener("focus", () => {
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);

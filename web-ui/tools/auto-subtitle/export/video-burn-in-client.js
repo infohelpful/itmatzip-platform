@@ -3,7 +3,7 @@
  */
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
-import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=2";
+import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=3";
 import { buildMappedSubtitles } from "./export-timeline.js";
 import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=4";
 

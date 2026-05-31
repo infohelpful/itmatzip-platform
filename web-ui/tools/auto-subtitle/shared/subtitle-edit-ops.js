@@ -2,11 +2,19 @@
  * AutoSubtitle subtitleEditOps.ts
  */
 
-import { displayTextFromSubtitleWords } from "./subtitles.js?v=20";
+import {
+  displayTextFromSubtitleWords,
+  lineTextIsUserLocked,
+  markLineTextUserEdited,
+  subtitleLineEditDisplayText,
+} from "./subtitles.js?v=24";
 
 const MIN_SEGMENT_SEC = 0.05;
 
-function textFromWords(words, fallback) {
+function textFromWords(line, words, fallback) {
+  if (lineTextIsUserLocked(line)) {
+    return subtitleLineEditDisplayText(line);
+  }
   const t = displayTextFromSubtitleWords(words);
   return t.length > 0 ? t : fallback;
 }
@@ -41,25 +49,33 @@ export function splitSubtitleLine(lines, index, cursorPos) {
       ...line,
       start,
       end: splitTime,
-      text: textFromWords(leftWords, text.slice(0, clampedCursor)),
+      text: lineTextIsUserLocked(line)
+        ? text.slice(0, clampedCursor)
+        : textFromWords(line, leftWords, text.slice(0, clampedCursor)),
       words: leftWords,
     };
     const second = {
       ...line,
       start: splitTime,
       end,
-      text: textFromWords(rightWords, text.slice(clampedCursor)),
+      text: lineTextIsUserLocked(line)
+        ? text.slice(clampedCursor)
+        : textFromWords(line, rightWords, text.slice(clampedCursor)),
       words: rightWords,
     };
+    markLineTextUserEdited(first);
+    markLineTextUserEdited(second);
     return [...lines.slice(0, index), first, second, ...lines.slice(index + 1)];
   }
 
   const left = text.slice(0, clampedCursor);
   const right = text.slice(clampedCursor);
+  const first = { start, end: splitTime, text: left, lineTextUserEdited: true, line_text_user_edited: true };
+  const second = { start: splitTime, end, text: right, lineTextUserEdited: true, line_text_user_edited: true };
   return [
     ...lines.slice(0, index),
-    { start, end: splitTime, text: left },
-    { start: splitTime, end, text: right },
+    first,
+    second,
     ...lines.slice(index + 1),
   ];
 }
@@ -76,7 +92,9 @@ export function mergeEmptySubtitleWithPrevious(lines, index) {
   const mergedWords =
     prevLine.words || cur.words ? [...(prevLine.words ?? []), ...(cur.words ?? [])] : undefined;
   const text =
-    mergedWords?.length ? textFromWords(mergedWords, prevLine.text) : prevLine.text;
+    mergedWords?.length
+      ? textFromWords(prevLine, mergedWords, prevLine.text)
+      : prevLine.text;
   const merged = {
     start: prevLine.start,
     end: cur.end,
