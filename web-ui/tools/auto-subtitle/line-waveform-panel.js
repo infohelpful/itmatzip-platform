@@ -28,7 +28,7 @@ import {
 import { splitWordAtMediaSecInLines } from "./shared/split-word-actions.js";
 import {
   shouldDeferWaveformSpaceToCaret,
-} from "./subtitle-list/word-caret-ui.js?v=52";
+} from "./subtitle-list/word-caret-ui.js?v=53";
 import { registerWaveformPanel, unregisterWaveformPanel } from "./waveform-panel-registry.js";
 
 const MIN_SPLIT_SEC = 0.02;
@@ -38,6 +38,10 @@ const CUT_SNAP_MS = 220;
 
 /** @type {Map<string, number>} activeWordId → 사용자가 잡은 cutSec */
 const cutSecByWordId = new Map();
+
+export function clearWaveformCutSecCache() {
+  cutSecByWordId.clear();
+}
 
 /**
  * @param {object | null | undefined} peaks

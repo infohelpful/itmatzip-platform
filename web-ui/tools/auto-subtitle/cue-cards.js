@@ -23,4 +23,4 @@ export {
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
   hintActiveCaretCardIndex,
-} from "./subtitle-list/word-caret-ui.js?v=52";
+} from "./subtitle-list/word-caret-ui.js?v=53";

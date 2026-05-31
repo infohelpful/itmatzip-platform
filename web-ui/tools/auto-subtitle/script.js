@@ -41,7 +41,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=67";
+} from "./cue-cards.js?v=68";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -49,10 +49,11 @@ import {
   syncCaretOnPlaybackPause,
   syncPlaybackCaretVisibility,
   clearListPlayFromCaretPreferred,
+  clearAllRowCaretState,
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=52";
+} from "./subtitle-list/word-caret-ui.js?v=53";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
@@ -90,7 +91,8 @@ import {
   buildSubtitleOverlayInnerStyle,
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
-import { SubtitleAppHub } from "./hub/app-hub.js?v=24";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=25";
+import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=6";
 import {
   applyPlaybackSkipToPreviewMedia,
   applyThrottledVideoSkipCut,
@@ -783,7 +785,7 @@ function closeWordWaveform({ restoreFocus = true } = {}) {
   }
   expandedCueIndex = -1;
   expandedWordIndex = -1;
-  renderCuesTable(lastCues);
+  renderCuesTable(lastCues, { capturePendingEdits: true });
   if (restoreFocus && prevCue >= 0 && subtitleList) {
     const cue = lastCues[prevCue];
     ensureCueWords(cue ?? {});
@@ -1512,7 +1514,7 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true }
   const cue = lastCues[cueIndex];
   if (!cue || cue.is_silence) {
     if (rerender) {
-      renderCuesTable(lastCues);
+      renderCuesTable(lastCues, { capturePendingEdits: true });
     } else if (prevSelected !== cueIndex && subtitleList) {
       patchSelectedCueHighlight(subtitleList, prevSelected, cueIndex);
     }
@@ -1527,7 +1529,7 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true }
     playheadSec = orch.mapMediaToEditSec(media);
   }
   if (rerender) {
-    renderCuesTable(lastCues);
+    renderCuesTable(lastCues, { capturePendingEdits: true });
   } else if (prevSelected !== cueIndex && subtitleList) {
     patchSelectedCueHighlight(subtitleList, prevSelected, cueIndex);
   }
@@ -2082,9 +2084,29 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
   };
 }
 
-function renderCuesTable(cues, { scrollActive = false } = {}) {
+function resetEditorSessionForProjectLoad() {
+  stopPlaybackLoop();
+  closeWordWaveform({ restoreFocus: false });
+  clearAllRowCaretState();
+  resetSpaceSeekIntent();
+  resetKeyboardPauseCaret();
+  clearListPlayFromCaretPreferred();
+  clearWaveformCutSecCache();
+  selectedCueIndex = -1;
+  expandedCueIndex = -1;
+  expandedWordIndex = -1;
+  peaksPayload = null;
+  playheadSec = 0;
+  lastPlaybackCueIndex = -1;
+  lastPlaybackWordIndex = -1;
+  lastOverlayCueIndex = -1;
+}
+
+function renderCuesTable(cues, { scrollActive = false, capturePendingEdits = false } = {}) {
   if (!subtitleList) return;
-  captureTextareaEditsIntoCues(subtitleList, lastCues);
+  if (capturePendingEdits) {
+    captureTextareaEditsIntoCues(subtitleList, lastCues);
+  }
   const opts = buildSubtitleCardOpts(cues, { scrollActive });
   renderSubtitleCards(subtitleList, cues, opts);
   updateActionButtons();
@@ -2119,6 +2141,8 @@ async function loadWaveformPeaks() {
 }
 
 async function applyLoadedProject(res) {
+  resetEditorSessionForProjectLoad();
+
   const videoPath = res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "";
   const project = res?.project;
   const cues =

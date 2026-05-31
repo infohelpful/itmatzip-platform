@@ -248,6 +248,10 @@ export class SubtitleAppHub {
    * @param {{ cutRanges?: { start: number, end: number }[] }} [opts]
    */
   ingestFromProject(raw, opts = {}) {
+    this.virtualTimelineDeleted = [];
+    this.gapFillWhenBuildingVrew = false;
+    this._undoStack = [];
+    this._redoStack = [];
     const lines = commitSubtitleLinesThroughTimeline(
       syncAllSubtitleLinesFromWords(
         reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
