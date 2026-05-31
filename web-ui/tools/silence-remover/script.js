@@ -43,7 +43,7 @@ import {
   saveProbeMetaToSession,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js";
+} from "../common/edl-export.js?v=lna1";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
