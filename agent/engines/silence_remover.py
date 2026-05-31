@@ -3850,6 +3850,7 @@ def analyze_video_to_edl_with_metadata(
     use_recommended_noise: bool = True,
     use_pcm_preview: bool = False,
     require_cached_peaks: bool = False,
+    on_progress: Callable[[float, str], None] | None = None,
 ) -> tuple[
     str,
     list[SilenceSegment],
@@ -3869,6 +3870,12 @@ def analyze_video_to_edl_with_metadata(
     _ = reel, fcm, use_autocutter_pipeline, use_recommended_noise, use_pcm_preview
     path = Path(video_path)
     applied_noise_db = float(int(round(float(noise_db))))
+
+    def _prog(pct: float, msg: str) -> None:
+        if on_progress is not None:
+            on_progress(pct, msg)
+
+    _prog(12.0, "무음 구간 탐지 중…")
     vocal_ms, duration_sec, raw_silences = get_nonsilent_intervals_ms_autocutter(
         path,
         threshold_db=noise_db,
@@ -3877,6 +3884,7 @@ def analyze_video_to_edl_with_metadata(
         timeout_sec=timeout_sec,
     )
     segments = _silence_segments_from_vocal_ms(vocal_ms, duration_sec)
+    _prog(58.0, "오디오 파형 확인 중…")
     waveform_timeline_sec = float(duration_sec)
     waveform_pcm_decoded_sec = 0.0
     try:
@@ -3891,12 +3899,14 @@ def analyze_video_to_edl_with_metadata(
         waveform_timeline_sec = float(entry.timeline_sec)
         waveform_pcm_decoded_sec = float(entry.pcm_decoded_sec or 0.0)
         _ = _from_cache
+        _prog(78.0, "파형 준비 완료")
     except (FileNotFoundError, RuntimeError, OSError):
         waveform_width = compute_waveform_column_count(
             duration_sec,
             pixels_per_second=pixels_per_second,
             max_width=max_waveform_width,
         )
+        _prog(72.0, "파형 메타 계산 중…")
     t_probe = min(120.0, timeout_sec)
     try:
         fps_probe = get_video_fps_ffprobe(path, timeout_sec=t_probe)
@@ -3911,6 +3921,7 @@ def analyze_video_to_edl_with_metadata(
     fps_f = float(fps_float) if fps_float is not None and fps_float > 0 else float(fps_edl)
     ttl = (title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
     clip_fn = clip_name_from_media_path(path)
+    _prog(88.0, "EDL 생성 중…")
     edl = create_edl_autocutter(
         vocal_ms,
         fps=fps_f,
@@ -3929,6 +3940,7 @@ def analyze_video_to_edl_with_metadata(
             )
         )
 
+    _prog(96.0, "결과 정리 중…")
     return (
         edl,
         segments,
@@ -4001,11 +4013,23 @@ def _set_analyze_job(
     result: dict[str, object] | None = None,
 ) -> None:
     with _analyze_lock:
+        pct = float(progress)
+        if phase == "running" and _analyze_job.phase == "running":
+            pct = max(_analyze_job.progress, pct)
+        elif phase == "ready":
+            pct = 100.0
+        elif phase == "failed":
+            pct = 0.0
         _analyze_job.phase = phase
-        _analyze_job.progress = progress
+        _analyze_job.progress = min(100.0, max(0.0, pct))
         _analyze_job.message = message
         if result is not None or phase in ("ready", "failed", "idle"):
             _analyze_job.result = result
+
+
+def report_analyze_progress(progress: float, message: str | None = None) -> None:
+    """백그라운드 무음 분석 중 UI 폴링용 진행률(단조 증가)."""
+    _set_analyze_job("running", progress, message)
 
 
 def _run_analyze_job(payload_fn: Callable[[], dict[str, object]]) -> None:

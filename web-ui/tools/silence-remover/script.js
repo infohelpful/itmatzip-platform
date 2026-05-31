@@ -588,7 +588,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let silencePreviewEnabled = false;
   let analyzeLoadingTimer = 0;
   let analyzeLoadingStartedAt = 0;
-  let analyzeProgressTimer = 0;
+  let analyzeProgressEstimateTimer = 0;
+  /** @type {number} UI에 표시 중인 분석 진행률(0–100, 단조 증가) */
+  let analyzeProgressPct = 0;
   /** @type {number} 로딩 오버레이를 이 시각까지 유지 */
   let analyzeLoadingHideAfter = 0;
   /** @type {number} 진행 중인 분석 세션 (중복 finally 방지) */
@@ -1088,18 +1090,72 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /** @param {number} pct 0–100 */
-  function setAnalyzeProgressBar(pct) {
-    const p = clamp(pct, 0, 100);
+  function renderAnalyzeProgressBar(pct) {
+    const p = clamp(Math.round(pct), 0, 100);
     if (waveformAnalyzeProgressBar) {
       waveformAnalyzeProgressBar.style.width = `${p}%`;
       waveformAnalyzeProgressBar.classList.add("is-determinate");
     }
     if (waveformAnalyzeProgressTrack) {
-      waveformAnalyzeProgressTrack.setAttribute("aria-valuenow", String(Math.round(p)));
+      waveformAnalyzeProgressTrack.setAttribute("aria-valuenow", String(p));
     }
   }
 
-  /** @param {boolean} on @param {{ mode?: "full" | "waveform", label?: string }} [opts] */
+  /** @param {number} pct */
+  function bumpAnalyzeProgress(pct) {
+    const next = clamp(pct, 0, 100);
+    if (next <= analyzeProgressPct) return;
+    analyzeProgressPct = next;
+    renderAnalyzeProgressBar(analyzeProgressPct);
+  }
+
+  /** @param {number} [pct] */
+  function resetAnalyzeProgress(pct = 0) {
+    analyzeProgressPct = clamp(pct, 0, 100);
+    renderAnalyzeProgressBar(analyzeProgressPct);
+  }
+
+  function stopAnalyzeProgressEstimate() {
+    window.clearInterval(analyzeProgressEstimateTimer);
+    analyzeProgressEstimateTimer = 0;
+  }
+
+  /**
+   * 서버 진행률이 없을 때 시간 기반으로 천천히 채움(절대 감소하지 않음).
+   * @param {{ from: number, to: number, durationMs: number }} opts
+   */
+  function startAnalyzeProgressEstimate(opts) {
+    stopAnalyzeProgressEstimate();
+    const from = clamp(opts.from, 0, 99);
+    const to = clamp(opts.to, from, 99);
+    const durationMs = Math.max(3000, opts.durationMs);
+    const t0 = Date.now();
+    bumpAnalyzeProgress(from);
+    analyzeProgressEstimateTimer = window.setInterval(() => {
+      const t = Math.min(1, (Date.now() - t0) / durationMs);
+      bumpAnalyzeProgress(from + (to - from) * t);
+      if (t >= 1) stopAnalyzeProgressEstimate();
+    }, 400);
+  }
+
+  /**
+   * @param {number} serverPct 에이전트 analyze/status progress (0–100)
+   * @param {boolean} afterWaveformLoad 파형 생성 단계를 이미 지난 뒤인지
+   */
+  function applyServerAnalyzeProgress(serverPct, afterWaveformLoad) {
+    const lo = afterWaveformLoad ? 38 : 8;
+    const hi = 99;
+    const mapped = lo + (clamp(serverPct, 0, 100) / 100) * (hi - lo);
+    bumpAnalyzeProgress(mapped);
+  }
+
+  /** @param {string} base @param {number} [pct] */
+  function formatAnalyzeProgressLabel(base, pct = analyzeProgressPct) {
+    const n = Math.round(clamp(pct, 0, 100));
+    return `${base} ${n}%`;
+  }
+
+  /** @param {boolean} on @param {{ mode?: "full" | "waveform", label?: string, preserveProgress?: boolean }} [opts] */
   function setWaveformAnalyzeLoading(on, opts = {}) {
     const mode = opts.mode === "waveform" ? "waveform" : "full";
     const label =
@@ -1124,9 +1180,8 @@ document.addEventListener("DOMContentLoaded", () => {
       waveformPreviewScroll.classList.toggle("is-analyze-loading", on);
     }
     window.clearInterval(analyzeLoadingTimer);
-    window.clearInterval(analyzeProgressTimer);
+    stopAnalyzeProgressEstimate();
     analyzeLoadingTimer = 0;
-    analyzeProgressTimer = 0;
     if (on) {
       analyzeLoadingStartedAt = Date.now();
       analyzeLoadingHideAfter = Math.max(
@@ -1138,7 +1193,9 @@ document.addEventListener("DOMContentLoaded", () => {
         setWaveformCanvasHidden(false);
       }
       const onWaveform = mode === "waveform";
-      setAnalyzeProgressBar(onWaveform ? 18 : 12);
+      if (!opts.preserveProgress) {
+        resetAnalyzeProgress(onWaveform ? 8 : 5);
+      }
       if (waveformAnalyzeLoading) {
         void waveformAnalyzeLoading.offsetHeight;
       }
@@ -1148,35 +1205,26 @@ document.addEventListener("DOMContentLoaded", () => {
           0,
           Math.floor((Date.now() - analyzeLoadingStartedAt) / 1000),
         );
-        const txt = onWaveform
+        const base = onWaveform
           ? sec > 0
             ? `무음 구간 분석 중… (${sec}초)`
             : "무음 구간 분석 중…"
           : sec > 0
             ? `파형 생성·무음 분석 중… (${sec}초)`
             : "파형 생성·무음 분석 중…";
-        waveformAnalyzeLabel.textContent = txt;
+        waveformAnalyzeLabel.textContent = formatAnalyzeProgressLabel(base);
       };
       tick();
       analyzeLoadingTimer = window.setInterval(tick, 400);
-      {
-        const cap = onWaveform ? 88 : 92;
-        const step = onWaveform ? 2 : 1;
-        analyzeProgressTimer = window.setInterval(() => {
-          const track = waveformAnalyzeProgressTrack;
-          const cur = track
-            ? Number(track.getAttribute("aria-valuenow") || "12")
-            : 12;
-          if (cur < cap) setAnalyzeProgressBar(cur + step);
-        }, onWaveform ? 220 : 280);
-      }
     } else {
-      setAnalyzeProgressBar(100);
+      stopAnalyzeProgressEstimate();
+      resetAnalyzeProgress(100);
       window.setTimeout(() => {
         if (waveformAnalyzeProgressBar) {
           waveformAnalyzeProgressBar.classList.remove("is-determinate");
           waveformAnalyzeProgressBar.style.width = "";
         }
+        analyzeProgressPct = 0;
       }, 350);
       if (waveformAnalyzeLabel) {
         waveformAnalyzeLabel.textContent = "무음 구간 분석 중…";
@@ -1207,7 +1255,19 @@ document.addEventListener("DOMContentLoaded", () => {
       analyzeLoadingHideAfter,
       Date.now() + ANALYZE_LOADING_MIN_MS,
     );
-    setWaveformAnalyzeLoading(true, { mode: session.mode });
+    if (waveformAnalyzeLoading) {
+      waveformAnalyzeLoading.classList.toggle(
+        "is-waveform-only",
+        session.mode === "waveform",
+      );
+    }
+    const base =
+      session.mode === "waveform"
+        ? "무음 구간 분석 중…"
+        : "파형 생성·무음 분석 중…";
+    if (waveformAnalyzeLabel) {
+      waveformAnalyzeLabel.textContent = formatAnalyzeProgressLabel(base);
+    }
   }
 
   /**
@@ -2093,13 +2153,21 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const overlaySession = beginAnalyzeOverlay(isReanalyze ? "waveform" : "full");
-    let analyzeProgressFloor = isReanalyze ? 22 : 20;
     await new Promise((resolve) => {
       window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
     });
 
     try {
       if (needWaveformLoad) {
+        const waveformEstimateMs = Math.max(
+          45000,
+          Math.min(600000, (Number.isFinite(estDur) && estDur > 0 ? estDur : 120) * 700),
+        );
+        startAnalyzeProgressEstimate({
+          from: 5,
+          to: 36,
+          durationMs: waveformEstimateMs,
+        });
         await loadWaveformPreview(videoPath, {
           assumeAgentOk: true,
           showSection: true,
@@ -2107,6 +2175,8 @@ document.addEventListener("DOMContentLoaded", () => {
           pixelsPerSecond: peaksPps,
           useEditorTimeline: true,
         });
+        stopAnalyzeProgressEstimate();
+        bumpAnalyzeProgress(38);
         if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, videoPath)) {
           alert("오디오 파형을 불러오지 못했습니다. 도우미 실행과 영상 경로를 확인한 뒤 다시 시도해 주세요.");
           return;
@@ -2154,16 +2224,13 @@ document.addEventListener("DOMContentLoaded", () => {
           if (overlaySession.id !== analyzeOverlaySessionId) return;
           const p = typeof ev.progress === "number" ? ev.progress : null;
           if (p != null) {
-            setAnalyzeProgressBar(clamp(p, 15, 95));
+            applyServerAnalyzeProgress(p, needWaveformLoad);
             return;
           }
           if (ev.phase === "queued") {
-            setAnalyzeProgressBar(30);
+            bumpAnalyzeProgress(needWaveformLoad ? 40 : 12);
           } else if (ev.phase === "request") {
-            setAnalyzeProgressBar(20);
-          } else if (ev.phase === "running") {
-            analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 3);
-            setAnalyzeProgressBar(analyzeProgressFloor);
+            bumpAnalyzeProgress(needWaveformLoad ? 38 : 10);
           }
         },
       });
@@ -2173,17 +2240,33 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(startData.message || "무음 분석 실패");
       }
       if (!isAnalyzeResultReady(startData) || startData.phase === "running") {
+        const analyzeEstimateMs = Math.max(
+          60000,
+          Math.min(900000, (Number.isFinite(estDur) && estDur > 0 ? estDur : 180) * 900),
+        );
+        if (typeof startData?.progress === "number") {
+          applyServerAnalyzeProgress(startData.progress, needWaveformLoad);
+        }
+        startAnalyzeProgressEstimate({
+          from: analyzeProgressPct,
+          to: 94,
+          durationMs: analyzeEstimateMs,
+        });
         data = await pollAnalyzeStatus((st) => {
           if (overlaySession.id !== analyzeOverlaySessionId) return;
           const p = typeof st.progress === "number" ? st.progress : null;
           if (p != null) {
-            setAnalyzeProgressBar(clamp(p, 15, 95));
-          } else if (st.phase === "running") {
-            analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 2);
-            setAnalyzeProgressBar(analyzeProgressFloor);
+            stopAnalyzeProgressEstimate();
+            applyServerAnalyzeProgress(p, needWaveformLoad);
+          }
+          if (waveformAnalyzeLabel && typeof st.message === "string" && st.message.trim()) {
+            waveformAnalyzeLabel.textContent = formatAnalyzeProgressLabel(st.message.trim());
           }
         });
+        stopAnalyzeProgressEstimate();
       }
+
+      bumpAnalyzeProgress(100);
 
       const edl = data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
       const appliedNoiseDb =

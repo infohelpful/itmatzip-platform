@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -587,7 +587,11 @@ async def post_waveform_preview_analyzed(
     return Response(content=png_bytes, media_type="image/png")
 
 
-def _analyze_video_payload(body: SilenceRemoverAnalyzeBody) -> dict[str, object]:
+def _analyze_video_payload(
+    body: SilenceRemoverAnalyzeBody,
+    *,
+    on_progress: Callable[[float, str], None] | None = None,
+) -> dict[str, object]:
     path = Path(body.video_path)
     (
         edl,
@@ -621,6 +625,7 @@ def _analyze_video_payload(body: SilenceRemoverAnalyzeBody) -> dict[str, object]
         fcm=body.fcm,
         fps_rational=body.fps_rational,
         fps_float=body.fps,
+        on_progress=on_progress,
     )
     detection = "pcm_columns" if body.use_pcm_preview else "silencedetect"
     out: dict[str, object] = {
@@ -681,7 +686,10 @@ def post_analyze(
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
 
     def _run() -> dict[str, object]:
-        return _analyze_video_payload(body)
+        def on_progress(pct: float, msg: str) -> None:
+            silence_remover.report_analyze_progress(pct, msg)
+
+        return _analyze_video_payload(body, on_progress=on_progress)
 
     job = silence_remover.start_analyze_job(_run)
     return _analyze_status_payload(job)
