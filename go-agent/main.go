@@ -274,9 +274,9 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      withRecovery(withCORS(mux)),
-		ReadTimeout:  60 * time.Second,
-		WriteTimeout: 10 * time.Minute,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  120 * time.Second,
+		WriteTimeout: 0,
+		IdleTimeout:  300 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

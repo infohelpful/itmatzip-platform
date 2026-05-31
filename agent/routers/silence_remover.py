@@ -659,12 +659,45 @@ def _analyze_video_payload(body: SilenceRemoverAnalyzeBody) -> dict[str, object]
     return out
 
 
+def _analyze_status_payload(job: silence_remover.AnalyzeJobStatus) -> dict[str, object]:
+    out: dict[str, object] = {
+        "phase": job.phase,
+        "progress": job.progress,
+        "message": job.message,
+    }
+    if job.result:
+        out.update(job.result)
+    return out
+
+
 @router.post("/analyze")
-async def post_analyze(
+def post_analyze(
     _: SilenceRemoverReady,
     body: SilenceRemoverAnalyzeBody,
 ) -> dict[str, object]:
-    """영상 경로를 받아 무음 구간을 분석하고, CMX 3600 EDL과 파형 표시용 구간 목록을 반환합니다."""
+    """무음 분석을 백그라운드에서 시작하고 즉시 상태를 반환합니다. GET /analyze/status 로 폴링하세요."""
+    path = Path(body.video_path)
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+
+    def _run() -> dict[str, object]:
+        return _analyze_video_payload(body)
+
+    job = silence_remover.start_analyze_job(_run)
+    return _analyze_status_payload(job)
+
+
+@router.get("/analyze/status")
+def get_analyze_status() -> dict[str, object]:
+    return _analyze_status_payload(silence_remover.get_analyze_job_status())
+
+
+@router.post("/analyze-sync")
+async def post_analyze_sync(
+    _: SilenceRemoverReady,
+    body: SilenceRemoverAnalyzeBody,
+) -> dict[str, object]:
+    """(레거시) 동기 분석 — 긴 영상에서는 /analyze + /analyze/status 를 사용하세요."""
     path = Path(body.video_path)
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")

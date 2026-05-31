@@ -290,13 +290,16 @@ func startFastAPISidecarWatchdog(ctx context.Context, sidecar *fastapiSidecar, w
 				if sidecar.IsReady() {
 					continue
 				}
-				running := sidecar.ProcessRunning()
-				streak := sidecar.HealthFailStreak()
-				if running && streak < watchdogBusyMinStreak {
-					log.Printf("fastapi watchdog: sidecar busy or slow (streak=%d), waiting…", streak)
+				if sidecar.ProcessRunning() {
+					streak := sidecar.HealthFailStreak()
+					if streak < watchdogBusyMinStreak {
+						log.Printf("fastapi watchdog: sidecar busy or slow (streak=%d), waiting…", streak)
+					} else {
+						log.Printf("fastapi watchdog: sidecar process alive but health slow (streak=%d), not killing during long work", streak)
+					}
 					continue
 				}
-				log.Printf("fastapi watchdog: sidecar not ready (running=%v streak=%d), restarting…", running, streak)
+				log.Printf("fastapi watchdog: sidecar process not running, restarting…")
 				if err := sidecar.TryRestart(ctx, wm); err != nil {
 					log.Printf("fastapi watchdog restart failed: %v", err)
 				}

@@ -6,9 +6,10 @@ import {
   formatAgentConnectionError,
   getAgentOrigin,
   requestAgent,
+  setAgentLongOperationActive,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna8";
+} from "../common/bridge.js?v=lna10";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
@@ -1961,6 +1962,42 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /**
+   * 무음 분석 백그라운드 작업 상태 폴링 (긴 영상·긴 HTTP 연결 끊김 방지)
+   */
+  async function pollAnalyzeStatus(onTick) {
+    for (;;) {
+      const res = await fetchAgent(
+        `${getAgentOrigin()}/api/tools/silence-remover/analyze/status`,
+        { method: "GET", cache: "no-store" },
+      );
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const detail =
+          errBody && typeof errBody.detail === "string"
+            ? errBody.detail
+            : res.statusText || "상태 조회 실패";
+        throw new Error(detail);
+      }
+      const data = await res.json();
+      if (typeof onTick === "function") onTick(data);
+
+      if (data.phase === "ready") {
+        if (typeof data.edl !== "string") {
+          throw new Error("분석은 끝났지만 결과가 없습니다.");
+        }
+        return data;
+      }
+      if (data.phase === "failed") {
+        throw new Error(data.message || "무음 분석 실패");
+      }
+      if (data.phase === "idle") {
+        throw new Error("분석 작업이 시작되지 않았습니다.");
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  /**
    * 3. 무음 분석 요청 (에이전트 통신)
    */
   btnAnalyze.addEventListener("click", async () => {
@@ -1997,6 +2034,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     btnAnalyze.disabled = true;
     btnAnalyze.textContent = "분석 중...";
+    setAgentLongOperationActive(true);
 
     setWaveformSectionVisible(true);
     if (waveformPreviewSection) {
@@ -2052,7 +2090,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
 
-      const data = await requestAgent({
+      await requestAgent({
         method: "POST",
         path: "/api/tools/silence-remover/analyze",
         json: analyzeBody,
@@ -2073,6 +2111,18 @@ document.addEventListener("DOMContentLoaded", () => {
             setAnalyzeProgressBar(analyzeProgressFloor);
           }
         },
+      });
+
+      const data = await pollAnalyzeStatus((st) => {
+        if (overlaySession.id !== analyzeOverlaySessionId) return;
+        refreshAnalyzeOverlay(overlaySession, overlaySession.mode);
+        const p = typeof st.progress === "number" ? st.progress : null;
+        if (p != null) {
+          setAnalyzeProgressBar(clamp(p, 15, 95));
+        } else if (st.phase === "running") {
+          analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 2);
+          setAnalyzeProgressBar(analyzeProgressFloor);
+        }
       });
 
       const edl = data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
@@ -2200,11 +2250,15 @@ document.addEventListener("DOMContentLoaded", () => {
           : undefined;
       applySilenceSummaryFromAnalyze(silences, durationSec);
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "분석에 실패했습니다.";
-      alert(`분석 실패: ${msg}`);
+      const msg = formatAgentConnectionError(err) || "분석에 실패했습니다.";
+      alert(
+        `분석 실패: ${msg}\n\n` +
+          "에이전트 트레이가 사라졌다면 작업 표시줄에서 ItMatZip Agent를 다시 실행하세요.\n" +
+          "Chrome 사용 시 tools.itmatzip.com → 사이트 설정 → 로컬 네트워크 「허용」도 확인하세요.",
+      );
       console.error(err);
     } finally {
+      setAgentLongOperationActive(false);
       await endAnalyzeOverlay(overlaySession);
       btnAnalyze.disabled = false;
       btnAnalyze.textContent = BTN_ANALYZE_LABEL;

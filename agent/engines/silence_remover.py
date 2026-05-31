@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from fractions import Fraction
@@ -3968,3 +3969,76 @@ def _parse_silencedetect_log(log: str, duration_sec: float) -> list[SilenceSegme
 
     segments.sort(key=lambda s: s.start_sec)
     return segments
+
+
+@dataclass
+class AnalyzeJobStatus:
+    phase: str
+    progress: float
+    message: str | None
+    result: dict[str, object] | None = None
+
+
+_analyze_lock = threading.RLock()
+_analyze_job = AnalyzeJobStatus(phase="idle", progress=0.0, message=None)
+_analyze_thread: threading.Thread | None = None
+
+
+def get_analyze_job_status() -> AnalyzeJobStatus:
+    with _analyze_lock:
+        return AnalyzeJobStatus(
+            phase=_analyze_job.phase,
+            progress=_analyze_job.progress,
+            message=_analyze_job.message,
+            result=_analyze_job.result,
+        )
+
+
+def _set_analyze_job(
+    phase: str,
+    progress: float,
+    message: str | None,
+    result: dict[str, object] | None = None,
+) -> None:
+    with _analyze_lock:
+        _analyze_job.phase = phase
+        _analyze_job.progress = progress
+        _analyze_job.message = message
+        if result is not None or phase in ("ready", "failed", "idle"):
+            _analyze_job.result = result
+
+
+def _run_analyze_job(payload_fn: Callable[[], dict[str, object]]) -> None:
+    try:
+        _set_analyze_job("running", 10.0, "무음 구간 분석 중…")
+        result = payload_fn()
+        _set_analyze_job("ready", 100.0, "분석 완료", result)
+    except subprocess.TimeoutExpired as exc:
+        _set_analyze_job("failed", 0.0, f"FFmpeg 실행이 시간 초과되었습니다: {exc}", None)
+    except FileNotFoundError as exc:
+        _set_analyze_job("failed", 0.0, str(exc), None)
+    except RuntimeError as exc:
+        _set_analyze_job("failed", 0.0, str(exc), None)
+    except Exception as exc:
+        _set_analyze_job("failed", 0.0, f"분석 중 오류: {exc}", None)
+
+
+def start_analyze_job(payload_fn: Callable[[], dict[str, object]]) -> AnalyzeJobStatus:
+    global _analyze_thread
+
+    with _analyze_lock:
+        if _analyze_thread is not None and _analyze_thread.is_alive():
+            return get_analyze_job_status()
+
+        _analyze_job.result = None
+        _analyze_job.phase = "running"
+        _analyze_job.progress = 3.0
+        _analyze_job.message = "분석 작업을 시작합니다…"
+        _analyze_thread = threading.Thread(
+            target=_run_analyze_job,
+            args=(payload_fn,),
+            daemon=True,
+        )
+        _analyze_thread.start()
+
+    return get_analyze_job_status()

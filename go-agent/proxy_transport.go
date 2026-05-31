@@ -11,8 +11,8 @@ import (
 
 const (
 	proxyReadyCacheTTL    = 2 * time.Second
-	healthStickyMaxStreak = 36
-	watchdogBusyMinStreak = 12
+	healthStickyMaxStreak = 120
+	watchdogBusyMinStreak = 120
 	watchdogTickInterval  = 30 * time.Second
 )
 
@@ -33,7 +33,7 @@ func proxyTimeoutForPath(path string) time.Duration {
 	case strings.Contains(p, "waveform"):
 		return 20 * time.Minute
 	case strings.Contains(p, "/prepare"), strings.Contains(p, "/transcribe"), strings.Contains(p, "/analyze"):
-		return 10 * time.Minute
+		return 65 * time.Minute
 	default:
 		return 3 * time.Minute
 	}
