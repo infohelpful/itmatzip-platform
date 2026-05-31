@@ -30,13 +30,17 @@ import {
   STORAGE_TC_OFFSET_SEC,
   STORAGE_VOCAL_MS,
   STORAGE_VIDEO_PATH,
+  clearProbeMetaFromSession,
   DEFAULT_PADDING_MS,
   canExportFromSession,
   clipNameFromVideoPath,
   consumeEditorRestorePending,
+  getMeanVolumeDbFromSession,
+  getRecommendedNoiseDbFromSession,
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
+  saveProbeMetaToSession,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
 } from "../common/edl-export.js";
@@ -374,12 +378,9 @@ document.addEventListener("DOMContentLoaded", () => {
     pathInput.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
     const base = trimmed.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
     if (base) sessionStorage.setItem(STORAGE_NAME, base);
-    scheduleProbe();
-    /* 파일 선택 등으로 경로가 한 번에 확정되면 프로브만 바로 시작(입력 디바운스와 무관) */
-    if (looksLikeFullPath(trimmed)) {
-      window.clearTimeout(probeTimer);
-      probeTimer = window.setTimeout(() => void probeMediaFromPath(), 0);
-    }
+    sessionStorage.setItem(STORAGE_VIDEO_PATH, trimmed);
+    window.clearTimeout(probeTimer);
+    void probeMediaFromPath();
   }
 
   function syncExportLinkState() {
@@ -456,13 +457,19 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      const vp = data && typeof data === "object" ? data.video_path : "";
-      if (typeof vp !== "string" || !vp.trim()) {
+      if (data && typeof data === "object" && data.cancelled === true) return;
+
+      const vpRaw =
+        data && typeof data === "object"
+          ? data.video_path || data.audio_path || data.path
+          : "";
+      const vp = typeof vpRaw === "string" ? vpRaw.trim() : "";
+      if (!vp) {
         alert("에이전트가 경로를 반환하지 않았습니다.");
         return;
       }
 
-      applyVideoPathToInput(vp.trim());
+      applyVideoPathToInput(vp);
     } catch (e) {
       const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
       if (name === "AbortError") {
@@ -672,6 +679,7 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionStorage.removeItem(STORAGE_DURATION);
     sessionStorage.removeItem(STORAGE_FPS_RATIONAL);
     sessionStorage.removeItem(STORAGE_FPS);
+    clearProbeMetaFromSession();
     syncExportLinkState();
     if (btnAnalyze) {
       btnAnalyze.disabled = false;
@@ -922,9 +930,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Number.isFinite(recDb)) return;
     const shown = truncTo2Decimals(recDb);
     probedRecommendedNoiseDb = shown;
-    optRecDb.value = String(shown);
+    if (optRecDb) optRecDb.value = String(shown);
     const sens = clamp(shown, NOISE_DB_MIN, NOISE_DB_MAX);
-    optSens.value = String(truncTo2Decimals(sens));
+    if (optSens) optSens.value = String(truncTo2Decimals(sens));
   }
 
   function renderAnalyzedSettingsSummary() {
@@ -1634,21 +1642,43 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
+  /** @param {unknown} v */
+  function asFiniteNumber(v) {
+    if (typeof v === "number" && Number.isFinite(v)) return v;
+    if (typeof v === "string" && v.trim()) {
+      const n = Number(v.trim());
+      if (Number.isFinite(n)) return n;
+    }
+    return NaN;
+  }
+
+  function probeMetaInputsComplete() {
+    return Boolean(
+      optFps?.value.trim() &&
+        optAvgDb?.value.trim() &&
+        optRecDb?.value.trim(),
+    );
+  }
+
   /** @param {Record<string, unknown>} m */
   function applyProbeResultToOptions(m) {
-    if (typeof m.fps === "number" && Number.isFinite(m.fps)) {
-      optFps.value = String(truncTo2Decimals(m.fps));
+    const fps = asFiniteNumber(m.fps);
+    if (Number.isFinite(fps) && fps > 0 && optFps) {
+      optFps.value = String(truncTo2Decimals(fps));
     }
-    if (typeof m.mean_volume_db === "number" && Number.isFinite(m.mean_volume_db)) {
-      optAvgDb.value = String(truncTo2Decimals(m.mean_volume_db));
+    const meanDb = asFiniteNumber(m.mean_volume_db);
+    if (Number.isFinite(meanDb) && optAvgDb) {
+      optAvgDb.value = String(truncTo2Decimals(meanDb));
     }
-    if (typeof m.recommended_noise_db === "number" && Number.isFinite(m.recommended_noise_db)) {
-      applyRecommendedNoiseDb(m.recommended_noise_db);
+    const recDb = asFiniteNumber(m.recommended_noise_db);
+    if (Number.isFinite(recDb)) {
+      applyRecommendedNoiseDb(recDb);
     }
     if (typeof m.fps_rational === "string" && m.fps_rational.trim()) {
       probedFpsRational = m.fps_rational.trim();
       sessionStorage.setItem(STORAGE_FPS_NATIVE_RATIONAL, probedFpsRational);
     }
+    saveProbeMetaToSession(m);
   }
 
   async function probeMediaFromPath() {
@@ -1680,6 +1710,7 @@ document.addEventListener("DOMContentLoaded", () => {
         probedFpsRational = natRat;
         setSummaryCell(summaryFpsNative, natRat);
       }
+      applyOptionsFromSession();
       applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
       commitAnalyzedSettingsSnapshot({
         fps: getEditorFpsForExport(),
@@ -1687,30 +1718,33 @@ document.addEventListener("DOMContentLoaded", () => {
         paddingMs: getPaddingMs(),
         minSilenceSec: getMinSilenceSec(),
       });
-      const agent = await checkAgentConnection();
-      if (agent.ok) {
-        const fps = getEditorFpsForExport();
-        const estDur = probedMediaDurationSec ?? 0;
-        const pps = peaksPixelsPerSecondForEditorFps(fps, estDur);
-        if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, p)) {
-          await loadWaveformPreview(p, {
-            assumeAgentOk: true,
-            scrollIntoView: false,
-            pixelsPerSecond: pps,
-            useEditorTimeline: true,
-          });
-        }
-        enablePreviewSilenceOverlay();
-      }
-      syncExportLinkState();
-      return;
-    }
 
-    resetSilenceAnalysisState();
-    probedMediaDurationSec = null;
-    probedMeanVolumeDb = null;
-    probedMaxVolumeDb = null;
-    probedFpsRational = null;
+      if (probeMetaInputsComplete()) {
+        const agent = await checkAgentConnection();
+        if (agent.ok) {
+          const fps = getEditorFpsForExport();
+          const estDur = probedMediaDurationSec ?? 0;
+          const pps = peaksPixelsPerSecondForEditorFps(fps, estDur);
+          if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, p)) {
+            await loadWaveformPreview(p, {
+              assumeAgentOk: true,
+              scrollIntoView: false,
+              pixelsPerSecond: pps,
+              useEditorTimeline: true,
+            });
+          }
+          enablePreviewSilenceOverlay();
+        }
+        syncExportLinkState();
+        return;
+      }
+    } else {
+      resetSilenceAnalysisState();
+      probedMediaDurationSec = null;
+      probedMeanVolumeDb = null;
+      probedMaxVolumeDb = null;
+      probedFpsRational = null;
+    }
 
     setWaveformCanvasHidden(true);
 
@@ -1871,6 +1905,16 @@ document.addEventListener("DOMContentLoaded", () => {
       if (Number.isFinite(n) && n > 0) optFps.value = String(n);
     }
 
+    const meanDb = getMeanVolumeDbFromSession();
+    if (optAvgDb && Number.isFinite(meanDb)) {
+      optAvgDb.value = String(truncTo2Decimals(meanDb));
+    }
+
+    const recDb = getRecommendedNoiseDbFromSession();
+    if (Number.isFinite(recDb)) {
+      applyRecommendedNoiseDb(recDb);
+    }
+
     const minRaw =
       sessionStorage.getItem(STORAGE_MIN_SILENCE_SEC) ||
       sessionStorage.getItem(STORAGE_MIN_SILENCE);
@@ -1962,7 +2006,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /**
-   * 무음 분석 백그라운드 작업 상태 폴링 (긴 영상·긴 HTTP 연결 끊김 방지)
+   * @param {unknown} data
+   */
+  function isAnalyzeResultReady(data) {
+    return Boolean(data && typeof data === "object" && typeof data.edl === "string");
+  }
+
+  /**
+   * @param {(st: Record<string, unknown>) => void} [onTick]
    */
   async function pollAnalyzeStatus(onTick) {
     for (;;) {
@@ -1981,17 +2032,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const data = await res.json();
       if (typeof onTick === "function") onTick(data);
 
-      if (data.phase === "ready") {
-        if (typeof data.edl !== "string") {
+      if (data.phase === "failed") {
+        throw new Error(data.message || "무음 분석 실패");
+      }
+      if (data.phase === "ready" || (isAnalyzeResultReady(data) && data.phase !== "running")) {
+        if (!isAnalyzeResultReady(data)) {
           throw new Error("분석은 끝났지만 결과가 없습니다.");
         }
         return data;
       }
-      if (data.phase === "failed") {
-        throw new Error(data.message || "무음 분석 실패");
-      }
       if (data.phase === "idle") {
-        throw new Error("분석 작업이 시작되지 않았습니다.");
+        throw new Error("분석 작업이 시작되지 않았습니다. 에이전트를 최신 버전으로 업데이트한 뒤 다시 시도하세요.");
       }
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -2089,14 +2140,18 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.setItem(STORAGE_CLIP_NAME, clipName);
       }
       sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
+      saveProbeMetaToSession({
+        fps: fpsParsed,
+        mean_volume_db: asFiniteNumber(optAvgDb?.value),
+        recommended_noise_db: noiseDb,
+      });
 
-      await requestAgent({
+      const startData = await requestAgent({
         method: "POST",
         path: "/api/tools/silence-remover/analyze",
         json: analyzeBody,
         onProgress: (ev) => {
           if (overlaySession.id !== analyzeOverlaySessionId) return;
-          refreshAnalyzeOverlay(overlaySession, overlaySession.mode);
           const p = typeof ev.progress === "number" ? ev.progress : null;
           if (p != null) {
             setAnalyzeProgressBar(clamp(p, 15, 95));
@@ -2113,17 +2168,22 @@ document.addEventListener("DOMContentLoaded", () => {
         },
       });
 
-      const data = await pollAnalyzeStatus((st) => {
-        if (overlaySession.id !== analyzeOverlaySessionId) return;
-        refreshAnalyzeOverlay(overlaySession, overlaySession.mode);
-        const p = typeof st.progress === "number" ? st.progress : null;
-        if (p != null) {
-          setAnalyzeProgressBar(clamp(p, 15, 95));
-        } else if (st.phase === "running") {
-          analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 2);
-          setAnalyzeProgressBar(analyzeProgressFloor);
-        }
-      });
+      let data = startData;
+      if (startData?.phase === "failed") {
+        throw new Error(startData.message || "무음 분석 실패");
+      }
+      if (!isAnalyzeResultReady(startData) || startData.phase === "running") {
+        data = await pollAnalyzeStatus((st) => {
+          if (overlaySession.id !== analyzeOverlaySessionId) return;
+          const p = typeof st.progress === "number" ? st.progress : null;
+          if (p != null) {
+            setAnalyzeProgressBar(clamp(p, 15, 95));
+          } else if (st.phase === "running") {
+            analyzeProgressFloor = Math.min(92, analyzeProgressFloor + 2);
+            setAnalyzeProgressBar(analyzeProgressFloor);
+          }
+        });
+      }
 
       const edl = data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
       const appliedNoiseDb =

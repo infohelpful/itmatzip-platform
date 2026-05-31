@@ -61,6 +61,18 @@ function bridgeSilentMask(silent, maxHole) {
 }
 
 /**
+ * @param {number[]} peaks
+ */
+function peakMaxValue(peaks) {
+  let mx = 1e-18;
+  for (let i = 0; i < peaks.length; i += 1) {
+    const p = peaks[i] ?? 0;
+    if (p > mx) mx = p;
+  }
+  return mx;
+}
+
+/**
  * @param {WaveformPeaksData} data
  * @param {{ noiseDb: number, minSilenceSec: number, meanVolumeDb?: number, maxVolumeDb?: number | null }} opts
  * @returns {Array<[number, number]>}
@@ -78,7 +90,7 @@ export function computeSilentColumnRanges(data, opts) {
   if (peaksDb) {
     silent = peaksSilentMask(peaksDb, thresh);
   } else {
-    const mx = Math.max(...data.peaks, 1e-18);
+    const mx = peakMaxValue(data.peaks);
     const floor = mx * SCOPE_SILENCE_REL_FLOOR;
     silent = data.peaks.map((p) => p < floor);
   }

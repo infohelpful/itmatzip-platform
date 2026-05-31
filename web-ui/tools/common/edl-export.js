@@ -11,6 +11,8 @@ export const STORAGE_DURATION = "itmatzip_silence_duration_sec";
 export const STORAGE_FPS_RATIONAL = "itmatzip_silence_fps_rational";
 export const STORAGE_FPS_NATIVE_RATIONAL = "itmatzip_silence_native_fps_rational";
 export const STORAGE_FPS = "itmatzip_silence_fps";
+export const STORAGE_MEAN_VOLUME_DB = "itmatzip_silence_mean_volume_db";
+export const STORAGE_RECOMMENDED_NOISE_DB = "itmatzip_silence_recommended_noise_db";
 export const STORAGE_CLIP_NAME = "itmatzip_silence_clip_name";
 export const STORAGE_VIDEO_PATH = "itmatzip_silence_video_path";
 export const STORAGE_TC_OFFSET_SEC = "itmatzip_silence_tc_offset_sec";
@@ -122,6 +124,41 @@ export function getMinSilenceSecFromSession() {
   return Number.isFinite(n) && n >= 0 ? n : 0.3;
 }
 
+/** @param {unknown} v */
+function readStoredDb(v) {
+  if (v == null || v === "") return NaN;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+export function getMeanVolumeDbFromSession() {
+  return readStoredDb(sessionStorage.getItem(STORAGE_MEAN_VOLUME_DB));
+}
+
+export function getRecommendedNoiseDbFromSession() {
+  return readStoredDb(sessionStorage.getItem(STORAGE_RECOMMENDED_NOISE_DB));
+}
+
+/** @param {Record<string, unknown>} meta */
+export function saveProbeMetaToSession(meta) {
+  if (!meta || typeof meta !== "object") return;
+  const fps = readStoredDb(meta.fps);
+  if (fps > 0) sessionStorage.setItem(STORAGE_FPS, String(fps));
+  const mean = readStoredDb(meta.mean_volume_db);
+  if (Number.isFinite(mean)) {
+    sessionStorage.setItem(STORAGE_MEAN_VOLUME_DB, String(mean));
+  }
+  const rec = readStoredDb(meta.recommended_noise_db);
+  if (Number.isFinite(rec)) {
+    sessionStorage.setItem(STORAGE_RECOMMENDED_NOISE_DB, String(rec));
+  }
+}
+
+export function clearProbeMetaFromSession() {
+  sessionStorage.removeItem(STORAGE_MEAN_VOLUME_DB);
+  sessionStorage.removeItem(STORAGE_RECOMMENDED_NOISE_DB);
+}
+
 export function edlExportSettingsFingerprintFromSession() {
   const fps = getEditorFpsFromSession();
   return JSON.stringify({
@@ -144,6 +181,9 @@ export function snapshotExportSettingsFromDom() {
   const optRemoveSilent = document.getElementById("opt-remove-silent");
   const optPadding = document.getElementById("opt-padding");
   const optFps = document.getElementById("opt-fps");
+  const optAvgDb = document.getElementById("opt-avg-db");
+  const optRecDb = document.getElementById("opt-rec-db");
+  const optSens = document.getElementById("opt-sensitivity");
   const optMinSilence = document.getElementById("opt-min-silence");
 
   const videoPath =
@@ -171,6 +211,25 @@ export function snapshotExportSettingsFromDom() {
     const v = Number(optFps.value);
     if (Number.isFinite(v) && v > 0) {
       sessionStorage.setItem(STORAGE_FPS, String(v));
+    }
+  }
+
+  if (optAvgDb instanceof HTMLInputElement) {
+    const v = Number(optAvgDb.value);
+    if (Number.isFinite(v)) {
+      sessionStorage.setItem(STORAGE_MEAN_VOLUME_DB, String(v));
+    }
+  }
+
+  if (optRecDb instanceof HTMLInputElement) {
+    const v = Number(optRecDb.value);
+    if (Number.isFinite(v)) {
+      sessionStorage.setItem(STORAGE_RECOMMENDED_NOISE_DB, String(v));
+    }
+  } else if (optSens instanceof HTMLInputElement) {
+    const v = Number(optSens.value);
+    if (Number.isFinite(v)) {
+      sessionStorage.setItem(STORAGE_RECOMMENDED_NOISE_DB, String(v));
     }
   }
 

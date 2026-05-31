@@ -477,22 +477,22 @@ function targetAddressSpaceForUrl(url) {
  * @param {unknown} raw
  * @returns {string}
  */
-export function extractAgentErrorMessage(raw) {
-  if (raw == null) return "";
+export function extractAgentErrorMessage(raw, depth = 0) {
+  if (raw == null || depth > 8) return "";
   if (typeof raw === "string") return raw.trim();
   if (raw instanceof Error) return raw.message?.trim() || String(raw);
   if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
   if (Array.isArray(raw)) {
     return raw
-      .map((item) => extractAgentErrorMessage(item))
+      .map((item) => extractAgentErrorMessage(item, depth + 1))
       .filter(Boolean)
       .join("; ");
   }
   if (typeof raw === "object") {
     const o = /** @type {Record<string, unknown>} */ (raw);
-    if (o.message != null) return extractAgentErrorMessage(o.message);
-    if (o.detail != null) return extractAgentErrorMessage(o.detail);
-    if (o.error != null) return extractAgentErrorMessage(o.error);
+    if (o.message != null) return extractAgentErrorMessage(o.message, depth + 1);
+    if (o.detail != null) return extractAgentErrorMessage(o.detail, depth + 1);
+    if (o.error != null) return extractAgentErrorMessage(o.error, depth + 1);
     if (typeof o.msg === "string") return o.msg.trim();
   }
   try {
