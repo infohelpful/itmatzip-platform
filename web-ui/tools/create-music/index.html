@@ -7,7 +7,7 @@
   <title>Create Music — AI 음악 생성</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=12">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body>
@@ -71,17 +71,82 @@
             </select>
           </div>
 
-          <!-- 음악 설명 -->
-          <div class="form-row">
-            <label class="form-label" for="caption">음악 설명 (스타일·장르·분위기)</label>
-            <textarea id="caption" class="form-textarea" rows="3" name="caption" placeholder="예: 몽환적인 로파이 비트, 부드러운 피아노, 여성 보컬, 편안한 분위기, 120bpm"></textarea>
-          </div>
+          <!-- 음악 스타일 (caption 빌더) -->
+          <div class="compose-panel" id="music-compose-root">
+            <h3 class="compose-panel-title">음악 스타일</h3>
+            <p class="compose-panel-desc">장르·템포·악기는 선택, 분위기는 직접 입력. Instrumental 연주 설명은 가사가 아니라 여기(또는 연주 구간)에만 넣습니다.</p>
 
-          <!-- 가사 -->
-          <div class="form-row">
-            <label class="form-label" for="lyrics">가사</label>
-            <textarea id="lyrics" class="form-textarea" rows="6" name="lyrics" placeholder="[Verse]&#10;여기에 가사를 입력하세요...&#10;&#10;[Chorus]&#10;후렴 가사...&#10;&#10;[Instrumental]&#10;(가사 없이 악기 연주 구간)"></textarea>
-            <span class="form-hint">구조 태그: [Verse] 절, [Chorus] 후렴, [Bridge] 브릿지, [Instrumental] 연주, [Outro] 아웃트로</span>
+            <div class="form-row">
+              <label class="form-label">장르 <span class="form-label-note">(복수 선택 가능)</span></label>
+              <div class="compose-chip-row" id="genre-chips"></div>
+            </div>
+
+            <div class="options-grid options-grid--compose">
+              <div class="form-row">
+                <label class="form-label" for="tempo-preset">템포</label>
+                <select id="tempo-preset" class="form-select" name="tempo-preset"></select>
+              </div>
+              <div class="form-row is-hidden" id="bpm-custom-row">
+                <label class="form-label" for="bpm-custom">BPM</label>
+                <input type="number" id="bpm-custom" class="form-input" min="40" max="220" step="1" placeholder="120">
+              </div>
+              <div class="form-row">
+                <label class="form-label" for="vocal-type">보컬</label>
+                <select id="vocal-type" class="form-select" name="vocal-type"></select>
+                <span class="form-hint">성별·듀엣은 caption에 반영됩니다. 100% 보장은 어렵습니다 — 아래 <strong>참조 보컬</strong>이 가장 확실합니다.</span>
+              </div>
+            </div>
+
+            <div class="form-row" id="vocal-style-row">
+              <label class="form-label">보컬 느낌 <span class="form-label-note">(복수 선택 · 선택 사항)</span></label>
+              <div class="compose-chip-row" id="vocal-style-chips"></div>
+            </div>
+
+            <div class="form-row" id="vocal-ref-row">
+              <label class="form-label">참조 보컬 <span class="form-label-note">(선택 · 가장 확실한 방법)</span></label>
+              <div class="vocal-ref-controls">
+                <button type="button" id="btn-vocal-ref" class="btn btn-outline btn-sm">참조 보컬 선택</button>
+                <button type="button" id="btn-vocal-ref-clear" class="btn btn-outline btn-sm">지우기</button>
+                <span id="vocal-ref-name" class="file-name-label"></span>
+              </div>
+              <div class="vocal-ref-strength-row is-hidden" id="vocal-ref-strength-row">
+                <label class="form-label form-label-sm" for="vocal-ref-strength">참조 반영 강도</label>
+                <input type="range" id="vocal-ref-strength" min="0.2" max="1" step="0.05" value="0.55">
+                <span id="vocal-ref-strength-val" class="vocal-ref-strength-val">0.55</span>
+              </div>
+              <span class="form-hint">원하는 목소리 톤이 담긴 보컬 클립(10~30초)을 넣으세요. ACE-Step이 음색·창법을 참조합니다. 강도 0.4~0.7 권장.</span>
+            </div>
+
+            <div class="form-row">
+              <label class="form-label">악기 <span class="form-label-note">(복수 선택 가능)</span></label>
+              <div class="compose-chip-row" id="instrument-chips"></div>
+            </div>
+
+            <div class="form-row">
+              <label class="form-label" for="mood-text">분위기</label>
+              <input type="text" id="mood-text" class="form-input" name="mood" placeholder="예: 몽환적, 밤, 그리움, 편안한">
+              <span class="form-hint">짧게 입력 — ACE-Step caption에 포함됩니다.</span>
+            </div>
+
+            <details class="compose-preview-details">
+              <summary>스타일 설명 미리보기</summary>
+              <pre id="caption-preview" class="compose-preview"></pre>
+            </details>
+
+            <h3 class="compose-panel-title compose-panel-title--lyrics">가사 구조</h3>
+            <p class="compose-panel-desc">구간별로 나눠 입력하면 자동으로 <code>[Verse]</code> 형식으로 조합됩니다. <strong>Instrumental 아래에는 가사를 넣지 마세요.</strong></p>
+
+            <div class="lyrics-builder-toolbar">
+              <button type="button" id="btn-add-section" class="btn btn-outline btn-sm">+ 구간 추가</button>
+              <span class="form-hint lyrics-builder-hint">가사 정확도를 위해 프리셋 「🎯 가사/스타일 집중」 권장</span>
+            </div>
+
+            <div id="lyrics-sections-list" class="lyrics-sections-list"></div>
+
+            <details class="compose-preview-details">
+              <summary>가사 원문 미리보기</summary>
+              <pre id="lyrics-preview" class="compose-preview"></pre>
+            </details>
           </div>
 
           <!-- 기본 옵션 -->
@@ -125,26 +190,26 @@
               <button class="preset-btn active" data-preset="speed" title="속도 최우선, 테스트용. Turbo · LM 1.7B · 스텝 8 · CFG 3.5 (4.0 이상 금지)">🚀 스피드 초안</button>
               <button class="preset-btn" data-preset="quality" title="음질 최상. SFT · LM 1.7B · 스텝 25 · CFG 6.5 · 시프트 4.0">✨ 고품질 마스터링</button>
               <button class="preset-btn" data-preset="creative" title="AI 독특 변주. SFT · LM 1.7B · 스텝 15 · CFG 3.0">🎲 크리에이티브</button>
-              <button class="preset-btn" data-preset="strict" title="가사/스타일 집중. SFT 필수 · LM 1.7B · 스텝 25 · CFG 8.5">🎯 가사/스타일 집중</button>
+              <button class="preset-btn" data-preset="strict" title="가사/스타일 집중. SFT 필수 · LM 1.7B · 스텝 30 · CFG 8.5">🎯 가사/스타일 집중</button>
               <button class="preset-btn" data-preset="custom" title="모든 옵션을 직접 설정합니다.">🛠️ 커스텀</button>
             </div>
           </div>
           <p id="preset-tooltip" class="preset-tooltip">🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다.</p>
           <div class="options-grid">
               <div class="form-row">
-                <label class="form-label" for="dit-model">DiT 모델 (음악 생성기)</label>
+                <label class="form-label" for="dit-model">음악 생성 모델 (DiT)</label>
                 <select id="dit-model" class="form-select" name="dit-model">
-                  <option value="turbo" selected>Turbo — 빠른 생성 (권장)</option>
+                  <option value="turbo" selected>터보 — 빠른 생성 (권장)</option>
                   <option value="sft">SFT — 고품질</option>
-                  <option value="base">Base — 기본</option>
-                  <option value="xl-turbo">XL Turbo — 대형·빠름</option>
+                  <option value="base">베이스 — 기본</option>
+                  <option value="xl-turbo">XL 터보 — 대형·빠름</option>
                   <option value="xl-sft">XL SFT — 대형·고품질</option>
-                  <option value="xl-base">XL Base — 대형·기본</option>
+                  <option value="xl-base">XL 베이스 — 대형·기본</option>
                 </select>
-                <span class="form-hint">ACE-Step 공식 checkpoints (Python 3.12 전용 환경)</span>
+                <span class="form-hint">ACE-Step 공식 체크포인트 (Python 3.12 전용 환경)</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="lm-model">LM 모델 (가사 이해)</label>
+                <label class="form-label" for="lm-model">가사 이해 모델 (LM)</label>
                 <select id="lm-model" class="form-select" name="lm-model">
                   <option value="auto" selected>자동 (VRAM에 따라 추천)</option>
                   <option value="none">사용 안 함</option>
@@ -178,12 +243,12 @@
                 <label class="form-label" for="infer-method">추론 방식</label>
                 <select id="infer-method" class="form-select" name="infer-method">
                   <option value="ode" selected>ODE — 빠르고 안정적 (권장)</option>
-                  <option value="sde">SDE — 확률적, 다양한 결과</option>
+                  <option value="sde">SDE — 확률적·다양한 결과</option>
                 </select>
                 <span class="form-hint">일반 용도에는 ODE 권장</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="lora-select">LoRA 스타일 적용</label>
+                <label class="form-label" for="lora-select">LoRA 스타일</label>
                 <select id="lora-select" class="form-select" name="lora-select">
                   <option value="" selected>사용 안 함</option>
                 </select>
@@ -305,6 +370,6 @@
     </main>
   </div>
 
-  <script type="module" src="script.js?v=15"></script>
+  <script type="module" src="script.js?v=25"></script>
 </body>
 </html>

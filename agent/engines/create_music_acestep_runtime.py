@@ -1075,6 +1075,55 @@ def is_models_ready(*, require_venv: bool = True) -> bool:
     return True
 
 
+def runtime_status_fast() -> dict[str, Any]:
+    """페이지 접속·quick readiness 전용 — subprocess import 검증 없음."""
+    root_ok = False
+    root_path = ""
+    root_err = ""
+    try:
+        root_path = str(resolve_acestep_root())
+        root_ok = True
+    except Exception as e:
+        root_err = str(e)
+
+    py312 = ""
+    py_err = ""
+    try:
+        py312 = find_python312()
+    except Exception as e:
+        py_err = str(e)
+
+    venv_fast = is_venv_ready_fast()
+    models_fast = is_models_ready(require_venv=False)
+    lm_backend = resolve_lm_backend(prefer_vllm=False)
+
+    return {
+        "acestep_root": root_path,
+        "acestep_root_ok": root_ok,
+        "acestep_root_error": root_err,
+        "checkpoints_dir": str(acestep_checkpoints_dir()),
+        "venv_dir": str(acestep_venv_dir()),
+        "torch_ok": venv_fast,
+        "torch_version": "",
+        "torch_error": "" if venv_fast else "가상환경·PyTorch 패키지 미확인",
+        "venv_ready": venv_fast,
+        "models_ready": models_fast,
+        "python312": py312,
+        "python312_error": py_err,
+        "runner_python": str(acestep_venv_dir() / "Scripts" / "python.exe") if venv_fast else "",
+        "nano_vllm_ready": False,
+        "nano_vllm_zip_url": _nano_vllm_zip_url(),
+        "nano_vllm_cache_dir": str(nano_vllm_cache_dir()),
+        "wheels_bundle_urls": list(_wheels_part_urls()),
+        "wheels_cache_dir": str(wheels_cache_dir()),
+        "wheels_bundle_cached": _wheel_bundle_cache_valid(_wheels_part_urls()),
+        "offline_wheels_enabled": _use_offline_wheels(),
+        "lm_backend": lm_backend,
+        "lm_backend_env": os.environ.get("ITMATZIP_ACESTEP_LM_BACKEND", "auto"),
+        "quick_status": True,
+    }
+
+
 def runtime_status() -> dict[str, Any]:
     root_ok = False
     root_path = ""
@@ -1535,6 +1584,13 @@ def prepare_models(
     lm_models: list[str] | None = None,
     on_progress: Callable[[float, str], None] | None = None,
 ) -> None:
+    if not force and is_models_ready(require_venv=False):
+        pkg_ok, _ = verify_model_download_packages()
+        if pkg_ok:
+            if on_progress:
+                on_progress(95, "모델 이미 설치됨 — 다운로드 생략")
+            return
+
     if not verify_torch_installation()[0]:
         if on_progress:
             on_progress(18, "PyTorch 복구 중…")

@@ -3,9 +3,25 @@
  */
 import * as Bridge from "../common/bridge.js";
 import { showAdSense } from "../common/adsense.js";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { createMusicWaveformPlayer } from "./waveform-player.js";
+import { initMusicComposeEditor } from "./music-compose.js?v=9";
 
 Bridge.configureBridge();
+
+const musicCompose = initMusicComposeEditor(document.getElementById("music-compose-root"));
+
+function installDialogOpts() {
+  return agentInstallDialogOptions(async () => {
+    const detail = await Bridge.checkAgentConnection();
+    if (detail.ok) {
+      connected = true;
+      Bridge.applyConnectionStatusDot($connectionStatus, true, detail);
+      void ensureEnvironmentOnConnect();
+    }
+    return detail;
+  });
+}
 
 const DOWNLOAD_PAGE = "download.html";
 const STORAGE_JOB_ID = "create-music:job-id";
@@ -18,8 +34,6 @@ const $computeCap = document.getElementById("compute-capability");
 const $binReadiness = document.getElementById("bin-readiness");
 
 const $taskType = document.getElementById("task-type");
-const $caption = document.getElementById("caption");
-const $lyrics = document.getElementById("lyrics");
 const $vocalLang = document.getElementById("vocal-lang");
 const $duration = document.getElementById("duration");
 const $audioFormat = document.getElementById("audio-format");
@@ -39,6 +53,12 @@ const $btnSrcAudio = document.getElementById("btn-src-audio");
 const $srcAudioName = document.getElementById("src-audio-name");
 const $btnRefAudio = document.getElementById("btn-ref-audio");
 const $refAudioName = document.getElementById("ref-audio-name");
+const $btnVocalRef = document.getElementById("btn-vocal-ref");
+const $btnVocalRefClear = document.getElementById("btn-vocal-ref-clear");
+const $vocalRefName = document.getElementById("vocal-ref-name");
+const $vocalRefStrengthRow = document.getElementById("vocal-ref-strength-row");
+const $vocalRefStrength = document.getElementById("vocal-ref-strength");
+const $vocalRefStrengthVal = document.getElementById("vocal-ref-strength-val");
 
 const $btnGenerate = document.getElementById("btn-generate");
 const $btnPrepare = document.getElementById("btn-prepare");
@@ -198,6 +218,7 @@ const connectionMonitor = Bridge.startConnectionMonitor({
   intervalMs: 12_000,
   immediate: true,
   autoShowInstallDialog: true,
+  installDialogOptions: installDialogOpts,
   onChange(ok, detail) {
     const busy = Bridge.isAgentLongOperationActive() || detail?.longOp;
     connected = ok || busy;
@@ -288,11 +309,6 @@ async function runAutoPrepare() {
   if (!connected || allReady || autoPrepareStarted) return;
   autoPrepareStarted = true;
 
-  if ($binReadiness) {
-    $binReadiness.className = "bin-readiness is-warn";
-    $binReadiness.textContent = "설치된 환경 자동 확인 중… (버튼 누를 필요 없음)";
-  }
-
   try {
     const origin = Bridge.getAgentOrigin();
     const res = await Bridge.fetchAgent(`${origin}/api/tools/create-music/prepare`, {
@@ -304,8 +320,14 @@ async function runAutoPrepare() {
     }
     const data = await res.json();
     if (data.phase === "done") {
-      await checkReadiness({ full: true });
+      await checkReadiness({ full: false });
+      autoPrepareStarted = false;
       return;
+    }
+
+    if ($binReadiness) {
+      $binReadiness.className = "bin-readiness is-warn";
+      $binReadiness.textContent = "환경 준비 중… (처음 설치 시 수 분~수십 분)";
     }
     startPreparePolling({ showOverlayAfterMs: 2500 });
   } catch {
@@ -426,13 +448,13 @@ const PRESETS = {
   strict: {
     dit_model: "sft",
     lm_model: "1.7B",
-    inference_steps: 25,
+    inference_steps: 30,
     guidance_scale: 8.5,
     shift: 3.0,
     seed: -1,
     infer_method: "ode",
     tooltip:
-      "🎯 가사/스타일 집중 (가사 절대 안 씹히게) — 가사 똑바로 부르게 하려면 반드시 SFT. DiT: SFT · LM: 1.7B · 스텝 25 · CFG 8.5 · 시프트 3.0",
+      "🎯 가사/스타일 집중 (가사 절대 안 씹히게) — 가사 똑바로 부르게 하려면 반드시 SFT. DiT: SFT · LM: 1.7B · 스텝 30 · CFG 8.5 · 시프트 3.0",
   },
   custom: {
     tooltip: "모든 옵션을 직접 설정할 수 있습니다. 자유롭게 조합하세요.",
@@ -498,11 +520,32 @@ $taskType.addEventListener("change", () => {
 // Audio file picking (via agent file dialog)
 // ---------------------------------------------------------------------------
 async function pickAudioFile() {
+  const agent = await Bridge.checkAgentConnection();
+  if (!agent.ok) {
+    await Bridge.showInstallAgentDialog(await installDialogOpts());
+    return null;
+  }
   const origin = Bridge.getAgentOrigin();
   const res = await fetch(`${origin}/api/agent/pick-local-audio-file`, { method: "POST" });
   if (!res.ok) return null;
   const data = await res.json();
   return data.path || null;
+}
+
+function syncVocalRefUi() {
+  const hasRef = Boolean(refAudioPath);
+  if ($vocalRefName) {
+    $vocalRefName.textContent = hasRef ? refAudioPath.split(/[\\/]/).pop() : "";
+  }
+  if ($refAudioName && hasRef) {
+    $refAudioName.textContent = refAudioPath.split(/[\\/]/).pop();
+  }
+  $vocalRefStrengthRow?.classList.toggle("is-hidden", !hasRef);
+}
+
+function setReferenceAudioPath(path) {
+  refAudioPath = path || null;
+  syncVocalRefUi();
 }
 
 $btnSrcAudio.addEventListener("click", async () => {
@@ -515,9 +558,22 @@ $btnSrcAudio.addEventListener("click", async () => {
 
 $btnRefAudio.addEventListener("click", async () => {
   const path = await pickAudioFile();
-  if (path) {
-    refAudioPath = path;
-    $refAudioName.textContent = path.split(/[\\/]/).pop();
+  if (path) setReferenceAudioPath(path);
+});
+
+$btnVocalRef?.addEventListener("click", async () => {
+  const path = await pickAudioFile();
+  if (path) setReferenceAudioPath(path);
+});
+
+$btnVocalRefClear?.addEventListener("click", () => {
+  setReferenceAudioPath(null);
+  if ($refAudioName) $refAudioName.textContent = "";
+});
+
+$vocalRefStrength?.addEventListener("input", () => {
+  if ($vocalRefStrengthVal) {
+    $vocalRefStrengthVal.textContent = Number($vocalRefStrength.value).toFixed(2);
   }
 });
 
@@ -609,7 +665,7 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
         $prepareMsg.textContent = "환경 준비 완료! 음악을 생성할 수 있습니다.";
         $prepareStep.textContent = "설치 완료 ✓";
         autoPrepareStarted = false;
-        await checkReadiness({ full: true });
+        await checkReadiness({ full: false });
         setTimeout(() => {
           hidePrepareOverlay();
         }, allReady ? 400 : 1500);
@@ -637,6 +693,12 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
 }
 
 $btnPrepare.addEventListener("click", async () => {
+  const agent = await Bridge.checkAgentConnection();
+  if (!agent.ok) {
+    await Bridge.showInstallAgentDialog(await installDialogOpts());
+    return;
+  }
+
   $btnPrepare.disabled = true;
   autoPrepareStarted = true;
 
@@ -648,7 +710,7 @@ $btnPrepare.addEventListener("click", async () => {
     if (!res.ok) throw new Error("prepare failed");
     const data = await res.json();
     if (data.phase === "done") {
-      await checkReadiness({ full: true });
+      await checkReadiness({ full: false });
       $btnPrepare.disabled = false;
       return;
     }
@@ -667,12 +729,22 @@ $btnPrepare.addEventListener("click", async () => {
 $btnGenerate.addEventListener("click", async () => {
   if (!allReady) return;
 
+  const validation = musicCompose.validateForGeneration();
+  if (!validation.ok) {
+    alert(validation.message);
+    return;
+  }
+
+  const composed = musicCompose.compileForGeneration($vocalLang.value);
   const origin = Bridge.getAgentOrigin();
   const payload = {
     task_type: $taskType.value,
-    caption: $caption.value,
-    lyrics: $lyrics.value,
+    caption: composed.caption,
+    lyrics: composed.lyrics,
     vocal_language: $vocalLang.value,
+    vocal_type: composed.vocal_type,
+    instrumental: composed.instrumental,
+    bpm: composed.bpm,
     duration: parseFloat($duration.value) || -1,
     batch_size: parseInt($batchSize.value) || 1,
     dit_model: $ditModel.value,
@@ -686,6 +758,9 @@ $btnGenerate.addEventListener("click", async () => {
     lora_name: $loraSelect.value || null,
     src_audio_path: srcAudioPath,
     reference_audio_path: refAudioPath,
+    cover_strength: refAudioPath
+      ? parseFloat($vocalRefStrength?.value) || 0.55
+      : 1.0,
   };
 
   $btnGenerate.disabled = true;
@@ -976,3 +1051,10 @@ function escapeHtml(str) {
 // ---------------------------------------------------------------------------
 void showAdSense("editorAboveWorkspace", "#editor-ad-above-tabs");
 void showAdSense("editorBelowExport", "#editor-ad-below-generate");
+
+void (async () => {
+  const agent = await Bridge.checkAgentConnection();
+  if (!agent.ok) {
+    await Bridge.showInstallAgentDialog(await installDialogOpts());
+  }
+})();

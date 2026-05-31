@@ -343,6 +343,7 @@ func main() {
 	flag.Parse()
 
 	if *install {
+		removeLegacyWindowsService()
 		if err := registerTrayAutostart(); err != nil {
 			log.Printf("warning: tray autostart register failed: %v", err)
 		}
@@ -356,6 +357,7 @@ func main() {
 		return
 	}
 	if *uninstall {
+		removeLegacyWindowsService()
 		if err := unregisterTrayAutostart(); err != nil {
 			log.Printf("warning: tray autostart unregister failed: %v", err)
 		}

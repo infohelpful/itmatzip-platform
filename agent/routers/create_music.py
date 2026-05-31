@@ -30,6 +30,8 @@ class GenerateRequest(BaseModel):
     caption: str = ""
     lyrics: str = ""
     vocal_language: str = "ko"
+    vocal_type: str = "female"
+    instrumental: bool = False
     duration: float = -1.0
     bpm: Optional[int] = None
     keyscale: str = ""
@@ -73,7 +75,7 @@ def get_readiness(quick: bool = False) -> dict:
     try:
         from engines import create_music_acestep_runtime as ace_rt
 
-        runtime = ace_rt.runtime_status()
+        runtime = ace_rt.runtime_status_fast() if quick else ace_rt.runtime_status()
     except Exception as exc:
         runtime = {"error": str(exc)}
 
@@ -126,7 +128,7 @@ def get_prepare_status() -> dict:
 
 @router.post("/generate")
 def post_generate(req: GenerateRequest) -> dict:
-    if not create_music.all_dependencies_ready():
+    if not create_music.all_dependencies_ready_fast():
         raise HTTPException(status_code=503, detail="환경 준비가 필요합니다. '환경 준비' 버튼을 먼저 실행하세요.")
 
     params = create_music.GenerationParams(
@@ -134,6 +136,8 @@ def post_generate(req: GenerateRequest) -> dict:
         caption=req.caption,
         lyrics=req.lyrics,
         vocal_language=req.vocal_language,
+        vocal_type=req.vocal_type,
+        instrumental=req.instrumental,
         duration=req.duration,
         bpm=req.bpm,
         keyscale=req.keyscale,

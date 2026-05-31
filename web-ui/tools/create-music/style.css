@@ -411,6 +411,234 @@ body {
 }
 
 .hidden { display: none !important; }
+.is-hidden { display: none !important; }
+
+/* Compose panel — structured caption + lyrics */
+.compose-panel {
+  padding: 18px;
+  margin-bottom: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.compose-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.compose-panel-title--lyrics {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.compose-panel-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  line-height: 1.55;
+}
+
+.compose-panel-desc code {
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--accent);
+}
+
+.form-label-note {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.compose-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vocal-ref-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vocal-ref-strength-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.vocal-ref-strength-row input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+  max-width: 280px;
+}
+
+.vocal-ref-strength-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 2.5rem;
+}
+
+.compose-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  font-family: var(--font);
+}
+
+.compose-chip:hover {
+  border-color: rgba(88, 166, 255, 0.45);
+  color: var(--text-primary);
+}
+
+.compose-chip.is-selected {
+  border-color: rgba(88, 166, 255, 0.65);
+  background: rgba(88, 166, 255, 0.14);
+  color: #93c5fd;
+}
+
+.options-grid--compose {
+  margin-bottom: 12px;
+}
+
+.compose-preview-details {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.compose-preview-details summary {
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 0;
+  color: var(--accent);
+}
+
+.compose-preview {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+  max-height: 200px;
+  overflow: auto;
+}
+
+.lyrics-builder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.lyrics-builder-hint {
+  margin: 0;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.lyrics-sections-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.lyrics-section-card {
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+}
+
+.lyrics-section-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.lyrics-section-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.lyrics-section-toolbar .section-type {
+  flex: 1;
+  min-width: 140px;
+}
+
+.lyrics-section-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.btn-icon-action {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  font-family: var(--font);
+}
+
+.btn-icon-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-icon-action--danger:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.section-instrumental-wrap .form-hint {
+  margin-top: 6px;
+}
+
+.form-label-sm {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
 
 /* Buttons */
 .btn {

@@ -130,6 +130,8 @@ class GenerationParams:
     caption: str = ""
     lyrics: str = ""
     vocal_language: str = "ko"
+    vocal_type: str = "female"
+    instrumental: bool = False
     duration: float = -1.0
     bpm: Optional[int] = None
     keyscale: str = ""
@@ -203,7 +205,7 @@ def start_prepare(force: bool = False) -> PrepareState:
     if is_prepare_running():
         return _prepare_state
 
-    if not force and all_dependencies_ready():
+    if not force and all_dependencies_ready_fast():
         _prepare_state = PrepareState(
             phase="done",
             progress=100.0,
@@ -214,6 +216,14 @@ def start_prepare(force: bool = False) -> PrepareState:
     def _run():
         global _prepare_state
         try:
+            if not force and all_dependencies_ready_fast():
+                _prepare_state = PrepareState(
+                    phase="done",
+                    progress=100.0,
+                    message="이미 설치되어 있습니다.",
+                )
+                return
+
             def _set_progress(pct: float, msg: str | None = None) -> None:
                 _prepare_state.progress = max(_prepare_state.progress, min(99.0, float(pct)))
                 if msg:
@@ -299,7 +309,7 @@ def start_prepare(force: bool = False) -> PrepareState:
 def start_generation(params: GenerationParams) -> GenerationJob:
     global _current_job, _generation_thread
 
-    if not all_dependencies_ready():
+    if not all_dependencies_ready_fast():
         raise RuntimeError("환경 준비가 필요합니다. '환경 준비' 버튼을 먼저 실행하세요.")
 
     with _job_lock:
@@ -382,6 +392,11 @@ def _run_generation(job: GenerationJob) -> None:
             "caption": params.caption,
             "lyrics": params.lyrics,
             "vocal_language": params.vocal_language,
+            "vocal_type": params.vocal_type,
+            "instrumental": params.instrumental,
+            "use_cot_caption": False,
+            "use_cot_language": False,
+            "use_cot_metas": False,
             "duration": duration,
             "batch_size": batch_size,
             "inference_steps": steps,
