@@ -91,6 +91,22 @@ export function subtitleLineEditDisplayText(line) {
   return fromTextSanitized;
 }
 
+/** @param {{ text?: string, words?: readonly SubtitleWord[] }} line */
+export function subtitleLineTextDiffersFromWords(line) {
+  const fromWords = line.words?.length ? displayTextFromSubtitleWords(line.words) : "";
+  const raw = String(line.text ?? "").trim();
+  if (raw.length === 0) return false;
+  const fromTextSanitized = raw
+    .split(/\s+/)
+    .map((t) => scrubTimelineNoiseFromWordPiece(t))
+    .filter((piece) => piece.length > 0 && !shouldOmitFromSubtitleEditLineText(piece))
+    .join(" ")
+    .trim();
+  if (fromTextSanitized.length === 0) return false;
+  if (fromWords.length === 0) return true;
+  return normSubtitleLineEdit(fromTextSanitized) !== normSubtitleLineEdit(fromWords);
+}
+
 function isGapLikeTimelineToken(w) {
   if (wordIsDeleted(w)) return false;
   const t = String(w.word ?? "").trim();
@@ -269,17 +285,15 @@ export function subtitleCueLinesForExport(lines) {
   const out = [];
   for (const line of lines || []) {
     const hasWords = Array.isArray(line.words) && line.words.length > 0;
+    const text = subtitleLineEditDisplayText(line);
+    if (text.length === 0) continue;
     if (hasWords) {
       const vis = visibleSubtitleWords(line.words);
       if (vis.length === 0) continue;
       const start = Math.min(...vis.map((w) => w.start));
       const end = Math.max(...vis.map((w) => w.end));
-      const text = displayTextFromSubtitleWords(line.words) || String(line.text ?? "").trim();
-      if (text.length === 0) continue;
       out.push({ start, end, text });
     } else {
-      const text = String(line.text ?? "").trim();
-      if (text.length === 0) continue;
       out.push({ start: line.start, end: line.end, text });
     }
   }
@@ -355,7 +369,10 @@ export function parseSubtitleLines(raw) {
     }
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
     const mergedWords = normalizeSilenceWordsForLineWords(words);
-    const lineText = mergedWords.length > 0 ? displayTextFromSubtitleWords(mergedWords) : text.trim();
+    const lineText =
+      mergedWords.length > 0
+        ? subtitleLineEditDisplayText({ text, words: mergedWords })
+        : text.trim();
     out.push({
       start,
       end,
@@ -377,7 +394,9 @@ export function syncSubtitleLineFromWords(line) {
   }
   line.start = Math.min(...vis.map((w) => w.start));
   line.end = Math.max(...vis.map((w) => w.end));
-  line.text = displayTextFromSubtitleWords(line.words);
+  if (!subtitleLineTextDiffersFromWords(line)) {
+    line.text = displayTextFromSubtitleWords(line.words);
+  }
   return line;
 }
 

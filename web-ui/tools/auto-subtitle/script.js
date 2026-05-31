@@ -75,8 +75,8 @@ import {
   buildExportRequestPayload,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=23";
-import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=7";
+} from "./export/export-client.js?v=24";
+import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=8";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -2109,10 +2109,22 @@ async function loadWaveformPeaks() {
 }
 
 async function applyLoadedProject(res) {
-  const videoPath = res?.video_path || res?.normalized?.video_path || "";
-  const cues = res?.cues || res?.normalized?.cues || [];
-  const cuts = res?.cut_ranges || res?.normalized?.cut_ranges || [];
-  const style = res?.subtitle_style || res?.normalized?.subtitle_style;
+  const videoPath = res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "";
+  const project = res?.project;
+  const cues =
+    (Array.isArray(project?.subtitles) && project.subtitles) ||
+    res?.cues ||
+    res?.normalized?.cues ||
+    [];
+  const cuts =
+    res?.cut_ranges ||
+    res?.normalized?.cut_ranges ||
+    project?.cutRanges ||
+    [];
+  const style =
+    res?.subtitle_style ||
+    res?.normalized?.subtitle_style ||
+    project?.subtitleStyle;
 
   if (videoPath && videoPathInput) {
     sessionVideoPath = videoPath;

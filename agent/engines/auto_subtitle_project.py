@@ -51,22 +51,41 @@ def _parse_words(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _norm_subtitle_text(s: str) -> str:
+    return " ".join(str(s or "").split()).strip()
+
+
+def _text_from_visible_words(words: list[dict[str, Any]]) -> str:
+    vis = [w for w in words if not w.get("is_deleted") and str(w.get("word") or "").strip()]
+    if not vis:
+        return ""
+    return " ".join(str(w["word"]) for w in vis).strip()
+
+
+def _resolve_cue_text(saved_text: str, words: list[dict[str, Any]]) -> str:
+    from_words = _text_from_visible_words(words)
+    saved = str(saved_text or "").strip()
+    if saved and from_words and _norm_subtitle_text(saved) != _norm_subtitle_text(from_words):
+        return saved
+    return from_words or saved
+
+
 def _cue_from_line(line: dict[str, Any]) -> dict[str, Any] | None:
     if line.get("isDeleted") is True or line.get("is_deleted") is True:
         return None
     words = _parse_words(line.get("words"))
+    saved_text = str(line.get("text") or "").strip()
     vis = [w for w in words if not w.get("is_deleted") and str(w.get("word") or "").strip()]
     if vis:
-        parts = [str(w["word"]) for w in vis]
         starts = [float(w["start"]) for w in vis]
         ends = [float(w["end"]) for w in vis]
-        text = " ".join(parts).strip() or str(line.get("text") or "").strip()
+        text = _resolve_cue_text(saved_text, words)
         if not text:
             return None
         start = min(starts)
         end = max(ends)
     else:
-        text = str(line.get("text") or "").strip()
+        text = saved_text
         if not text:
             return None
         start = float(line.get("start", 0))

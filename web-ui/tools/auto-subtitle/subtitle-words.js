@@ -12,7 +12,7 @@ import {
   visibleSubtitleWords,
   wordIsDeleted,
   wordIsSilence,
-} from "./shared/subtitles.js?v=17";
+} from "./shared/subtitles.js?v=19";
 import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=17";
 import { SILENCE_PLACEHOLDER_TEXT } from "./shared/word-contract.js";
 
