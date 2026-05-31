@@ -1,11 +1,11 @@
 /**
- * 재생 헤드 · 컷 스킵 · 활성 자막/단어 선택.
+ * ?�생 ?�드 · �??�킵 · ?�성 ?�막/?�어 ?�택.
  */
 
 import { mergeCutRanges } from "./shared/timeline-collapse.js?v=17";
 import { collectDeletedWordSkipRangesFromLines } from "./shared/virtual-timeline.js?v=17";
 import { getCueWords, visibleWords } from "./subtitle-words.js?v=18";
-import { wordIsDeleted } from "./shared/subtitles.js?v=17";
+import { wordIsDeleted } from "./shared/subtitles.js?v=20";
 
 export const SKIP_CUT_TAIL_SEC = 0.02;
 
@@ -33,7 +33,7 @@ export function skipCutRangeAt(timeSec, ranges) {
 }
 
 /**
- * [rangeStart, rangeEnd) 구간에서 skip 밖 첫 edit 시각.
+ * [rangeStart, rangeEnd) 구간?�서 skip �?�?edit ?�각.
  *
  * @param {number} rangeStart
  * @param {number} rangeEnd
@@ -62,7 +62,7 @@ export function firstPlayableSecInRange(rangeStart, rangeEnd, ranges) {
 }
 
 /**
- * 단어 블록 span 안에서 재생 가능한 edit 시각 (trim/tombstone skip 이후).
+ * ?�어 블록 span ?�에???�생 가?�한 edit ?�각 (trim/tombstone skip ?�후).
  *
  * @param {{ start?: number, end?: number } | null | undefined} word
  * @param {readonly { start: number, end: number }[]} skipRanges
@@ -122,7 +122,7 @@ export function pickActiveCueIndex(cues, t) {
 }
 
 /**
- * 재생 중 이전 활성 줄 힌트로 국소 탐색 — 겹치는 구간은 뒤 줄 우선 (pickActiveCueIndex 와 동일).
+ * ?�생 �??�전 ?�성 �??�트�?�?�� ?�색 ??겹치??구간?� ??�??�선 (pickActiveCueIndex ?� ?�일).
  * @param {Array<{ start: number, end: number, text?: string, is_silence?: boolean }>} cues
  * @param {number} t
  * @param {number} [hint]

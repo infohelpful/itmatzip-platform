@@ -1,12 +1,12 @@
 /**
- * 추출 직후 피크 기준 단어 내부/선행 무음 → `--` 분리 (Electron leadingSilenceSplitAfterExtract.ts).
+ * 추출 직후 ?�크 기�? ?�어 ?��?/?�행 무음 ??`--` 분리 (Electron leadingSilenceSplitAfterExtract.ts).
  */
 
 import { mediaSecondsToPeakPixelRange } from "../peaks-metrics.js";
 import {
   displayTextFromSubtitleWords,
   mergeConsecutiveSilenceWordsInLine,
-} from "./subtitles.js";
+} from "./subtitles.js?v=20";
 import { DEFAULT_GAP_THRESHOLD_SEC, SILENCE_PLACEHOLDER_TEXT } from "./word-contract.js";
 
 const DBFS_GATE_DEFAULT = -40;

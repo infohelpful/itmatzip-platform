@@ -6,7 +6,7 @@
 
 
 
-import { displayTextFromSubtitleWords, wordIsDeleted } from "./subtitles.js";
+import { displayTextFromSubtitleWords, wordIsDeleted } from "./subtitles.js?v=20";
 
 import { splitWordTextAtMediaCut } from "./subtitle-word-text-split.js";
 
@@ -46,7 +46,7 @@ const MIN_SPAN = 0.01;
 
  * @param {number} lineIndex
 
- * @param {number} visibleWordIndex 가시(비삭제) 단어 인덱스
+ * @param {number} visibleWordIndex 가??비삭?? ?�어 ?�덱??
 
  * @param {number} splitMediaSec
 

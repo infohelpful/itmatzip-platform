@@ -2,7 +2,7 @@
  * AutoSubtitle subtitleWordCaretMap.ts
  */
 
-import { wordIsDeleted } from "./subtitles.js";
+import { wordIsDeleted } from "./subtitles.js?v=20";
 
 /** @param {readonly import("./subtitles.js").SubtitleWord[] | undefined} words */
 export function nearestValidStorageCaret(words, caret) {
@@ -59,7 +59,7 @@ export function visibleWordStorageIndices(words) {
   return out;
 }
 
-/** ←/→ — 보이는 단어 경계만 따라 storage caret 이동 */
+/** ??????보이???�어 경계�??�라 storage caret ?�동 */
 export function stepStorageCaretByRenderable(words, storageCaret, deltaRenderable) {
   const rc = storageCaretToRenderableCaret(words, storageCaret);
   const m = visibleWordStorageIndices(words).length;

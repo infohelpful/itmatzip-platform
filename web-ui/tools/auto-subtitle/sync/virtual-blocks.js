@@ -1,8 +1,8 @@
 /**
- * SubtitleLine·TimelineClip → SyncEngine VirtualBlockMs
+ * SubtitleLine·TimelineClip ??SyncEngine VirtualBlockMs
  */
 
-import { wordIsDeleted, wordIsSilence } from "../shared/subtitles.js";
+import { wordIsDeleted, wordIsSilence } from "../shared/subtitles.js?v=20";
 import { playbackIntervalsFromSubtitleLines } from "../shared/playback-intervals.js";
 
 /**

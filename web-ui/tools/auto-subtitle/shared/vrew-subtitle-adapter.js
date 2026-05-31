@@ -1,5 +1,5 @@
 /**
- * AutoSubtitle vrewSubtitleAdapter.ts — Peaks 행 어댑터 (웹).
+ * AutoSubtitle vrewSubtitleAdapter.ts ??Peaks ???�댑??(??.
  */
 
 import {
@@ -7,7 +7,7 @@ import {
   subtitleLineEditDisplayText,
   visibleSubtitleWords,
   wordIsDeleted,
-} from "./subtitles.js";
+} from "./subtitles.js?v=20";
 import {
   DEFAULT_GAP_THRESHOLD_SEC,
   fillGapsInSubtitleWords,
@@ -26,7 +26,7 @@ import { assignSequentialBlockIds, makeRowWordBlockId } from "./block-ids.js";
  * @returns {SubtitleRow[]}
  */
 export function subtitleLinesToVrewRows(lines, options = {}) {
-  /** Electron: gapFillWhenBuildingVrew 기본 false — 명시 true 일 때만 */
+  /** Electron: gapFillWhenBuildingVrew 기본 false ??명시 true ???�만 */
   const gapFill = options.gapFill === true;
   const mapMP = options.mapWordMediaToProgram;
 

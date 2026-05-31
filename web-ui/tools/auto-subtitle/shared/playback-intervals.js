@@ -1,8 +1,8 @@
 /**
- * AutoSubtitle playbackIntervals.ts — 재생 구간(삭제·무음 제외).
+ * AutoSubtitle playbackIntervals.ts ???�생 구간(??��·무음 ?�외).
  */
 
-import { wordIsDeleted, wordIsSilence } from "./subtitles.js";
+import { wordIsDeleted, wordIsSilence } from "./subtitles.js?v=20";
 
 /**
  * @param {import("./subtitles.js").SubtitleWord} w

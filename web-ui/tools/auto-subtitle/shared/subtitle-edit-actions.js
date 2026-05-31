@@ -1,8 +1,8 @@
 /**
- * AutoSubtitle App.tsx — deleteWordAt, splitSubtitleAtWord, backspaceWordAt, …
+ * AutoSubtitle App.tsx ??deleteWordAt, splitSubtitleAtWord, backspaceWordAt, ??
  */
 
-import { displayTextFromSubtitleWords, visibleSubtitleWords, wordIsDeleted } from "./subtitles.js";
+import { displayTextFromSubtitleWords, visibleSubtitleWords, wordIsDeleted } from "./subtitles.js?v=20";
 import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
 import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-edit-ops.js";
 import { timelineEditLog } from "./timeline-edit-log.js";

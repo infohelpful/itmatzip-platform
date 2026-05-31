@@ -1,9 +1,9 @@
 /**
- * AutoSubtitle phase5EditPolicy.ts — 편집 후 gap-fill 정책.
+ * AutoSubtitle phase5EditPolicy.ts ???�집 ??gap-fill ?�책.
  */
 
-import { displayTextFromSubtitleWords } from "./subtitles.js";
-import { visibleSubtitleWords } from "./subtitles.js";
+import { displayTextFromSubtitleWords } from "./subtitles.js?v=20";
+import { visibleSubtitleWords } from "./subtitles.js?v=20";
 
 export const NO_AUTO_GAP_FILL_AFTER_EDIT = true;
 

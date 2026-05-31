@@ -5,7 +5,7 @@
 import { fillGapsInSubtitleWords } from "./word-contract.js";
 import { NO_AUTO_GAP_FILL_AFTER_EDIT, shouldFillGapsWhenBuildingVrewRows } from "./phase5-edit-policy.js";
 import { splitLeadingSilenceInSubtitleLines } from "./leading-silence-split-after-extract.js";
-import { commitSubtitleLinesThroughTimeline } from "./sentence-token-timeline-adapter.js";
+import { commitSubtitleLinesThroughTimeline } from "./sentence-token-timeline-adapter.js?v=2";
 import {
   insertMissingTemporalSilenceGapsInLine,
   linesContainDeletedWords,
@@ -16,7 +16,7 @@ import {
   scaleSubtitleLinesTimes,
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
-} from "./subtitles.js";
+} from "./subtitles.js?v=20";
 
 /** 추출 직후 gap-fill 기본값 (Electron gapFillWhenBuildingVrew 기본 false) */
 export const DEFAULT_GAP_FILL_ON_EXTRACT = false;

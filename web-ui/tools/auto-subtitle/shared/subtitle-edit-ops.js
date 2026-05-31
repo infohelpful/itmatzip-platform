@@ -2,7 +2,7 @@
  * AutoSubtitle subtitleEditOps.ts
  */
 
-import { displayTextFromSubtitleWords } from "./subtitles.js";
+import { displayTextFromSubtitleWords } from "./subtitles.js?v=20";
 
 const MIN_SEGMENT_SEC = 0.05;
 

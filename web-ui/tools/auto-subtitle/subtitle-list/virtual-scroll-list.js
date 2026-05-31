@@ -1,5 +1,5 @@
 /**
- * AutoSubtitle SubtitleVirtualList.tsx — 가상 스크롤·줄 줌 칩·캐럿·키보드.
+ * AutoSubtitle SubtitleVirtualList.tsx ??가???�크롤·줄 �?칩·캐?�·키보드.
  */
 
 import {
@@ -15,7 +15,7 @@ import {
 } from "../waveform/subwave-panel-layout.js";
 import { visibleWordStorageIndices } from "../shared/subtitle-word-caret-map.js";
 import { subtitleLinesToVrewRows } from "../shared/vrew-subtitle-adapter.js";
-import { wordIsDeleted } from "../shared/subtitles.js";
+import { wordIsDeleted } from "../shared/subtitles.js?v=20";
 import { normalizePreviewSubtitleText } from "../shared/subtitle-box-chrome.js?v=25";
 import {
   buildWordChipsAndCarets,
@@ -37,11 +37,11 @@ const panelByCard = new WeakMap();
 let wordChipCache = { cardIdx: -1, chips: [] };
 let lastPlayingCardIdx = -1;
 let lastPlayingWordEl = null;
-/** @type {number} is-playing 클래스가 붙은 카드 */
+/** @type {number} is-playing ?�래?��? 붙�? 카드 */
 let lastIsPlayingCardIdx = -1;
-/** @type {number} is-active (재생 줄) */
+/** @type {number} is-active (?�생 �? */
 let lastActivePlayingIdx = -1;
-/** @type {number} is-active (선택 줄) */
+/** @type {number} is-active (?�택 �? */
 let lastActiveSelectedIdx = -1;
 /** @type {number} */
 let lastCardSyncPlayingIdx = -1;
@@ -213,7 +213,7 @@ function renderAllCards(container, cues, opts) {
 
     const times = document.createElement("div");
     times.className = "subtitle-card-times";
-    times.textContent = `${formatFull(cue.start)} → ${formatFull(cue.end)}`;
+    times.textContent = `${formatFull(cue.start)} ??${formatFull(cue.end)}`;
     card.appendChild(times);
 
     ensureCueWords(cue);
@@ -233,7 +233,7 @@ function renderAllCards(container, cues, opts) {
     const rail = document.createElement("div");
     rail.className = "subtitle-word-rail subtitle-word-row--wave-seamless";
     rail.setAttribute("role", "group");
-    rail.setAttribute("aria-label", "단어 타임라인");
+    rail.setAttribute("aria-label", "?�어 ?�?�라??);
 
     const inner = document.createElement("div");
     inner.className = "subtitle-word-row-inner subtitle-word-row-inner--compact";
@@ -277,7 +277,7 @@ function renderAllCards(container, cues, opts) {
     ta.name = `subtitle-cue-${i}`;
     ta.rows = 2;
     ta.value = normalizePreviewSubtitleText(cue.text ?? "");
-    ta.setAttribute("aria-label", "자막 편집");
+    ta.setAttribute("aria-label", "?�막 ?�집");
     ta.dataset.subtitleEdit = "1";
     ta.addEventListener("click", (e) => e.stopPropagation());
     ta.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -431,7 +431,7 @@ export function updatePlaybackHighlights(container, cues, opts) {
     lastPlayingWordEl = nextChip;
   }
 
-  /* 재생 중 자동 스크롤 없음 — scrollCueIntoView 는 scrollActiveCard 일 때만 script 쪽에서 */
+  /* ?�생 �??�동 ?�크�??�음 ??scrollCueIntoView ??scrollActiveCard ???�만 script 쪽에??*/
 }
 
 /**

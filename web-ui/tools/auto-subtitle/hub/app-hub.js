@@ -7,15 +7,15 @@ import {
   mergeWaveformPeaksStitchCutRanges,
   mergeDeletedMediaIntoTimeline,
 } from "../shared/virtual-timeline.js";
-import { visibleSubtitleWords, wordIsDeleted } from "../shared/subtitles.js";
+import { visibleSubtitleWords, wordIsDeleted } from "../shared/subtitles.js?v=20";
 import {
   syncCuesAfterWordEdit,
   postProcessCuesAfterTranscribe,
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
-} from "../shared/cues-ssot.js";
-import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js";
-import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js";
+} from "../shared/cues-ssot.js?v=30";
+import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=2";
+import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=20";
 
 const MAX_HISTORY = 100;
 

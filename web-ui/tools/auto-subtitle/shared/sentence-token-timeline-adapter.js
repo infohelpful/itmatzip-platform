@@ -6,11 +6,13 @@
 import {
   displayTextFromSubtitleWords,
   normalizeSilenceWordsForLineWords,
+  subtitleLineEditDisplayText,
+  subtitleLineTextDiffersFromWords,
   visibleSubtitleWords,
-} from "./subtitles.js";
+} from "./subtitles.js?v=20";
 
 /** @typedef {{ id: string, text: string, start_original: number, end_original: number, is_deleted?: boolean, isSilence?: boolean, splitChain?: string }} TimelineToken */
-/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean }} TimelineSentence */
+/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean, editedDisplayText?: string }} TimelineSentence */
 /** @typedef {TimelineSentence[]} SentenceTokenTimeline */
 
 /** @type {WeakMap<object, TimelineSentence>} */
@@ -46,11 +48,16 @@ function buildSentenceFromLine(line, li) {
       if (w.split_chain || w.splitChain) t.splitChain = w.split_chain || w.splitChain;
       return t;
     });
-    return {
+    /** @type {TimelineSentence} */
+    const sentence = {
       id: sentenceIdForLineIndex(li),
       tokens,
       is_deleted: line.is_deleted || line.isDeleted ? true : false,
     };
+    if (subtitleLineTextDiffersFromWords(line)) {
+      sentence.editedDisplayText = subtitleLineEditDisplayText(line);
+    }
+    return sentence;
   }
   return {
     id: sentenceIdForLineIndex(li),
@@ -98,7 +105,10 @@ function buildLineFromSentence(sentence) {
     vis.length > 0 ? Math.min(...vis.map((w) => w.start)) : Math.min(...words.map((w) => w.start));
   const end =
     vis.length > 0 ? Math.max(...vis.map((w) => w.end)) : Math.max(...words.map((w) => w.end));
-  const text = displayTextFromSubtitleWords(words);
+  const text =
+    typeof sentence.editedDisplayText === "string" && sentence.editedDisplayText.trim()
+      ? sentence.editedDisplayText.trim()
+      : displayTextFromSubtitleWords(words);
 
   /** @type {import("./subtitles.js").SubtitleLine} */
   const line = {

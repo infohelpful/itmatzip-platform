@@ -61,7 +61,7 @@ import {
   ensureCueWords,
   subtitleLineEditDisplayText,
   MIN_WORD_SPAN_SEC,
-} from "./subtitle-words.js?v=21";
+} from "./subtitle-words.js?v=22";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
@@ -80,14 +80,14 @@ import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
-} from "./shared/cues-ssot.js?v=29";
+} from "./shared/cues-ssot.js?v=30";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
   buildSubtitleOverlayInnerStyle,
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
-import { SubtitleAppHub } from "./hub/app-hub.js?v=21";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=22";
 import {
   applyPlaybackSkipToPreviewMedia,
   applyThrottledVideoSkipCut,

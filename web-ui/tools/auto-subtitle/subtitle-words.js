@@ -1,5 +1,5 @@
 /**
- * 자막 줄·단어 — shared SSOT 래퍼 (기존 import 경로 유지).
+ * ?�막 줄·단????shared SSOT ?�퍼 (기존 import 경로 ?��?).
  */
 
 import {
@@ -12,7 +12,7 @@ import {
   visibleSubtitleWords,
   wordIsDeleted,
   wordIsSilence,
-} from "./shared/subtitles.js?v=19";
+} from "./shared/subtitles.js?v=20";
 import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=17";
 import { SILENCE_PLACEHOLDER_TEXT } from "./shared/word-contract.js";
 

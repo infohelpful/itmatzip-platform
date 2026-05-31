@@ -1,8 +1,8 @@
 /**
- * AutoSubtitle virtualTimeline.ts — tombstone·미디어 컷 (웹 핵심 부분).
+ * AutoSubtitle virtualTimeline.ts ??tombstone·미디??�?(???�심 부�?.
  */
 
-import { wordIsDeleted, displayTextFromSubtitleWords, visibleSubtitleWords } from "./subtitles.js";
+import { wordIsDeleted, displayTextFromSubtitleWords, visibleSubtitleWords } from "./subtitles.js?v=20";
 import { mergeCutRanges, snapTimelineSec } from "./timeline-collapse.js";
 
 const DELETE_RANGE_MIN_SEC = 1e-5;
@@ -154,7 +154,7 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts) {
 }
 
 /**
- * Peaks/재생 EDL — 하드 컷 + tombstone 단어 + 가상 삭제 블록.
+ * Peaks/?�생 EDL ???�드 �?+ tombstone ?�어 + 가????�� 블록.
  *
  * @param {readonly { start: number, end: number }[]} mergedCuts
  * @param {readonly import("./subtitles.js").SubtitleLine[]} lines

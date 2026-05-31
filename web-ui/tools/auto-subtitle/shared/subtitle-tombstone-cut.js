@@ -1,12 +1,12 @@
 /**
- * AutoSubtitle subtitleTombstoneCut.ts — 프로그램 축 tombstone 컷.
+ * AutoSubtitle subtitleTombstoneCut.ts ???�로그램 �?tombstone �?
  */
 
 import {
   displayTextFromSubtitleWords,
   visibleSubtitleWords,
   wordIsDeleted,
-} from "./subtitles.js";
+} from "./subtitles.js?v=20";
 import { snapTimelineSec } from "./timeline-collapse.js";
 import { splitWordTextAtMediaCut } from "./subtitle-word-text-split.js";
 
