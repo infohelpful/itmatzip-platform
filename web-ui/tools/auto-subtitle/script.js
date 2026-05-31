@@ -41,7 +41,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=65";
+} from "./cue-cards.js?v=66";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -52,7 +52,7 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=50";
+} from "./subtitle-list/word-caret-ui.js?v=51";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,

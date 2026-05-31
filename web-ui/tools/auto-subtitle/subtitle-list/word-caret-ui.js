@@ -448,25 +448,71 @@ function enterTextareaEditMode(cardIndex, words, container, opts) {
   patchCaretVisibility(container, cardIndex, words, isPlaybackActive(opts));
 }
 
-/** @param {HTMLTextAreaElement} ta @param {number} clientX @param {number} clientY */
-function focusTextareaAtPointer(ta, clientX, clientY) {
-  ta.focus({ preventScroll: true });
-  const doc = ta.ownerDocument;
-  let index = ta.value.length;
-  if (typeof doc.caretRangeFromPoint === "function") {
-    const range = doc.caretRangeFromPoint(clientX, clientY);
-    if (range?.startContainer === ta) {
-      index = range.startOffset;
-    }
-  } else if (typeof doc.caretPositionFromPoint === "function") {
-    const pos = doc.caretPositionFromPoint(clientX, clientY);
-    if (pos?.offsetNode === ta) {
-      index = pos.offset;
-    }
-  }
-  index = Math.max(0, Math.min(index, ta.value.length));
-  ta.setSelectionRange(index, index);
+/** @param {HTMLTextAreaElement} ta @param {CSSStyleDeclaration} style */
+function copyTextareaMirrorStyle(ta, mirror, style) {
+  mirror.style.position = "absolute";
+  mirror.style.visibility = "hidden";
+  mirror.style.whiteSpace = "pre-wrap";
+  mirror.style.wordWrap = "break-word";
+  mirror.style.overflow = "hidden";
+  mirror.style.top = "0";
+  mirror.style.left = "-9999px";
+  mirror.style.width = `${ta.clientWidth}px`;
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.font = style.font;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.textTransform = style.textTransform;
+  mirror.style.textAlign = style.textAlign;
+  mirror.style.tabSize = style.tabSize;
 }
+
+/** @param {HTMLTextAreaElement} ta @param {number} clientX @param {number} clientY */
+function textareaCaretIndexFromPoint(ta, clientX, clientY) {
+  const doc = ta.ownerDocument;
+  const win = doc.defaultView;
+  if (!win) return ta.value.length;
+  const style = win.getComputedStyle(ta);
+  const rect = ta.getBoundingClientRect();
+  const mirror = doc.createElement("div");
+  copyTextareaMirrorStyle(ta, mirror, style);
+  doc.body.appendChild(mirror);
+
+  const text = ta.value;
+  const targetX = clientX - rect.left - ta.clientLeft + ta.scrollLeft;
+  const targetY = clientY - rect.top - ta.clientTop + ta.scrollTop;
+
+  const measureMarker = (index) => {
+    mirror.replaceChildren();
+    if (index > 0) mirror.append(doc.createTextNode(text.slice(0, index)));
+    const marker = doc.createElement("span");
+    marker.textContent = text[index] ?? ".";
+    mirror.append(marker);
+    const markerRect = marker.getBoundingClientRect();
+    const baseRect = mirror.getBoundingClientRect();
+    return {
+      x: markerRect.left - baseRect.left,
+      y: markerRect.top - baseRect.top,
+      h: markerRect.height || parseFloat(style.lineHeight) || 16,
+    };
+  };
+
+  try {
+    if (!text.length) return 0;
+    for (let i = 0; i <= text.length; i += 1) {
+      const p = measureMarker(i);
+      if (p.y > targetY + p.h * 0.55) return i;
+      if (p.y + p.h >= targetY && p.x >= targetX) return i;
+    }
+    return text.length;
+  } finally {
+    mirror.remove();
+  }
+}
+
+const TEXTAREA_PLAY_CLICK_FLAG = "asEditClickDuringPlay";
 
 /**
  * @param {number} cardIndex
@@ -1846,12 +1892,23 @@ export function wireTextareaCaretNavigation(ta, cardIndex, cues, container, opts
     e.stopPropagation();
     const playing = isPlaybackActive(opts);
     if (playing) {
-      e.preventDefault();
+      ta.dataset[TEXTAREA_PLAY_CLICK_FLAG] = "1";
     }
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);
-    if (playing) {
-      focusTextareaAtPointer(ta, e.clientX, e.clientY);
-    }
+  });
+  ta.addEventListener("mouseup", (e) => {
+    if (ta.dataset[TEXTAREA_PLAY_CLICK_FLAG] !== "1") return;
+    delete ta.dataset[TEXTAREA_PLAY_CLICK_FLAG];
+    const { clientX, clientY } = e;
+    requestAnimationFrame(() => {
+      const idx = textareaCaretIndexFromPoint(ta, clientX, clientY);
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(idx, idx);
+    });
+  });
+  ta.addEventListener("mouseleave", (e) => {
+    if (e.buttons !== 0) return;
+    delete ta.dataset[TEXTAREA_PLAY_CLICK_FLAG];
   });
   ta.addEventListener("focus", () => {
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);

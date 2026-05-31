@@ -30,7 +30,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=50";
+} from "./word-caret-ui.js?v=51";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
