@@ -1,5 +1,5 @@
 /**
- * AutoSubtitle SubtitleVirtualList.tsx ??ê°€???¤í¬ë¡¤Â·ì¤„ ì¤?ì¹©Â·ìº?¿Â·í‚¤ë³´ë“œ.
+ * AutoSubtitle SubtitleVirtualList.tsx ?????????·? ???·???·???.
  */
 
 import {
@@ -37,11 +37,11 @@ const panelByCard = new WeakMap();
 let wordChipCache = { cardIdx: -1, chips: [] };
 let lastPlayingCardIdx = -1;
 let lastPlayingWordEl = null;
-/** @type {number} is-playing ?´ë˜?¤ê? ë¶™ì? ì¹´ë“œ */
+/** @type {number} is-playing ??????? ??? ?? */
 let lastIsPlayingCardIdx = -1;
-/** @type {number} is-active (?¬ìƒ ì¤? */
+/** @type {number} is-active (??? ?? */
 let lastActivePlayingIdx = -1;
-/** @type {number} is-active (? íƒ ì¤? */
+/** @type {number} is-active (??? ?? */
 let lastActiveSelectedIdx = -1;
 /** @type {number} */
 let lastCardSyncPlayingIdx = -1;
@@ -233,7 +233,7 @@ function renderAllCards(container, cues, opts) {
     const rail = document.createElement("div");
     rail.className = "subtitle-word-rail subtitle-word-row--wave-seamless";
     rail.setAttribute("role", "group");
-    rail.setAttribute("aria-label", "?¨ì–´ ?€?„ë¼??);
+    rail.setAttribute("aria-label", "\uB2E8\uC5B4 \uD0C0\uC784\uB77C\uC778");
 
     const inner = document.createElement("div");
     inner.className = "subtitle-word-row-inner subtitle-word-row-inner--compact";
@@ -277,7 +277,7 @@ function renderAllCards(container, cues, opts) {
     ta.name = `subtitle-cue-${i}`;
     ta.rows = 2;
     ta.value = normalizePreviewSubtitleText(cue.text ?? "");
-    ta.setAttribute("aria-label", "?ë§‰ ?¸ì§‘");
+    ta.setAttribute("aria-label", "\uC790\uB9C9 \uD3B8\uC9D1");
     ta.dataset.subtitleEdit = "1";
     ta.addEventListener("click", (e) => e.stopPropagation());
     ta.addEventListener("mousedown", (e) => e.stopPropagation());
@@ -431,7 +431,7 @@ export function updatePlaybackHighlights(container, cues, opts) {
     lastPlayingWordEl = nextChip;
   }
 
-  /* ?¬ìƒ ì¤??ë™ ?¤í¬ë¡??†ìŒ ??scrollCueIntoView ??scrollActiveCard ???Œë§Œ script ìª½ì—??*/
+  /* ??? ????? ???????? ??scrollCueIntoView ??scrollActiveCard ????? script ????*/
 }
 
 /**

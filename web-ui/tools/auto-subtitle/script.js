@@ -40,7 +40,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=58";
+} from "./cue-cards.js?v=59";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
