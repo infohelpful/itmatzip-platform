@@ -501,18 +501,47 @@ function textareaCaretIndexFromPoint(ta, clientX, clientY) {
 
   try {
     if (!text.length) return 0;
+    let best = text.length;
+    let bestScore = Infinity;
     for (let i = 0; i <= text.length; i += 1) {
       const p = measureMarker(i);
-      if (p.y > targetY + p.h * 0.55) return i;
-      if (p.y + p.h >= targetY && p.x >= targetX) return i;
+      const cy = p.y + p.h * 0.5;
+      const dy = targetY - cy;
+      const dx = targetX - p.x;
+      const score = dy * dy * 8 + dx * dx;
+      if (score < bestScore) {
+        bestScore = score;
+        best = i;
+      }
     }
-    return text.length;
+    return best;
   } finally {
     mirror.remove();
   }
 }
 
 const TEXTAREA_PLAY_CLICK_FLAG = "asEditClickDuringPlay";
+const TEXTAREA_PLAY_CLICK_IDX = "asEditClickCaretIdx";
+
+/** @param {HTMLTextAreaElement} ta @param {number} clientX @param {number} clientY */
+function applyTextareaCaretAtPoint(ta, clientX, clientY) {
+  const idx = textareaCaretIndexFromPoint(ta, clientX, clientY);
+  ta.dataset[TEXTAREA_PLAY_CLICK_IDX] = String(idx);
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(idx, idx);
+  return idx;
+}
+
+function consumePendingTextareaPlayClick(ta) {
+  const saved = ta.dataset[TEXTAREA_PLAY_CLICK_IDX];
+  if (saved == null) return false;
+  delete ta.dataset[TEXTAREA_PLAY_CLICK_IDX];
+  const idx = Number(saved);
+  if (!Number.isFinite(idx)) return false;
+  ta.focus({ preventScroll: true });
+  ta.setSelectionRange(idx, idx);
+  return true;
+}
 
 /**
  * @param {number} cardIndex
@@ -1893,22 +1922,30 @@ export function wireTextareaCaretNavigation(ta, cardIndex, cues, container, opts
     const playing = isPlaybackActive(opts);
     if (playing) {
       ta.dataset[TEXTAREA_PLAY_CLICK_FLAG] = "1";
+      e.preventDefault();
     }
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);
   });
   ta.addEventListener("mouseup", (e) => {
     if (ta.dataset[TEXTAREA_PLAY_CLICK_FLAG] !== "1") return;
     delete ta.dataset[TEXTAREA_PLAY_CLICK_FLAG];
-    const { clientX, clientY } = e;
-    requestAnimationFrame(() => {
-      const idx = textareaCaretIndexFromPoint(ta, clientX, clientY);
-      ta.focus({ preventScroll: true });
-      ta.setSelectionRange(idx, idx);
-    });
+    e.preventDefault();
+    e.stopPropagation();
+    applyTextareaCaretAtPoint(ta, e.clientX, e.clientY);
   });
+  ta.addEventListener(
+    "click",
+    (e) => {
+      if (!consumePendingTextareaPlayClick(ta)) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    },
+    true,
+  );
   ta.addEventListener("mouseleave", (e) => {
     if (e.buttons !== 0) return;
     delete ta.dataset[TEXTAREA_PLAY_CLICK_FLAG];
+    delete ta.dataset[TEXTAREA_PLAY_CLICK_IDX];
   });
   ta.addEventListener("focus", () => {
     enterTextareaEditMode(cardIndex, wordsForRow(), container, opts);
