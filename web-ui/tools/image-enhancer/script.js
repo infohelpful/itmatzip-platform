@@ -767,12 +767,12 @@ function onCompareKeydown(e) {
   if (e.key === "ArrowLeft" || e.key === "ArrowDown") delta = -4;
   if (e.key === "ArrowRight" || e.key === "ArrowUp") delta = 4;
   if (e.key === "Home") {
-    applyCompareSplit(100);
+    applyCompareSplit(0);
     e.preventDefault();
     return;
   }
   if (e.key === "End") {
-    applyCompareSplit(0);
+    applyCompareSplit(100);
     e.preventDefault();
     return;
   }

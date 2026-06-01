@@ -710,13 +710,8 @@ body {
 
 .compare-img.compare-layer-top {
   z-index: 2;
-  /* 0% = 원본만, 100% = 결과만 (왼쪽이 결과) */
-  clip-path: polygon(
-    0 0,
-    var(--compare-split, 50%) 0,
-    var(--compare-split, 50%) 100%,
-    0 100%
-  );
+  /* split 0% = 원본만, 100% = 결과만 · 왼쪽 원본 / 오른쪽 결과 */
+  clip-path: inset(0 0 0 calc(100% - var(--compare-split, 50%)));
 }
 
 .compare-divider {
@@ -782,11 +777,11 @@ body {
   pointer-events: none;
 }
 
-.compare-label--result {
+.compare-label--original {
   left: 10px;
 }
 
-.compare-label--original {
+.compare-label--result {
   right: 10px;
 }
 
