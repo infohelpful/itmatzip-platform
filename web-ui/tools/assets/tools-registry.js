@@ -56,6 +56,19 @@ export const TOOLS = [
     tags: ["보컬", "vocal", "mr", "분리", "audio", "demucs", "ai"],
   },
   {
+    id: "image-enhancer",
+    href: "image-enhancer/",
+    title: "Image Enhancer",
+    subtitle: "AI 얼굴·화질 복원 · CodeFormer",
+    description:
+      "저화질 사진의 얼굴과 디테일을 로컬 PC에서 복원합니다. CodeFormer AI 모델은 최초 사용 시 다운로드됩니다.",
+    icon: "✨",
+    accent: "#06b6d4",
+    available: true,
+    badge: "AI",
+    tags: ["이미지", "화질", "복원", "얼굴", "codeformer", "ai", "사진", "photo"],
+  },
+  {
     id: "create-music",
     href: "create-music/",
     title: "Create Music",

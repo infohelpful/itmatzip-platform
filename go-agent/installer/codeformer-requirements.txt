@@ -1,0 +1,4 @@
+# Deprecated: CodeFormer는 MSI에 Python을 포함하지 않습니다.
+# Image Enhancer "환경 준비" 시 시스템 Python 3.12로
+# %APPDATA%\ItMatZip\image-enhancer\.venv-codeformer 를 생성하고
+# pytorch.org에서 torch/torchvision을 설치합니다 (Create Music 패턴).

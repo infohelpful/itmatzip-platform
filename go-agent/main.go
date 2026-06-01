@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -228,6 +230,8 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	mux.HandleFunc("/api/agent/pick-local-image-file", func(w http.ResponseWriter, r *http.Request) {
 		handlePickLocalFile(w, r, false, false, false, true)
 	})
+	mux.HandleFunc("/api/agent/read-local-image", handleReadLocalImage)
+	mountBundledToolsWeb(mux)
 
 	if sidecar != nil {
 		apiProxy := sidecar.ProxyHandler()
@@ -400,6 +404,20 @@ func main() {
 	}
 }
 
+func agentHTTPPortFromRequest(r *http.Request) int {
+	if r == nil {
+		return defaultPort
+	}
+	_, portStr, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		return defaultPort
+	}
+	if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+		return p
+	}
+	return defaultPort
+}
+
 func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool, projectOnly bool, fontOnly bool, imageOnly bool) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -422,7 +440,21 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	if fontOnly || imageOnly {
+	if imageOnly {
+		payload := map[string]any{"path": path}
+		if strings.TrimSpace(path) != "" {
+			preview := fmt.Sprintf(
+				"http://%s:%d/api/agent/read-local-image?path=%s",
+				defaultHost,
+				agentHTTPPortFromRequest(r),
+				url.QueryEscape(path),
+			)
+			payload["preview_url"] = preview
+		}
+		_ = json.NewEncoder(w).Encode(payload)
+		return
+	}
+	if fontOnly {
 		_ = json.NewEncoder(w).Encode(map[string]any{"path": path})
 		return
 	}

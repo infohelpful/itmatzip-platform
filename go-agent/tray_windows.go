@@ -33,9 +33,9 @@ func toolsWebBase() string {
 	return "https://tools.itmatzip.com"
 }
 
-func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic string) {
+func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/"
 }
 
 func resolveTrayIconPath() string {
@@ -196,13 +196,20 @@ func onTrayReady(port int, iconData []byte) {
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
-	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL := trayToolURLs()
+	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer := trayToolURLs()
+	imageEnhancerURL := bundledImageEnhancerURL(port)
+	if imageEnhancerURL == "" {
+		imageEnhancerURL = remoteImageEnhancer
+	} else {
+		log.Printf("Image Enhancer: using bundled UI at %s", imageEnhancerURL)
+	}
 
 	mDashboard := systray.AddMenuItem("대시보드", dashboardURL)
 	mSilence := systray.AddMenuItem("Silence Detector", silenceURL)
 	mVocal := systray.AddMenuItem("Vocal Remover", vocalURL)
 	mAutosub := systray.AddMenuItem("Auto Subtitle", autosubURL)
 	mCreateMusic := systray.AddMenuItem("Create Music", createMusicURL)
+	mImageEnhancer := systray.AddMenuItem("Image Enhancer", imageEnhancerURL)
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 
@@ -221,6 +228,8 @@ func onTrayReady(port int, iconData []byte) {
 				openURL(autosubURL)
 			case <-mCreateMusic.ClickedCh:
 				openURL(createMusicURL)
+			case <-mImageEnhancer.ClickedCh:
+				openURL(imageEnhancerURL)
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return

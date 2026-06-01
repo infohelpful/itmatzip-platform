@@ -85,6 +85,21 @@ def demucs_runner_script() -> Path:
     return agent_package_root() / "engines" / "demucs_runner.py"
 
 
+def codeformer_runner_script() -> Path:
+    return agent_package_root() / "engines" / "codeformer_runner.py"
+
+
+def codeformer_python_executable() -> Path:
+    """
+    CodeFormer 추론·prepare 전용 Python 3.12 venv.
+    %APPDATA%\\ItMatZip\\image-enhancer\\.venv-codeformer (환경 준비 시 생성).
+    FastAPI sidecar engine(3.14)와 분리됩니다.
+    """
+    from engines.codeformer_runtime import venv_python
+
+    return venv_python()
+
+
 def pick_script_path() -> Path:
     return agent_root() / "scripts" / "pick_media_dialog.py"
 
