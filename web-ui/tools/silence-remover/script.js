@@ -52,7 +52,7 @@ import {
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna6";
+} from "../common/edl-export.js?v=lna7";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -747,8 +747,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function resetSilenceAnalysisState() {
-    silenceAnalysisDone = false;
-    silencePreviewEnabled = false;
+    disableSilencePreviewOverlay();
     lastAppliedNoiseDb = null;
     lastAnalyzedSettings = null;
     clearSilenceAnalysisSessionStorage();
@@ -761,8 +760,20 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function scheduleWaveformHighlightRefresh() {
-    if (!waveformPeaksData || !silencePreviewEnabled) return;
+    if (!waveformPeaksData || !silencePreviewEnabled || !silenceAnalysisDone) return;
     scheduleWaveformRedraw();
+  }
+
+  function disableSilencePreviewOverlay() {
+    silencePreviewEnabled = false;
+    silenceAnalysisDone = false;
+    waveformRendererCacheKey = "";
+    if (waveformPreviewTitle) {
+      waveformPreviewTitle.textContent = "오디오 파형";
+    }
+    if (waveformPeaksData) {
+      scheduleWaveformRedraw();
+    }
   }
 
   function enablePreviewSilenceOverlay() {
@@ -770,6 +781,16 @@ document.addEventListener("DOMContentLoaded", () => {
     silencePreviewEnabled = true;
     waveformRendererCacheKey = "";
     scheduleWaveformRedraw();
+  }
+
+  /** 현재 경로 기준: 분석 완료된 영상만 무음 미리보기(보라색·flatten) */
+  function syncSilenceOverlayToCurrentPath() {
+    const p = pathInput.value.trim();
+    if (p && canRestoreAnalysisForPath(p, mediaPathsEqual)) {
+      enablePreviewSilenceOverlay();
+      return;
+    }
+    disableSilencePreviewOverlay();
   }
 
   /** 파형 peaks + 현재 UI 설정으로 미리보기 무음 열 범위 */
@@ -898,12 +919,12 @@ document.addEventListener("DOMContentLoaded", () => {
       minSilenceSec: getMinSilenceSec(),
       height: WAVEFORM_CANVAS_H,
       showRuler: true,
-      showSilenceOverlay: silencePreviewEnabled,
+      showSilenceOverlay: silencePreviewEnabled && silenceAnalysisDone,
       silenceColumnRanges: silenceColRanges,
       pxPerSec,
       scrollLeftPx,
       canvasWidth,
-      flattenSilence: true,
+      flattenSilence: silencePreviewEnabled && silenceAnalysisDone,
       renderer,
     });
 
@@ -917,15 +938,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (waveformPreviewStatus) {
       const durTxt = formatDurationClock(waveformPeaksData.timeline_sec);
-      waveformPreviewStatus.textContent = silencePreviewEnabled
+      waveformPreviewStatus.textContent = silencePreviewEnabled && silenceAnalysisDone
         ? `재생 시간 : ${durTxt} / 미리보기 화면은 실제 EDL 파일의 결과물과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.`
         : `재생 시간 : ${durTxt}`;
       waveformPreviewStatus.classList.remove("is-err");
     }
     if (waveformPreviewTitle) {
-      waveformPreviewTitle.textContent = silencePreviewEnabled
-        ? "오디오 파형 (무음 미리보기)"
-        : "오디오 파형";
+      waveformPreviewTitle.textContent =
+        silencePreviewEnabled && silenceAnalysisDone
+          ? "오디오 파형 (무음 미리보기)"
+          : "오디오 파형";
     }
   }
 
@@ -1851,7 +1873,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       waveformPxPerSec = 0;
       resetWaveformZoom();
-      redrawWaveformCanvas();
+      syncSilenceOverlayToCurrentPath();
       if (waveformPreviewCanvas) {
         const effectivePps = columnCount / timelineSec;
         const ppsLabel = truncTo2Decimals(effectivePps);
@@ -2023,7 +2045,6 @@ document.addEventListener("DOMContentLoaded", () => {
             paddingMs: getPaddingMs(),
             minSilenceSec: getMinSilenceSec(),
           });
-          enablePreviewSilenceOverlay();
           syncExportLinkState();
         }
       } else {
@@ -2230,7 +2251,9 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
       if (shouldRestoreSilencePreviewOverlay()) {
-        enablePreviewSilenceOverlay();
+        syncSilenceOverlayToCurrentPath();
+      } else {
+        disableSilencePreviewOverlay();
       }
       syncExportLinkState();
       return true;
@@ -2523,7 +2546,7 @@ document.addEventListener("DOMContentLoaded", () => {
           );
         }
       }
-      enablePreviewSilenceOverlay();
+      syncSilenceOverlayToCurrentPath();
       const fpsRatEdl =
         data && typeof data === "object" && typeof data.fps_rational === "string"
           ? data.fps_rational.trim()
