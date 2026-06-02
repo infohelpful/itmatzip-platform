@@ -1,191 +1,194 @@
 /**
- * site-guard.js — 사이트 보호 모듈
- * 우클릭/복사/DevTools 차단 + 광고 차단 확장 감지 시 콘텐츠 접근 차단
+ * site-guard.js — 사이트 보호 (경량 아키텍처)
  *
- * 사용법: <script type="module" src="../common/site-guard.js"></script>
- * import 시 자동 실행
+ * 이전 버전의 지속 폴링(setInterval), debugger 루프, 동기 XHR, console Proxy는
+ * 메인 스레드·DevTools·도구 페이지 디버깅에 부담이 커서 제거했습니다.
  *
- * Kill switch: URL에 ?_sg_off=1 또는 localStorage에 _sg_off=1 설정 시 비활성화
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │ 프로필                                                       │
+ * │  local  — 127.0.0.1 / localhost: 보호 비활성 (에이전트 UI)    │
+ * │  tools  — 공개 도구: 우클릭·단축키만, 감시 루프 없음          │
+ * │  full   — 광고 차단 감지(이벤트·idle·최대 1회/탭)             │
+ * └─────────────────────────────────────────────────────────────┘
+ *
+ * Kill switch: ?_sg_off=1 또는 localStorage._sg_off=1
+ * 강제 full: ?_sg_full=1
  */
 
 (function () {
   "use strict";
 
   const KILL_SWITCH_KEY = "_sg_off";
-  if (
-    new URLSearchParams(location.search).get(KILL_SWITCH_KEY) === "1" ||
-    (() => { try { return localStorage.getItem(KILL_SWITCH_KEY) === "1"; } catch { return false; } })()
-  ) {
-    return;
-  }
+  const FORCE_FULL_KEY = "_sg_full";
 
-  // ─── 1. 우클릭 / 복사 / 드래그 차단 ────────────────────────────────────
-
-  document.addEventListener("contextmenu", (e) => e.preventDefault(), true);
-  document.addEventListener("selectstart", (e) => e.preventDefault(), true);
-  document.addEventListener("dragstart", (e) => e.preventDefault(), true);
-  document.addEventListener("copy", (e) => e.preventDefault(), true);
-  document.addEventListener("cut", (e) => e.preventDefault(), true);
-
-  // ─── 2. DevTools 단축키 차단 ───────────────────────────────────────────
-
-  const BLOCKED_KEYS = new Set([
-    "F12",
-    "KeyI", // Ctrl+Shift+I
-    "KeyJ", // Ctrl+Shift+J
-    "KeyU", // Ctrl+U
-    "KeyC", // Ctrl+Shift+C (element inspector)
-  ]);
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "F12") {
-      e.preventDefault();
-      e.stopPropagation();
+  function killSwitchOn() {
+    try {
+      if (new URLSearchParams(location.search).get(KILL_SWITCH_KEY) === "1") return true;
+      return localStorage.getItem(KILL_SWITCH_KEY) === "1";
+    } catch {
       return false;
     }
-    if (e.ctrlKey && e.shiftKey && BLOCKED_KEYS.has(e.code)) {
-      e.preventDefault();
-      e.stopPropagation();
+  }
+
+  function forceFullOn() {
+    try {
+      if (new URLSearchParams(location.search).get(FORCE_FULL_KEY) === "1") return true;
+      return localStorage.getItem(FORCE_FULL_KEY) === "1";
+    } catch {
       return false;
     }
-    if (e.ctrlKey && !e.shiftKey && e.code === "KeyU") {
-      e.preventDefault();
-      e.stopPropagation();
-      return false;
-    }
-  }, true);
-
-  // ─── 3. DevTools 열림 감지 ─────────────────────────────────────────────
-
-  let devtoolsOpen = false;
-  const DEVTOOLS_THRESHOLD = 160;
-
-  function checkDevTools() {
-    const widthDiff = window.outerWidth - window.innerWidth > DEVTOOLS_THRESHOLD;
-    const heightDiff = window.outerHeight - window.innerHeight > DEVTOOLS_THRESHOLD;
-    const prev = devtoolsOpen;
-    devtoolsOpen = widthDiff || heightDiff;
-    if (devtoolsOpen && !prev) {
-      onDevToolsDetected();
-    }
   }
 
-  function onDevToolsDetected() {
-    console.clear();
-    console.log(
-      "%c⚠️ 경고",
-      "font-size:40px;color:red;font-weight:bold;"
-    );
-    console.log(
-      "%c이 브라우저 기능은 개발자를 위한 것입니다.\n누군가 여기에 무언가를 복사-붙여넣기하라고 했다면 사기일 가능성이 높습니다.",
-      "font-size:16px;"
-    );
-  }
+  if (killSwitchOn()) return;
 
-  setInterval(checkDevTools, 1000);
-
-  // debugger trap (DevTools가 열려있으면 무한 breakpoint)
-  (function dbgLoop() {
-    const start = performance.now();
-    debugger;
-    if (performance.now() - start > 100) {
-      devtoolsOpen = true;
-    }
-    setTimeout(dbgLoop, 3000);
-  })();
-
-  // ─── 4. console 출력 무력화 ────────────────────────────────────────────
-
-  const noop = () => {};
-  if (typeof window.__sg_console_patched === "undefined") {
-    window.__sg_console_patched = true;
-    const keep = console.error.bind(console);
-    Object.defineProperty(window, "console", {
-      get() {
-        return new Proxy(console, {
-          get(target, prop) {
-            if (prop === "error") return keep;
-            if (typeof target[prop] === "function") return noop;
-            return target[prop];
-          },
-        });
-      },
-      configurable: false,
-    });
-  }
-
-  // ─── 5. 광고 차단 감지 ─────────────────────────────────────────────────
-
-  let adBlockDetected = false;
-  let adBlockCheckDone = false;
-  const AD_CHECK_INTERVAL = 5000;
-
-  function createBaitElement() {
-    const bait = document.createElement("div");
-    bait.className = "ad-banner ads adsbox ad-placeholder";
-    bait.setAttribute("id", "ad-bait-test");
-    bait.style.cssText =
-      "position:absolute!important;width:1px!important;height:1px!important;" +
-      "top:-1000px!important;left:-1000px!important;pointer-events:none!important;opacity:0!important;";
-    bait.innerHTML = "&nbsp;";
-    document.body.appendChild(bait);
-    return bait;
-  }
-
-  function checkAdBlock() {
-    const bait = document.getElementById("ad-bait-test") || createBaitElement();
-    const hidden =
-      bait.offsetParent === null ||
-      bait.offsetHeight === 0 ||
-      bait.offsetWidth === 0 ||
-      getComputedStyle(bait).display === "none" ||
-      getComputedStyle(bait).visibility === "hidden";
-
-    if (hidden) {
-      adBlockDetected = true;
-      adBlockCheckDone = true;
-      showAdBlockWall();
+  /** @param {() => void} fn @param {number} [timeoutMs] */
+  function runWhenIdle(fn, timeoutMs = 4000) {
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(() => fn(), { timeout: timeoutMs });
       return;
     }
-
-    const adsenseIns = document.querySelector("ins.adsbygoogle");
-    if (adsenseIns) {
-      const status = adsenseIns.getAttribute("data-ad-status");
-      if (status === "unfilled") {
-        // unfilled는 재고 없음이므로 차단으로 보지 않음
-      }
-      const insHeight = adsenseIns.offsetHeight;
-      if (insHeight === 0 && document.querySelector("[data-adsense-empty]")) {
-        adBlockDetected = true;
-      }
-    }
-
-    if (!adBlockDetected) {
-      try {
-        const testReq = new XMLHttpRequest();
-        testReq.open(
-          "GET",
-          "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js",
-          false
-        );
-        testReq.send();
-        if (testReq.status === 0) adBlockDetected = true;
-      } catch {
-        adBlockDetected = true;
-      }
-    }
-
-    adBlockCheckDone = true;
-    if (adBlockDetected) {
-      showAdBlockWall();
-    } else {
-      hideAdBlockWall();
-    }
+    setTimeout(fn, 1);
   }
 
-  // ─── 6. 차단 UI ───────────────────────────────────────────────────────
+  function isLocalAgentHost() {
+    const h = location.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return h === "127.0.0.1" || h === "localhost" || h === "::1";
+  }
+
+  /** @returns {"off" | "tools" | "full"} */
+  function resolveProfile() {
+    if (forceFullOn()) return "full";
+    if (isLocalAgentHost()) return "off";
+    return "full";
+  }
+
+  const profile = resolveProfile();
+  if (profile === "off") return;
+
+  // ─── 스케줄러: 탭 비활성 시 작업 중단, 중복 실행 방지 ─────────────────
+
+  const scheduler = {
+    _paused: false,
+    _timers: new Set(),
+
+    pause() {
+      this._paused = true;
+    },
+    resume() {
+      this._paused = false;
+    },
+
+    /** @param {() => void} fn @param {number} delayMs */
+    setTimeout(fn, delayMs) {
+      const id = window.setTimeout(() => {
+        this._timers.delete(id);
+        if (!this._paused) fn();
+      }, delayMs);
+      this._timers.add(id);
+      return id;
+    },
+
+    /** @param {() => void} fn @param {number} ms */
+    debounce(fn, ms) {
+      let t = 0;
+      return () => {
+        window.clearTimeout(t);
+        t = window.setTimeout(() => {
+          if (!this._paused) fn();
+        }, ms);
+      };
+    },
+
+    dispose() {
+      for (const id of this._timers) window.clearTimeout(id);
+      this._timers.clear();
+    },
+  };
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") scheduler.pause();
+    else scheduler.resume();
+  });
+  if (document.visibilityState === "hidden") scheduler.pause();
+
+  // ─── 1. 콘텐츠 보호 (이벤트만 — 백그라운드 비용 0) ─────────────────────
+
+  function installContentProtection() {
+    const block = (e) => {
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", block, true);
+    document.addEventListener("selectstart", block, true);
+    document.addEventListener("dragstart", block, true);
+    document.addEventListener("copy", block, true);
+    document.addEventListener("cut", block, true);
+  }
+
+  // ─── 2. DevTools 단축키 (선택적, 폴링 없음) ───────────────────────────
+
+  const BLOCKED_DEV_KEYS = new Set(["KeyI", "KeyJ", "KeyU", "KeyC"]);
+
+  function installDevToolsKeyBlock() {
+    document.addEventListener(
+      "keydown",
+      (e) => {
+        if (e.key === "F12") {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.ctrlKey && e.shiftKey && BLOCKED_DEV_KEYS.has(e.code)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        if (e.ctrlKey && !e.shiftKey && e.code === "KeyU") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      },
+      true,
+    );
+  }
+
+  /** resize 1회성 경고 — setInterval / debugger 없음 */
+  function installDevToolsResizeHint() {
+    if (profile !== "full") return;
+
+    let warned = false;
+    const THRESHOLD = 160;
+
+    const maybeWarn = scheduler.debounce(() => {
+      if (warned || document.hidden) return;
+      const w = window.outerWidth - window.innerWidth > THRESHOLD;
+      const h = window.outerHeight - window.innerHeight > THRESHOLD;
+      if (!w && !h) return;
+      warned = true;
+      window.removeEventListener("resize", onResize);
+      console.info(
+        "%c⚠️ 개발자 도구",
+        "font-size:18px;color:#f59e0b;font-weight:bold;",
+        "\n이 패널에 붙여넣기하라는 안내가 있다면 사기일 수 있습니다.",
+      );
+    }, 400);
+
+    function onResize() {
+      maybeWarn();
+    }
+    window.addEventListener("resize", onResize, { passive: true });
+  }
+
+  // ─── 3. 광고 차단 감지 (idle + 비동기, 반복 폴링 없음) ─────────────────
 
   const WALL_ID = "sg-adblock-wall";
+  const SYNDICATION_PROBE =
+    "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+  const RECHECK_MIN_MS = 60_000;
+
+  let adBlockLatched = false;
+  let lastAdCheckAt = 0;
+  /** @type {MutationObserver | null} */
+  let adsenseObserver = null;
 
   function getOrCreateWall() {
     let wall = document.getElementById(WALL_ID);
@@ -211,10 +214,13 @@
             <li>페이지 새로고침 (F5 또는 Ctrl+R)</li>
           </ol>
         </div>
-        <button class="sg-wall__btn" onclick="location.reload()">새로고침</button>
+        <button type="button" class="sg-wall__btn" id="sg-wall-reload">새로고침</button>
       </div>
     `;
     document.body.appendChild(wall);
+    wall.querySelector("#sg-wall-reload")?.addEventListener("click", () => {
+      location.reload();
+    });
 
     const style = document.createElement("style");
     style.textContent = `
@@ -226,9 +232,7 @@
         align-items: center;
         justify-content: center;
       }
-      #${WALL_ID}.sg-active {
-        display: flex;
-      }
+      #${WALL_ID}.sg-active { display: flex; }
       .sg-wall__backdrop {
         position: absolute;
         inset: 0;
@@ -247,10 +251,7 @@
         color: #e6edf7;
         box-shadow: 0 20px 60px rgba(0,0,0,0.5);
       }
-      .sg-wall__icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-      }
+      .sg-wall__icon { font-size: 48px; margin-bottom: 16px; }
       .sg-wall__title {
         margin: 0 0 12px;
         font-size: 1.4rem;
@@ -272,17 +273,9 @@
         font-size: 0.88rem;
         color: #8b9cb8;
       }
-      .sg-wall__steps p {
-        margin: 0 0 8px;
-        color: #e6edf7;
-      }
-      .sg-wall__steps ol {
-        margin: 0;
-        padding-left: 20px;
-      }
-      .sg-wall__steps li {
-        margin-bottom: 4px;
-      }
+      .sg-wall__steps p { margin: 0 0 8px; color: #e6edf7; }
+      .sg-wall__steps ol { margin: 0; padding-left: 20px; }
+      .sg-wall__steps li { margin-bottom: 4px; }
       .sg-wall__btn {
         display: inline-block;
         padding: 12px 32px;
@@ -293,52 +286,212 @@
         font-size: 1rem;
         font-weight: 600;
         cursor: pointer;
-        transition: background 0.2s;
       }
-      .sg-wall__btn:hover {
-        background: #5a3dd0;
-      }
-      body.sg-blocked {
-        overflow: hidden !important;
-      }
+      .sg-wall__btn:hover { background: #5a3dd0; }
+      body.sg-blocked { overflow: hidden !important; }
     `;
     (document.head || document.documentElement).appendChild(style);
-
     return wall;
   }
 
   function showAdBlockWall() {
+    adBlockLatched = true;
     const wall = getOrCreateWall();
     wall.classList.add("sg-active");
     document.body.classList.add("sg-blocked");
+    adsenseObserver?.disconnect();
+    adsenseObserver = null;
   }
 
   function hideAdBlockWall() {
     const wall = document.getElementById(WALL_ID);
-    if (wall) {
-      wall.classList.remove("sg-active");
-      document.body.classList.remove("sg-blocked");
+    if (wall) wall.classList.remove("sg-active");
+    document.body.classList.remove("sg-blocked");
+  }
+
+  function ensureBaitElement() {
+    let bait = document.getElementById("ad-bait-test");
+    if (bait) return bait;
+    bait = document.createElement("div");
+    bait.id = "ad-bait-test";
+    bait.className = "ad-banner ads adsbox ad-placeholder";
+    bait.setAttribute("aria-hidden", "true");
+    bait.style.cssText =
+      "position:absolute!important;width:1px!important;height:1px!important;" +
+      "top:-9999px!important;left:-9999px!important;pointer-events:none!important;" +
+      "opacity:0!important;";
+    bait.textContent = "\u00a0";
+    document.body.appendChild(bait);
+    return bait;
+  }
+
+  function baitLooksBlocked(bait) {
+    if (!bait) return false;
+    if (
+      bait.offsetParent === null ||
+      bait.offsetHeight === 0 ||
+      bait.offsetWidth === 0
+    ) {
+      return true;
+    }
+    const cs = getComputedStyle(bait);
+    return cs.display === "none" || cs.visibility === "hidden";
+  }
+
+  function adsenseSlotLooksBlocked() {
+    const ins = document.querySelector("ins.adsbygoogle");
+    if (!ins) return false;
+    if (ins.getAttribute("data-ad-status") === "unfilled") return false;
+    if (ins.offsetHeight > 0) return false;
+    return Boolean(document.querySelector("[data-adsense-empty]"));
+  }
+
+  /** @returns {Promise<boolean>} true = 차단됨 */
+  async function probeSyndicationAsync() {
+    try {
+      const ctrl = new AbortController();
+      const t = window.setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(SYNDICATION_PROBE, {
+        method: "HEAD",
+        mode: "no-cors",
+        cache: "no-store",
+        signal: ctrl.signal,
+      });
+      window.clearTimeout(t);
+      void res;
+      return false;
+    } catch {
+      return true;
     }
   }
 
-  // ─── 7. 초기화 ────────────────────────────────────────────────────────
+  /**
+   * @param {{ allowNetworkProbe?: boolean }} [opts]
+   * @returns {Promise<boolean>} true = 차단 확정
+   */
+  async function evaluateAdBlock(opts = {}) {
+    if (adBlockLatched) return true;
 
-  function init() {
-    if (!document.body) {
-      document.addEventListener("DOMContentLoaded", init);
-      return;
+    const bait = ensureBaitElement();
+    if (baitLooksBlocked(bait)) return true;
+    if (adsenseSlotLooksBlocked()) return true;
+
+    if (opts.allowNetworkProbe) {
+      const netBlocked = await probeSyndicationAsync();
+      if (netBlocked) return true;
     }
-    createBaitElement();
-    setTimeout(checkAdBlock, 2000);
-    setInterval(() => {
-      adBlockDetected = false;
-      checkAdBlock();
-    }, AD_CHECK_INTERVAL);
+    return false;
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
+  function latchAdBlock() {
+    showAdBlockWall();
   }
+
+  function clearAdBlockLatch() {
+    adBlockLatched = false;
+    hideAdBlockWall();
+  }
+
+  /** @param {{ allowNetworkProbe?: boolean, force?: boolean }} [opts] */
+  async function runAdBlockCheck(opts = {}) {
+    if (profile !== "full") return;
+    if (adBlockLatched && !opts.force) return;
+
+    const now = Date.now();
+    if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
+    lastAdCheckAt = now;
+
+    const blocked = await evaluateAdBlock({
+      allowNetworkProbe: Boolean(opts.allowNetworkProbe),
+    });
+    if (blocked) {
+      latchAdBlock();
+    } else if (!adBlockLatched) {
+      hideAdBlockWall();
+    }
+  }
+
+  function watchAdsenseSlot() {
+    if (profile !== "full" || adBlockLatched) return;
+
+    const ins = document.querySelector("ins.adsbygoogle");
+    if (!ins) return;
+
+    adsenseObserver?.disconnect();
+    adsenseObserver = new MutationObserver(() => {
+      if (adBlockLatched) {
+        adsenseObserver?.disconnect();
+        return;
+      }
+      if (adsenseSlotLooksBlocked()) {
+        latchAdBlock();
+        adsenseObserver?.disconnect();
+        return;
+      }
+      const status = ins.getAttribute("data-ad-status");
+      if (status === "filled" || status === "unfilled") {
+        adsenseObserver?.disconnect();
+        adsenseObserver = null;
+      }
+    });
+    adsenseObserver.observe(ins, {
+      attributes: true,
+      attributeFilter: ["data-ad-status", "style", "class"],
+    });
+  }
+
+  function installAdBlockGuard() {
+    if (profile !== "full") return;
+
+    function bootstrap() {
+      if (!document.body) return;
+
+      ensureBaitElement();
+
+      runWhenIdle(() => {
+        void runAdBlockCheck({ allowNetworkProbe: true });
+        watchAdsenseSlot();
+      }, 5000);
+
+      // AdSense 삽입이 늦는 페이지: 슬롯 등장 시 1회만 관찰
+      if (!document.querySelector("ins.adsbygoogle")) {
+        const rootObs = new MutationObserver(() => {
+          if (!document.querySelector("ins.adsbygoogle")) return;
+          rootObs.disconnect();
+          watchAdsenseSlot();
+          void runAdBlockCheck({ allowNetworkProbe: false });
+        });
+        rootObs.observe(document.body, { childList: true, subtree: true });
+        scheduler.setTimeout(() => rootObs.disconnect(), 120_000);
+      }
+
+      const onVisibleAgain = scheduler.debounce(() => {
+        if (adBlockLatched) return;
+        void runAdBlockCheck({ allowNetworkProbe: false, force: true });
+        watchAdsenseSlot();
+      }, 800);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") onVisibleAgain();
+      });
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  }
+
+  // ─── 부트스트랩 ───────────────────────────────────────────────────────
+
+  installContentProtection();
+  installDevToolsKeyBlock();
+  installDevToolsResizeHint();
+  installAdBlockGuard();
+
+  window.__siteGuard = {
+    profile,
+    recheckAds: () => runAdBlockCheck({ allowNetworkProbe: true, force: true }),
+    clearAdLatch: clearAdBlockLatch,
+  };
 })();
