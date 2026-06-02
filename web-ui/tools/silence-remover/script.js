@@ -51,7 +51,7 @@ import {
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna4";
+} from "../common/edl-export.js?v=lna5";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -375,6 +375,27 @@ document.addEventListener("DOMContentLoaded", () => {
   function scheduleProbe() {
     window.clearTimeout(probeTimer);
     probeTimer = window.setTimeout(() => void probeMediaFromPath(), 320);
+  }
+
+  function onVideoPathInputChanged() {
+    const next = pathInput.value.trim();
+    if (looksLikeFullPath(next)) {
+      const bound = getAnalysisBoundVideoPath();
+      if (bound && !mediaPathsEqual(bound, next)) {
+        beginNewMediaWorkflow();
+      } else if (!bound && canExportFromSession()) {
+        const stored = getStoredVideoPath();
+        if (stored && !mediaPathsEqual(stored, next)) {
+          beginNewMediaWorkflow();
+        }
+      }
+      sessionStorage.setItem(STORAGE_VIDEO_PATH, next);
+      const base = next.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
+      if (base) sessionStorage.setItem(STORAGE_NAME, base);
+      const clip = clipNameFromVideoPath(next);
+      if (clip) sessionStorage.setItem(STORAGE_CLIP_NAME, clip);
+    }
+    scheduleProbe();
   }
 
   function beginNewMediaWorkflow() {
@@ -1968,16 +1989,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
     } else {
-      const bound = getAnalysisBoundVideoPath();
-      if (bound && !mediaPathsEqual(bound, p)) {
-        beginNewMediaWorkflow();
-      } else {
-        resetSilenceAnalysisState();
-        probedMediaDurationSec = null;
-        probedMeanVolumeDb = null;
-        probedMaxVolumeDb = null;
-        probedFpsRational = null;
-      }
+      beginNewMediaWorkflow();
     }
 
     setWaveformCanvasHidden(true);
@@ -2063,7 +2075,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  pathInput.addEventListener("input", scheduleProbe);
+  pathInput.addEventListener("input", onVideoPathInputChanged);
   /* blur로 프로브하지 않음 — 옵션 포커스 이동마다 재요청되는 것을 방지 */
 
   optSens.addEventListener("input", () => {
@@ -2383,7 +2395,9 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.setItem(STORAGE_CLIP_NAME, clipName);
       }
       sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
-      setAnalysisBoundVideoPath(videoPath);
+      if (!canRestoreAnalysisForPath(videoPath, mediaPathsEqual)) {
+        resetSilenceAnalysisState();
+      }
       saveProbeMetaToSession({
         fps: fpsParsed,
         mean_volume_db: asFiniteNumber(optAvgDb?.value),
@@ -2476,6 +2490,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ? data.silences_display
           : silencesForStore;
       sessionStorage.setItem(STORAGE_SILENCES_DISPLAY, JSON.stringify(silencesDisplayForStore));
+      setAnalysisBoundVideoPath(videoPath);
       const analysisDur =
         data && typeof data === "object" && Number.isFinite(data.duration_sec)
           ? Number(data.duration_sec)

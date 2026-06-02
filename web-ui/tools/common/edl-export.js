@@ -334,9 +334,9 @@ export function canRestoreAnalysisForPath(videoPath, pathsEqual) {
 /** 편집 화면 복원에 필요한 최소 데이터가 sessionStorage에 있는지 */
 export function hasRestorableEditorSession() {
   const videoPath = getStoredVideoPath();
-  if (!videoPath) return false;
+  if (!videoPath || !canExportFromSession()) return false;
   const bound = getAnalysisBoundVideoPath();
-  if (!bound) return canExportFromSession();
+  if (!bound) return false;
   const norm = (p) =>
     String(p)
       .trim()
@@ -344,7 +344,7 @@ export function hasRestorableEditorSession() {
       .replace(/\\/g, "/")
       .replace(/\/+$/, "")
       .toLowerCase();
-  return canExportFromSession() && norm(bound) === norm(videoPath);
+  return norm(bound) === norm(videoPath);
 }
 
 /**
