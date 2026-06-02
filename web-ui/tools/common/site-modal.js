@@ -26,6 +26,8 @@ let _alertDialog = null;
 let _queue = Promise.resolve();
 /** @type {(() => void) | null} */
 let _resolveCurrent = null;
+/** @type {((act: string) => void) | null} */
+let _pendingDialogResolve = null;
 /** @type {number} */
 let _repositionTimer = 0;
 
@@ -78,9 +80,9 @@ export function ensureSiteModalStyles() {
       display: none !important;
     }
     .itz-modal-dialog {
-      position: absolute;
+      position: fixed;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translate(-50%, 0);
       z-index: 2147483645;
       width: min(520px, calc(100vw - 32px));
       max-height: min(85vh, 720px);
@@ -152,6 +154,22 @@ export function ensureSiteModalStyles() {
       font-size: 0.88rem;
       color: #8b9cb8;
     }
+    .itz-modal__status {
+      margin: 0 1.5rem 0.75rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      min-height: 1.25em;
+      color: #94a3b8;
+    }
+    .itz-modal__status:empty {
+      display: none;
+    }
+    .itz-modal__status.is-ok {
+      color: #86efac;
+    }
+    .itz-modal__status.is-err {
+      color: #fca5a5;
+    }
     .itz-modal__msg {
       margin: 0 0 0.65rem;
     }
@@ -213,14 +231,87 @@ function ensureBackdrop() {
   return el;
 }
 
-/** @param {HTMLElement} el */
-function getAbsoluteTop(el) {
-  let top = 0;
-  let current = el;
-  while (current) {
-    top += current.offsetTop || 0;
-    current = current.offsetParent;
+/** @returns {HTMLElement[]} */
+function collectAdElements() {
+  const ads = [];
+  for (const sel of AD_EXEMPT_SELECTORS) {
+    document.querySelectorAll(sel).forEach((node) => {
+      if (node instanceof HTMLElement) ads.push(node);
+    });
   }
+  return [...new Set(ads)];
+}
+
+/**
+ * 화면(뷰포트) 좌표에서 광고 사이 가장 넓은 구간 — 보이는 영역 기준
+ * @param {number} viewH
+ * @returns {{ top: number, bottom: number } | null}
+ */
+function findViewportAdGap(viewH) {
+  /** @type {{ top: number, bottom: number }[]} */
+  const rects = [];
+  for (const ad of collectAdElements()) {
+    if (ad.offsetWidth === 0 && ad.offsetHeight === 0) continue;
+    const r = ad.getBoundingClientRect();
+    if (r.bottom <= 0 || r.top >= viewH) continue;
+    rects.push({
+      top: Math.max(0, r.top),
+      bottom: Math.min(viewH, r.bottom),
+    });
+  }
+  if (!rects.length) return null;
+
+  rects.sort((a, b) => a.top - b.top);
+  const viewportMid = viewH / 2;
+  const pad = 12;
+
+  /** @type {{ top: number, bottom: number, score: number } | null} */
+  let best = null;
+
+  for (let i = 0; i < rects.length - 1; i += 1) {
+    const gapTop = rects[i].bottom + pad;
+    const gapBottom = rects[i + 1].top - pad;
+    const gapH = gapBottom - gapTop;
+    if (gapH < 100) continue;
+    const mid = (gapTop + gapBottom) / 2;
+    const score = gapH - Math.abs(mid - viewportMid) * 0.35;
+    if (!best || score > best.score) {
+      best = { top: gapTop, bottom: gapBottom, score };
+    }
+  }
+
+  if (rects.length === 1) {
+    const gapTop = rects[0].bottom + pad;
+    const gapBottom = viewH - pad;
+    if (gapBottom - gapTop >= 100) {
+      return { top: gapTop, bottom: gapBottom };
+    }
+  }
+
+  if (best) return { top: best.top, bottom: best.bottom };
+  return null;
+}
+
+/**
+ * @param {number} dlgH
+ * @param {number} viewH
+ * @param {{ top: number, bottom: number } | null} gap
+ */
+function computeDialogTopPx(dlgH, viewH, gap) {
+  const margin = 16;
+  const maxTop = Math.max(margin, viewH - dlgH - margin);
+
+  let centerY;
+  if (gap && gap.bottom - gap.top >= dlgH + 8) {
+    centerY = (gap.top + gap.bottom) / 2;
+  } else if (gap) {
+    centerY = (gap.top + gap.bottom) / 2;
+  } else {
+    centerY = viewH / 2;
+  }
+
+  let top = centerY - dlgH / 2;
+  top = Math.max(margin, Math.min(maxTop, top));
   return top;
 }
 
@@ -228,54 +319,14 @@ function getAbsoluteTop(el) {
 export function positionModalBetweenAds(dialogEl) {
   if (!dialogEl) return;
 
-  const ads = [];
-  for (const sel of AD_EXEMPT_SELECTORS) {
-    document.querySelectorAll(sel).forEach((node) => {
-      if (node instanceof HTMLElement) ads.push(node);
-    });
-  }
-  const unique = [...new Set(ads)];
+  const viewH = window.innerHeight || document.documentElement.clientHeight || 600;
+  const gap = findViewportAdGap(viewH);
+  const dlgH = Math.min(dialogEl.offsetHeight || 0, viewH - 32) || 320;
+  const top = computeDialogTopPx(dlgH, viewH, gap);
 
-  /** @type {{ top: number, bottom: number }[]} */
-  const adRects = [];
-  for (const ad of unique) {
-    if (ad.offsetWidth === 0 && ad.offsetHeight === 0) continue;
-    const absTop = getAbsoluteTop(ad);
-    adRects.push({ top: absTop, bottom: absTop + ad.offsetHeight });
-  }
-
-  const scrollY = window.scrollY || 0;
-  const viewH = window.innerHeight || 600;
-
-  if (!adRects.length) {
-    dialogEl.style.top = `${scrollY + viewH / 2}px`;
-    dialogEl.style.transform = "translate(-50%, -50%)";
-    return;
-  }
-
-  adRects.sort((a, b) => a.top - b.top);
-  const topAd = adRects[0];
-  const bottomAd = adRects[adRects.length - 1];
-
-  let firstAdBottom;
-  let lastAdTop;
-  if (adRects.length === 1) {
-    firstAdBottom = topAd.bottom;
-    lastAdTop = document.documentElement.scrollHeight;
-  } else if (bottomAd.top >= topAd.bottom) {
-    firstAdBottom = topAd.bottom;
-    lastAdTop = bottomAd.top;
-  } else {
-    const maxBottom = Math.max(...adRects.map((r) => r.bottom));
-    firstAdBottom = maxBottom;
-    lastAdTop = document.documentElement.scrollHeight;
-  }
-
-  const gapCenter = firstAdBottom + (lastAdTop - firstAdBottom) / 2;
-  const dlgH = dialogEl.offsetHeight || 400;
-  const top = Math.max(firstAdBottom + 12, gapCenter - dlgH / 2);
   dialogEl.style.top = `${top}px`;
-  dialogEl.style.transform = "translateX(-50%)";
+  dialogEl.style.transform = "translate(-50%, 0)";
+  dialogEl.style.maxHeight = `${viewH - 32}px`;
 }
 
 function scheduleReposition(dialogEl) {
@@ -293,11 +344,12 @@ export function showModalShell(dialogEl) {
   document.body?.classList.add(MODAL_BODY_CLASS);
   backdrop.removeAttribute("hidden");
   dialogEl.removeAttribute("hidden");
+  const place = () => positionModalBetweenAds(dialogEl);
   requestAnimationFrame(() => {
-    positionModalBetweenAds(dialogEl);
-    dialogEl.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
-    dialogEl.focus?.();
+    place();
+    requestAnimationFrame(place);
   });
+  window.setTimeout(place, 120);
   if (!dialogEl._itzModalOnResize) {
     const onResize = () => scheduleReposition(dialogEl);
     dialogEl._itzModalOnResize = onResize;
@@ -333,6 +385,7 @@ export function hideModalShell(dialogEl) {
  *   message?: string,
  *   wide?: boolean,
  *   buttons?: Array<{ label: string, primary?: boolean, act?: string }>,
+ *   persistent?: boolean,
  * }} SiteDialogOptions
  */
 
@@ -340,6 +393,27 @@ export function hideModalShell(dialogEl) {
  * @param {SiteDialogOptions} options
  * @returns {Promise<string | void>}
  */
+export function isPersistentSiteModalOpen() {
+  return Boolean(
+    _alertDialog &&
+      !_alertDialog.hasAttribute("hidden") &&
+      _alertDialog.dataset.persistent === "1",
+  );
+}
+
+/**
+ * @param {string} text
+ * @param {"ok" | "err" | ""} [kind]
+ */
+export function setSiteDialogStatus(text, kind = "") {
+  const el = _alertDialog?.querySelector("[data-modal-status]");
+  if (!el) return;
+  el.textContent = text;
+  el.classList.remove("is-ok", "is-err");
+  if (kind === "ok") el.classList.add("is-ok");
+  if (kind === "err") el.classList.add("is-err");
+}
+
 export function showSiteDialog(options) {
   const run = () =>
     new Promise((resolve) => {
@@ -354,13 +428,30 @@ export function showSiteDialog(options) {
         _alertDialog = dlg;
       }
 
+      if (
+        options.persistent &&
+        dlg &&
+        !dlg.hasAttribute("hidden") &&
+        dlg.dataset.persistent === "1"
+      ) {
+        setSiteDialogStatus("");
+        scheduleReposition(dlg);
+        return;
+      }
+
       const title = options.title ?? "안내";
       const body = options.bodyHtml ?? messageToHtml(options.message ?? "");
       const buttons = options.buttons?.length
         ? options.buttons
         : [{ label: "확인", primary: true, act: "ok" }];
+      const persistent = Boolean(options.persistent);
 
       dlg.classList.toggle("itz-modal-dialog--wide", Boolean(options.wide));
+      if (persistent) {
+        dlg.dataset.persistent = "1";
+      } else {
+        delete dlg.dataset.persistent;
+      }
 
       const footHtml = buttons
         .map(
@@ -369,20 +460,29 @@ export function showSiteDialog(options) {
         )
         .join("");
 
+      const statusRow = persistent
+        ? '<p class="itz-modal__status" data-modal-status aria-live="polite"></p>'
+        : "";
+
       dlg.innerHTML = `
         <div class="itz-modal__head">
           <h2 class="itz-modal__title">${esc(title)}</h2>
         </div>
         <div class="itz-modal__body">${body}</div>
+        ${statusRow}
         <footer class="itz-modal__foot">${footHtml}</footer>
       `;
 
       const finish = (act) => {
         _resolveCurrent = null;
+        _pendingDialogResolve = null;
+        delete dlg.dataset.persistent;
         hideModalShell(dlg);
         resolve(act);
       };
-      _resolveCurrent = () => finish("dismiss");
+
+      _pendingDialogResolve = finish;
+      _resolveCurrent = persistent ? null : () => finish("dismiss");
 
       dlg.onclick = (ev) => {
         const t = ev.target;
@@ -422,11 +522,15 @@ export function installSiteAlertOverride(native) {
 }
 
 export function dismissActiveSiteModal() {
-  if (_resolveCurrent) {
-    const finish = _resolveCurrent;
-    _resolveCurrent = null;
-    finish();
-  } else if (_alertDialog && !_alertDialog.hasAttribute("hidden")) {
+  _resolveCurrent = null;
+  if (_pendingDialogResolve) {
+    const finish = _pendingDialogResolve;
+    _pendingDialogResolve = null;
+    finish("auto");
+    return;
+  }
+  if (_alertDialog && !_alertDialog.hasAttribute("hidden")) {
+    delete _alertDialog.dataset.persistent;
     hideModalShell(_alertDialog);
   }
 }
@@ -442,6 +546,8 @@ export function installGlobals() {
       showModalShell,
       hideModalShell,
       dismissActiveSiteModal,
+      isPersistentSiteModalOpen,
+      setSiteDialogStatus,
       positionModalBetweenAds,
       ensureSiteModalStyles,
       AD_EXEMPT_SELECTORS,

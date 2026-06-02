@@ -17,6 +17,9 @@ import {
   hideModalShell,
   installGlobals,
   positionModalBetweenAds,
+  dismissActiveSiteModal,
+  isPersistentSiteModalOpen,
+  setSiteDialogStatus,
   showModalShell,
   showSiteDialog,
 } from "./site-modal.js";
@@ -569,8 +572,8 @@ export function formatAgentConnectionError(raw) {
   const msg = extractAgentErrorMessage(raw);
   if (/ERR_BLOCKED_BY_CLIENT|blocked by client/i.test(msg)) {
     return (
-      "광고·보안 확장이 로컬 에이전트(127.0.0.1) 연결을 차단했습니다. " +
-      "이 Chrome 프로필에서 확장 허용·로컬 네트워크 「허용」을 확인하세요."
+      "광고 차단 확장이 에이전트 연결을 막고 있습니다. " +
+      "확장을 완전히 끈 뒤 새로고침하세요."
     );
   }
   if (/address space/i.test(msg)) {
@@ -883,6 +886,46 @@ async function resolveInstallDialogOptions(source) {
 }
 
 /**
+ * 연결 차단 안내 — 배경 클릭으로 닫히지 않음. 연결 성공 시 모니터가 닫거나, 재시도 성공 시 닫음.
+ * @param {Awaited<ReturnType<typeof agentAccessBlockedDialogOptions>>} blocked
+ * @param {() => Promise<unknown>} onRetry
+ */
+async function runPersistentAccessBlockedDialog(blocked, onRetry) {
+  for (;;) {
+    setSiteDialogStatus("");
+    const act = await showSiteDialog({
+      title: blocked.title,
+      bodyHtml: blocked.bodyHtml,
+      persistent: true,
+      buttons: [
+        {
+          label: blocked.primaryLabel ?? "다시 연결 확인",
+          primary: true,
+          act: "retry",
+        },
+      ],
+    });
+    if (act === "auto") return;
+    if (act !== "retry") return;
+
+    setSiteDialogStatus("연결 확인 중…");
+    let detail = await Promise.resolve(onRetry());
+    if (!detail || typeof detail !== "object" || !("ok" in detail)) {
+      detail = await checkAgentConnection();
+    }
+    if (detail?.ok) {
+      dismissActiveSiteModal();
+      return;
+    }
+    const err =
+      detail && typeof detail === "object" && "error" in detail && detail.error
+        ? String(detail.error)
+        : "연결할 수 없습니다";
+    setSiteDialogStatus(`아직 연결되지 않았습니다. (${err})`, "err");
+  }
+}
+
+/**
  * @typedef {{
  *   intervalMs?: number,
  *   immediate?: boolean,
@@ -938,6 +981,7 @@ export function startConnectionMonitor(opts = {}) {
       recordCircuitSuccess();
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
+      dismissActiveSiteModal();
       if (_installDialog && !_installDialog.hasAttribute("hidden")) dismissInstallAgentDialog();
       void connectAgentWebSocket();
       lastOk = true;
@@ -970,28 +1014,21 @@ export function startConnectionMonitor(opts = {}) {
         failStreak >= dialogAfterStreak &&
         !isAgentLongOperationActive() &&
         Date.now() >= _installAutoShowSuppressedUntil;
-      if (shouldAlert && !(_installDialog && !_installDialog.hasAttribute("hidden"))) {
+      if (
+        shouldAlert &&
+        !(_installDialog && !_installDialog.hasAttribute("hidden")) &&
+        !(isBrowserBlock && isPersistentSiteModalOpen())
+      ) {
         disconnectDialogShown = true;
         void (async () => {
           const baseOpts = await resolveInstallDialogOptions(opts.installDialogOptions);
           const onRetry =
             typeof baseOpts.onPrimary === "function"
               ? baseOpts.onPrimary
-              : () => tick();
+              : () => checkAgentConnection();
           if (isBrowserBlock) {
             const blocked = await agentAccessBlockedDialogOptions(() => onRetry());
-            const act = await showSiteDialog({
-              title: blocked.title,
-              bodyHtml: blocked.bodyHtml,
-              buttons: [
-                {
-                  label: blocked.primaryLabel ?? "다시 연결 확인",
-                  primary: true,
-                  act: "retry",
-                },
-              ],
-            });
-            if (act === "retry") void onRetry();
+            void runPersistentAccessBlockedDialog(blocked, onRetry);
           } else {
             await showInstallAgentDialog(baseOpts);
           }

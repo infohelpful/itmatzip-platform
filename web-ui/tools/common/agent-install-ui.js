@@ -82,22 +82,25 @@ function agentDownloadLinkAttrs(rawHref) {
 export function buildAgentAccessBlockedDialogBodyHtml() {
   return `
     <p class="itz-modal__msg">
-      에이전트는 PC에서 켜져 있어도, <strong>지금 Chrome의 확장 프로그램</strong>이
-      사이트와 PC 프로그램 사이 연결을 막고 있습니다.
+      <strong>광고 차단 확장</strong>(AdBlock, uBlock 등)이 PC 프로그램(에이전트)과의 연결을 막고 있습니다.
+    </p>
+    <p class="itz-modal__msg">
+      이 사이트만 끄기·일시 중지로는 해결이 안 될 때가 많습니다.
+      <strong>확장 프로그램 자체</strong>를 꺼 주세요.
     </p>
     <ol class="itz-modal__steps">
-      <li>주소창 왼쪽 <strong>자물쇠</strong> → <strong>사이트 설정</strong> → <strong>로컬 네트워크 「허용」</strong></li>
-      <li>AdBlock·uBlock 등에서 <strong>이 사이트 허용</strong>(끄기만으로는 부족할 때가 많음)</li>
-      <li><strong>F5</strong> 새로고침 후 아래 「다시 연결 확인」</li>
+      <li>Chrome 위 <strong>확장 아이콘</strong> 우클릭 → <strong>확장 프로그램 관리</strong></li>
+      <li>해당 확장의 <strong>사용</strong> 스위치를 <strong>끔</strong></li>
+      <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
     </ol>
-    <p class="itz-modal__hint">Chrome을 여러 개 쓰면 확장 설정이 창마다 다를 수 있습니다.</p>
+    <p class="itz-modal__hint">그래도 안 되면: 주소창 <strong>자물쇠</strong> → <strong>로컬 네트워크 허용</strong></p>
   `.trim();
 }
 
 /** @param {() => Promise<unknown>} onPrimaryCheck */
 export async function agentAccessBlockedDialogOptions(onPrimaryCheck) {
   return {
-    title: "연결이 차단되었습니다",
+    title: "확장 프로그램이 연결을 막고 있습니다",
     bodyHtml: buildAgentAccessBlockedDialogBodyHtml(),
     primaryLabel: "다시 연결 확인",
     onPrimary: onPrimaryCheck,
