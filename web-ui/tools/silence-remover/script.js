@@ -1118,7 +1118,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (typeof raw.dynamic_range_db === "number" && Number.isFinite(raw.dynamic_range_db)) {
         setSummaryCell(summaryDr, `${truncTo2Decimals(raw.dynamic_range_db)} dB`);
       }
-      if (typeof raw.sample_rate_hz === "number" && Number.isFinite(raw.sample_rate_hz)) {
+      if (
+        typeof raw.sample_rate_hz === "number" &&
+        Number.isFinite(raw.sample_rate_hz) &&
+        raw.sample_rate_hz >= 8000
+      ) {
         setSummaryCell(summarySampleRate, formatSampleRateLabel(raw.sample_rate_hz));
       }
     }
@@ -1160,6 +1164,14 @@ document.addEventListener("DOMContentLoaded", () => {
     return canRestoreAnalysisForPath(p, mediaPathsEqual);
   }
 
+  /** 파형 타임라인(초)을 미디어 요약·세션 길이에 반영합니다. */
+  function syncMediaSummaryDurationFromWaveform(timelineSec) {
+    if (!Number.isFinite(timelineSec) || timelineSec <= 0) return;
+    probedMediaDurationSec = timelineSec;
+    setSummaryCell(summaryDuration, formatDurationClock(timelineSec));
+    sessionStorage.setItem(STORAGE_DURATION, String(timelineSec));
+  }
+
   /**
    * @param {Record<string, unknown>} m
    */
@@ -1168,10 +1180,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (typeof m.duration_sec === "number" && Number.isFinite(m.duration_sec)) {
       probedMediaDurationSec = m.duration_sec;
       setSummaryCell(summaryDuration, formatDurationClock(m.duration_sec));
-      if (waveformPeaksData && applyResolvedTimelineToPeaksData(waveformPeaksData)) {
-        waveformRendererCacheKey = "";
-        scheduleWaveformRedraw();
-      }
     }
     if (typeof m.mean_volume_db === "number" && Number.isFinite(m.mean_volume_db)) {
       probedMeanVolumeDb = m.mean_volume_db;
@@ -1663,41 +1671,16 @@ document.addEventListener("DOMContentLoaded", () => {
   /**
    * @param {number} timelineSec
    * @param {number} columnCount
-   * @param {number | null | undefined} probedSec
    */
-  function resolveWaveformTimelineSec(timelineSec, columnCount, probedSec) {
+  function resolveWaveformTimelineSec(timelineSec, columnCount) {
     let t = timelineSec;
     if (!Number.isFinite(t) || t <= 0 || columnCount < 2) return t;
     const secPerCol = t / columnCount;
-    if (Number.isFinite(probedSec) && probedSec > 0 && t > probedSec * 1.12) {
-      t = probedSec;
-    } else if (secPerCol > 0.2) {
+    if (secPerCol > 0.2) {
       const est = columnCount / WAVEFORM_PPS;
       if (est > 30 && est < t * 0.9) t = est;
     }
     return t;
-  }
-
-  /** @param {import("./waveform-canvas.js").WaveformPeaksData} data */
-  function applyResolvedTimelineToPeaksData(data) {
-    const target = resolveWaveformTimelineSec(
-      data.timeline_sec,
-      data.column_count,
-      probedMediaDurationSec,
-    );
-    if (
-      !Number.isFinite(target) ||
-      target <= 0 ||
-      Math.abs(target - data.timeline_sec) < 0.5
-    ) {
-      return false;
-    }
-    if (target > data.timeline_sec * 1.01) {
-      return false;
-    }
-    data.timeline_sec = target;
-    data.duration_sec = target;
-    return true;
   }
 
   function clearWaveformPreview() {
@@ -1801,11 +1784,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       if (!useEditorTimeline) {
-        timelineSec = resolveWaveformTimelineSec(
-          timelineSec,
-          columnCount,
-          probedMediaDurationSec,
-        );
+        timelineSec = resolveWaveformTimelineSec(timelineSec, columnCount);
       }
 
       const pcmDecodedSec =
@@ -1866,14 +1845,7 @@ document.addEventListener("DOMContentLoaded", () => {
       lastWaveformPeaksPps = pps;
       waveformRendererCacheKey = "";
 
-      if (
-        probedMediaDurationSec == null &&
-        timelineSec > 0 &&
-        summaryDuration
-      ) {
-        probedMediaDurationSec = timelineSec;
-        setSummaryCell(summaryDuration, formatDurationClock(timelineSec));
-      }
+      syncMediaSummaryDurationFromWaveform(timelineSec);
 
       waveformPxPerSec = 0;
       resetWaveformZoom();
@@ -2042,7 +2014,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
           applyOptionsFromSession();
           applyProbeVolumeSummaryFromSession();
-          applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
+          const summaryTimeline =
+            waveformPeaksData?.timeline_sec > 0
+              ? waveformPeaksData.timeline_sec
+              : durationSec;
+          applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), summaryTimeline);
           commitAnalyzedSettingsSnapshot({
             fps: getEditorFpsForExport(),
             noiseDb: getNoiseDb(),
@@ -2604,7 +2580,14 @@ document.addEventListener("DOMContentLoaded", () => {
         data && typeof data === "object" && Number.isFinite(data.duration_sec)
           ? Number(data.duration_sec)
           : undefined;
-      applySilenceSummaryFromAnalyze(silences, durationSec);
+      if (waveformPeaksData?.timeline_sec > 0) {
+        syncMediaSummaryDurationFromWaveform(waveformPeaksData.timeline_sec);
+      }
+      const summaryTimeline =
+        waveformPeaksData?.timeline_sec > 0
+          ? waveformPeaksData.timeline_sec
+          : durationSec;
+      applySilenceSummaryFromAnalyze(silences, summaryTimeline);
     } catch (err) {
       const msg = formatAgentConnectionError(err) || "분석에 실패했습니다.";
       alert(

@@ -580,7 +580,8 @@ def _reconcile_playback_timeline_sec(probe_sec: float, pcm_sec: float) -> float:
     """
     UI·파형·EDL 공통 재생 길이(초).
 
-    실제 디코드 길이(pcm)와 ffprobe 길이(probe) 중 신뢰 가능한 값을 고릅니다.
+    ffprobe 후보(probe)와 PCM 디코드 길이(pcm)를 합칩니다.
+    파형·룰러는 PCM 디코드 길이를 우선합니다(컨테이너 format duration 보다 긴 경우).
     """
     probe = float(probe_sec) if probe_sec > 1e-6 else 0.0
     pcm = float(pcm_sec) if pcm_sec > 1e-6 else 0.0
@@ -1019,6 +1020,7 @@ def _ffmpeg_decode_pcm_to_file(
     *,
     sample_rate: int,
     timeout_sec: float,
+    duration_sec: float | None = None,
 ) -> None:
     """stdout 파이프 없이 임시 f32le 파일로 디코드(Windows 장시간 파형 절단 방지)."""
     sr = max(8000, int(sample_rate))
@@ -1035,12 +1037,18 @@ def _ffmpeg_decode_pcm_to_file(
         "0",
         "-i",
         str(media_path),
-        "-af",
-        f"aresample={sr},aformat=sample_fmts=flt:channel_layouts=mono",
-        "-f",
-        "f32le",
-        str(out_path),
     ]
+    if duration_sec is not None and float(duration_sec) > 1e-3:
+        cmd.extend(["-t", f"{float(duration_sec):.6f}"])
+    cmd.extend(
+        [
+            "-af",
+            f"aresample={sr},aformat=sample_fmts=flt:channel_layouts=mono",
+            "-f",
+            "f32le",
+            str(out_path),
+        ]
+    )
     proc = run_hidden(
         cmd,
         stdin=subprocess.DEVNULL,
@@ -1142,6 +1150,7 @@ def _decode_mono_pcm_peak_per_column(
             tmp_path,
             sample_rate=sr,
             timeout_sec=timeout_sec,
+            duration_sec=float(duration_sec),
         )
         peaks, pcm_timeline_sec, sample_count = _peaks_from_pcm_file(
             tmp_path,
@@ -1561,6 +1570,25 @@ def _reconcile_duration_candidates(candidates: list[float]) -> float:
     return max(trimmed) if trimmed else med
 
 
+def _playback_timeline_from_probe_candidates(candidates: list[float]) -> float:
+    """
+    format / video / audio ffprobe 후보에서 실제 재생 길이(초).
+
+    컨테이너 format duration 보다 오디오·비디오 스트림이 길게 잡히는 파일이 있어
+    보수적 reconcile 은 파형·PCM 디코드보다 짧을 수 있습니다.
+    8배 이상 벗어난 극단값만 제외하고는 가장 긴 후보를 씁니다.
+    """
+    vals = sorted({float(x) for x in candidates if x is not None and float(x) > 1e-3})
+    if not vals:
+        return 0.0
+    if len(vals) == 1:
+        return vals[0]
+    lo, hi = vals[0], vals[-1]
+    if hi > lo * 8.0:
+        return _reconcile_duration_candidates(vals)
+    return hi
+
+
 def get_media_audio_timeline_sec(
     media_path: Path | str,
     *,
@@ -1569,7 +1597,7 @@ def get_media_audio_timeline_sec(
     """
     파형·silencedetect·UI 공통 재생 타임라인(초)과 샘플레이트.
 
-    format / 비디오 / 오디오 스트림 duration을 모아 이상치를 제거한 값을 씁니다.
+    format / 비디오 / 오디오 스트림 duration 후보 중 실제 재생에 가까운 값을 씁니다.
     """
     path = Path(media_path)
     t = min(120.0, timeout_sec)
@@ -1588,7 +1616,7 @@ def get_media_audio_timeline_sec(
         candidates.append(float(v_dur))
     if not candidates:
         return 0.0, sr or 48000
-    return _reconcile_duration_candidates(candidates), sr or 48000
+    return _playback_timeline_from_probe_candidates(candidates), sr or 48000
 
 
 def clamp_segments_to_axis(
