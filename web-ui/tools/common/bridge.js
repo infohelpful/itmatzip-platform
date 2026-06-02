@@ -18,6 +18,7 @@ import {
   installGlobals,
   positionModalBetweenAds,
   showModalShell,
+  showSiteDialog,
 } from "./site-modal.js";
 
 installGlobals();
@@ -977,10 +978,23 @@ export function startConnectionMonitor(opts = {}) {
             typeof baseOpts.onPrimary === "function"
               ? baseOpts.onPrimary
               : () => tick();
-          const dialogOpts = isBrowserBlock
-            ? await agentAccessBlockedDialogOptions(() => onRetry())
-            : baseOpts;
-          await showInstallAgentDialog(dialogOpts);
+          if (isBrowserBlock) {
+            const blocked = await agentAccessBlockedDialogOptions(() => onRetry());
+            const act = await showSiteDialog({
+              title: blocked.title,
+              bodyHtml: blocked.bodyHtml,
+              buttons: [
+                {
+                  label: blocked.primaryLabel ?? "다시 연결 확인",
+                  primary: true,
+                  act: "retry",
+                },
+              ],
+            });
+            if (act === "retry") void onRetry();
+          } else {
+            await showInstallAgentDialog(baseOpts);
+          }
         })();
       }
     }
@@ -1320,10 +1334,24 @@ function ensureInstallDialogStyles() {
   style.id = "itmatzip-bridge-install-dialog-styles";
   style.textContent = `
     #itmatzip-bridge-install-dialog {
-      width: min(820px, calc(100vw - 32px));
-      max-width: min(820px, 92vw);
+      width: min(720px, calc(100vw - 32px));
+      max-width: min(720px, 92vw);
       background: #1a1d23;
       color: #e2e8f0;
+      overflow: hidden;
+    }
+    #itmatzip-bridge-install-dialog .itz-install {
+      max-height: min(80vh, 680px);
+      display: flex;
+      flex-direction: column;
+    }
+    #itmatzip-bridge-install-dialog .itz-install__body {
+      overflow-y: auto;
+      overflow-x: hidden;
+      flex: 1 1 auto;
+      min-height: 0;
+      scrollbar-gutter: stable;
+      scrollbar-color: #4b5563 #1a1d23;
     }
     .itz-install {
       font-family: "Pretendard", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

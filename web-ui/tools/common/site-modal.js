@@ -84,7 +84,8 @@ export function ensureSiteModalStyles() {
       z-index: 2147483645;
       width: min(520px, calc(100vw - 32px));
       max-height: min(85vh, 720px);
-      overflow: auto;
+      overflow: hidden;
+      overflow-x: hidden;
       margin: 0;
       padding: 0;
       border: none;
@@ -94,6 +95,9 @@ export function ensureSiteModalStyles() {
       box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
       color: #e6edf7;
       font-family: inherit;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
     }
     .itz-modal-dialog[hidden] {
       display: none !important;
@@ -104,6 +108,7 @@ export function ensureSiteModalStyles() {
     .itz-modal__head {
       padding: 1.25rem 1.5rem 0.75rem;
       border-bottom: 1px solid #2d333f;
+      flex-shrink: 0;
     }
     .itz-modal__title {
       margin: 0;
@@ -117,6 +122,35 @@ export function ensureSiteModalStyles() {
       font-size: 0.95rem;
       line-height: 1.65;
       color: #b0bec5;
+      overflow-x: hidden;
+      overflow-y: auto;
+      flex: 1 1 auto;
+      min-height: 0;
+      scrollbar-gutter: stable;
+      scrollbar-color: #4b5563 #151820;
+    }
+    .itz-modal__body::-webkit-scrollbar {
+      width: 10px;
+    }
+    .itz-modal__body::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 8px;
+    }
+    .itz-modal__body::-webkit-scrollbar-track {
+      background: #151820;
+    }
+    .itz-modal__steps {
+      margin: 0.75rem 0 0;
+      padding-left: 1.25rem;
+      color: #cbd5e1;
+    }
+    .itz-modal__steps li {
+      margin-bottom: 0.55rem;
+    }
+    .itz-modal__hint {
+      margin: 0.85rem 0 0;
+      font-size: 0.88rem;
+      color: #8b9cb8;
     }
     .itz-modal__msg {
       margin: 0 0 0.65rem;
@@ -132,6 +166,7 @@ export function ensureSiteModalStyles() {
       border-top: 1px solid #2d333f;
       background: #151820;
       border-radius: 0 0 16px 16px;
+      flex-shrink: 0;
     }
     .itz-modal__btn {
       min-width: 6.5rem;
