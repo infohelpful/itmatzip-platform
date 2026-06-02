@@ -26,6 +26,8 @@ export const STORAGE_PADDING_MS = "itmatzip_silence_padding_ms";
 export const STORAGE_MIN_SILENCE_SEC = "itmatzip_silence_min_silence_sec";
 export const STORAGE_MIN_SILENCE = "itmatzip_silence_min_silence_sec";
 export const STORAGE_EDL_FINGERPRINT = "itmatzip_silence_edl_fp";
+/** 무음 분석 버튼 성공 후에만 파형 무음 미리보기 허용 (정규화된 경로) */
+export const STORAGE_SILENCE_OVERLAY_PATH = "itmatzip_silence_overlay_path";
 /** 다운로드 페이지 → 편집 화면 복귀 시에만 UI 복원 (일반 접속·새로고침은 빈 화면) */
 export const STORAGE_RESTORE_EDITOR = "itmatzip_silence_restore_editor";
 
@@ -226,6 +228,7 @@ export function clearSilenceAnalysisSessionStorage() {
   sessionStorage.removeItem(STORAGE_FPS_NATIVE_RATIONAL);
   sessionStorage.removeItem(STORAGE_FPS);
   sessionStorage.removeItem(STORAGE_TC_OFFSET_SEC);
+  sessionStorage.removeItem(STORAGE_SILENCE_OVERLAY_PATH);
   clearAnalysisBoundVideoPath();
   clearProbeMetaFromSession();
 }
@@ -369,6 +372,29 @@ export function setAnalysisBoundVideoPath(videoPath) {
 
 export function clearAnalysisBoundVideoPath() {
   sessionStorage.removeItem(STORAGE_ANALYSIS_VIDEO_PATH);
+}
+
+/** @param {string} videoPath */
+export function grantSilenceOverlayForPath(videoPath) {
+  const p = String(videoPath || "").trim();
+  if (!p) return;
+  sessionStorage.setItem(STORAGE_SILENCE_OVERLAY_PATH, normalizeMediaPathForCompare(p));
+}
+
+/** @param {string} videoPath @param {(a: string, b: string) => boolean} pathsEqual */
+export function isSilenceOverlayGrantedForPath(videoPath, pathsEqual) {
+  const granted = sessionStorage.getItem(STORAGE_SILENCE_OVERLAY_PATH)?.trim() || "";
+  const p = String(videoPath || "").trim();
+  if (!granted || !p) return false;
+  return (
+    normalizeMediaPathForCompare(p) === granted ||
+    pathsEqual(p, granted) ||
+    mediaPathsEqualForSession(p, granted)
+  );
+}
+
+export function revokeSilenceOverlay() {
+  sessionStorage.removeItem(STORAGE_SILENCE_OVERLAY_PATH);
 }
 
 /**

@@ -48,11 +48,14 @@ import {
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
+  grantSilenceOverlayForPath,
+  isSilenceOverlayGrantedForPath,
+  revokeSilenceOverlay,
   saveProbeMetaToSession,
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna7";
+} from "../common/edl-export.js?v=lna8";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -394,6 +397,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function beginNewMediaWorkflow() {
     window.clearTimeout(probeTimer);
     abortWaveformPreviewInFlight();
+    revokeSilenceOverlay();
     resetSilenceAnalysisState();
     resetWaveformStateForNewMedia({ hideSection: false });
     probedMediaDurationSec = null;
@@ -783,10 +787,10 @@ document.addEventListener("DOMContentLoaded", () => {
     scheduleWaveformRedraw();
   }
 
-  /** 현재 경로 기준: 분석 완료된 영상만 무음 미리보기(보라색·flatten) */
+  /** 분석 버튼 성공 후에만 파형 무음 미리보기 — 프로브·경로 변경만으로는 절대 켜지 않음 */
   function syncSilenceOverlayToCurrentPath() {
     const p = pathInput.value.trim();
-    if (p && canRestoreAnalysisForPath(p, mediaPathsEqual)) {
+    if (p && isSilenceOverlayGrantedForPath(p, mediaPathsEqual)) {
       enablePreviewSilenceOverlay();
       return;
     }
@@ -919,12 +923,12 @@ document.addEventListener("DOMContentLoaded", () => {
       minSilenceSec: getMinSilenceSec(),
       height: WAVEFORM_CANVAS_H,
       showRuler: true,
-      showSilenceOverlay: silencePreviewEnabled && silenceAnalysisDone,
+      showSilenceOverlay: silencePreviewEnabled,
       silenceColumnRanges: silenceColRanges,
       pxPerSec,
       scrollLeftPx,
       canvasWidth,
-      flattenSilence: silencePreviewEnabled && silenceAnalysisDone,
+      flattenSilence: silencePreviewEnabled,
       renderer,
     });
 
@@ -938,16 +942,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (waveformPreviewStatus) {
       const durTxt = formatDurationClock(waveformPeaksData.timeline_sec);
-      waveformPreviewStatus.textContent = silencePreviewEnabled && silenceAnalysisDone
+      waveformPreviewStatus.textContent = silencePreviewEnabled
         ? `재생 시간 : ${durTxt} / 미리보기 화면은 실제 EDL 파일의 결과물과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.`
         : `재생 시간 : ${durTxt}`;
       waveformPreviewStatus.classList.remove("is-err");
     }
     if (waveformPreviewTitle) {
-      waveformPreviewTitle.textContent =
-        silencePreviewEnabled && silenceAnalysisDone
-          ? "오디오 파형 (무음 미리보기)"
-          : "오디오 파형";
+      waveformPreviewTitle.textContent = silencePreviewEnabled
+        ? "오디오 파형 (무음 미리보기)"
+        : "오디오 파형";
     }
   }
 
@@ -1733,6 +1736,7 @@ document.addEventListener("DOMContentLoaded", () => {
       clearWaveformPreview();
       return;
     }
+    disableSilencePreviewOverlay();
     resetWaveformStateForNewMedia({ hideSection: false });
     waveformPreviewGen += 1;
     const myGen = waveformPreviewGen;
@@ -2111,13 +2115,18 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAnalyzedSettingsSummary();
 
   /** 새로고침 후 경로 없이 남은 고아 session(분석 bound 없음) 제거 */
+  disableSilencePreviewOverlay();
   if (!pathInput.value.trim()) {
+    revokeSilenceOverlay();
     if (!getAnalysisBoundVideoPath() && sessionStorage.getItem(STORAGE_SILENCES)) {
       clearSilenceAnalysisSessionStorage();
       syncExportLinkState();
     }
   } else {
     discardAnalysisSessionUnlessPath(pathInput.value.trim(), mediaPathsEqual);
+    if (!isSilenceOverlayGrantedForPath(pathInput.value.trim(), mediaPathsEqual)) {
+      revokeSilenceOverlay();
+    }
     syncExportLinkState();
   }
 
@@ -2251,6 +2260,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
       if (shouldRestoreSilencePreviewOverlay()) {
+        grantSilenceOverlayForPath(videoPath);
         syncSilenceOverlayToCurrentPath();
       } else {
         disableSilencePreviewOverlay();
@@ -2546,6 +2556,7 @@ document.addEventListener("DOMContentLoaded", () => {
           );
         }
       }
+      grantSilenceOverlayForPath(videoPath);
       syncSilenceOverlayToCurrentPath();
       const fpsRatEdl =
         data && typeof data === "object" && typeof data.fps_rational === "string"

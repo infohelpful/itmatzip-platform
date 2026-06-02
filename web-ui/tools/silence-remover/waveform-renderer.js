@@ -298,7 +298,7 @@ export class WaveformRenderer {
     const waveH = cssH - rulerH;
     const pxPerSec = Math.max(1e-6, view.pxPerSec);
     const scrollLeftPx = Math.max(0, view.scrollLeftPx ?? 0);
-    const flattenSilence = view.flattenSilence !== false;
+    const flattenSilence = view.flattenSilence === true;
     const silenceThreshold = view.silenceThreshold ?? 0.01;
     const silenceThresholdDb = view.silenceThresholdDb;
 

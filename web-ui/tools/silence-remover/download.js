@@ -11,7 +11,7 @@ import {
   pickEdlSaveFileHandle,
   saveEdlBlobToDisk,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna6";
+} from "../common/edl-export.js?v=lna8";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 
 configureBridge({ healthPath: "/health" });

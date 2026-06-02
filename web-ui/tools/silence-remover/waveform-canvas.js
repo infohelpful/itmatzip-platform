@@ -450,7 +450,7 @@ export function drawSilenceWaveform(canvas, data, opts) {
       scrollLeftPx,
       canvasWidth: cssW,
       canvasHeight: h,
-      flattenSilence: opts.flattenSilence !== false,
+      flattenSilence: opts.flattenSilence === true,
       silenceThresholdDb: threshDb,
       silenceThreshold: opts.amplitudeSilenceThreshold ?? 0.01,
       rulerHeight: rulerH,
