@@ -188,8 +188,8 @@
   // no-cors fetch 실패, AdSense 로드 전 data-adsense-empty.
 
   const RECHECK_MIN_MS = 8000;
-  const AD_BLOCK_GRACE_MS = 12_000;
-  const AD_BLOCK_POLL_MS = [6000, 10_000, 14_000, AD_BLOCK_GRACE_MS, AD_BLOCK_GRACE_MS + 6000];
+  const AD_BLOCK_GRACE_MS = 8000;
+  const AD_BLOCK_POLL_MS = [500, 2000, 5000, AD_BLOCK_GRACE_MS, AD_BLOCK_GRACE_MS + 4000];
   const pageLoadedAt = Date.now();
 
   let adBlockLatched = false;
@@ -288,9 +288,12 @@
     const hasScript =
       Boolean(document.querySelector('script[src*="adsbygoogle.js"]')) ||
       typeof window.adsbygoogle !== "undefined";
+    const scriptUnavailable =
+      window.__itmatzipAdSenseBlocked === true ||
+      (hasScript && typeof window.adsbygoogle === "undefined" && filledCount === 0);
     return {
-      scriptLoaded: hasScript,
-      scriptUnavailable: false,
+      scriptLoaded: hasScript && !scriptUnavailable,
+      scriptUnavailable,
       liveInsCount: slots.length,
       filledCount,
       unfilledCount,
@@ -324,6 +327,11 @@
    * @returns {boolean}
    */
   function evaluateAdBlock() {
+    if (window.__itmatzipAdSenseBlocked === true) {
+      const snapEarly = readAdSenseSnapshot();
+      if (!snapEarly || snapEarly.filledCount === 0) return true;
+    }
+
     const snap = readAdSenseSnapshot();
     if (!snap) return false;
 
@@ -337,15 +345,15 @@
       snap.scriptUnavailable &&
       (snap.emptyContainerCount > 0 || snap.liveInsCount > 0)
     ) {
-      return adBlockGraceExpired() || snap.emptyContainerCount > 0;
+      return true;
     }
+
+    if (wasAdResourceLikelyBlockedByClient()) return true;
 
     if (!adBlockGraceExpired()) {
       if (snap.pendingInsCount > 0) return false;
       return false;
     }
-
-    if (wasAdResourceLikelyBlockedByClient()) return true;
 
     if (snap.scriptUnavailable && snap.emptyContainerCount > 0) return true;
 
@@ -385,8 +393,14 @@
     lastAdCheckAt = now;
 
     const blocked = evaluateAdBlock();
-    if (blocked) latchAdBlock();
-    else clearAdBlockLatch();
+    if (blocked) {
+      latchAdBlock();
+      return;
+    }
+    const snap = readAdSenseSnapshot();
+    if (adBlockLatched && snap && snap.filledCount > 0) {
+      clearAdBlockLatch();
+    }
   }
 
   function scheduleAdBlockPolls() {
@@ -423,19 +437,23 @@
   function installAdBlockGuard() {
     if (profile !== "full") return;
 
+    document.addEventListener("itz:adsense-slot-failed", () => {
+      window.__itmatzipAdSenseBlocked = true;
+      runAdBlockCheck({ force: true });
+    });
+
     function bootstrap() {
       if (!document.body) return;
+
+      runAdBlockCheck({ force: true });
+      watchAdsenseSlot();
 
       runWhenIdle(() => {
         runAdBlockCheck({ force: true });
         watchAdsenseSlot();
-      }, 3000);
+      }, 2000);
 
       scheduleAdBlockPolls();
-
-      document.addEventListener("itz:adsense-slot-failed", () => {
-        runAdBlockCheck({ force: true });
-      });
 
       if (!document.querySelector("ins.adsbygoogle")) {
         adsenseRootObserver?.disconnect();

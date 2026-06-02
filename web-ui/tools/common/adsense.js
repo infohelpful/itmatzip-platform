@@ -25,6 +25,9 @@ const FILL_WATCH_MS = 18_000;
 
 /** @param {string} unitKey */
 function notifyAdSlotFailed(unitKey) {
+  if (typeof window !== "undefined") {
+    window.__itmatzipAdSenseBlocked = true;
+  }
   document.dispatchEvent(
     new CustomEvent("itz:adsense-slot-failed", { detail: { unitKey } }),
   );
@@ -141,6 +144,9 @@ export function ensureAdSenseScript() {
     };
     s.onerror = () => {
       _scriptUnavailable = true;
+      if (typeof window !== "undefined") {
+        window.__itmatzipAdSenseBlocked = true;
+      }
       _scriptLoadPromise = null;
       reject(new Error("AdSense script load failed"));
     };
