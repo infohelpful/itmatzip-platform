@@ -386,8 +386,22 @@ export function hideModalShell(dialogEl) {
  *   wide?: boolean,
  *   buttons?: Array<{ label: string, primary?: boolean, act?: string }>,
  *   persistent?: boolean,
+ *   dialogKind?: "ad-block" | "agent-block" | string,
  * }} SiteDialogOptions
  */
+
+export function getActiveSiteDialogKind() {
+  if (!_alertDialog || _alertDialog.hasAttribute("hidden")) return null;
+  return _alertDialog.dataset.dialogKind || null;
+}
+
+export function isAgentBlockDialogOpen() {
+  return getActiveSiteDialogKind() === "agent-block";
+}
+
+export function isAdBlockDialogOpen() {
+  return getActiveSiteDialogKind() === "ad-block";
+}
 
 /**
  * @param {SiteDialogOptions} options
@@ -452,6 +466,11 @@ export function showSiteDialog(options) {
       } else {
         delete dlg.dataset.persistent;
       }
+      if (options.dialogKind) {
+        dlg.dataset.dialogKind = options.dialogKind;
+      } else {
+        delete dlg.dataset.dialogKind;
+      }
 
       const footHtml = buttons
         .map(
@@ -477,6 +496,7 @@ export function showSiteDialog(options) {
         _resolveCurrent = null;
         _pendingDialogResolve = null;
         delete dlg.dataset.persistent;
+        delete dlg.dataset.dialogKind;
         hideModalShell(dlg);
         resolve(act);
       };
@@ -531,6 +551,7 @@ export function dismissActiveSiteModal() {
   }
   if (_alertDialog && !_alertDialog.hasAttribute("hidden")) {
     delete _alertDialog.dataset.persistent;
+    delete _alertDialog.dataset.dialogKind;
     hideModalShell(_alertDialog);
   }
 }
@@ -547,6 +568,9 @@ export function installGlobals() {
       hideModalShell,
       dismissActiveSiteModal,
       isPersistentSiteModalOpen,
+      isAgentBlockDialogOpen,
+      isAdBlockDialogOpen,
+      getActiveSiteDialogKind,
       setSiteDialogStatus,
       positionModalBetweenAds,
       ensureSiteModalStyles,

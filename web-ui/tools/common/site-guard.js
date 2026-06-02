@@ -207,34 +207,46 @@
     const brave = isBraveBrowserSync();
     const steps = brave
       ? `
-          <li>주소창 <strong>사자(Brave) 아이콘</strong> 클릭 → <strong>Shields(보호) 끔</strong></li>
-          <li class="itz-modal__sub">Shields는 확장과 별개입니다. 켜 두면 광고·추적이 계속 막힙니다.</li>
-          <li>추가로 광고 차단 <strong>확장</strong>이 있으면 <strong>사용 끔</strong></li>
+          <li>주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields(보호) 끔</strong></li>
+          <li>또는 Shields 켠 채 <strong>고급</strong> → 이 사이트 <strong>광고·추적 허용</strong></li>
           <li><strong>F5</strong> 새로고침</li>
         `
       : `
-          <li>광고 차단 <strong>확장</strong> 아이콘 → 이 사이트 허용 또는 <strong>사용 끔</strong></li>
+          <li>광고 차단 <strong>확장</strong> → 이 사이트 <strong>허용</strong> 또는 <strong>일시 중지</strong></li>
           <li><strong>F5</strong> 새로고침</li>
         `;
     return `
-      <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">🛡️</p>
+      <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">📢</p>
       <p class="itz-modal__msg">
-        본 사이트는 무료로 제공되며, 광고 수익으로 운영됩니다.
-        ${
-          brave
-            ? "지금 <strong>Brave Shields(보호)</strong> 또는 광고 차단 기능이 광고를 막고 있습니다."
-            : "광고 차단 기능이 켜져 있으면 이용이 제한됩니다."
-        }
+        이 사이트는 <strong>광고 수익</strong>으로 무료 운영됩니다.
+        지금 <strong>광고가 표시되지 않고</strong> 있습니다.
+      </p>
+      <p class="itz-modal__msg itz-modal__sub">
+        PC 프로그램(에이전트) 연결 문제와는 <strong>별개</strong>입니다. 아래는 <strong>광고 표시</strong>만 위한 안내입니다.
       </p>
       <div style="text-align:left;background:#0d1117;border-radius:8px;padding:16px 20px;margin-top:1rem;font-size:0.88rem;color:#8b9cb8">
-        <p style="margin:0 0 8px;color:#e6edf7"><strong>해제 방법</strong></p>
+        <p style="margin:0 0 8px;color:#e6edf7"><strong>광고 허용 방법</strong></p>
         <ol style="margin:0;padding-left:20px">${steps}</ol>
       </div>
     `;
   }
 
+  function isAgentBlockDialogOpenSync() {
+    const modal = window.ItzSiteModal;
+    if (typeof modal?.isAgentBlockDialogOpen === "function") {
+      return modal.isAgentBlockDialogOpen();
+    }
+    const dlg = document.getElementById("itz-site-alert-dialog");
+    return Boolean(
+      dlg &&
+        !dlg.hasAttribute("hidden") &&
+        dlg.dataset.dialogKind === "agent-block",
+    );
+  }
+
   function showAdBlockWall() {
     if (adBlockLatched) return;
+    if (isAgentBlockDialogOpenSync()) return;
 
     const modal = window.ItzSiteModal;
     if (!modal?.showSiteDialog) {
@@ -248,15 +260,20 @@
 
     void modal
       .showSiteDialog({
-        title: isBraveBrowserSync()
-          ? "Brave Shields(보호) 또는 광고 차단이 감지되었습니다"
-          : "광고 차단 프로그램이 감지되었습니다",
+        title: braveAdBlockTitle(),
         bodyHtml: adBlockWallBodyHtml(),
+        dialogKind: "ad-block",
         buttons: [{ label: "새로고침", primary: true, act: "reload" }],
       })
       .then((act) => {
         if (act === "reload") location.reload();
       });
+  }
+
+  function braveAdBlockTitle() {
+    return isBraveBrowserSync()
+      ? "광고가 차단되었습니다 (Brave Shields 등)"
+      : "광고가 차단되었습니다";
   }
 
   function hideAdBlockWall() {
@@ -376,6 +393,7 @@
   }
 
   function latchAdBlock() {
+    if (isAgentBlockDialogOpenSync()) return;
     showAdBlockWall();
   }
 

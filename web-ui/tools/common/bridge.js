@@ -18,6 +18,7 @@ import {
   installGlobals,
   positionModalBetweenAds,
   dismissActiveSiteModal,
+  isAdBlockDialogOpen,
   isPersistentSiteModalOpen,
   setSiteDialogStatus,
   showModalShell,
@@ -891,12 +892,17 @@ async function resolveInstallDialogOptions(source) {
  * @param {() => Promise<unknown>} onRetry
  */
 async function runPersistentAccessBlockedDialog(blocked, onRetry) {
+  window.__siteGuard?.clearAdLatch?.();
+  if (typeof isAdBlockDialogOpen === "function" && isAdBlockDialogOpen()) {
+    dismissActiveSiteModal();
+  }
   for (;;) {
     setSiteDialogStatus("");
     const act = await showSiteDialog({
       title: blocked.title,
       bodyHtml: blocked.bodyHtml,
       persistent: true,
+      dialogKind: blocked.dialogKind ?? "agent-block",
       buttons: [
         {
           label: blocked.primaryLabel ?? "다시 연결 확인",

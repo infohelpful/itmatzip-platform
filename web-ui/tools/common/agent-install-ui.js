@@ -80,36 +80,38 @@ function agentDownloadLinkAttrs(rawHref) {
   return `href="${href}" target="_blank" rel="noopener noreferrer"`;
 }
 
-/** 확장·Chrome 설정이 로컬 연결만 막을 때 — 짧은 안내(일반 모달용) */
+/** 확장·Chrome 설정이 로컬(에이전트) 연결만 막을 때 — 광고 안내와 별도 */
 export function buildAgentAccessBlockedDialogBodyHtml() {
   if (isBraveBrowser()) {
     return `
     <p class="itz-modal__msg">
-      <strong>Brave Shields(보호)</strong> 또는 광고 차단 <strong>확장</strong>이
-      PC 프로그램(에이전트)·광고 연결을 막고 있습니다.
+      광고 허용·Shields 조정을 했어도, <strong>PC 프로그램(에이전트)과의 연결</strong>은
+      여전히 막히고 있습니다.
     </p>
     <p class="itz-modal__msg">
-      확장만 끄고 <strong>Shields가 켜져 있으면</strong> 계속 막힐 수 있습니다.
+      광고만 허용하는 설정으로는 <strong>에이전트 통신</strong>이 풀리지 않을 때가 많습니다.
+      <strong>Shields 끔</strong> + 광고 차단 <strong>확장 사용 끔</strong>이 필요합니다.
     </p>
     <ol class="itz-modal__steps">
       <li>주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields 끔</strong></li>
-      <li>광고 차단 <strong>확장</strong>이 있으면 <strong>사용 끔</strong></li>
+      <li>광고 차단 <strong>확장 아이콘</strong> 우클릭 → <strong>확장 프로그램 관리</strong> → <strong>사용 끔</strong></li>
       <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
     </ol>
-    <p class="itz-modal__hint">그래도 안 되면: <strong>로컬 네트워크 허용</strong>(자물쇠 → 사이트 설정)</p>
+    <p class="itz-modal__hint">그래도 안 되면: 자물쇠 → 사이트 설정 → <strong>로컬 네트워크 허용</strong></p>
   `.trim();
   }
   return `
     <p class="itz-modal__msg">
-      <strong>광고 차단 확장</strong>(AdBlock, uBlock 등)이 PC 프로그램(에이전트)과의 연결을 막고 있습니다.
+      광고 차단을 이 사이트에서만 해제했어도,
+      <strong>광고 차단 확장</strong>이 PC 프로그램(에이전트)과의 <strong>통신은 계속 막고</strong> 있습니다.
     </p>
     <p class="itz-modal__msg">
-      이 사이트만 끄기·일시 중지로는 해결이 안 될 때가 많습니다.
-      <strong>확장 프로그램 자체</strong>를 꺼 주세요.
+      「이 사이트 허용」「일시 중지」로는 부족한 경우가 많습니다.
+      <strong>확장 프로그램 사용을 꺼 주세요.</strong>
     </p>
     <ol class="itz-modal__steps">
-      <li>Chrome 위 <strong>확장 아이콘</strong> 우클릭 → <strong>확장 프로그램 관리</strong></li>
-      <li>해당 확장의 <strong>사용</strong> 스위치를 <strong>끔</strong></li>
+      <li>Chrome 위 <strong>광고 차단 확장 아이콘</strong> 우클릭</li>
+      <li><strong>확장 프로그램 관리</strong> → 해당 확장 <strong>사용 끔</strong></li>
       <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
     </ol>
     <p class="itz-modal__hint">그래도 안 되면: 주소창 <strong>자물쇠</strong> → <strong>로컬 네트워크 허용</strong></p>
@@ -119,12 +121,11 @@ export function buildAgentAccessBlockedDialogBodyHtml() {
 /** @param {() => Promise<unknown>} onPrimaryCheck */
 export async function agentAccessBlockedDialogOptions(onPrimaryCheck) {
   return {
-    title: isBraveBrowser()
-      ? "Brave Shields 또는 확장이 연결을 막고 있습니다"
-      : "확장 프로그램이 연결을 막고 있습니다",
+    title: "에이전트 통신이 차단되었습니다",
     bodyHtml: buildAgentAccessBlockedDialogBodyHtml(),
     primaryLabel: "다시 연결 확인",
     onPrimary: onPrimaryCheck,
+    dialogKind: "agent-block",
   };
 }
 
