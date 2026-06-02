@@ -15,7 +15,7 @@ import {
   setAgentLongOperationActive,
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
-} from "../common/bridge.js?v=lna13";
+} from "../common/bridge.js?v=lna14";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { showAdSense } from "../common/adsense.js";
 import {

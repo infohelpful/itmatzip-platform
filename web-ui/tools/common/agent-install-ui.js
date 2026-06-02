@@ -154,6 +154,7 @@ export function buildAgentInstallDialogBodyHtml(downloadHref) {
     </p>
     <p class="itz-install__card-text itz-install__card-note">
       별도 bat·설치 마법사는 필요 없습니다. 실행 후 잠시 뒤 웹에서 <strong>다시 연결 확인</strong>을 눌러 주세요.
+      에이전트를 <strong>삭제·제거</strong>한 경우에도 여기서 다시 설치하면 됩니다.
     </p>
     <a class="itz-install__download-btn" ${linkAttrs} role="button">에이전트 다운로드</a>
   </section>

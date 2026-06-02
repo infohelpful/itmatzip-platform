@@ -11,7 +11,7 @@
  */
 
 import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
-import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna12";
+import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna13";
 import {
   ensureSiteModalStyles,
   hideModalShell,
@@ -533,6 +533,18 @@ export function extractAgentErrorMessage(raw, depth = 0) {
 
 /**
  * @param {unknown} rawError
+ * @returns {boolean}
+ */
+function hasExtensionBlockHint(rawError) {
+  if (typeof globalThis !== "undefined" && globalThis.__itmatzipAdSenseBlocked === true) {
+    return true;
+  }
+  const m = String(rawError ?? "");
+  return /ERR_BLOCKED_BY_CLIENT|blocked by client|BLOCKED_BY_CLIENT/i.test(m);
+}
+
+/**
+ * @param {unknown} rawError
  * @param {number | undefined} [latencyMs]
  * @returns {AgentFailureKind}
  */
@@ -542,19 +554,13 @@ export function classifyAgentConnectionFailure(rawError, latencyMs) {
     return "client_blocked";
   }
   if (/address space/i.test(m)) return "lna";
-  const onHttpsPublic =
-    typeof location !== "undefined" &&
-    location.protocol === "https:" &&
-    !/^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
   if (
-    onHttpsPublic &&
+    hasExtensionBlockHint(rawError) &&
     /Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(m)
   ) {
     return "likely_client_block";
   }
-  if (latencyMs != null && latencyMs < 80 && /fetch|network|failed/i.test(m)) {
-    return "likely_client_block";
-  }
+  void latencyMs;
   return "agent_unreachable";
 }
 
@@ -587,7 +593,10 @@ export function formatAgentConnectionError(raw) {
     return "브라우저 로컬 연결 정책 — 강력 새로고침(Ctrl+Shift+R) 후 주소창에서 「로컬 네트워크」 허용";
   }
   if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) {
-    return "Failed to fetch — 에이전트 실행 중이면 Chrome 주소창 → 사이트 설정 → 로컬 네트워크 「허용」(또는 광고 차단 확장)";
+    return (
+      "에이전트에 연결할 수 없습니다. PC에 설치·실행 중인지 확인하세요. " +
+      "(Chrome: 주소창 사이트 설정 → 로컬 네트워크 허용)"
+    );
   }
   return msg || "연결할 수 없습니다";
 }
@@ -1015,11 +1024,9 @@ export function startConnectionMonitor(opts = {}) {
       const failureKind =
         /** @type {AgentFailureKind | undefined} */ (detail.failureKind) ??
         classifyAgentConnectionFailure(detail.rawError ?? detail.error, detail.latencyMs);
-      const isBrowserBlock =
-        failureKind === "client_blocked" ||
-        failureKind === "likely_client_block" ||
-        failureKind === "lna";
-      const dialogAfterStreak = isBrowserBlock ? 2 : MONITOR_DISCONNECT_DIALOG_STREAK;
+      const isExtensionBlock =
+        failureKind === "client_blocked" || failureKind === "likely_client_block";
+      const dialogAfterStreak = isExtensionBlock ? 2 : MONITOR_DISCONNECT_DIALOG_STREAK;
       const shouldAlert =
         opts.autoShowInstallDialog &&
         !disconnectDialogShown &&
@@ -1029,7 +1036,7 @@ export function startConnectionMonitor(opts = {}) {
       if (
         shouldAlert &&
         !(_installDialog && !_installDialog.hasAttribute("hidden")) &&
-        !(isBrowserBlock && isPersistentSiteModalOpen())
+        !(isExtensionBlock && isPersistentSiteModalOpen())
       ) {
         disconnectDialogShown = true;
         void (async () => {
@@ -1038,7 +1045,7 @@ export function startConnectionMonitor(opts = {}) {
             typeof baseOpts.onPrimary === "function"
               ? baseOpts.onPrimary
               : () => checkAgentConnection();
-          if (isBrowserBlock) {
+          if (isExtensionBlock) {
             const blocked = await agentAccessBlockedDialogOptions(() => onRetry());
             void runPersistentAccessBlockedDialog(blocked, onRetry);
           } else {
