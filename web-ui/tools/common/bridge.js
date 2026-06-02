@@ -18,14 +18,20 @@ import {
   installGlobals,
   positionModalBetweenAds,
   dismissActiveSiteModal,
-  isAdBlockDialogOpen,
   isPersistentSiteModalOpen,
   setSiteDialogStatus,
   showModalShell,
   showSiteDialog,
-} from "./site-modal.js";
+} from "./site-modal.js?v=sm1";
 
 installGlobals();
+
+function isAdBlockDialogOpenOnPage() {
+  const dlg = document.getElementById("itz-site-alert-dialog");
+  return Boolean(
+    dlg && !dlg.hasAttribute("hidden") && dlg.dataset.dialogKind === "ad-block",
+  );
+}
 
 /** @typedef {{ progress: number | null, phase: string, message?: string, raw?: unknown }} ProgressEvent */
 
@@ -893,7 +899,7 @@ async function resolveInstallDialogOptions(source) {
  */
 async function runPersistentAccessBlockedDialog(blocked, onRetry) {
   window.__siteGuard?.clearAdLatch?.();
-  if (typeof isAdBlockDialogOpen === "function" && isAdBlockDialogOpen()) {
+  if (isAdBlockDialogOpenOnPage()) {
     dismissActiveSiteModal();
   }
   for (;;) {

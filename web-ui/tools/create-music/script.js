@@ -1,7 +1,7 @@
 /**
  * Create-Music — ACE-Step 1.5 AI 음악 생성 UI
  */
-import * as Bridge from "../common/bridge.js?v=lna12";
+import * as Bridge from "../common/bridge.js?v=lna13";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
 import { createMusicWaveformPlayer } from "./waveform-player.js";
