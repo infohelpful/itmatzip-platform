@@ -403,10 +403,6 @@ export function isAdBlockDialogOpen() {
   return getActiveSiteDialogKind() === "ad-block";
 }
 
-/**
- * @param {SiteDialogOptions} options
- * @returns {Promise<string | void>}
- */
 export function isPersistentSiteModalOpen() {
   return Boolean(
     _alertDialog &&
@@ -428,6 +424,10 @@ export function setSiteDialogStatus(text, kind = "") {
   if (kind === "err") el.classList.add("is-err");
 }
 
+/**
+ * @param {SiteDialogOptions} options
+ * @returns {Promise<string | void>}
+ */
 export function showSiteDialog(options) {
   const run = () =>
     new Promise((resolve) => {

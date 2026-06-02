@@ -9,7 +9,7 @@ import {
   setAgentLongOperationActive,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna11";
+} from "../common/bridge.js?v=lna12";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
@@ -35,15 +35,19 @@ import {
   canExportFromSession,
   clipNameFromVideoPath,
   consumeEditorRestorePending,
+  formatSampleRateLabel,
+  getDynamicRangeDbFromSession,
+  getMaxVolumeDbFromSession,
   getMeanVolumeDbFromSession,
   getRecommendedNoiseDbFromSession,
+  getSampleRateHzFromSession,
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
   saveProbeMetaToSession,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna1";
+} from "../common/edl-export.js?v=lna2";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -1004,6 +1008,76 @@ document.addEventListener("DOMContentLoaded", () => {
     setSummaryCell(summarySettings, "—");
   }
 
+  function applyProbeVolumeSummaryFromSession() {
+    const maxDb = getMaxVolumeDbFromSession();
+    if (Number.isFinite(maxDb)) {
+      probedMaxVolumeDb = maxDb;
+      setSummaryCell(summaryMaxDb, `${truncTo2Decimals(maxDb)} dB`);
+    }
+    const dr = getDynamicRangeDbFromSession();
+    if (Number.isFinite(dr)) {
+      setSummaryCell(summaryDr, `${truncTo2Decimals(dr)} dB`);
+    }
+    const sr = getSampleRateHzFromSession();
+    if (Number.isFinite(sr) && sr > 0) {
+      setSummaryCell(summarySampleRate, formatSampleRateLabel(sr));
+    }
+  }
+
+  /**
+   * probe·waveform-peaks 응답·파형 peaks로 최대·DR·샘플레이트 요약 칸 보강
+   * @param {Record<string, unknown> | null | undefined} [raw]
+   */
+  function refreshVolumeSummaryCells(raw) {
+    if (raw && typeof raw === "object") {
+      if (typeof raw.max_volume_db === "number" && Number.isFinite(raw.max_volume_db)) {
+        probedMaxVolumeDb = raw.max_volume_db;
+        setSummaryCell(summaryMaxDb, `${truncTo2Decimals(raw.max_volume_db)} dB`);
+      }
+      if (typeof raw.dynamic_range_db === "number" && Number.isFinite(raw.dynamic_range_db)) {
+        setSummaryCell(summaryDr, `${truncTo2Decimals(raw.dynamic_range_db)} dB`);
+      }
+      if (typeof raw.sample_rate_hz === "number" && Number.isFinite(raw.sample_rate_hz)) {
+        setSummaryCell(summarySampleRate, formatSampleRateLabel(raw.sample_rate_hz));
+      }
+    }
+
+    if (
+      waveformPeaksData &&
+      typeof waveformPeaksData.max_volume_db === "number" &&
+      Number.isFinite(waveformPeaksData.max_volume_db) &&
+      probedMaxVolumeDb == null
+    ) {
+      probedMaxVolumeDb = waveformPeaksData.max_volume_db;
+      setSummaryCell(summaryMaxDb, `${truncTo2Decimals(waveformPeaksData.max_volume_db)} dB`);
+    }
+
+    const mean =
+      probedMeanVolumeDb ??
+      (waveformPeaksData && typeof waveformPeaksData.mean_volume_db === "number"
+        ? waveformPeaksData.mean_volume_db
+        : null);
+    const max =
+      probedMaxVolumeDb ??
+      (waveformPeaksData && typeof waveformPeaksData.max_volume_db === "number"
+        ? waveformPeaksData.max_volume_db
+        : null);
+    if (
+      typeof mean === "number" &&
+      Number.isFinite(mean) &&
+      typeof max === "number" &&
+      Number.isFinite(max) &&
+      summaryDr &&
+      (summaryDr.textContent === "—" || !summaryDr.textContent.trim())
+    ) {
+      setSummaryCell(summaryDr, `${truncTo2Decimals(max - mean)} dB`);
+    }
+  }
+
+  function shouldRestoreSilencePreviewOverlay() {
+    return loadStoredSilenceIntervals().length > 0 || canExportFromSession();
+  }
+
   /**
    * @param {Record<string, unknown>} m
    */
@@ -1054,6 +1128,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setSummaryCell(summarySilenceCount, "분석 전");
     setSummaryCell(summarySilenceTotal, "—");
     setSummaryCell(summarySilenceLongest, "—");
+    refreshVolumeSummaryCells(m);
     renderAnalyzedSettingsSummary();
   }
 
@@ -1664,6 +1739,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (myGen !== waveformPreviewGen || loadPath !== pathInput.value.trim()) return;
 
+      refreshVolumeSummaryCells(
+        /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (raw)),
+      );
+
       const peaksPpsFromServer =
         typeof raw.pixels_per_second === "number" && raw.pixels_per_second > 0
           ? raw.pixels_per_second
@@ -1820,6 +1899,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setSummaryCell(summaryFpsNative, natRat);
       }
       applyOptionsFromSession();
+      applyProbeVolumeSummaryFromSession();
       applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
       commitAnalyzedSettingsSnapshot({
         fps: getEditorFpsForExport(),
@@ -1842,7 +1922,9 @@ document.addEventListener("DOMContentLoaded", () => {
               useEditorTimeline: true,
             });
           }
-          enablePreviewSilenceOverlay();
+          if (shouldRestoreSilencePreviewOverlay()) {
+            enablePreviewSilenceOverlay();
+          }
         }
         syncExportLinkState();
         return;
@@ -2079,6 +2161,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setSummaryCell(summaryFpsNative, natRat);
       }
 
+      applyProbeVolumeSummaryFromSession();
       applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
       commitAnalyzedSettingsSnapshot({
         fps: getEditorFpsForExport(),
@@ -2106,7 +2189,9 @@ document.addEventListener("DOMContentLoaded", () => {
           useEditorTimeline: true,
         });
       }
-      enablePreviewSilenceOverlay();
+      if (shouldRestoreSilencePreviewOverlay()) {
+        enablePreviewSilenceOverlay();
+      }
       syncExportLinkState();
       return true;
     } finally {

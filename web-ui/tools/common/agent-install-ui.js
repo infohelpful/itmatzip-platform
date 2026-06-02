@@ -3,7 +3,10 @@
  * 다운로드 URL은 agent-update-manifest.json 의 download_url 을 사용합니다.
  */
 
-import { isBraveBrowser } from "./browser-hints.js";
+/** @returns {boolean} */
+function isBraveBrowser() {
+  return typeof navigator !== "undefined" && navigator.brave != null;
+}
 
 /** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 과 동일 */
 export const AGENT_UPDATE_MANIFEST_URL =

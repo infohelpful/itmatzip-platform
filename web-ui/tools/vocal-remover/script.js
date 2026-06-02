@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna11";
+} from "../common/bridge.js?v=lna12";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp2";

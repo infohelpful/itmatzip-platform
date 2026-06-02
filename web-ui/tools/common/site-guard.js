@@ -405,19 +405,22 @@
   /** @param {{ force?: boolean }} [opts] */
   function runAdBlockCheck(opts = {}) {
     if (profile !== "full") return;
+    try {
+      const now = Date.now();
+      if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
+      lastAdCheckAt = now;
 
-    const now = Date.now();
-    if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
-    lastAdCheckAt = now;
-
-    const blocked = evaluateAdBlock();
-    if (blocked) {
-      latchAdBlock();
-      return;
-    }
-    const snap = readAdSenseSnapshot();
-    if (adBlockLatched && snap && snap.filledCount > 0) {
-      clearAdBlockLatch();
+      const blocked = evaluateAdBlock();
+      if (blocked) {
+        latchAdBlock();
+        return;
+      }
+      const snap = readAdSenseSnapshot();
+      if (adBlockLatched && snap && snap.filledCount > 0) {
+        clearAdBlockLatch();
+      }
+    } catch (e) {
+      console.warn("[site-guard] 광고 차단 검사 오류", e);
     }
   }
 
@@ -455,10 +458,14 @@
   function installAdBlockGuard() {
     if (profile !== "full") return;
 
-    document.addEventListener("itz:adsense-slot-failed", () => {
-      window.__itmatzipAdSenseBlocked = true;
-      runAdBlockCheck({ force: true });
-    });
+    try {
+      document.addEventListener("itz:adsense-slot-failed", () => {
+        window.__itmatzipAdSenseBlocked = true;
+        runAdBlockCheck({ force: true });
+      });
+    } catch (e) {
+      console.warn("[site-guard] 광고 차단 감시 등록 실패", e);
+    }
 
     function bootstrap() {
       if (!document.body) return;
@@ -511,7 +518,11 @@
   installContentProtection();
   installDevToolsKeyBlock();
   installDevToolsResizeHint();
-  installAdBlockGuard();
+  try {
+    installAdBlockGuard();
+  } catch (e) {
+    console.warn("[site-guard] 광고 차단 보호 초기화 실패 — 나머지 보호만 동작", e);
+  }
 
   window.__siteGuard = {
     profile,

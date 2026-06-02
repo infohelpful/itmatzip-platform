@@ -12,6 +12,9 @@ export const STORAGE_FPS_RATIONAL = "itmatzip_silence_fps_rational";
 export const STORAGE_FPS_NATIVE_RATIONAL = "itmatzip_silence_native_fps_rational";
 export const STORAGE_FPS = "itmatzip_silence_fps";
 export const STORAGE_MEAN_VOLUME_DB = "itmatzip_silence_mean_volume_db";
+export const STORAGE_MAX_VOLUME_DB = "itmatzip_silence_max_volume_db";
+export const STORAGE_DYNAMIC_RANGE_DB = "itmatzip_silence_dynamic_range_db";
+export const STORAGE_SAMPLE_RATE_HZ = "itmatzip_silence_sample_rate_hz";
 export const STORAGE_RECOMMENDED_NOISE_DB = "itmatzip_silence_recommended_noise_db";
 export const STORAGE_CLIP_NAME = "itmatzip_silence_clip_name";
 export const STORAGE_VIDEO_PATH = "itmatzip_silence_video_path";
@@ -139,6 +142,25 @@ export function getRecommendedNoiseDbFromSession() {
   return readStoredDb(sessionStorage.getItem(STORAGE_RECOMMENDED_NOISE_DB));
 }
 
+export function getMaxVolumeDbFromSession() {
+  return readStoredDb(sessionStorage.getItem(STORAGE_MAX_VOLUME_DB));
+}
+
+export function getDynamicRangeDbFromSession() {
+  return readStoredDb(sessionStorage.getItem(STORAGE_DYNAMIC_RANGE_DB));
+}
+
+export function getSampleRateHzFromSession() {
+  return readStoredDb(sessionStorage.getItem(STORAGE_SAMPLE_RATE_HZ));
+}
+
+/** @param {number} hz */
+export function formatSampleRateLabel(hz) {
+  if (!Number.isFinite(hz) || hz <= 0) return "—";
+  const khz = hz / 1000;
+  return Number.isInteger(khz) ? `${khz} kHz` : `${Math.round(khz * 100) / 100} kHz`;
+}
+
 /** @param {Record<string, unknown>} meta */
 export function saveProbeMetaToSession(meta) {
   if (!meta || typeof meta !== "object") return;
@@ -148,6 +170,18 @@ export function saveProbeMetaToSession(meta) {
   if (Number.isFinite(mean)) {
     sessionStorage.setItem(STORAGE_MEAN_VOLUME_DB, String(mean));
   }
+  const max = readStoredDb(meta.max_volume_db);
+  if (Number.isFinite(max)) {
+    sessionStorage.setItem(STORAGE_MAX_VOLUME_DB, String(max));
+  }
+  const dr = readStoredDb(meta.dynamic_range_db);
+  if (Number.isFinite(dr)) {
+    sessionStorage.setItem(STORAGE_DYNAMIC_RANGE_DB, String(dr));
+  }
+  const sr = readStoredDb(meta.sample_rate_hz);
+  if (Number.isFinite(sr) && sr > 0) {
+    sessionStorage.setItem(STORAGE_SAMPLE_RATE_HZ, String(Math.round(sr)));
+  }
   const rec = readStoredDb(meta.recommended_noise_db);
   if (Number.isFinite(rec)) {
     sessionStorage.setItem(STORAGE_RECOMMENDED_NOISE_DB, String(rec));
@@ -156,6 +190,9 @@ export function saveProbeMetaToSession(meta) {
 
 export function clearProbeMetaFromSession() {
   sessionStorage.removeItem(STORAGE_MEAN_VOLUME_DB);
+  sessionStorage.removeItem(STORAGE_MAX_VOLUME_DB);
+  sessionStorage.removeItem(STORAGE_DYNAMIC_RANGE_DB);
+  sessionStorage.removeItem(STORAGE_SAMPLE_RATE_HZ);
   sessionStorage.removeItem(STORAGE_RECOMMENDED_NOISE_DB);
 }
 

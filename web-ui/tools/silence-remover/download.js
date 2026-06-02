@@ -2,7 +2,7 @@ import {
   checkAgentConnection,
   configureBridge,
   requestAgent,
-} from "../common/bridge.js?v=lna11";
+} from "../common/bridge.js?v=lna12";
 import { showAdSense } from "../common/adsense.js";
 import {
   buildEdlViaAgent,
