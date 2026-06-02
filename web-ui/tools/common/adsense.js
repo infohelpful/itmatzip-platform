@@ -21,6 +21,29 @@ let _scriptLoaded = false;
 /** @type {boolean} */
 let _blockedLogged = false;
 
+const FILL_WATCH_MS = 18_000;
+
+/** @param {string} unitKey */
+function notifyAdSlotFailed(unitKey) {
+  document.dispatchEvent(
+    new CustomEvent("itz:adsense-slot-failed", { detail: { unitKey } }),
+  );
+}
+
+/**
+ * @param {HTMLElement} ins
+ * @param {HTMLElement} container
+ * @param {string} unitKey
+ */
+function scheduleFillWatch(ins, container, unitKey) {
+  window.setTimeout(() => {
+    if (ins.getAttribute("data-ad-status") === "filled") return;
+    if (container.getAttribute("data-adsense-empty") === "1") return;
+    markAdSlotEmpty(container);
+    notifyAdSlotFailed(unitKey);
+  }, FILL_WATCH_MS);
+}
+
 /**
  * @typedef {Object} AdSenseUnit
  * @property {string} slot
@@ -180,6 +203,7 @@ export async function showAdSense(unitKey, container) {
     _scriptUnavailable = true;
     markAdSlotEmpty(el);
     logScriptUnavailableOnce(e);
+    notifyAdSlotFailed(unitKey);
     return false;
   }
 
@@ -202,9 +226,12 @@ export async function showAdSense(unitKey, container) {
     (window.adsbygoogle = window.adsbygoogle || []).push({});
   } catch (e) {
     console.warn("[adsense] push failed", e);
+    markAdSlotEmpty(el);
+    notifyAdSlotFailed(unitKey);
     return false;
   }
 
+  scheduleFillWatch(ins, el, unitKey);
   return true;
 }
 

@@ -187,8 +187,9 @@
   // 오탐 원인: ad-bait-test·adsbox 클래스(확장이 사이트 허용해도 숨김),
   // no-cors fetch 실패, AdSense 로드 전 data-adsense-empty.
 
-  const RECHECK_MIN_MS = 30_000;
-  const AD_BLOCK_GRACE_MS = 22_000;
+  const RECHECK_MIN_MS = 8000;
+  const AD_BLOCK_GRACE_MS = 12_000;
+  const AD_BLOCK_POLL_MS = [6000, 10_000, 14_000, AD_BLOCK_GRACE_MS, AD_BLOCK_GRACE_MS + 6000];
   const pageLoadedAt = Date.now();
 
   let adBlockLatched = false;
@@ -234,12 +235,16 @@
 
   function showAdBlockWall() {
     if (adBlockLatched) return;
+
+    const modal = window.ItzSiteModal;
+    if (!modal?.showSiteDialog) {
+      scheduler.setTimeout(() => showAdBlockWall(), 400);
+      return;
+    }
+
     adBlockLatched = true;
     adsenseObserver?.disconnect();
     adsenseObserver = null;
-
-    const modal = window.ItzSiteModal;
-    if (!modal?.showSiteDialog) return;
 
     void modal
       .showSiteDialog({
@@ -322,29 +327,29 @@
     const snap = readAdSenseSnapshot();
     if (!snap) return false;
 
-    if (snap.filledCount > 0 || snap.unfilledCount > 0) return false;
+    if (snap.filledCount > 0) return false;
 
     const adWasRequested =
       snap.emptyContainerCount > 0 || snap.liveInsCount > 0;
     if (!adWasRequested) return false;
 
-    if (!adBlockGraceExpired()) {
-      if (snap.pendingInsCount > 0) return false;
-      if (snap.liveInsCount > 0 && !snap.scriptUnavailable) return false;
+    if (
+      snap.scriptUnavailable &&
+      (snap.emptyContainerCount > 0 || snap.liveInsCount > 0)
+    ) {
+      return adBlockGraceExpired() || snap.emptyContainerCount > 0;
     }
 
-    if (
-      adBlockGraceExpired() &&
-      wasAdResourceLikelyBlockedByClient() &&
-      snap.filledCount === 0
-    ) {
-      return true;
+    if (!adBlockGraceExpired()) {
+      if (snap.pendingInsCount > 0) return false;
+      return false;
     }
+
+    if (wasAdResourceLikelyBlockedByClient()) return true;
 
     if (snap.scriptUnavailable && snap.emptyContainerCount > 0) return true;
 
     if (
-      adBlockGraceExpired() &&
       snap.emptyContainerCount > 0 &&
       snap.liveInsCount === 0 &&
       !snap.scriptLoaded
@@ -352,15 +357,12 @@
       return true;
     }
 
-    if (
-      adBlockGraceExpired() &&
-      snap.liveInsCount > 0 &&
-      snap.pendingInsCount === snap.liveInsCount &&
-      snap.filledCount === 0 &&
-      snap.unfilledCount === 0
-    ) {
-      return true;
+    if (snap.liveInsCount > 0 && snap.filledCount === 0) {
+      const triedCount = snap.unfilledCount + snap.pendingInsCount;
+      if (triedCount === snap.liveInsCount) return true;
     }
+
+    if (snap.emptyContainerCount > 0 && snap.filledCount === 0) return true;
 
     return false;
   }
@@ -387,27 +389,35 @@
     else clearAdBlockLatch();
   }
 
+  function scheduleAdBlockPolls() {
+    for (const ms of AD_BLOCK_POLL_MS) {
+      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), ms);
+    }
+  }
+
   function watchAdsenseSlot() {
     if (profile !== "full" || adBlockLatched) return;
 
-    const ins = document.querySelector("ins.adsbygoogle");
-    if (!ins) return;
+    const slots = document.querySelectorAll("ins.adsbygoogle");
+    if (!slots.length) return;
 
     adsenseObserver?.disconnect();
     adsenseObserver = new MutationObserver(() => {
-      const status = ins.getAttribute("data-ad-status");
-      if (status === "filled" || status === "unfilled") {
+      const snap = readAdSenseSnapshot();
+      if (snap && snap.filledCount > 0) {
         clearAdBlockLatch();
         adsenseObserver?.disconnect();
         adsenseObserver = null;
         return;
       }
-      runAdBlockCheck();
+      runAdBlockCheck({ force: true });
     });
-    adsenseObserver.observe(ins, {
-      attributes: true,
-      attributeFilter: ["data-ad-status", "style", "class"],
-    });
+    for (const ins of slots) {
+      adsenseObserver.observe(ins, {
+        attributes: true,
+        attributeFilter: ["data-ad-status", "style", "class"],
+      });
+    }
   }
 
   function installAdBlockGuard() {
@@ -417,11 +427,15 @@
       if (!document.body) return;
 
       runWhenIdle(() => {
-        runAdBlockCheck();
+        runAdBlockCheck({ force: true });
         watchAdsenseSlot();
-      }, 6000);
+      }, 3000);
 
-      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), AD_BLOCK_GRACE_MS + 2000);
+      scheduleAdBlockPolls();
+
+      document.addEventListener("itz:adsense-slot-failed", () => {
+        runAdBlockCheck({ force: true });
+      });
 
       if (!document.querySelector("ins.adsbygoogle")) {
         adsenseRootObserver?.disconnect();
@@ -430,7 +444,8 @@
           adsenseRootObserver?.disconnect();
           adsenseRootObserver = null;
           watchAdsenseSlot();
-          runAdBlockCheck();
+          runAdBlockCheck({ force: true });
+          scheduleAdBlockPolls();
         });
         adsenseRootObserver.observe(document.body, { childList: true, subtree: true });
         scheduler.setTimeout(() => {

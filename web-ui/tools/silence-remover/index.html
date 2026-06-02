@@ -19,18 +19,18 @@
           <span class="badge">AI Powered</span>
           <div class="logo-title-row">
             <h1>Silence <span class="accent">Detector</span></h1>
-            <a href="../index.html" class="btn-to-dashboard">?�?�보?�로 ?�동</a>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
           </div>
         </div>
         <div class="header-status-col">
-          <div id="connection-status" class="status-dot">?�이?�트 ?�결 ?�인 중�?/div>
-          <div class="bin-readiness" id="bin-readiness">무음 ?�거 · FFmpeg 준�??��?/div>
+          <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
+          <div class="bin-readiness" id="bin-readiness">무음 제거 · FFmpeg 준비 대기</div>
         </div>
       </header>
       <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
       <section class="drop-zone">
         <div class="path-input-group">
-          <label for="video-path">?�상 ?�일 경로</label>
+          <label for="video-path">영상 파일 경로</label>
           <p class="path-hint" id="path-hint"></p>
           <div class="path-row">
             <input type="text" id="video-path" autocomplete="off" spellcheck="false">
@@ -43,38 +43,38 @@
           <div class="options-main">
             <div class="options-row">
               <div class="option-card">
-                <label for="opt-fps">?�레??/label>
-                <p class="option-hint" id="opt-fps-hint">EDL 컷·파??보라 미리보기 모두 ??FPS 격자�??�용?�니??</p>
+                <label for="opt-fps">프레임</label>
+                <p class="option-hint" id="opt-fps-hint">EDL 컷·파형 보라 미리보기 모두 이 FPS 격자를 사용합니다.</p>
                 <input type="number" id="opt-fps" step="0.01" min="0" value="">
               </div>
               <div class="option-card">
-                <label for="opt-avg-db">?�균 볼륨 (dB)</label>
-                <p class="option-hint" id="opt-avg-db-hint">?�상???�균 볼륨 ?�기?�며 ?�정?� 불�??�합?�다.</p>
+                <label for="opt-avg-db">평균 볼륨 (dB)</label>
+                <p class="option-hint" id="opt-avg-db-hint">영상의 평균 볼륨 크기이며 수정은 불가능합니다.</p>
                 <input type="text" id="opt-avg-db" value="" readonly>
               </div>
             </div>
             <div class="options-row">
               <div class="option-card highlight">
-                <label for="opt-rec-db">추천 무음 민감??(dB)</label>
-                <p class="option-hint" id="opt-rec-db-hint">?�동 계산??추천 무음 민감???�니??</p>
+                <label for="opt-rec-db">추천 무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-rec-db-hint">자동 계산된 추천 무음 민감도 입니다.</p>
                 <input type="text" id="opt-rec-db" value="" readonly title="">
               </div>
               <div class="option-card">
-                <label for="opt-sensitivity">무음 민감??(dB)</label>
-                <p class="option-hint" id="opt-sensitivity-hint">추천값과 ?�일?�게 ?�동 ?�력?�며 직접 ?�정 가???�니??</p>
+                <label for="opt-sensitivity">무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-sensitivity-hint">추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.</p>
                 <input type="number" id="opt-sensitivity" step="0.01" min="-60" max="-10" value="-40" inputmode="decimal">
               </div>
             </div>
             <div class="options-duration-stack">
               <div class="option-card option-card-padding">
-                <label for="opt-padding">말소�??�뒤 ?�백 (ms, 100ms = 0.1�?</label>
+                <label for="opt-padding">말소리 앞뒤 여백 (ms, 100ms = 0.1초)</label>
                 <div class="range-group range-group-padding">
                   <input type="range" id="opt-padding" min="0" max="1000" step="1" value="100">
                   <span class="range-val" id="opt-padding-val">100ms</span>
                 </div>
               </div>
               <div class="option-card option-card-duration">
-                <label>최소 무음 길이 (�?</label>
+                <label>최소 무음 길이 (초)</label>
                 <div class="duration-chips">
                   <div class="duration-chip-list" id="duration-chip-list">
                     <button type="button" class="chip" data-val="0.1">0.1s</button>
@@ -98,73 +98,73 @@
               </div>
             </div>
           </div>
-          <aside class="media-summary-panel" id="media-summary-panel" aria-label="미디??�?무음 구간 ?�약">
-            <h4 class="media-summary-title">미디???�약</h4>
+          <aside class="media-summary-panel" id="media-summary-panel" aria-label="미디어 및 무음 구간 요약">
+            <h4 class="media-summary-title">미디어 요약</h4>
             <dl class="media-summary-list">
               <div class="media-summary-item">
                 <dt>길이</dt>
-                <dd id="summary-duration">??/dd>
+                <dd id="summary-duration">—</dd>
               </div>
               <div class="media-summary-item">
-                <dt>최�? 볼륨</dt>
-                <dd id="summary-max-db">??/dd>
+                <dt>최대 볼륨</dt>
+                <dd id="summary-max-db">—</dd>
               </div>
               <div class="media-summary-item">
-                <dt>?�이?��? ?�인지</dt>
-                <dd id="summary-dr">??/dd>
+                <dt>다이내믹 레인지</dt>
+                <dd id="summary-dr">—</dd>
               </div>
               <div class="media-summary-item">
-                <dt>?�본 FPS</dt>
-                <dd id="summary-fps-native">??/dd>
+                <dt>원본 FPS</dt>
+                <dd id="summary-fps-native">—</dd>
               </div>
               <div class="media-summary-item">
-                <dt>?�플?�이??/dt>
-                <dd id="summary-sample-rate">??/dd>
+                <dt>샘플레이트</dt>
+                <dd id="summary-sample-rate">—</dd>
               </div>
               <div class="media-summary-item media-summary-divider" aria-hidden="true"></div>
               <div class="media-summary-item">
                 <dt>무음 구간</dt>
-                <dd id="summary-silence-count">분석 ??/dd>
+                <dd id="summary-silence-count">분석 전</dd>
               </div>
               <div class="media-summary-item">
-                <dt>무음 ?�계</dt>
-                <dd id="summary-silence-total">??/dd>
+                <dt>무음 합계</dt>
+                <dd id="summary-silence-total">—</dd>
               </div>
               <div class="media-summary-item">
                 <dt>최장 무음 구간</dt>
-                <dd id="summary-silence-longest">??/dd>
+                <dd id="summary-silence-longest">—</dd>
               </div>
               <div class="media-summary-item">
-                <dt>?�재 ?�정</dt>
-                <dd id="summary-settings" class="summary-settings-stack">??/dd>
+                <dt>현재 설정</dt>
+                <dd id="summary-settings" class="summary-settings-stack">—</dd>
               </div>
             </dl>
           </aside>
         </section>
         <section id="waveform-preview-section" class="waveform-preview-section">
           <div class="waveform-preview-head">
-            <h3 id="waveform-preview-title" class="waveform-preview-title">?�디???�형</h3>
+            <h3 id="waveform-preview-title" class="waveform-preview-title">오디오 파형</h3>
             <div class="waveform-zoom-controls">
-              <span class="waveform-zoom-hint"> ??축소 ???�체 맞춤 · ?�래�??�동</span>
+              <span class="waveform-zoom-hint"> 휠 축소 시 전체 맞춤 · 드래그=이동</span>
               <span id="waveform-zoom-level" class="waveform-zoom-level" aria-live="polite">100%</span>
-              <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" title="?��? 100% (기본 ?�상??">100%</button>
+              <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" title="확대 100% (기본 해상도)">100%</button>
             </div>
           </div>
           <p id="waveform-preview-status" class="waveform-preview-status" aria-live="polite"></p>
           <div class="waveform-preview-scroll" id="waveform-preview-scroll">
             <div class="waveform-scroll-track" id="waveform-scroll-track">
-              <canvas id="waveform-preview-canvas" class="waveform-preview-canvas" aria-label="?�디???�형"></canvas>
+              <canvas id="waveform-preview-canvas" class="waveform-preview-canvas" aria-label="오디오 파형"></canvas>
             </div>
             <div class="waveform-analyze-loading" id="waveform-analyze-loading" hidden aria-hidden="true">
               <div class="waveform-analyze-loading-inner">
                 <p class="waveform-analyze-label" id="waveform-analyze-label">
-                  <span id="waveform-analyze-status">무음 구간 분석 중�?/span>
+                  <span id="waveform-analyze-status">무음 구간 분석 중…</span>
                   <span class="waveform-analyze-meta" id="waveform-analyze-meta">0%</span>
                 </p>
                 <div class="waveform-analyze-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                   <div class="waveform-analyze-progress-bar" id="waveform-analyze-progress-bar"></div>
                 </div>
-                <p class="waveform-analyze-hint">분석 ???�집 FPS 격자�??�형??만든 ??EDL???�성?�니?? 보라?��? ?�형 기�? 미리보기(민감?�·여백·최?�무?�·FPS)?�며 EDL�??��? ???�습?�다. �??�상?� ?�형 ?�성(�?1??????�?걸릴 ???�습?�다.</p>
+                <p class="waveform-analyze-hint">분석 시 편집 FPS 격자로 파형을 만든 뒤 EDL을 생성합니다. 보라색은 파형 기준 미리보기(민감도·여백·최소무음·FPS)이며 EDL과 다를 수 있습니다. 긴 영상은 파형 생성(첫 1회)에 수 분 걸릴 수 있습니다.</p>
               </div>
             </div>
           </div>
@@ -172,8 +172,8 @@
         <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true">
           <div class="media-workspace-loading__panel" role="status" aria-live="polite">
             <div class="media-workspace-loading__spinner" aria-hidden="true"></div>
-            <p class="media-workspace-loading__title" id="probe-loading-title">?�상 불러?�는 �?/p>
-            <p class="media-workspace-loading__desc" id="probe-loading-desc">?�션·?�약·?�디???�형??준비하�??�습?�다.</p>
+            <p class="media-workspace-loading__title" id="probe-loading-title">영상 불러오는 중</p>
+            <p class="media-workspace-loading__desc" id="probe-loading-desc">옵션·요약·오디오 파형을 준비하고 있습니다.</p>
           </div>
         </div>
       </div>
@@ -182,9 +182,9 @@
         <div class="edl-export-block" style="padding-top: 10px; box-sizing: border-box;">
           <label class="edl-export-option" for="opt-remove-silent">
             <input type="checkbox" id="opt-remove-silent">
-            <span id="opt-remove-silent-caption">무음 구간 ?�동 ?�거</span>
+            <span id="opt-remove-silent-caption">무음 구간 자동 제거</span>
           </label>
-          <a href="download.html" id="export-link" class="btn-export is-disabled" role="button"><span class="icon">?��</span> EDL ?�일 ?�운로드</a>
+          <a href="download.html" id="export-link" class="btn-export is-disabled" role="button"><span class="icon">📥</span> EDL 파일 다운로드</a>
         </div>
         <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
       </div>
@@ -192,13 +192,13 @@
   </div>
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
     <div class="mobile-only-card">
-      <div class="mobile-only-icon" aria-hidden="true">?���?/div>
-      <h2 id="mobile-only-title" class="mobile-only-title">PC?�서�??�용?????�습?�다</h2>
-      <p class="mobile-only-desc">Silence Detector???�스?�톱 PC?� 로컬 ?�이?�트가 ?�요???�구?�니??<br>PC 브라?��?�??�속??주세??</p>
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
     </div>
   </div>
   <script type="module" src="../common/site-modal-boot.js"></script>
-  <script src="../common/site-guard.js?v=7"></script>
+  <script src="../common/site-guard.js?v=8"></script>
   <script src="mobile-only.js?v=2"></script>
   <script type="module" src="script.js?v=lna20"></script>
 </body>

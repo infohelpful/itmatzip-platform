@@ -42,21 +42,21 @@
 
             <h1>Image <span class="accent">Enhancer</span></h1>
 
-            <a href="../index.html" class="btn-to-dashboard">?�?�보?�로 ?�동</a>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
 
           </div>
 
-          <p class="header-tagline">CodeFormer�??�굴·?�질??로컬 PC?�서 복원?�니??</p>
+          <p class="header-tagline">CodeFormer로 얼굴·화질을 로컬 PC에서 복원합니다.</p>
 
         </div>
 
         <div class="header-status-col">
 
-          <div id="compute-capability" class="compute-capability is-pending" title="">?�인 중�?/div>
+          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
 
-          <div id="connection-status" class="status-dot" role="status">?�이?�트 ?�결 ?�인 중�?/div>
+          <div id="connection-status" class="status-dot" role="status">에이전트 연결 확인 중…</div>
 
-          <div id="bin-readiness" class="bin-readiness">Image Enhancer · ?�경 준�??��?/div>
+          <div id="bin-readiness" class="bin-readiness">Image Enhancer · 환경 준비 대기</div>
 
         </div>
 
@@ -64,13 +64,13 @@
 
 
 
-      <!-- 광고: ?��?지 ?�일 경로 ??-->
+      <!-- 광고: 이미지 파일 경로 위 -->
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
 
 
 
-      <!-- ?�업(준비·처�??� ???�역�?블러 ??광고 ?�롯?� 바깥 -->
+      <!-- 팝업(준비·처리)은 이 영역만 블러 — 광고 슬롯은 바깥 -->
 
       <div class="enhancer-content-shell" id="enhancer-content-shell">
 
@@ -78,17 +78,17 @@
 
           <div class="path-input-group">
 
-            <label for="image-path">?��?지 ?�일 경로</label>
+            <label for="image-path">이미지 파일 경로</label>
 
-            <p class="path-hint" id="path-hint">?��?지�??�택?�면 ?�질 ?�상 버튼 ??미리보기???�본???�시?�니??</p>
+            <p class="path-hint" id="path-hint">이미지를 선택하면 화질 향상 버튼 위 미리보기에 원본이 표시됩니다.</p>
 
             <div class="path-row">
 
-              <input type="text" id="image-path" autocomplete="off" spellcheck="false" placeholder="?�일 경로">
+              <input type="text" id="image-path" autocomplete="off" spellcheck="false" placeholder="파일 경로">
 
               <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
 
-              <button type="button" id="btn-new-job" class="btn-new-job">???�업 ?�작</button>
+              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
 
             </div>
 
@@ -96,62 +96,62 @@
 
         </section>
 
-        <section class="preview-panel" aria-label="?��?지 미리보기">
-          <h3 class="preview-panel-heading" id="preview-panel-heading">?�본 미리보기</h3>
+        <section class="preview-panel" aria-label="이미지 미리보기">
+          <h3 class="preview-panel-heading" id="preview-panel-heading">원본 미리보기</h3>
           <div class="preview-viewport" id="preview-viewport">
             <div class="preview-empty" id="preview-empty">
-              <span class="preview-empty-icon" aria-hidden="true">?��</span>
-              <p>?��?지�??�택?�면 ?�기???�본???�시?�니??</p>
+              <span class="preview-empty-icon" aria-hidden="true">🖼</span>
+              <p>이미지를 선택하면 여기에 원본이 표시됩니다.</p>
             </div>
             <div class="preview-single" id="preview-single" hidden>
-              <img id="preview-source" class="preview-img" alt="?�본 미리보기" decoding="async">
+              <img id="preview-source" class="preview-img" alt="원본 미리보기" decoding="async">
             </div>
             <div
               class="compare-slider"
               id="compare-slider"
               hidden
               role="group"
-              aria-label="?�본�?결과 비교"
+              aria-label="원본과 결과 비교"
             >
-              <img id="compare-original" class="compare-img compare-layer-base" alt="?�본" decoding="async">
+              <img id="compare-original" class="compare-img compare-layer-base" alt="원본" decoding="async">
               <img id="compare-result" class="compare-img compare-layer-top" alt="결과" decoding="async">
               <div class="compare-divider" id="compare-divider" style="left: 50%">
-                <span class="compare-handle" id="compare-handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="비교 ?�라?�더. ?�쪽: ?�본, ?�른�? 결과"></span>
+                <span class="compare-handle" id="compare-handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="비교 슬라이더. 왼쪽: 원본, 오른쪽: 결과"></span>
               </div>
-              <span class="compare-label compare-label--original">?�본</span>
+              <span class="compare-label compare-label--original">원본</span>
               <span class="compare-label compare-label--result">결과</span>
             </div>
           </div>
-          <p class="compare-hint" id="compare-hint" hidden>?�라?�더�??�쪽?�로 ?�기�??�본, ?�른쪽으�??�기�?결과가 보입?�다.</p>
+          <p class="compare-hint" id="compare-hint" hidden>슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.</p>
         </section>
 
         <section class="options-layout" id="options-panel">
           <div class="options-main">
             <div class="options-group">
-              <h3 class="options-group-title">출력 · ?�행</h3>
+              <h3 class="options-group-title">출력 · 실행</h3>
               <div class="options-grid options-grid--3">
                 <div class="option-field">
-                  <label class="option-label" for="output-format">출력 ?�맷</label>
+                  <label class="option-label" for="output-format">출력 포맷</label>
                   <select id="output-format" class="option-select">
-                    <option value="png">PNG (무손??</option>
+                    <option value="png">PNG (무손실)</option>
                     <option value="jpg">JPEG</option>
                   </select>
                 </div>
                 <div class="option-field">
-                  <label class="option-label" for="device-select">?�행 ?�치</label>
+                  <label class="option-label" for="device-select">실행 장치</label>
                   <select id="device-select" class="option-select">
-                    <option value="auto">?�동 (권장)</option>
+                    <option value="auto">자동 (권장)</option>
                     <option value="cuda">CUDA (GPU)</option>
                     <option value="cpu">CPU</option>
                   </select>
                 </div>
                 <div class="option-field option-field--wide" id="upscale-option-card">
                   <label class="option-label" for="upscale-select">출력 배율</label>
-                  <p class="option-hint" id="upscale-hint">배경 복원 ??2�??�상??권장?�니??</p>
+                  <p class="option-hint" id="upscale-hint">배경 복원 시 2배 이상을 권장합니다.</p>
                   <select id="upscale-select" class="option-select">
-                    <option value="1">1�????�본 ?�기</option>
-                    <option value="2" selected>2�???권장 (배경 복원)</option>
-                    <option value="4">4�???최�? ?�명 (?�림)</option>
+                    <option value="1">1배 — 원본 크기</option>
+                    <option value="2" selected>2배 — 권장 (배경 복원)</option>
+                    <option value="4">4배 — 최대 선명 (느림)</option>
                   </select>
                 </div>
               </div>
@@ -164,27 +164,27 @@
                   <label class="option-label" for="fidelity-range">Fidelity</label>
                   <output class="fidelity-output" id="fidelity-value" for="fidelity-range">0.70</output>
                 </div>
-                <p class="option-hint">?�을?�록 ?�본??가깝고, ??��?�록 AI 보정??강합?�다.</p>
+                <p class="option-hint">높을수록 원본에 가깝고, 낮을수록 AI 보정이 강합니다.</p>
                 <input type="range" id="fidelity-range" class="fidelity-range" min="0" max="100" value="70">
               </div>
             </div>
 
             <div class="options-group options-group--last">
-              <h3 class="options-group-title">?�굴 · 배경</h3>
+              <h3 class="options-group-title">얼굴 · 배경</h3>
               <div class="options-toggle-stack">
                 <div class="options-toggle-row">
                   <label class="toggle-card">
                     <input type="checkbox" id="face-upsample" checked>
                     <span class="toggle-card-text">
-                      <span class="toggle-card-title">?�굴 ?�스케??/span>
-                      <span class="toggle-card-desc">복원???�굴??추�?�??�명??/span>
+                      <span class="toggle-card-title">얼굴 업스케일</span>
+                      <span class="toggle-card-desc">복원된 얼굴을 추가로 선명화</span>
                     </span>
                   </label>
                   <label class="toggle-card">
                     <input type="checkbox" id="only-center-face">
                     <span class="toggle-card-text">
-                      <span class="toggle-card-title">가?�데 ?�굴�?/span>
-                      <span class="toggle-card-desc">중앙 ?�굴 1개만 처리</span>
+                      <span class="toggle-card-title">가운데 얼굴만</span>
+                      <span class="toggle-card-desc">중앙 얼굴 1개만 처리</span>
                     </span>
                   </label>
                 </div>
@@ -193,14 +193,14 @@
                     <input type="checkbox" id="background-enhance">
                     <span class="toggle-card-text">
                       <span class="toggle-card-title">배경 복원</span>
-                      <span class="toggle-card-desc">RealESRGAN · ?�림</span>
+                      <span class="toggle-card-desc">RealESRGAN · 느림</span>
                     </span>
                   </label>
                   <label class="toggle-card toggle-card--quality is-disabled" id="background-quality-card">
                     <input type="checkbox" id="background-quality-mode" disabled>
                     <span class="toggle-card-text">
-                      <span class="toggle-card-title">배경 고품�?모드</span>
-                      <span class="toggle-card-desc">?�???�분??· ???�림</span>
+                      <span class="toggle-card-title">배경 고품질 모드</span>
+                      <span class="toggle-card-desc">타일 세분화 · 더 느림</span>
                     </span>
                   </label>
                 </div>
@@ -208,40 +208,40 @@
             </div>
           </div>
 
-          <aside class="media-summary-panel" aria-label="?�업 ?�약">
-            <h4 class="media-summary-title">?�업 ?�태</h4>
+          <aside class="media-summary-panel" aria-label="작업 요약">
+            <h4 class="media-summary-title">작업 상태</h4>
             <dl class="media-summary-list">
               <div class="media-summary-item">
-                <dt>준�?/dt>
-                <dd id="summary-model-ready">?�인 �?/dd>
+                <dt>준비</dt>
+                <dd id="summary-model-ready">확인 중</dd>
               </div>
               <div class="media-summary-item">
-                <dt>?�맷</dt>
+                <dt>포맷</dt>
                 <dd id="summary-format">PNG</dd>
               </div>
               <div class="media-summary-item">
                 <dt>출력 배율</dt>
-                <dd id="summary-upscale">2�?/dd>
+                <dd id="summary-upscale">2배</dd>
               </div>
               <div class="media-summary-item">
                 <dt>복원 강도</dt>
                 <dd id="summary-fidelity">0.70</dd>
               </div>
               <div class="media-summary-item media-summary-item--stack">
-                <dt>?�션</dt>
-                <dd id="summary-options" class="summary-options">?�굴 ?�스케??/dd>
+                <dt>옵션</dt>
+                <dd id="summary-options" class="summary-options">얼굴 업스케일</dd>
               </div>
             </dl>
           </aside>
         </section>
 
-        <section class="action-stack" aria-label="?�행">
+        <section class="action-stack" aria-label="실행">
 
-          <button type="button" id="btn-start-enhance" class="btn-action btn-action--primary">?�질 ?�상</button>
+          <button type="button" id="btn-start-enhance" class="btn-action btn-action--primary">화질 향상</button>
 
           <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
 
-            <span class="icon" aria-hidden="true">?��</span> 결과 ?�운로드
+            <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
 
           </a>
 
@@ -253,11 +253,11 @@
 
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
 
-            <h3 id="setup-loading-title">AI ?�경 준�?/h3>
+            <h3 id="setup-loading-title">AI 환경 준비</h3>
 
             <p id="setup-loading-step" class="loading-step"></p>
 
-            <p id="setup-loading-message" class="loading-message">준�?중�?/p>
+            <p id="setup-loading-message" class="loading-message">준비 중…</p>
 
             <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
 
@@ -275,11 +275,11 @@
 
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
 
-            <h3 id="enhance-loading-title">?�질 ?�상</h3>
+            <h3 id="enhance-loading-title">화질 향상</h3>
 
             <p id="enhance-loading-step" class="loading-step"></p>
 
-            <p id="enhance-loading-message" class="loading-message">처리 중�?/p>
+            <p id="enhance-loading-message" class="loading-message">처리 중…</p>
 
             <p id="enhance-loading-percent" class="loading-percent">0%</p>
 
@@ -297,7 +297,7 @@
 
 
 
-      <!-- 광고: 결과 ?�운로드 ?�래 -->
+      <!-- 광고: 결과 다운로드 아래 -->
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
 
@@ -308,7 +308,7 @@
 
 
   <script type="module" src="../common/site-modal-boot.js"></script>
-  <script src="../common/site-guard.js?v=7"></script>
+  <script src="../common/site-guard.js?v=8"></script>
   <script type="module" src="script.js?v=26"></script>
 
 </body>
