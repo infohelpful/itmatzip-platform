@@ -31,8 +31,10 @@ import {
   STORAGE_VOCAL_MS,
   STORAGE_VIDEO_PATH,
   clearProbeMetaFromSession,
+  clearAnalysisBoundVideoPath,
   DEFAULT_PADDING_MS,
   canExportFromSession,
+  canRestoreAnalysisForPath,
   clipNameFromVideoPath,
   consumeEditorRestorePending,
   formatSampleRateLabel,
@@ -41,13 +43,15 @@ import {
   getMeanVolumeDbFromSession,
   getRecommendedNoiseDbFromSession,
   getSampleRateHzFromSession,
+  getAnalysisBoundVideoPath,
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
   saveProbeMetaToSession,
+  setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna2";
+} from "../common/edl-export.js?v=lna3";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -373,7 +377,41 @@ document.addEventListener("DOMContentLoaded", () => {
     probeTimer = window.setTimeout(() => void probeMediaFromPath(), 320);
   }
 
+  function beginNewMediaWorkflow() {
+    window.clearTimeout(probeTimer);
+    abortWaveformPreviewInFlight();
+    resetSilenceAnalysisState();
+    resetWaveformStateForNewMedia({ hideSection: false });
+    probedMediaDurationSec = null;
+    probedMeanVolumeDb = null;
+    probedMaxVolumeDb = null;
+    probedFpsRational = null;
+    probedRecommendedNoiseDb = null;
+    clearMediaSummary();
+    if (waveformPreviewTitle) waveformPreviewTitle.textContent = "오디오 파형";
+    setWaveformIdleStatus();
+    syncExportLinkState();
+  }
+
+  /**
+   * @param {string} nextPath
+   * @param {string} [previousPath]
+   */
+  function prepareMediaPathChange(nextPath, previousPath) {
+    const prev =
+      previousPath?.trim() ||
+      pathInput.value.trim() ||
+      getAnalysisBoundVideoPath() ||
+      waveformLoadedPath ||
+      "";
+    if (prev && looksLikeFullPath(prev) && !mediaPathsEqual(prev, nextPath)) {
+      beginNewMediaWorkflow();
+    }
+  }
+
   function applyVideoPathToInput(trimmed) {
+    const prior = pathInput.value.trim();
+    prepareMediaPathChange(trimmed, prior);
     pathInput.value = trimmed;
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
@@ -687,6 +725,7 @@ document.addEventListener("DOMContentLoaded", () => {
     silencePreviewEnabled = false;
     lastAppliedNoiseDb = null;
     lastAnalyzedSettings = null;
+    clearAnalysisBoundVideoPath();
     sessionStorage.removeItem(STORAGE_EDL);
     sessionStorage.removeItem(STORAGE_EDL_FINGERPRINT);
     sessionStorage.removeItem(STORAGE_SILENCES);
@@ -1075,7 +1114,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function shouldRestoreSilencePreviewOverlay() {
-    return loadStoredSilenceIntervals().length > 0 || canExportFromSession();
+    const p = pathInput.value.trim();
+    return canRestoreAnalysisForPath(p, mediaPathsEqual);
   }
 
   /**
@@ -1883,9 +1923,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const storedPath = getStoredVideoPath();
-    const keepAnalysis =
-      storedPath && mediaPathsEqual(storedPath, p) && canExportFromSession();
+    const keepAnalysis = canRestoreAnalysisForPath(p, mediaPathsEqual);
     if (keepAnalysis) {
       const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
       const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
@@ -1930,11 +1968,16 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
     } else {
-      resetSilenceAnalysisState();
-      probedMediaDurationSec = null;
-      probedMeanVolumeDb = null;
-      probedMaxVolumeDb = null;
-      probedFpsRational = null;
+      const bound = getAnalysisBoundVideoPath();
+      if (bound && !mediaPathsEqual(bound, p)) {
+        beginNewMediaWorkflow();
+      } else {
+        resetSilenceAnalysisState();
+        probedMediaDurationSec = null;
+        probedMeanVolumeDb = null;
+        probedMaxVolumeDb = null;
+        probedFpsRational = null;
+      }
     }
 
     setWaveformCanvasHidden(true);
@@ -2340,6 +2383,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.setItem(STORAGE_CLIP_NAME, clipName);
       }
       sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
+      setAnalysisBoundVideoPath(videoPath);
       saveProbeMetaToSession({
         fps: fpsParsed,
         mean_volume_db: asFiniteNumber(optAvgDb?.value),

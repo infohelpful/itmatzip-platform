@@ -18,6 +18,8 @@ export const STORAGE_SAMPLE_RATE_HZ = "itmatzip_silence_sample_rate_hz";
 export const STORAGE_RECOMMENDED_NOISE_DB = "itmatzip_silence_recommended_noise_db";
 export const STORAGE_CLIP_NAME = "itmatzip_silence_clip_name";
 export const STORAGE_VIDEO_PATH = "itmatzip_silence_video_path";
+/** 무음 분석·EDL이 실제로 적용된 영상 경로 (현재 입력 경로와 구분) */
+export const STORAGE_ANALYSIS_VIDEO_PATH = "itmatzip_silence_analysis_video_path";
 export const STORAGE_TC_OFFSET_SEC = "itmatzip_silence_tc_offset_sec";
 export const STORAGE_REMOVE_SILENT = "itmatzip_silence_remove_silent";
 export const STORAGE_PADDING_MS = "itmatzip_silence_padding_ms";
@@ -292,10 +294,47 @@ export function getStoredVideoPath() {
   return sessionStorage.getItem(STORAGE_VIDEO_PATH)?.trim() || "";
 }
 
+/** @returns {string} */
+export function getAnalysisBoundVideoPath() {
+  return sessionStorage.getItem(STORAGE_ANALYSIS_VIDEO_PATH)?.trim() || "";
+}
+
+/** @param {string} videoPath */
+export function setAnalysisBoundVideoPath(videoPath) {
+  const p = String(videoPath || "").trim();
+  if (p) sessionStorage.setItem(STORAGE_ANALYSIS_VIDEO_PATH, p);
+}
+
+export function clearAnalysisBoundVideoPath() {
+  sessionStorage.removeItem(STORAGE_ANALYSIS_VIDEO_PATH);
+}
+
+/**
+ * @param {string} videoPath
+ * @param {(a: string, b: string) => boolean} pathsEqual
+ */
+export function canRestoreAnalysisForPath(videoPath, pathsEqual) {
+  if (!canExportFromSession()) return false;
+  const bound = getAnalysisBoundVideoPath();
+  const p = String(videoPath || "").trim();
+  if (!bound || !p) return false;
+  return pathsEqual(bound, p);
+}
+
 /** 편집 화면 복원에 필요한 최소 데이터가 sessionStorage에 있는지 */
 export function hasRestorableEditorSession() {
   const videoPath = getStoredVideoPath();
-  return Boolean(videoPath) && canExportFromSession();
+  if (!videoPath) return false;
+  const bound = getAnalysisBoundVideoPath();
+  if (!bound) return canExportFromSession();
+  const norm = (p) =>
+    String(p)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+  return canExportFromSession() && norm(bound) === norm(videoPath);
 }
 
 /**
