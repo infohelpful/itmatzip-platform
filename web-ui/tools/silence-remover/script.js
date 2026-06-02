@@ -51,7 +51,7 @@ import {
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna3";
+} from "../common/edl-export.js?v=lna4";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,

@@ -212,6 +212,18 @@ export function markStoredEdlFingerprintFromSession() {
   sessionStorage.setItem(STORAGE_EDL_FINGERPRINT, edlExportSettingsFingerprintFromSession());
 }
 
+/** @returns {string} */
+export function getStoredEdlFromSession() {
+  return sessionStorage.getItem(STORAGE_EDL)?.trim() || "";
+}
+
+/** 분석 직후 저장된 EDL이 현재 내보내기 설정(FPS·패딩 등)과 일치하는지 */
+export function storedEdlMatchesExportSettingsFromSession() {
+  const fp = sessionStorage.getItem(STORAGE_EDL_FINGERPRINT);
+  if (fp == null) return false;
+  return fp === edlExportSettingsFingerprintFromSession();
+}
+
 /**
  * 편집 화면 DOM → sessionStorage (download.html 이동 직전)
  */
@@ -279,8 +291,6 @@ export function snapshotExportSettingsFromDom() {
       sessionStorage.setItem(STORAGE_MIN_SILENCE, String(v));
     }
   }
-
-  markStoredEdlFingerprintFromSession();
 }
 
 export function canExportFromSession() {
@@ -435,6 +445,16 @@ export async function buildEdlViaAgent(requestAgent) {
   const videoPath = sessionStorage.getItem(STORAGE_VIDEO_PATH) || "";
   const clipName =
     sessionStorage.getItem(STORAGE_CLIP_NAME) || clipNameFromVideoPath(videoPath);
+
+  const storedEdl = getStoredEdlFromSession();
+  if (
+    storedEdl &&
+    storedEdlMatchesExportSettingsFromSession() &&
+    !storedEdl.includes("말소리 구간이 없습니다")
+  ) {
+    return { ok: true, edl: storedEdl };
+  }
+
   const tcOffRaw = sessionStorage.getItem(STORAGE_TC_OFFSET_SEC);
   const tcOff = tcOffRaw != null ? Number(tcOffRaw) : 0;
 
