@@ -731,60 +731,85 @@ async def post_analyze_sync(
 def post_build_edl(
     _: SilenceRemoverReady,
     body: SilenceRemoverBuildEdlBody,
-) -> dict[str, str]:
+) -> dict[str, object]:
     """분석에 저장된 무음(시작·끝 초)과 편집 FPS로 CMX EDL을 생성합니다."""
-    segs = [
-        silence_remover.SilenceSegment(float(s.start_sec), float(s.end_sec))
-        for s in body.silences
-        if float(s.end_sec) > float(s.start_sec)
-    ]
-    if not segs:
-        raise HTTPException(status_code=400, detail="무음 구간이 없습니다. 먼저 분석을 실행하세요.")
-    fps_frac = silence_remover.resolve_edl_fps_fraction(body.fps, body.fps_rational)
-    fps_f = silence_remover._edl_fps_float(fps_frac)
-    if body.fps is None or body.fps <= 0:
-        raise HTTPException(status_code=400, detail="편집기 FPS를 입력한 뒤 다시 시도하세요.")
-    ttl = (body.title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
-    clip_label = (body.clip_name or "").strip() or None
-    if body.video_path and not clip_label:
-        media_p = Path(body.video_path)
-        if media_p.is_file():
-            clip_label = silence_remover.clip_name_from_media_path(media_p)
-    vocal_ms: list[tuple[float, float]] | None = None
-    if body.vocal_intervals_ms:
-        vocal_ms = [
-            (float(v.start_ms), float(v.end_ms))
-            for v in body.vocal_intervals_ms
-            if float(v.end_ms) > float(v.start_ms)
+    try:
+        segs = [
+            silence_remover.SilenceSegment(float(s.start_sec), float(s.end_sec))
+            for s in body.silences
+            if float(s.end_sec) > float(s.start_sec)
         ]
-    if not vocal_ms:
-        vocal_ms = silence_remover._vocal_ms_from_silence_segments(
-            segs, float(body.duration_sec)
-        )
-    if not vocal_ms:
-        raise HTTPException(status_code=400, detail="말소리 구간이 없습니다.")
-    tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
-    total_frames: int | None = None
-    if body.video_path:
-        media_p = Path(body.video_path)
-        if media_p.is_file():
-            timing = silence_remover.probe_media_edl_timing(media_p, fps=fps_frac)
-            tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
-                timing.source_tc_offset_sec
+        if not segs:
+            raise HTTPException(
+                status_code=400,
+                detail="무음 구간이 없습니다. 먼저 분석을 실행하세요.",
             )
-            if timing.total_frames > 0:
-                total_frames = timing.total_frames
-    elif body.source_tc_offset_sec is not None:
-        tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
-            float(body.source_tc_offset_sec)
+        fps_frac = silence_remover.resolve_edl_fps_fraction(body.fps, body.fps_rational)
+        fps_f = silence_remover._edl_fps_float(fps_frac)
+        if body.fps is None or body.fps <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="편집기 FPS를 입력한 뒤 다시 시도하세요.",
+            )
+        ttl = (body.title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
+        clip_label = (body.clip_name or "").strip() or None
+        media_p = Path(body.video_path) if body.video_path else None
+        if media_p is not None and not clip_label and media_p.is_file():
+            clip_label = silence_remover.clip_name_from_media_path(media_p)
+        vocal_ms: list[tuple[float, float]] | None = None
+        if body.vocal_intervals_ms:
+            vocal_ms = [
+                (float(v.start_ms), float(v.end_ms))
+                for v in body.vocal_intervals_ms
+                if float(v.end_ms) > float(v.start_ms)
+            ]
+        if not vocal_ms:
+            vocal_ms = silence_remover._vocal_ms_from_silence_segments(
+                segs, float(body.duration_sec)
+            )
+        if not vocal_ms:
+            raise HTTPException(status_code=400, detail="말소리 구간이 없습니다.")
+        tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
+        total_frames: int | None = None
+        if body.source_tc_offset_sec is not None and body.source_tc_offset_sec > 1e-6:
+            tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
+                float(body.source_tc_offset_sec)
+            )
+        if media_p is not None and media_p.is_file():
+            try:
+                timing = silence_remover.probe_media_edl_timing(media_p, fps=fps_frac)
+                tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
+                    timing.source_tc_offset_sec
+                )
+                if timing.total_frames > 0:
+                    total_frames = timing.total_frames
+            except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
+                if body.source_tc_offset_sec is not None:
+                    tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
+                        float(body.source_tc_offset_sec)
+                    )
+                else:
+                    tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
+        edl = silence_remover.create_edl_autocutter(
+            vocal_ms,
+            fps=float(body.fps or fps_f),
+            remove_silent=body.remove_silent,
+            title=ttl,
+            clip_filename=clip_label,
+            source_tc_offset_sec=tc_offset,
+            total_frames=total_frames,
         )
-    edl = silence_remover.create_edl_autocutter(
-        vocal_ms,
-        fps=float(body.fps or fps_f),
-        remove_silent=body.remove_silent,
-        title=ttl,
-        clip_filename=clip_label,
-        source_tc_offset_sec=tc_offset,
-        total_frames=total_frames,
-    )
-    return {"format": "cmx3600", "edl": edl, "source_tc_offset_sec": tc_offset}
+        if not edl.strip() or "말소리 구간이 없습니다" in edl:
+            raise HTTPException(
+                status_code=400,
+                detail="EDL 내용이 비어 있습니다. 무음 분석 설정을 조정한 뒤 다시 시도하세요.",
+            )
+        return {"format": "cmx3600", "edl": edl, "source_tc_offset_sec": tc_offset}
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

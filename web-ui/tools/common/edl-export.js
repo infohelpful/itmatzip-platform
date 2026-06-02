@@ -525,7 +525,7 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
   const clipName =
     sessionStorage.getItem(STORAGE_CLIP_NAME) || clipNameFromVideoPath(videoPath);
 
-  const forceFresh = opts.forceFresh === true || Boolean(videoPath.trim());
+  const forceFresh = opts.forceFresh === true;
   const storedEdl = getStoredEdlFromSession();
   if (
     !forceFresh &&
@@ -538,6 +538,7 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
 
   const tcOffRaw = sessionStorage.getItem(STORAGE_TC_OFFSET_SEC);
   const tcOff = tcOffRaw != null ? Number(tcOffRaw) : 0;
+  const fpsRational = sessionStorage.getItem(STORAGE_FPS_RATIONAL)?.trim() || "";
 
   try {
     const data = await requestAgent({
@@ -550,7 +551,10 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
           : {}),
         duration_sec: durationSec,
         fps: editorFps,
+        ...(fpsRational ? { fps_rational: fpsRational } : {}),
         remove_silent: getRemoveSilentFromSession(),
+        padding_ms: getPaddingMsFromSession(),
+        min_silence_sec: getMinSilenceSecFromSession(),
         title: "AutoCut_Option",
         ...(clipName ? { clip_name: clipName } : {}),
         ...(videoPath ? { video_path: videoPath } : {}),
@@ -580,9 +584,19 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (
+      storedEdl &&
+      storedEdlMatchesExportSettingsFromSession() &&
+      !storedEdl.includes("말소리 구간이 없습니다")
+    ) {
+      return { ok: true, edl: storedEdl };
+    }
+    const agentHint = /HTTP 500|500|에이전트|연결/i.test(msg)
+      ? "로컬 에이전트를 재시작한 뒤, 편집 화면에서 무음 분석을 다시 실행해 주세요."
+      : "편집 화면에서 무음 분석을 다시 실행하거나 설정(FPS·패딩)을 확인해 주세요.";
     return {
       ok: false,
-      error: `EDL 생성에 실패했습니다. 로컬 에이전트를 실행한 뒤 다시 시도해 주세요.\n\n${msg}`,
+      error: `EDL 생성에 실패했습니다. ${agentHint}\n\n${msg}`,
     };
   }
 }

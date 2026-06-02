@@ -1704,6 +1704,98 @@ document.addEventListener("DOMContentLoaded", () => {
    *   useEditorTimeline?: boolean,
    * }} [opts]
    */
+  /** peaks 열 배열을 분석·캐시와 동일한 열 수로 맞춥니다. */
+  function resamplePeakColumns(peaks, targetCount) {
+    const src = Array.isArray(peaks) ? peaks : [];
+    const n = src.length;
+    const tgt = Math.floor(Number(targetCount));
+    if (n < 2 || tgt < 2 || n === tgt) return src.slice();
+    const out = new Array(tgt);
+    const ncolM1 = tgt - 1;
+    const srcM1 = n - 1;
+    for (let i = 0; i < tgt; i++) {
+      const s0 = Math.floor((i * srcM1) / ncolM1);
+      const s1 = Math.min(srcM1, Math.floor(((i + 1) * srcM1) / ncolM1));
+      let mx = 0;
+      for (let j = s0; j <= s1; j++) {
+        const v = Number(src[j]);
+        if (Number.isFinite(v) && v > mx) mx = v;
+      }
+      out[i] = mx;
+    }
+    return out;
+  }
+
+  /**
+   * 분석 응답의 파형 격자(열 수·타임라인)를 화면 peaks 와 맞춥니다.
+   * @param {Record<string, unknown>} data
+   */
+  function alignWaveformPeaksFromAnalyzeResponse(data) {
+    if (!waveformPeaksData || !data || typeof data !== "object") return false;
+
+    const wTimeline =
+      typeof data.waveform_timeline_sec === "number" && data.waveform_timeline_sec > 0
+        ? Number(data.waveform_timeline_sec)
+        : null;
+    const wWidth =
+      typeof data.waveform_width === "number" && data.waveform_width > 0
+        ? Math.floor(Number(data.waveform_width))
+        : 0;
+    const wPps =
+      typeof data.waveform_pixels_per_second === "number" &&
+      data.waveform_pixels_per_second > 0
+        ? Number(data.waveform_pixels_per_second)
+        : null;
+    const wPcm =
+      typeof data.waveform_pcm_decoded_sec === "number" && data.waveform_pcm_decoded_sec > 0
+        ? Number(data.waveform_pcm_decoded_sec)
+        : null;
+
+    let changed = false;
+
+    if (wTimeline != null && Math.abs(wTimeline - waveformPeaksData.timeline_sec) > 0.02) {
+      waveformPeaksData.timeline_sec = wTimeline;
+      waveformPeaksData.duration_sec = wTimeline;
+      changed = true;
+    }
+    if (wPcm != null) {
+      waveformPeaksData.pcm_decoded_sec = wPcm;
+    }
+    if (wPps != null && Math.abs(wPps - (waveformPeaksData.peaks_pps ?? 0)) > 0.001) {
+      waveformPeaksData.peaks_pps = wPps;
+      changed = true;
+    }
+
+    const curCols = waveformPeaksData.peaks?.length ?? waveformPeaksData.column_count;
+    if (wWidth > 0 && wWidth !== curCols) {
+      const ratio = wWidth / curCols;
+      if (ratio >= 0.9 && ratio <= 1.1) {
+        waveformPeaksData.peaks = resamplePeakColumns(waveformPeaksData.peaks, wWidth);
+        if (Array.isArray(waveformPeaksData.peaks_db) && waveformPeaksData.peaks_db.length > 1) {
+          waveformPeaksData.peaks_db = resamplePeakColumns(waveformPeaksData.peaks_db, wWidth);
+        }
+        waveformPeaksData.column_count = wWidth;
+        changed = true;
+      } else {
+        console.warn(
+          "[silence-remover] 파형 열 수 차이가 큽니다 (화면 %s / 분석 %s). 경로를 다시 넣어 파형을 재생성하세요.",
+          curCols,
+          wWidth,
+        );
+        return false;
+      }
+    } else if (wWidth > 0 && waveformPeaksData.column_count !== wWidth) {
+      waveformPeaksData.column_count = wWidth;
+      changed = true;
+    }
+
+    if (changed) {
+      waveformRenderer = null;
+      waveformRendererCacheKey = "";
+    }
+    return changed;
+  }
+
   /** 편집기 FPS로 파형 열 밀도(1열≈1프레임). 긴 영상은 max width 안으로 pps 자동 축소 */
   function peaksPixelsPerSecondForEditorFps(editorFps, durationSec) {
     const fps = Math.max(1, Math.min(120, Number(editorFps) || 29.97));
@@ -1768,10 +1860,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const peaks = Array.isArray(raw.peaks) ? raw.peaks.map(Number) : [];
       const peaksDb = Array.isArray(raw.peaks_db) ? raw.peaks_db.map(Number) : [];
-      const columnCount =
-        typeof raw.column_count === "number" && raw.column_count > 0
-          ? raw.column_count
-          : peaks.length;
+      let columnCount = peaks.length >= 2 ? peaks.length : 0;
+      if (
+        typeof raw.column_count === "number" &&
+        raw.column_count > 0 &&
+        columnCount < 2
+      ) {
+        columnCount = Math.floor(raw.column_count);
+      } else if (
+        columnCount >= 2 &&
+        typeof raw.column_count === "number" &&
+        raw.column_count > 0 &&
+        Math.abs(raw.column_count - columnCount) > 1
+      ) {
+        console.warn(
+          "[silence-remover] peaks 배열 길이(%s)와 column_count(%s) 불일치 — 배열 길이를 사용합니다.",
+          columnCount,
+          raw.column_count,
+        );
+      }
       let timelineSec =
         typeof raw.timeline_sec === "number" && raw.timeline_sec > 0
           ? raw.timeline_sec
@@ -2313,11 +2420,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const estDur =
-      probedMediaDurationSec ??
-      (waveformPeaksData && waveformLoadedPath && mediaPathsEqual(waveformLoadedPath, videoPath)
+      waveformPeaksData?.timeline_sec > 0
         ? waveformPeaksData.timeline_sec
-        : 0);
-    const peaksPps = peaksPixelsPerSecondForEditorFps(fpsParsed, estDur);
+        : probedMediaDurationSec ?? 0;
+    const peaksPps =
+      waveformPeaksData?.peaks_pps > 0
+        ? waveformPeaksData.peaks_pps
+        : peaksPixelsPerSecondForEditorFps(fpsParsed, estDur);
 
     const hasPeaksForPath =
       waveformPeaksData != null &&
@@ -2493,44 +2602,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sessionStorage.setItem(STORAGE_DURATION, String(analysisDur));
       }
       if (waveformPeaksData && data && typeof data === "object") {
-        const wTimeline =
-          typeof data.waveform_timeline_sec === "number" && data.waveform_timeline_sec > 0
-            ? Number(data.waveform_timeline_sec)
-            : null;
-        const wPcm =
-          typeof data.waveform_pcm_decoded_sec === "number" && data.waveform_pcm_decoded_sec > 0
-            ? Number(data.waveform_pcm_decoded_sec)
-            : null;
-        if (wTimeline != null && Math.abs(wTimeline - waveformPeaksData.timeline_sec) > 0.02) {
-          waveformPeaksData.timeline_sec = wTimeline;
-          waveformPeaksData.duration_sec = wTimeline;
-          waveformRenderer = null;
-          waveformRendererCacheKey = "";
-        }
-        if (wPcm != null) {
-          waveformPeaksData.pcm_decoded_sec = wPcm;
-        }
-        if (
-          typeof data.waveform_pixels_per_second === "number" &&
-          data.waveform_pixels_per_second > 0
-        ) {
-          waveformPeaksData.peaks_pps = Number(data.waveform_pixels_per_second);
-        }
-        const wWidth =
-          typeof data.waveform_width === "number" && data.waveform_width > 0
-            ? Math.floor(Number(data.waveform_width))
-            : 0;
-        if (
-          wWidth > 0 &&
-          waveformPeaksData.column_count > 0 &&
-          wWidth !== waveformPeaksData.column_count
-        ) {
-          console.warn(
-            "[silence-remover] waveform_width(%s) ≠ peaks column_count(%s) — 파형을 다시 불러오세요.",
-            wWidth,
-            waveformPeaksData.column_count,
-          );
-        }
+        alignWaveformPeaksFromAnalyzeResponse(data);
       }
       grantSilenceOverlayForPath(videoPath);
       syncSilenceOverlayToCurrentPath();
