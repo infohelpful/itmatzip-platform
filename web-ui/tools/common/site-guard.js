@@ -39,7 +39,12 @@
     }
   }
 
-  if (killSwitchOn()) return;
+  if (killSwitchOn()) {
+    console.info(
+      "[site-guard] 보호가 꺼져 있습니다(?_sg_off=1). 광고 차단 안내·일부 보호가 동작하지 않습니다. URL에서 _sg_off=1 을 제거하세요.",
+    );
+    return;
+  }
 
   /** @param {() => void} fn @param {number} [timeoutMs] */
   function runWhenIdle(fn, timeoutMs = 4000) {
@@ -193,20 +198,36 @@
   /** @type {MutationObserver | null} */
   let adsenseRootObserver = null;
 
+  function isBraveBrowserSync() {
+    return typeof navigator !== "undefined" && navigator.brave != null;
+  }
+
   function adBlockWallBodyHtml() {
+    const brave = isBraveBrowserSync();
+    const steps = brave
+      ? `
+          <li>주소창 <strong>사자(Brave) 아이콘</strong> 클릭 → <strong>Shields(보호) 끔</strong></li>
+          <li class="itz-modal__sub">Shields는 확장과 별개입니다. 켜 두면 광고·추적이 계속 막힙니다.</li>
+          <li>추가로 광고 차단 <strong>확장</strong>이 있으면 <strong>사용 끔</strong></li>
+          <li><strong>F5</strong> 새로고침</li>
+        `
+      : `
+          <li>광고 차단 <strong>확장</strong> 아이콘 → 이 사이트 허용 또는 <strong>사용 끔</strong></li>
+          <li><strong>F5</strong> 새로고침</li>
+        `;
     return `
       <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">🛡️</p>
       <p class="itz-modal__msg">
         본 사이트는 무료로 제공되며, 광고 수익으로 운영됩니다.
-        사이트를 계속 이용하시려면 <strong>광고 차단 프로그램을 비활성화</strong>한 뒤 새로고침해 주세요.
+        ${
+          brave
+            ? "지금 <strong>Brave Shields(보호)</strong> 또는 광고 차단 기능이 광고를 막고 있습니다."
+            : "광고 차단 기능이 켜져 있으면 이용이 제한됩니다."
+        }
       </p>
       <div style="text-align:left;background:#0d1117;border-radius:8px;padding:16px 20px;margin-top:1rem;font-size:0.88rem;color:#8b9cb8">
         <p style="margin:0 0 8px;color:#e6edf7"><strong>해제 방법</strong></p>
-        <ol style="margin:0;padding-left:20px">
-          <li>브라우저 주소창 오른쪽의 확장 프로그램 아이콘 클릭</li>
-          <li>광고 차단 프로그램에서 이 사이트를 허용 목록에 추가</li>
-          <li>페이지 새로고침 (F5 또는 Ctrl+R)</li>
-        </ol>
+        <ol style="margin:0;padding-left:20px">${steps}</ol>
       </div>
     `;
   }
@@ -222,7 +243,9 @@
 
     void modal
       .showSiteDialog({
-        title: "광고 차단 프로그램이 감지되었습니다",
+        title: isBraveBrowserSync()
+          ? "Brave Shields(보호) 또는 광고 차단이 감지되었습니다"
+          : "광고 차단 프로그램이 감지되었습니다",
         bodyHtml: adBlockWallBodyHtml(),
         buttons: [{ label: "새로고침", primary: true, act: "reload" }],
       })
@@ -271,8 +294,28 @@
     };
   }
 
+  /** Brave Shields·확장 등이 Google 광고 URL을 막았는지 (Performance API) */
+  function wasAdResourceLikelyBlockedByClient() {
+    try {
+      const entries = performance.getEntriesByType("resource");
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const e = entries[i];
+        if (!e?.name) continue;
+        if (!/googlesyndication\.com|doubleclick\.net|googleadservices/i.test(e.name)) {
+          continue;
+        }
+        if (e.transferSize === 0 && e.encodedBodySize === 0 && e.duration > 0) {
+          return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
   /**
-   * 실제 AdSense 시도 실패 + 스크립트 로드 불가일 때만 차단 (확장 비활성·네트워크 오탐 최소화)
+   * 실제 AdSense 시도 실패 + 스크립트 로드 불가·Brave Shields 등 클라이언트 차단
    * @returns {boolean}
    */
   function evaluateAdBlock() {
@@ -290,6 +333,14 @@
       if (snap.liveInsCount > 0 && !snap.scriptUnavailable) return false;
     }
 
+    if (
+      adBlockGraceExpired() &&
+      wasAdResourceLikelyBlockedByClient() &&
+      snap.filledCount === 0
+    ) {
+      return true;
+    }
+
     if (snap.scriptUnavailable && snap.emptyContainerCount > 0) return true;
 
     if (
@@ -297,6 +348,16 @@
       snap.emptyContainerCount > 0 &&
       snap.liveInsCount === 0 &&
       !snap.scriptLoaded
+    ) {
+      return true;
+    }
+
+    if (
+      adBlockGraceExpired() &&
+      snap.liveInsCount > 0 &&
+      snap.pendingInsCount === snap.liveInsCount &&
+      snap.filledCount === 0 &&
+      snap.unfilledCount === 0
     ) {
       return true;
     }

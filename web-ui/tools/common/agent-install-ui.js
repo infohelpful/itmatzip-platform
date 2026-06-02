@@ -3,6 +3,8 @@
  * 다운로드 URL은 agent-update-manifest.json 의 download_url 을 사용합니다.
  */
 
+import { isBraveBrowser } from "./browser-hints.js";
+
 /** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 과 동일 */
 export const AGENT_UPDATE_MANIFEST_URL =
   "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/agent/agent-update-manifest.json";
@@ -80,6 +82,23 @@ function agentDownloadLinkAttrs(rawHref) {
 
 /** 확장·Chrome 설정이 로컬 연결만 막을 때 — 짧은 안내(일반 모달용) */
 export function buildAgentAccessBlockedDialogBodyHtml() {
+  if (isBraveBrowser()) {
+    return `
+    <p class="itz-modal__msg">
+      <strong>Brave Shields(보호)</strong> 또는 광고 차단 <strong>확장</strong>이
+      PC 프로그램(에이전트)·광고 연결을 막고 있습니다.
+    </p>
+    <p class="itz-modal__msg">
+      확장만 끄고 <strong>Shields가 켜져 있으면</strong> 계속 막힐 수 있습니다.
+    </p>
+    <ol class="itz-modal__steps">
+      <li>주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields 끔</strong></li>
+      <li>광고 차단 <strong>확장</strong>이 있으면 <strong>사용 끔</strong></li>
+      <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
+    </ol>
+    <p class="itz-modal__hint">그래도 안 되면: <strong>로컬 네트워크 허용</strong>(자물쇠 → 사이트 설정)</p>
+  `.trim();
+  }
   return `
     <p class="itz-modal__msg">
       <strong>광고 차단 확장</strong>(AdBlock, uBlock 등)이 PC 프로그램(에이전트)과의 연결을 막고 있습니다.
@@ -100,7 +119,9 @@ export function buildAgentAccessBlockedDialogBodyHtml() {
 /** @param {() => Promise<unknown>} onPrimaryCheck */
 export async function agentAccessBlockedDialogOptions(onPrimaryCheck) {
   return {
-    title: "확장 프로그램이 연결을 막고 있습니다",
+    title: isBraveBrowser()
+      ? "Brave Shields 또는 확장이 연결을 막고 있습니다"
+      : "확장 프로그램이 연결을 막고 있습니다",
     bodyHtml: buildAgentAccessBlockedDialogBodyHtml(),
     primaryLabel: "다시 연결 확인",
     onPrimary: onPrimaryCheck,

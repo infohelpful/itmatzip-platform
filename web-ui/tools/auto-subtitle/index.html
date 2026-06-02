@@ -1,4 +1,4 @@
-ï»¿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
@@ -15,19 +15,19 @@
     <header class="as-topbar">
       <div class="as-topbar-left">
         <h1 class="as-logo">Auto <span class="as-logo-accent">Subtitle</span></h1>
-        <a href="../index.html" class="btn-to-dashboard">ëŒ€ì‹œë³´ë“œë¡œ ì´ë™</a>
-        <div id="compute-capability" class="compute-capability is-pending" title="">í™•ì¸ ì¤‘â€¦</div>
-        <span id="connection-status" class="as-status-dot">ì—ì´ì „íŠ¸ í™•ì¸ ì¤‘â€¦</span>
+        <a href="../index.html" class="btn-to-dashboard">´ë½Ãº¸µå·Î ÀÌµ¿</a>
+        <div id="compute-capability" class="compute-capability is-pending" title="">È®ÀÎ Áß¡¦</div>
+        <span id="connection-status" class="as-status-dot">¿¡ÀÌÀüÆ® È®ÀÎ Áß¡¦</span>
       </div>
       <div class="as-topbar-actions">
-        <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>í™˜ê²½ ì¤€ë¹„</button>
-        <button type="button" id="btn-add-watermark" class="as-btn as-btn-ghost" disabled title="ì›Œí„°ë§ˆí¬ ì´ë¯¸ì§€ ì¶”ê°€">ì›Œí„°ë§ˆí¬ ì¶”ê°€</button>
-        <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="ê¸€ê¼´ íŒŒì¼(.ttf/.otf)ì„ ProgramDataì— ì¶”ê°€">í°íŠ¸ ì¶”ê°€</button>
-        <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="ì‹¤í–‰ ì·¨ì†Œ (Ctrl+Z)">â†©</button>
-        <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="ë‹¤ì‹œ ì‹¤í–‰ (Ctrl+Y)">â†ª</button>
-        <button type="button" id="btn-load-project" class="as-btn as-btn-ghost">ë¶ˆëŸ¬ì˜¤ê¸°</button>
-        <button type="button" id="btn-save-project-as" class="as-btn as-btn-ghost">ë‹¤ë¥¸ ì´ë¦„ìœ¼ë¡œ ì €ìž¥</button>
-        <button type="button" id="btn-save-project" class="as-btn as-btn-ghost">ì €ìž¥</button>
+        <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>È¯°æ ÁØºñ</button>
+        <button type="button" id="btn-add-watermark" class="as-btn as-btn-ghost" disabled title="¿öÅÍ¸¶Å© ÀÌ¹ÌÁö Ãß°¡">¿öÅÍ¸¶Å© Ãß°¡</button>
+        <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="±Û²Ã ÆÄÀÏ(.ttf/.otf)À» ProgramData¿¡ Ãß°¡">ÆùÆ® Ãß°¡</button>
+        <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="½ÇÇà Ãë¼Ò (Ctrl+Z)">?</button>
+        <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="´Ù½Ã ½ÇÇà (Ctrl+Y)">?</button>
+        <button type="button" id="btn-load-project" class="as-btn as-btn-ghost">ºÒ·¯¿À±â</button>
+        <button type="button" id="btn-save-project-as" class="as-btn as-btn-ghost">´Ù¸¥ ÀÌ¸§À¸·Î ÀúÀå</button>
+        <button type="button" id="btn-save-project" class="as-btn as-btn-ghost">ÀúÀå</button>
       </div>
     </header>
 
@@ -35,7 +35,7 @@
       <div class="as-stylebar-controls">
         <div class="as-style-col">
           <label class="as-style-field as-style-field--font">
-            <span>í°íŠ¸</span>
+            <span>ÆùÆ®</span>
             <div class="as-style-ctrl as-style-ctrl--wide">
               <select id="style-font-family" class="as-select as-select--font">
                 <option value="Malgun Gothic" selected>Malgun Gothic</option>
@@ -43,7 +43,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>ë°°ê²½ ìƒ‰ìƒ</span>
+            <span>¹è°æ »ö»ó</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-bg-color" value="#000000">
               <input type="range" id="style-bg-opacity" min="0" max="100" value="63">
@@ -53,7 +53,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>ê¸€ìž í¬ê¸°</span>
+            <span>±ÛÀÚ Å©±â</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-font-size-range" min="12" max="96" value="47">
@@ -61,7 +61,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>ë°°ê²½ í¬ê¸°</span>
+            <span>¹è°æ Å©±â</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-bg-size" min="0" max="100" value="50">
@@ -71,7 +71,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>ê¸€ìž ìƒ‰ìƒ</span>
+            <span>±ÛÀÚ »ö»ó</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-text-color" value="#ffffff">
               <input type="range" id="style-text-alpha" min="0" max="255" value="255">
@@ -79,7 +79,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>ì¢Œìš° ìœ„ì¹˜</span>
+            <span>ÁÂ¿ì À§Ä¡</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-x" min="0" max="100" value="50">
@@ -89,7 +89,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>ì™¸ê³½ì„ </span>
+            <span>¿Ü°û¼±</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-stroke-color" value="#000000">
               <input type="range" id="style-stroke-width" min="0" max="8" value="2">
@@ -97,7 +97,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>ìƒí•˜ ìœ„ì¹˜</span>
+            <span>»óÇÏ À§Ä¡</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-y-range" min="0" max="100" value="90">
@@ -108,25 +108,25 @@
       </div>
       <div class="as-stylebar-export">
         <div class="as-lang-box">
-          <label for="language-select">ì–¸ì–´</label>
+          <label for="language-select">¾ð¾î</label>
           <select id="language-select" class="as-select as-select--lang">
-            <option value="">ìžë™</option>
-            <option value="ko" selected>í•œêµ­ì–´</option>
+            <option value="">ÀÚµ¿</option>
+            <option value="ko" selected>ÇÑ±¹¾î</option>
             <option value="en">English</option>
-            <option value="ja">æ—¥æœ¬èªž</option>
-            <option value="zh">ä¸­æ–‡</option>
+            <option value="ja">ìíÜâåÞ</option>
+            <option value="zh">ñéÙþ</option>
           </select>
         </div>
         <select id="export-format" class="as-select">
-          <option value="video">ì˜ìƒìœ¼ë¡œë³´ë‚´ê¸°</option>
+          <option value="video">¿µ»óÀ¸·Îº¸³»±â</option>
           <option value="srt">SRT</option>
           <option value="vtt">WebVTT</option>
           <option value="ass">ASS</option>
-          <option value="txt">í…ìŠ¤íŠ¸</option>
+          <option value="txt">ÅØ½ºÆ®</option>
           <option value="mp3">MP3</option>
           <option value="wav">WAV</option>
         </select>
-        <button type="button" id="btn-export" class="as-btn as-btn-primary" disabled>ë³´ë‚´ê¸°</button>
+        <button type="button" id="btn-export" class="as-btn as-btn-primary" disabled>º¸³»±â</button>
       </div>
     </section>
 
@@ -134,9 +134,9 @@
       <section class="as-pane as-pane-preview">
         <div class="as-preview-main">
           <div class="as-pane-toolbar as-pane-toolbar--preview">
-            <label class="as-load-label" for="video-path">ì˜ìƒ ë¶ˆëŸ¬ì˜¤ê¸°</label>
-            <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="ë¡œì»¬ íŒŒì¼ ê²½ë¡œ">
-            <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost">ì°¾ì•„ë³´ê¸°</button>
+            <label class="as-load-label" for="video-path">¿µ»ó ºÒ·¯¿À±â</label>
+            <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="·ÎÄÃ ÆÄÀÏ °æ·Î">
+            <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost">Ã£¾Æº¸±â</button>
           </div>
           <div class="as-preview-stage" id="preview-section">
             <div class="as-preview-media-frame" id="preview-media-frame">
@@ -145,51 +145,51 @@
               <div id="preview-subtitle-overlay" class="as-preview-overlay" hidden aria-hidden="true"></div>
               <div id="preview-watermark-overlay" class="as-preview-watermark" hidden aria-hidden="true"></div>
             </div>
-            <p class="as-preview-empty" id="preview-empty">ì˜ìƒÂ·ì˜¤ë””ì˜¤ íŒŒì¼ì„ ì„ íƒí•˜ì„¸ìš”.</p>
+            <p class="as-preview-empty" id="preview-empty">¿µ»ó¡¤¿Àµð¿À ÆÄÀÏÀ» ¼±ÅÃÇÏ¼¼¿ä.</p>
           </div>
           <div class="as-preview-transport" id="preview-transport">
-            <button type="button" id="btn-preview-play" class="as-transport-btn" title="ìž¬ìƒ/ì¼ì‹œì •ì§€ (Space)" disabled aria-label="ìž¬ìƒ">â–¶</button>
+            <button type="button" id="btn-preview-play" class="as-transport-btn" title="Àç»ý/ÀÏ½ÃÁ¤Áö (Space)" disabled aria-label="Àç»ý">¢º</button>
             <span id="preview-time-current" class="as-transport-time">0:00</span>
             <div class="as-transport-track-wrap">
-              <input type="range" id="preview-seek" class="as-transport-seek" min="0" max="1000" value="0" step="1" disabled aria-label="ìž¬ìƒ ìœ„ì¹˜">
+              <input type="range" id="preview-seek" class="as-transport-seek" min="0" max="1000" value="0" step="1" disabled aria-label="Àç»ý À§Ä¡">
             </div>
             <span id="preview-time-total" class="as-transport-time">0:00</span>
           </div>
         </div>
         <div class="as-preview-ad-wrap">
-          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-preview-pane" aria-label="ê´‘ê³ "></div>
+          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-preview-pane" aria-label="±¤°í"></div>
         </div>
       </section>
 
       <section class="as-pane as-pane-subtitles">
         <div class="as-subtitle-ad-wrap">
-          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-subtitle-pane" aria-label="ê´‘ê³ "></div>
+          <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-subtitle-pane" aria-label="±¤°í"></div>
         </div>
         <div class="as-subtitle-main">
           <div class="as-subtitle-list" id="subtitle-list"></div>
-          <p class="as-subtitle-empty" id="subtitle-empty">ì˜ìƒì„ ë¶ˆëŸ¬ì˜¤ë©´ ìžë§‰ì´ ì—¬ê¸°ì— í‘œì‹œë©ë‹ˆë‹¤.</p>
+          <p class="as-subtitle-empty" id="subtitle-empty">¿µ»óÀ» ºÒ·¯¿À¸é ÀÚ¸·ÀÌ ¿©±â¿¡ Ç¥½ÃµË´Ï´Ù.</p>
           <span id="results-meta" class="as-results-meta" hidden></span>
         </div>
       </section>
     </div>
 
     <footer class="as-footer">
-      <span id="bin-readiness">Auto Subtitle Â· ì¤€ë¹„ ëŒ€ê¸°</span>
+      <span id="bin-readiness">Auto Subtitle ¡¤ ÁØºñ ´ë±â</span>
       <div class="as-footer-actions">
-        <button type="button" id="btn-new-job" class="as-btn as-btn-ghost as-btn-sm">ìƒˆ ìž‘ì—…</button>
-        <button type="button" id="btn-unload-model" class="as-btn as-btn-ghost as-btn-sm" disabled>AI ëª¨ë¸ í•´ì œ</button>
-        <button type="button" id="btn-download-result" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>ê²°ê³¼ ë‹¤ìš´ë¡œë“œ</button>
-        <button type="button" id="btn-show-export-folder" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>ê²°ê³¼ í´ë” ì—´ê¸°</button>
-        <a href="../index.html" class="as-link-dashboard">ëŒ€ì‹œë³´ë“œ</a>
+        <button type="button" id="btn-new-job" class="as-btn as-btn-ghost as-btn-sm">»õ ÀÛ¾÷</button>
+        <button type="button" id="btn-unload-model" class="as-btn as-btn-ghost as-btn-sm" disabled>AI ¸ðµ¨ ÇØÁ¦</button>
+        <button type="button" id="btn-download-result" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>°á°ú ´Ù¿î·Îµå</button>
+        <button type="button" id="btn-show-export-folder" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>°á°ú Æú´õ ¿­±â</button>
+        <a href="../index.html" class="as-link-dashboard">´ë½Ãº¸µå</a>
       </div>
     </footer>
 
     <div class="as-inapp-busy-host" id="as-inapp-busy-host" hidden aria-hidden="true">
       <div class="setup-loading" id="setup-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
-          <p class="setup-loading__title" id="setup-loading-title">AI í™˜ê²½ ì¤€ë¹„</p>
+          <p class="setup-loading__title" id="setup-loading-title">AI È¯°æ ÁØºñ</p>
           <p class="setup-loading__step" id="setup-loading-step"></p>
-          <p class="setup-loading__desc" id="setup-loading-message">FFmpeg Â· faster-whisper Â· Whisper ëª¨ë¸ì„ ì¤€ë¹„í•©ë‹ˆë‹¤â€¦</p>
+          <p class="setup-loading__desc" id="setup-loading-message">FFmpeg ¡¤ faster-whisper ¡¤ Whisper ¸ðµ¨À» ÁØºñÇÕ´Ï´Ù¡¦</p>
           <div class="setup-loading__track" id="setup-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="setup-loading-bar"></div>
           </div>
@@ -198,9 +198,9 @@
       </div>
       <div class="transcribe-loading" id="transcribe-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
-          <p class="setup-loading__title" id="transcribe-loading-title">ìžë§‰ ì¶”ì¶œ ì¤‘â€¦</p>
+          <p class="setup-loading__title" id="transcribe-loading-title">ÀÚ¸· ÃßÃâ Áß¡¦</p>
           <p class="setup-loading__step" id="transcribe-loading-step"></p>
-          <p class="setup-loading__desc" id="transcribe-loading-message">ìžë§‰ ì¶”ì¶œì„ ì‹œìž‘í•©ë‹ˆë‹¤.</p>
+          <p class="setup-loading__desc" id="transcribe-loading-message">ÀÚ¸· ÃßÃâÀ» ½ÃÀÛÇÕ´Ï´Ù.</p>
           <div class="setup-loading__track" id="transcribe-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="transcribe-loading-bar"></div>
           </div>
@@ -209,17 +209,17 @@
       </div>
       <div class="gpu-install-prompt" id="gpu-install-prompt" hidden>
         <div class="setup-loading__panel" role="dialog" aria-labelledby="gpu-install-title">
-          <h2 class="setup-loading__title" id="gpu-install-title">GPU ê°€ì† ëŸ°íƒ€ìž„</h2>
-          <p class="setup-loading__desc" id="gpu-install-message">NVIDIA GPUê°€ ê°ì§€ë˜ì—ˆìŠµë‹ˆë‹¤. CUDA DLL(runtime_dlls.zip)ì„ ì„¤ì¹˜í•˜ë©´ GPUë¡œ ìžë§‰ ì¶”ì¶œì„ ì‚¬ìš©í•  ìˆ˜ ìžˆìŠµë‹ˆë‹¤.</p>
+          <h2 class="setup-loading__title" id="gpu-install-title">GPU °¡¼Ó ·±Å¸ÀÓ</h2>
+          <p class="setup-loading__desc" id="gpu-install-message">NVIDIA GPU°¡ °¨ÁöµÇ¾ú½À´Ï´Ù. CUDA DLL(runtime_dlls.zip)À» ¼³Ä¡ÇÏ¸é GPU·Î ÀÚ¸· ÃßÃâÀ» »ç¿ëÇÒ ¼ö ÀÖ½À´Ï´Ù.</p>
           <div class="gpu-install-prompt__actions">
-            <button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost">ë‚˜ì¤‘ì—</button>
-            <button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary">ì¤€ë¹„ ì‹¤í–‰</button>
+            <button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost">³ªÁß¿¡</button>
+            <button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary">ÁØºñ ½ÇÇà</button>
           </div>
         </div>
       </div>
       <div class="font-add-modal" id="font-add-modal" hidden aria-hidden="true">
         <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="font-add-title">
-          <h2 class="setup-loading__title" id="font-add-title">í°íŠ¸ ì¶”ê°€</h2>
+          <h2 class="setup-loading__title" id="font-add-title">ÆùÆ® Ãß°¡</h2>
           <p class="setup-loading__desc font-add-modal__message" id="font-add-message"></p>
           <div
             class="setup-loading__track font-add-modal__track"
@@ -233,26 +233,26 @@
             <div class="setup-loading__bar font-add-modal__bar" id="font-add-bar"></div>
           </div>
           <div class="gpu-install-prompt__actions" id="font-add-actions" hidden>
-            <button type="button" id="btn-font-add-ok" class="as-btn as-btn-primary">í™•ì¸</button>
+            <button type="button" id="btn-font-add-ok" class="as-btn as-btn-primary">È®ÀÎ</button>
           </div>
         </div>
       </div>
       <div class="watermark-position-modal" id="watermark-position-modal" hidden aria-hidden="true">
         <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="watermark-position-title">
-          <h2 class="setup-loading__title" id="watermark-position-title">ì›Œí„°ë§ˆí¬ ìœ„ì¹˜</h2>
-          <p class="setup-loading__desc" id="watermark-position-desc">ì˜ìƒì— í‘œì‹œí•  ìœ„ì¹˜ë¥¼ ì„ íƒí•˜ì„¸ìš”.</p>
+          <h2 class="setup-loading__title" id="watermark-position-title">¿öÅÍ¸¶Å© À§Ä¡</h2>
+          <p class="setup-loading__desc" id="watermark-position-desc">¿µ»ó¿¡ Ç¥½ÃÇÒ À§Ä¡¸¦ ¼±ÅÃÇÏ¼¼¿ä.</p>
           <div class="watermark-position-grid" id="watermark-position-grid"></div>
           <div class="gpu-install-prompt__actions">
-            <button type="button" id="btn-watermark-position-cancel" class="as-btn as-btn-ghost">ì·¨ì†Œ</button>
-            <button type="button" id="btn-watermark-position-confirm" class="as-btn as-btn-primary">í™•ì¸</button>
+            <button type="button" id="btn-watermark-position-cancel" class="as-btn as-btn-ghost">Ãë¼Ò</button>
+            <button type="button" id="btn-watermark-position-confirm" class="as-btn as-btn-primary">È®ÀÎ</button>
           </div>
         </div>
       </div>
       <div class="export-loading" id="export-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
-          <p class="setup-loading__title" id="export-loading-title">ë³´ë‚´ê¸°</p>
+          <p class="setup-loading__title" id="export-loading-title">º¸³»±â</p>
           <p class="setup-loading__step" id="export-loading-step"></p>
-          <p class="setup-loading__desc" id="export-loading-message">íŒŒì¼ì„ ìƒì„±í•˜ê³  ìžˆìŠµë‹ˆë‹¤â€¦</p>
+          <p class="setup-loading__desc" id="export-loading-message">ÆÄÀÏÀ» »ý¼ºÇÏ°í ÀÖ½À´Ï´Ù¡¦</p>
           <div class="setup-loading__track" id="export-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="export-loading-bar"></div>
           </div>
@@ -264,10 +264,10 @@
 
   <!-- as-build:166 watermark-aspect -->
   <script type="module" src="../common/site-modal-boot.js"></script>
-  <script src="../common/site-guard.js?v=6"></script>
+  <script src="../common/site-guard.js?v=7"></script>
   <script type="module" src="script.js?v=166"></script>
   <script>
-    // AdSenseê°€ shell heightë¥¼ ê°•ì œë¡œ ë³€ê²½í•˜ëŠ” ê²ƒì„ ë°©ì§€
+    // AdSense°¡ shell height¸¦ °­Á¦·Î º¯°æÇÏ´Â °ÍÀ» ¹æÁö
     (function() {
       const shell = document.querySelector('.as-shell');
       if (!shell) return;
