@@ -11,6 +11,16 @@
  */
 
 import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
+import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js";
+import {
+  ensureSiteModalStyles,
+  hideModalShell,
+  installGlobals,
+  positionModalBetweenAds,
+  showModalShell,
+} from "./site-modal.js";
+
+installGlobals();
 
 /** @typedef {{ progress: number | null, phase: string, message?: string, raw?: unknown }} ProgressEvent */
 
@@ -506,13 +516,67 @@ export function extractAgentErrorMessage(raw, depth = 0) {
  * @param {unknown} raw
  * @returns {string}
  */
+/**
+ * @typedef {"agent_unreachable" | "client_blocked" | "likely_client_block" | "lna"} AgentFailureKind
+ */
+
+/**
+ * @param {unknown} rawError
+ * @param {number | undefined} [latencyMs]
+ * @returns {AgentFailureKind}
+ */
+export function classifyAgentConnectionFailure(rawError, latencyMs) {
+  const m = String(rawError ?? "");
+  if (/ERR_BLOCKED_BY_CLIENT|blocked by client|BLOCKED_BY_CLIENT/i.test(m)) {
+    return "client_blocked";
+  }
+  if (/address space/i.test(m)) return "lna";
+  const onHttpsPublic =
+    typeof location !== "undefined" &&
+    location.protocol === "https:" &&
+    !/^(localhost|127\.0\.0\.1)$/i.test(location.hostname);
+  if (
+    onHttpsPublic &&
+    /Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(m)
+  ) {
+    return "likely_client_block";
+  }
+  if (latencyMs != null && latencyMs < 80 && /fetch|network|failed/i.test(m)) {
+    return "likely_client_block";
+  }
+  return "agent_unreachable";
+}
+
+/** @param {string} url */
+function wasRequestLikelyBlockedByClient(url) {
+  try {
+    const entries = performance.getEntriesByName(url);
+    for (let i = entries.length - 1; i >= 0; i -= 1) {
+      const e = entries[i];
+      if (!e || e.entryType !== "resource") continue;
+      if (e.transferSize === 0 && e.encodedBodySize === 0 && e.duration > 0) {
+        return true;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 export function formatAgentConnectionError(raw) {
   const msg = extractAgentErrorMessage(raw);
+  if (/ERR_BLOCKED_BY_CLIENT|blocked by client/i.test(msg)) {
+    return (
+      "광고·보안 확장이 로컬 에이전트(127.0.0.1) 연결을 차단했습니다. " +
+      "이 Chrome 프로필에서 확장 허용·로컬 네트워크 「허용」을 확인하세요."
+    );
+  }
   if (/address space/i.test(msg)) {
     return "브라우저 로컬 연결 정책 — 강력 새로고침(Ctrl+Shift+R) 후 주소창에서 「로컬 네트워크」 허용";
   }
   if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) {
-    return "Failed to fetch — 에이전트 실행 중이면 Chrome 주소창 → 사이트 설정 → 로컬 네트워크 「허용」";
+    return "Failed to fetch — 에이전트 실행 중이면 Chrome 주소창 → 사이트 설정 → 로컬 네트워크 「허용」(또는 광고 차단 확장)";
   }
   return msg || "연결할 수 없습니다";
 }
@@ -554,11 +618,22 @@ export function applyConnectionStatusDot(el, ok, detail) {
     el.title = "";
     return;
   }
-  el.textContent = "에이전트 연결 끊김";
-  el.style.color = "#ef4444";
   const errText = formatAgentConnectionError(
     detail?.error ?? /** @type {{ rawError?: string }} */ (detail)?.rawError,
   );
+  const kind =
+    /** @type {{ failureKind?: AgentFailureKind }} */ (detail)?.failureKind ??
+    classifyAgentConnectionFailure(detail?.rawError ?? detail?.error);
+  if (
+    kind === "client_blocked" ||
+    kind === "likely_client_block" ||
+    /ERR_BLOCKED_BY_CLIENT|확장이 로컬/i.test(errText)
+  ) {
+    el.textContent = "에이전트 연결 차단됨";
+  } else {
+    el.textContent = "에이전트 연결 끊김";
+  }
+  el.style.color = "#ef4444";
   el.title = errText || "";
 }
 
@@ -739,8 +814,12 @@ async function pingAgentOrigin(origin, signal) {
     };
   } catch (e) {
     const latencyMs = Math.round(performance.now() - started);
-    const err = e instanceof Error ? e.message : String(e);
-    return { ok: false, latencyMs, error: err, origin };
+    let err = e instanceof Error ? e.message : String(e);
+    if (wasRequestLikelyBlockedByClient(url)) {
+      err = "ERR_BLOCKED_BY_CLIENT";
+    }
+    const failureKind = classifyAgentConnectionFailure(err, latencyMs);
+    return { ok: false, latencyMs, error: err, origin, failureKind };
   } finally {
     clearTimeout(t);
   }
@@ -772,18 +851,22 @@ export async function checkAgentConnection(signal) {
       status: detail.status,
       latencyMs: detail.latencyMs,
       error: detail.error,
+      failureKind: detail.failureKind,
     };
     if (isLikelyLocalNetworkBlock(detail.error)) break;
   }
 
   const err = lastFail?.error;
-  if (err) recordCircuitFailure();
+  const failureKind =
+    lastFail?.failureKind ?? classifyAgentConnectionFailure(err, lastFail?.latencyMs);
+  if (err && failureKind === "agent_unreachable") recordCircuitFailure();
   return {
     ok: false,
     status: lastFail?.status,
     latencyMs: lastFail?.latencyMs,
     error: formatAgentConnectionError(err),
     rawError: err,
+    failureKind,
   };
 }
 
@@ -854,7 +937,7 @@ export function startConnectionMonitor(opts = {}) {
       recordCircuitSuccess();
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
-      if (_installBackdrop && !_installBackdrop.hasAttribute("hidden")) dismissInstallAgentDialog();
+      if (_installDialog && !_installDialog.hasAttribute("hidden")) dismissInstallAgentDialog();
       void connectAgentWebSocket();
       lastOk = true;
     } else if (!isAgentLongOperationActive()) {
@@ -872,17 +955,33 @@ export function startConnectionMonitor(opts = {}) {
 
     if (!reportOk) {
       if (changed) opts.onDisconnected?.(detail);
+      const failureKind =
+        /** @type {AgentFailureKind | undefined} */ (detail.failureKind) ??
+        classifyAgentConnectionFailure(detail.rawError ?? detail.error, detail.latencyMs);
+      const isBrowserBlock =
+        failureKind === "client_blocked" ||
+        failureKind === "likely_client_block" ||
+        failureKind === "lna";
+      const dialogAfterStreak = isBrowserBlock ? 2 : MONITOR_DISCONNECT_DIALOG_STREAK;
       const shouldAlert =
         opts.autoShowInstallDialog &&
         !disconnectDialogShown &&
-        failStreak >= MONITOR_DISCONNECT_DIALOG_STREAK &&
+        failStreak >= dialogAfterStreak &&
         !isAgentLongOperationActive() &&
         Date.now() >= _installAutoShowSuppressedUntil;
-      if (shouldAlert && !(_installBackdrop && !_installBackdrop.hasAttribute("hidden"))) {
+      if (shouldAlert && !(_installDialog && !_installDialog.hasAttribute("hidden"))) {
         disconnectDialogShown = true;
-        void resolveInstallDialogOptions(opts.installDialogOptions).then((dialogOpts) =>
-          showInstallAgentDialog(dialogOpts),
-        );
+        void (async () => {
+          const baseOpts = await resolveInstallDialogOptions(opts.installDialogOptions);
+          const onRetry =
+            typeof baseOpts.onPrimary === "function"
+              ? baseOpts.onPrimary
+              : () => tick();
+          const dialogOpts = isBrowserBlock
+            ? await agentAccessBlockedDialogOptions(() => onRetry())
+            : baseOpts;
+          await showInstallAgentDialog(dialogOpts);
+        })();
       }
     }
     scheduleNext();
@@ -922,12 +1021,8 @@ function _finishInstallDialogPromise() {
 }
 
 function _closeInstallDialogElement() {
-  if (!_installBackdrop) return;
-  const isHidden = _installBackdrop.hasAttribute("hidden");
-  if (isHidden) return;
-  _installBackdrop.setAttribute("hidden", "");
-  _installDialog?.setAttribute("hidden", "");
-  document.body?.classList.remove("itz-install-visible");
+  if (!_installDialog || _installDialog.hasAttribute("hidden")) return;
+  hideModalShell(_installDialog);
 }
 
 function _closeInstallDialogByUser() {
@@ -1007,7 +1102,7 @@ export function showInstallAgentDialog(options = {}) {
   const dlg = _installDialog;
   _bindInstallDialogHandlersOnce();
   _installDialogOptions = options;
-  const alreadyOpen = !_installBackdrop?.hasAttribute("hidden");
+  const alreadyOpen = _installDialog && !_installDialog.hasAttribute("hidden");
   const title = options.title ?? "로컬 에이전트에 연결할 수 없습니다";
   const body =
     options.bodyHtml ??
@@ -1033,14 +1128,9 @@ export function showInstallAgentDialog(options = {}) {
   return new Promise((resolve) => {
     _installPendingResolve = resolve;
     if (!alreadyOpen) {
-      _installBackdrop?.removeAttribute("hidden");
-      dlg.removeAttribute("hidden");
-      document.body?.classList.add("itz-install-visible");
-      requestAnimationFrame(() => {
-        _positionDialogBetweenAds();
-        dlg.scrollIntoView({ behavior: "smooth", block: "center" });
-        dlg.focus?.();
-      });
+      showModalShell(dlg);
+    } else {
+      requestAnimationFrame(() => positionModalBetweenAds(dlg));
     }
     requestAnimationFrame(() => {
       options.onShown?.();
@@ -1224,46 +1314,16 @@ async function pollJobUntilDone(jobId, onProgress, outer) {
 }
 
 function ensureInstallDialogStyles() {
+  ensureSiteModalStyles();
   if (document.getElementById("itmatzip-bridge-install-dialog-styles")) return;
   const style = document.createElement("style");
   style.id = "itmatzip-bridge-install-dialog-styles";
   style.textContent = `
-    .itz-install-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 9990;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      background: rgba(8, 10, 14, 0.52);
-      pointer-events: none;
-    }
-    .itz-install-backdrop[hidden] {
-      display: none !important;
-    }
-    /* 광고 영역: 블러 위에 표시 */
-    body.itz-install-visible .editor-ad,
-    body.itz-install-visible [class*="ad-exempt"] {
-      position: relative !important;
-      z-index: 9995 !important;
-    }
-    /* 다이얼로그: 광고 사이 중앙에 absolute 배치 */
     #itmatzip-bridge-install-dialog {
-      position: absolute;
-      z-index: 9993;
-      left: 50%;
-      transform: translateX(-50%);
-      pointer-events: auto;
-      border: 1px solid #2d333f;
-      border-radius: 16px;
-      padding: 0;
-      width: 820px;
+      width: min(820px, calc(100vw - 32px));
       max-width: min(820px, 92vw);
-      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
       background: #1a1d23;
       color: #e2e8f0;
-    }
-    #itmatzip-bridge-install-dialog[hidden] {
-      display: none !important;
     }
     .itz-install {
       font-family: "Pretendard", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1439,83 +1499,21 @@ function ensureInstallDialogStyles() {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-/** @type {HTMLElement|null} */
-let _installBackdrop = null;
-
-function _getAbsoluteTop(el) {
-  let top = 0;
-  let current = el;
-  while (current) {
-    top += current.offsetTop || 0;
-    current = current.offsetParent;
-  }
-  return top;
-}
-
-function _positionDialogBetweenAds() {
-  const dlg = _installDialog;
-  if (!dlg) return;
-
-  const ads = Array.from(document.querySelectorAll(".editor-ad, [class*='ad-exempt']"));
-  const unique = [...new Set(ads)];
-
-  const adRects = [];
-  for (const ad of unique) {
-    if (ad.offsetWidth === 0 && ad.offsetHeight === 0) continue;
-    const absTop = _getAbsoluteTop(ad);
-    adRects.push({ top: absTop, bottom: absTop + ad.offsetHeight });
-  }
-
-  if (adRects.length === 0) {
-    const pageH = document.documentElement.scrollHeight;
-    dlg.style.top = (pageH / 2) + "px";
-    return;
-  }
-
-  adRects.sort((a, b) => a.top - b.top);
-
-  const topAd = adRects[0];
-  const bottomAd = adRects[adRects.length - 1];
-
-  let firstAdBottom, lastAdTop;
-
-  if (adRects.length === 1) {
-    firstAdBottom = topAd.bottom;
-    lastAdTop = document.documentElement.scrollHeight;
-  } else if (bottomAd.top >= topAd.bottom) {
-    firstAdBottom = topAd.bottom;
-    lastAdTop = bottomAd.top;
-  } else {
-    const maxBottom = Math.max(...adRects.map(r => r.bottom));
-    firstAdBottom = maxBottom;
-    lastAdTop = document.documentElement.scrollHeight;
-  }
-
-  const centerY = firstAdBottom + (lastAdTop - firstAdBottom) / 2;
-  const dlgH = dlg.offsetHeight || 600;
-  const top = Math.max(firstAdBottom + 16, centerY - dlgH / 2);
-
-  dlg.style.top = top + "px";
-}
-
 function ensureInstallDialog() {
   ensureInstallDialogStyles();
   if (_installDialog) return;
 
-  const backdrop = document.createElement("div");
-  backdrop.className = "itz-install-backdrop";
-  backdrop.setAttribute("hidden", "");
-
   const dlg = document.createElement("div");
   dlg.id = "itmatzip-bridge-install-dialog";
+  dlg.className = "itz-modal-dialog itz-modal-dialog--wide";
   dlg.setAttribute("hidden", "");
   dlg.setAttribute("tabindex", "-1");
+  dlg.setAttribute("role", "dialog");
+  dlg.setAttribute("aria-modal", "true");
 
   const root = document.body ?? document.documentElement;
-  root.appendChild(backdrop);
   root.appendChild(dlg);
 
-  _installBackdrop = backdrop;
   _installDialog = dlg;
   _bindInstallDialogHandlersOnce();
 }
@@ -1595,6 +1593,7 @@ const Bridge = {
   resolveAgentMediaObjectUrl,
   revokeAgentMediaObjectUrl,
   extractAgentErrorMessage,
+  classifyAgentConnectionFailure,
   formatAgentConnectionError,
   applyConnectionStatusDot,
   primeLocalNetworkAccess,

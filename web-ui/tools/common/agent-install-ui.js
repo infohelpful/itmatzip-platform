@@ -81,6 +81,62 @@ function agentDownloadLinkAttrs(rawHref) {
 /**
  * @param {string} downloadHref
  */
+/**
+ * 광고 차단·보안 확장이 127.0.0.1 /health 를 막을 때 (에이전트는 실행 중)
+ * @param {string} [downloadHref]
+ */
+export function buildAgentAccessBlockedDialogBodyHtml(downloadHref) {
+  const linkAttrs = downloadHref ? agentDownloadLinkAttrs(downloadHref) : "";
+  const downloadBlock = downloadHref
+    ? `<a class="itz-install__download-btn" ${linkAttrs} role="button">에이전트 다운로드</a>`
+    : "";
+  return `
+<div class="itz-install__intro">
+  <p>
+    <strong>에이전트는 PC에 설치·실행 중</strong>인데, 이 Chrome 창(프로필)의 확장 프로그램이
+  <strong>로컬 주소(<code>127.0.0.1</code>) 연결</strong>을 막고 있습니다.
+  (콘솔에 <code>ERR_BLOCKED_BY_CLIENT</code> 가 보이면 동일한 증상입니다.)
+  </p>
+  <p>Chrome을 두 개 띄웠다면, <strong>확장 설정이 프로필마다 다릅니다.</strong> 연결되는 창과 안 되는 창의 확장 목록을 비교해 보세요.</p>
+</div>
+<div class="itz-install__cards">
+  <section class="itz-install__card--new">
+    <h3 class="itz-install__card-title">1. 광고·보안 확장 프로그램</h3>
+    <p class="itz-install__card-text">
+      AdBlock, uBlock, AdGuard, 「우클릭 차단」 등이 <strong>이 사이트(tools.itmatzip.com)에서 허용</strong>되어 있는지 확인하세요.
+      「전역 비활성화」만으로는 <strong>localhost / 127.0.0.1 요청</strong>이 계속 막히는 경우가 많습니다.
+    </p>
+    <p class="itz-install__card-text itz-install__card-note">
+      확장 설정에서 <strong>127.0.0.1</strong> 또는 <strong>로컬 네트워크 요청</strong> 허용을 켜거나,
+      테스트용으로 확장을 잠시 끈 뒤 <strong>새로고침(F5)</strong> 하세요.
+    </p>
+  </section>
+  <section class="itz-install__card--installed">
+    <h3 class="itz-install__card-title">2. Chrome 사이트 설정</h3>
+    <p class="itz-install__card-text">
+      주소창 왼쪽 자물쇠(또는 슬라이더) → <strong>사이트 설정</strong> →
+      <strong>로컬 네트워크</strong> 를 <strong>허용</strong>한 뒤 새로고침하세요.
+    </p>
+    <p class="itz-install__card-text itz-install__card-note">
+      작업 표시줄에 <strong>ItMatZip Agent</strong> 가 떠 있는지도 확인하세요.
+    </p>
+  </section>
+</div>
+${downloadBlock ? `<p class="itz-install__card-text" style="margin-top:1rem;text-align:center">에이전트가 없다면: ${downloadBlock}</p>` : ""}
+`.trim();
+}
+
+/** @param {() => Promise<unknown>} onPrimaryCheck */
+export async function agentAccessBlockedDialogOptions(onPrimaryCheck) {
+  const downloadHref = await getAgentDownloadHref();
+  return {
+    title: "브라우저가 로컬 에이전트 연결을 차단하고 있습니다",
+    bodyHtml: buildAgentAccessBlockedDialogBodyHtml(downloadHref),
+    primaryLabel: "다시 연결 확인",
+    onPrimary: onPrimaryCheck,
+  };
+}
+
 export function buildAgentInstallDialogBodyHtml(downloadHref) {
   const linkAttrs = agentDownloadLinkAttrs(downloadHref);
   return `
@@ -113,7 +169,8 @@ export function buildAgentInstallDialogBodyHtml(downloadHref) {
     </p>
     <p class="itz-install__card-text itz-install__card-note">
       Chrome 사용 시 주소창 왼쪽 <strong>사이트 설정</strong> → <strong>로컬 네트워크</strong>를
-      <strong>허용</strong>해야 연결됩니다. (Issues에 health가 blocked면 권한 문제입니다.)
+      <strong>허용</strong>해야 합니다. 콘솔에 <code>ERR_BLOCKED_BY_CLIENT</code> 가 보이면
+      <strong>광고 차단 확장</strong>이 <code>127.0.0.1</code> 을 막는 경우가 많습니다.
     </p>
   </section>
 </div>

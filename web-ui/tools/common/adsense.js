@@ -15,6 +15,9 @@ let _scriptLoadPromise = null;
 /** 광고 차단·네트워크 실패 등으로 스크립트를 더 이상 시도하지 않음 */
 let _scriptUnavailable = false;
 
+/** adsbygoogle.js 로드 성공 */
+let _scriptLoaded = false;
+
 /** @type {boolean} */
 let _blockedLogged = false;
 
@@ -109,7 +112,10 @@ export function ensureAdSenseScript() {
     s.async = true;
     s.src = adSrc;
     s.crossOrigin = "anonymous";
-    s.onload = () => resolve();
+    s.onload = () => {
+      _scriptLoaded = true;
+      resolve();
+    };
     s.onerror = () => {
       _scriptUnavailable = true;
       _scriptLoadPromise = null;
@@ -209,4 +215,42 @@ export async function showAdSense(unitKey, container) {
 export function clearAdSense(container) {
   const el = resolveContainer(container);
   if (el) el.innerHTML = "";
+}
+
+/**
+ * site-guard 등: 광고 차단 오탐 방지용 스냅샷 (DOM + 내부 플래그)
+ * @returns {{
+ *   scriptLoaded: boolean,
+ *   scriptUnavailable: boolean,
+ *   liveInsCount: number,
+ *   filledCount: number,
+ *   unfilledCount: number,
+ *   emptyContainerCount: number,
+ *   pendingInsCount: number,
+ * }}
+ */
+export function getAdSenseGuardSnapshot() {
+  const slots = document.querySelectorAll("ins.adsbygoogle");
+  let filledCount = 0;
+  let unfilledCount = 0;
+  let pendingInsCount = 0;
+  for (const ins of slots) {
+    const st = ins.getAttribute("data-ad-status");
+    if (st === "filled") filledCount += 1;
+    else if (st === "unfilled") unfilledCount += 1;
+    else pendingInsCount += 1;
+  }
+  return {
+    scriptLoaded: _scriptLoaded,
+    scriptUnavailable: _scriptUnavailable,
+    liveInsCount: slots.length,
+    filledCount,
+    unfilledCount,
+    emptyContainerCount: document.querySelectorAll("[data-adsense-empty]").length,
+    pendingInsCount,
+  };
+}
+
+if (typeof window !== "undefined") {
+  window.__itmatzipGetAdSenseGuardSnapshot = getAdSenseGuardSnapshot;
 }

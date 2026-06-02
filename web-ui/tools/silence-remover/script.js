@@ -9,7 +9,7 @@ import {
   setAgentLongOperationActive,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna10";
+} from "../common/bridge.js?v=lna11";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
