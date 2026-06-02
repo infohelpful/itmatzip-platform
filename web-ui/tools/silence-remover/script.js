@@ -31,12 +31,13 @@ import {
   STORAGE_VOCAL_MS,
   STORAGE_VIDEO_PATH,
   clearProbeMetaFromSession,
-  clearAnalysisBoundVideoPath,
+  clearSilenceAnalysisSessionStorage,
   DEFAULT_PADDING_MS,
   canExportFromSession,
   canRestoreAnalysisForPath,
   clipNameFromVideoPath,
   consumeEditorRestorePending,
+  discardAnalysisSessionUnlessPath,
   formatSampleRateLabel,
   getDynamicRangeDbFromSession,
   getMaxVolumeDbFromSession,
@@ -51,7 +52,7 @@ import {
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna5";
+} from "../common/edl-export.js?v=lna6";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -380,15 +381,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function onVideoPathInputChanged() {
     const next = pathInput.value.trim();
     if (looksLikeFullPath(next)) {
-      const bound = getAnalysisBoundVideoPath();
-      if (bound && !mediaPathsEqual(bound, next)) {
-        beginNewMediaWorkflow();
-      } else if (!bound && canExportFromSession()) {
-        const stored = getStoredVideoPath();
-        if (stored && !mediaPathsEqual(stored, next)) {
-          beginNewMediaWorkflow();
-        }
-      }
+      prepareMediaPathChange(next, getAnalysisBoundVideoPath() || getStoredVideoPath() || "");
       sessionStorage.setItem(STORAGE_VIDEO_PATH, next);
       const base = next.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
       if (base) sessionStorage.setItem(STORAGE_NAME, base);
@@ -419,20 +412,32 @@ document.addEventListener("DOMContentLoaded", () => {
    * @param {string} [previousPath]
    */
   function prepareMediaPathChange(nextPath, previousPath) {
+    const next = String(nextPath || "").trim();
+    if (!looksLikeFullPath(next)) return;
+
+    const bound = getAnalysisBoundVideoPath();
+    if (bound && !mediaPathsEqual(bound, next)) {
+      beginNewMediaWorkflow();
+      return;
+    }
+    if (!bound && sessionStorage.getItem(STORAGE_SILENCES)) {
+      beginNewMediaWorkflow();
+      return;
+    }
+
     const prev =
       previousPath?.trim() ||
       pathInput.value.trim() ||
       getAnalysisBoundVideoPath() ||
       waveformLoadedPath ||
       "";
-    if (prev && looksLikeFullPath(prev) && !mediaPathsEqual(prev, nextPath)) {
+    if (prev && looksLikeFullPath(prev) && !mediaPathsEqual(prev, next)) {
       beginNewMediaWorkflow();
     }
   }
 
   function applyVideoPathToInput(trimmed) {
-    const prior = pathInput.value.trim();
-    prepareMediaPathChange(trimmed, prior);
+    prepareMediaPathChange(trimmed, pathInput.value.trim() || getAnalysisBoundVideoPath() || "");
     pathInput.value = trimmed;
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
@@ -746,16 +751,7 @@ document.addEventListener("DOMContentLoaded", () => {
     silencePreviewEnabled = false;
     lastAppliedNoiseDb = null;
     lastAnalyzedSettings = null;
-    clearAnalysisBoundVideoPath();
-    sessionStorage.removeItem(STORAGE_EDL);
-    sessionStorage.removeItem(STORAGE_EDL_FINGERPRINT);
-    sessionStorage.removeItem(STORAGE_SILENCES);
-    sessionStorage.removeItem(STORAGE_SILENCES_DISPLAY);
-    sessionStorage.removeItem(STORAGE_VOCAL_MS);
-    sessionStorage.removeItem(STORAGE_DURATION);
-    sessionStorage.removeItem(STORAGE_FPS_RATIONAL);
-    sessionStorage.removeItem(STORAGE_FPS);
-    clearProbeMetaFromSession();
+    clearSilenceAnalysisSessionStorage();
     syncExportLinkState();
     if (btnAnalyze) {
       btnAnalyze.disabled = false;
@@ -1944,51 +1940,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const keepAnalysis = canRestoreAnalysisForPath(p, mediaPathsEqual);
-    if (keepAnalysis) {
-      const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
-      const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
-      if (Number.isFinite(durationSec) && durationSec > 0) {
-        probedMediaDurationSec = durationSec;
-        setSummaryCell(summaryDuration, formatDurationClock(durationSec));
-      }
-      const natRat = sessionStorage.getItem(STORAGE_FPS_NATIVE_RATIONAL);
-      if (natRat) {
-        probedFpsRational = natRat;
-        setSummaryCell(summaryFpsNative, natRat);
-      }
-      applyOptionsFromSession();
-      applyProbeVolumeSummaryFromSession();
-      applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
-      commitAnalyzedSettingsSnapshot({
-        fps: getEditorFpsForExport(),
-        noiseDb: getNoiseDb(),
-        paddingMs: getPaddingMs(),
-        minSilenceSec: getMinSilenceSec(),
-      });
-
-      if (probeMetaInputsComplete()) {
-        const agent = await checkAgentConnection();
-        if (agent.ok) {
-          const fps = getEditorFpsForExport();
-          const estDur = probedMediaDurationSec ?? 0;
-          const pps = peaksPixelsPerSecondForEditorFps(fps, estDur);
-          if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, p)) {
-            await loadWaveformPreview(p, {
-              assumeAgentOk: true,
-              scrollIntoView: false,
-              pixelsPerSecond: pps,
-              useEditorTimeline: true,
-            });
-          }
-          if (shouldRestoreSilencePreviewOverlay()) {
-            enablePreviewSilenceOverlay();
-          }
-        }
-        syncExportLinkState();
-        return;
-      }
-    } else {
+    discardAnalysisSessionUnlessPath(p, mediaPathsEqual);
+    const shouldRestoreAnalysis = canRestoreAnalysisForPath(p, mediaPathsEqual);
+    if (!shouldRestoreAnalysis) {
       beginNewMediaWorkflow();
     }
 
@@ -2053,6 +2007,25 @@ document.addEventListener("DOMContentLoaded", () => {
             useEditorTimeline: true,
           });
         }
+
+        if (
+          shouldRestoreAnalysis &&
+          canRestoreAnalysisForPath(p, mediaPathsEqual)
+        ) {
+          const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
+          const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
+          applyOptionsFromSession();
+          applyProbeVolumeSummaryFromSession();
+          applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), durationSec);
+          commitAnalyzedSettingsSnapshot({
+            fps: getEditorFpsForExport(),
+            noiseDb: getNoiseDb(),
+            paddingMs: getPaddingMs(),
+            minSilenceSec: getMinSilenceSec(),
+          });
+          enablePreviewSilenceOverlay();
+          syncExportLinkState();
+        }
       } else {
         alert("프로브 응답 형식이 올바르지 않습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요.");
       }
@@ -2115,6 +2088,18 @@ document.addEventListener("DOMContentLoaded", () => {
   syncMinSilenceChipActive();
   syncPaddingLabel();
   renderAnalyzedSettingsSummary();
+
+  /** 새로고침 후 경로 없이 남은 고아 session(분석 bound 없음) 제거 */
+  if (!pathInput.value.trim()) {
+    if (!getAnalysisBoundVideoPath() && sessionStorage.getItem(STORAGE_SILENCES)) {
+      clearSilenceAnalysisSessionStorage();
+      syncExportLinkState();
+    }
+  } else {
+    discardAnalysisSessionUnlessPath(pathInput.value.trim(), mediaPathsEqual);
+    syncExportLinkState();
+  }
+
   /**
    * 2. 옵션 칩(Chip) 제어
    */

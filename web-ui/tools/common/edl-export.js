@@ -198,6 +198,56 @@ export function clearProbeMetaFromSession() {
   sessionStorage.removeItem(STORAGE_RECOMMENDED_NOISE_DB);
 }
 
+/** @param {string} videoPath */
+export function normalizeMediaPathForCompare(videoPath) {
+  return String(videoPath || "")
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+/** @param {string} a @param {string} b */
+export function mediaPathsEqualForSession(a, b) {
+  if (!a || !b) return false;
+  return normalizeMediaPathForCompare(a) === normalizeMediaPathForCompare(b);
+}
+
+/** 무음 분석·EDL sessionStorage 전부 제거 (경로 키는 유지) */
+export function clearSilenceAnalysisSessionStorage() {
+  sessionStorage.removeItem(STORAGE_EDL);
+  sessionStorage.removeItem(STORAGE_EDL_FINGERPRINT);
+  sessionStorage.removeItem(STORAGE_SILENCES);
+  sessionStorage.removeItem(STORAGE_SILENCES_DISPLAY);
+  sessionStorage.removeItem(STORAGE_VOCAL_MS);
+  sessionStorage.removeItem(STORAGE_DURATION);
+  sessionStorage.removeItem(STORAGE_FPS_RATIONAL);
+  sessionStorage.removeItem(STORAGE_FPS_NATIVE_RATIONAL);
+  sessionStorage.removeItem(STORAGE_FPS);
+  sessionStorage.removeItem(STORAGE_TC_OFFSET_SEC);
+  clearAnalysisBoundVideoPath();
+  clearProbeMetaFromSession();
+}
+
+/**
+ * 현재 경로와 분석이 묶인 경로가 다르면 session 분석 데이터를 버립니다.
+ * @returns {boolean} true면 세션을 지웠음
+ */
+export function discardAnalysisSessionUnlessPath(videoPath, pathsEqual) {
+  const p = String(videoPath || "").trim();
+  if (!p) return false;
+  const bound = getAnalysisBoundVideoPath();
+  const hasAnalysis =
+    Boolean(bound) ||
+    Boolean(sessionStorage.getItem(STORAGE_SILENCES)) ||
+    Boolean(sessionStorage.getItem(STORAGE_EDL)?.trim());
+  if (!hasAnalysis) return false;
+  if (canRestoreAnalysisForPath(p, pathsEqual)) return false;
+  clearSilenceAnalysisSessionStorage();
+  return true;
+}
+
 export function edlExportSettingsFingerprintFromSession() {
   const fps = getEditorFpsFromSession();
   return JSON.stringify({
@@ -294,6 +344,8 @@ export function snapshotExportSettingsFromDom() {
 }
 
 export function canExportFromSession() {
+  const bound = getAnalysisBoundVideoPath();
+  if (!bound) return false;
   const edl = sessionStorage.getItem(STORAGE_EDL);
   const silences = sessionStorage.getItem(STORAGE_SILENCES);
   return Boolean((edl && edl.trim()) || (silences && silences !== "[]"));
