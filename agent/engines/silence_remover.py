@@ -2959,6 +2959,8 @@ def create_edl_autocutter(
     title: str = "AutoCut_Option",
     clip_filename: str | None = None,
     reel: str | None = None,
+    source_tc_offset_sec: float = 0.0,
+    total_frames: int | None = None,
 ) -> str:
     """
     Auto_Cutter `edl_generator.create_edl` 1:1 포트.
@@ -2967,6 +2969,7 @@ def create_edl_autocutter(
     - remove_silent=True: VOCAL만, 레코드 01:00:00:00부터 이어 붙임
     - remove_silent=False: VOCAL+SILENT 전체, 레코드 동일하게 이어 붙임
     - 프레임: float(fps)로 계산, 타임코드 FF 필드는 int(round(fps))
+    - source_tc_offset_sec: DaVinci 미디어 풀 src in/out 오프셋(초)
     """
     fps_f = float(fps)
     if fps_f <= 0 or not math.isfinite(fps_f):
@@ -3023,14 +3026,20 @@ def create_edl_autocutter(
             )
         final_clips = sorted(all_clips + silent_intervals, key=lambda x: float(x["start"]))  # type: ignore[arg-type]
 
+    tc_offset_ms = max(0.0, float(source_tc_offset_sec)) * 1000.0
+    frame_cap = int(total_frames) if total_frames is not None and total_frames > 0 else 0
+
     current_rec_frame = 3600 * tc_fps
     event_num = 1
 
     for clip in final_clips:
-        start_ms = float(clip["start"])  # type: ignore[arg-type]
-        end_ms = float(clip["end"])  # type: ignore[arg-type]
+        start_ms = float(clip["start"]) + tc_offset_ms  # type: ignore[arg-type]
+        end_ms = float(clip["end"]) + tc_offset_ms  # type: ignore[arg-type]
         src_in_frame = int(round((start_ms / 1000.0) * fps_f))
         src_out_frame = int(round((end_ms / 1000.0) * fps_f))
+        if frame_cap > 0:
+            src_in_frame = max(0, min(src_in_frame, frame_cap - 1))
+            src_out_frame = max(src_in_frame + 1, min(src_out_frame, frame_cap))
         duration_frames = src_out_frame - src_in_frame
         if duration_frames <= 0:
             continue
@@ -3068,7 +3077,6 @@ def create_edl_from_stored_silences(
     source_tc_offset_sec: float = 0.0,
 ) -> str:
     """저장된 무음(초) → 말소리(ms) → Auto_Cutter EDL."""
-    _ = source_tc_offset_sec
     vocal_ms = _vocal_ms_from_silence_segments(silences, duration_sec)
     return create_edl_autocutter(
         vocal_ms,
@@ -3076,6 +3084,7 @@ def create_edl_from_stored_silences(
         remove_silent=remove_silent,
         title=title,
         clip_filename=clip_filename,
+        source_tc_offset_sec=source_tc_offset_sec,
     )
 
 
@@ -3126,6 +3135,17 @@ def _vocal_ms_from_silence_segments(
 
 # CMX/Auto_Cutter 조립 타임라인 레코드 시작 (01:00:00:00)
 EDL_RECORD_TC_OFFSET_SEC = 3600.0
+
+
+def resolve_source_tc_offset_for_edl(probed_offset_sec: float) -> float:
+    """
+    DaVinci Resolve 미디어 풀 src TC.
+    파일에 TC 태그가 없으면 ffprobe=0 이지만 풀 클립은 01:00:00:00 부터인 경우가 많음.
+    """
+    off = max(0.0, float(probed_offset_sec))
+    if off > 1e-6:
+        return off
+    return EDL_RECORD_TC_OFFSET_SEC
 
 
 def _edl_fps_float(fps: Fraction | float | None, *, default: float = 29.97) -> float:
@@ -3821,13 +3841,15 @@ def build_edl_from_silence_segments(
         if timing.total_frames > 0:
             frame_cap = timing.total_frames
             edl_dur = timing.content_duration_sec
-    vocal_ms = _clamp_vocal_intervals_ms(vocal_ms, duration_sec)
+    vocal_ms = _clamp_vocal_intervals_ms(vocal_ms, edl_dur if edl_dur > 0 else duration_sec)
     return create_edl_autocutter(
         vocal_ms,
         fps=float(fps_f),
         remove_silent=remove_silent,
         title=title,
         clip_filename=clip_comment,
+        source_tc_offset_sec=resolve_source_tc_offset_for_edl(tc_offset),
+        total_frames=frame_cap if frame_cap > 0 else None,
     )
 
 
@@ -3922,12 +3944,16 @@ def analyze_video_to_edl_with_metadata(
     ttl = (title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
     clip_fn = clip_name_from_media_path(path)
     _prog(88.0, "EDL 생성 중…")
+    edl_timing = probe_media_edl_timing(path, fps=fps_edl, timeout_sec=t_probe)
+    src_tc = resolve_source_tc_offset_for_edl(edl_timing.source_tc_offset_sec)
     edl = create_edl_autocutter(
         vocal_ms,
         fps=fps_f,
         remove_silent=remove_silent,
         title=ttl,
         clip_filename=clip_fn,
+        source_tc_offset_sec=src_tc,
+        total_frames=edl_timing.total_frames if edl_timing.total_frames > 0 else None,
     )
 
     silence_column_ranges: list[tuple[int, int]] = []

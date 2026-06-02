@@ -507,9 +507,10 @@ export async function saveEdlBlobToDisk(edl, opts = {}) {
 
 /**
  * @param {(opts: import("./bridge.js").AgentRequestOptions) => Promise<unknown>} requestAgent
+ * @param {{ forceFresh?: boolean }} [opts]
  * @returns {Promise<{ ok: boolean, edl?: string, error?: string }>}
  */
-export async function buildEdlViaAgent(requestAgent) {
+export async function buildEdlViaAgent(requestAgent, opts = {}) {
   const check = validateExportPrerequisitesFromSession();
   if (!check.ok) {
     return { ok: false, error: check.message };
@@ -524,8 +525,10 @@ export async function buildEdlViaAgent(requestAgent) {
   const clipName =
     sessionStorage.getItem(STORAGE_CLIP_NAME) || clipNameFromVideoPath(videoPath);
 
+  const forceFresh = opts.forceFresh === true || Boolean(videoPath.trim());
   const storedEdl = getStoredEdlFromSession();
   if (
+    !forceFresh &&
     storedEdl &&
     storedEdlMatchesExportSettingsFromSession() &&
     !storedEdl.includes("말소리 구간이 없습니다")
@@ -559,6 +562,16 @@ export async function buildEdlViaAgent(requestAgent) {
     if (edl.trim() && !edl.includes("말소리 구간이 없습니다")) {
       sessionStorage.setItem(STORAGE_EDL, edl);
       markStoredEdlFingerprintFromSession();
+      if (
+        data &&
+        typeof data === "object" &&
+        Number.isFinite(data.source_tc_offset_sec)
+      ) {
+        sessionStorage.setItem(
+          STORAGE_TC_OFFSET_SEC,
+          String(data.source_tc_offset_sec),
+        );
+      }
       return { ok: true, edl };
     }
     return {

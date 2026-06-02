@@ -656,7 +656,9 @@ def _analyze_video_payload(
         ],
     }
     edl_timing = silence_remover.probe_media_edl_timing(path, fps=fps_edl)
-    out["edl_source_tc_offset_sec"] = edl_timing.source_tc_offset_sec
+    out["edl_source_tc_offset_sec"] = silence_remover.resolve_source_tc_offset_for_edl(
+        edl_timing.source_tc_offset_sec
+    )
     out["edl_content_duration_sec"] = (
         edl_timing.content_duration_sec if edl_timing.content_duration_sec > 0 else duration_sec
     )
@@ -761,11 +763,28 @@ def post_build_edl(
         )
     if not vocal_ms:
         raise HTTPException(status_code=400, detail="말소리 구간이 없습니다.")
+    tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
+    total_frames: int | None = None
+    if body.video_path:
+        media_p = Path(body.video_path)
+        if media_p.is_file():
+            timing = silence_remover.probe_media_edl_timing(media_p, fps=fps_frac)
+            tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
+                timing.source_tc_offset_sec
+            )
+            if timing.total_frames > 0:
+                total_frames = timing.total_frames
+    elif body.source_tc_offset_sec is not None:
+        tc_offset = silence_remover.resolve_source_tc_offset_for_edl(
+            float(body.source_tc_offset_sec)
+        )
     edl = silence_remover.create_edl_autocutter(
         vocal_ms,
         fps=float(body.fps or fps_f),
         remove_silent=body.remove_silent,
         title=ttl,
         clip_filename=clip_label,
+        source_tc_offset_sec=tc_offset,
+        total_frames=total_frames,
     )
-    return {"format": "cmx3600", "edl": edl}
+    return {"format": "cmx3600", "edl": edl, "source_tc_offset_sec": tc_offset}
