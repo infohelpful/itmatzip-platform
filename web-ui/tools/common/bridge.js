@@ -528,17 +528,11 @@ export function extractAgentErrorMessage(raw, depth = 0) {
  * @returns {string}
  */
 /**
- * @typedef {"agent_unreachable" | "client_blocked" | "likely_client_block" | "lna"} AgentFailureKind
+ * @typedef {"agent_unreachable" | "client_blocked" | "lna"} AgentFailureKind
  */
 
-/**
- * @param {unknown} rawError
- * @returns {boolean}
- */
-function hasExtensionBlockHint(rawError) {
-  if (typeof globalThis !== "undefined" && globalThis.__itmatzipAdSenseBlocked === true) {
-    return true;
-  }
+/** @param {unknown} rawError */
+function isExplicitClientBlockedError(rawError) {
   const m = String(rawError ?? "");
   return /ERR_BLOCKED_BY_CLIENT|blocked by client|BLOCKED_BY_CLIENT/i.test(m);
 }
@@ -550,35 +544,12 @@ function hasExtensionBlockHint(rawError) {
  */
 export function classifyAgentConnectionFailure(rawError, latencyMs) {
   const m = String(rawError ?? "");
-  if (/ERR_BLOCKED_BY_CLIENT|blocked by client|BLOCKED_BY_CLIENT/i.test(m)) {
+  if (isExplicitClientBlockedError(m)) {
     return "client_blocked";
   }
   if (/address space/i.test(m)) return "lna";
-  if (
-    hasExtensionBlockHint(rawError) &&
-    /Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(m)
-  ) {
-    return "likely_client_block";
-  }
   void latencyMs;
   return "agent_unreachable";
-}
-
-/** @param {string} url */
-function wasRequestLikelyBlockedByClient(url) {
-  try {
-    const entries = performance.getEntriesByName(url);
-    for (let i = entries.length - 1; i >= 0; i -= 1) {
-      const e = entries[i];
-      if (!e || e.entryType !== "resource") continue;
-      if (e.transferSize === 0 && e.encodedBodySize === 0 && e.duration > 0) {
-        return true;
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return false;
 }
 
 export function formatAgentConnectionError(raw) {
@@ -644,14 +615,10 @@ export function applyConnectionStatusDot(el, ok, detail) {
   const kind =
     /** @type {{ failureKind?: AgentFailureKind }} */ (detail)?.failureKind ??
     classifyAgentConnectionFailure(detail?.rawError ?? detail?.error);
-  if (
-    kind === "client_blocked" ||
-    kind === "likely_client_block" ||
-    /ERR_BLOCKED_BY_CLIENT|확장이 로컬/i.test(errText)
-  ) {
+  if (kind === "client_blocked" || /ERR_BLOCKED_BY_CLIENT/i.test(errText)) {
     el.textContent = "에이전트 연결 차단됨";
   } else {
-    el.textContent = "에이전트 연결 끊김";
+    el.textContent = "에이전트 미연결";
   }
   el.style.color = "#ef4444";
   el.title = errText || "";
@@ -834,10 +801,7 @@ async function pingAgentOrigin(origin, signal) {
     };
   } catch (e) {
     const latencyMs = Math.round(performance.now() - started);
-    let err = e instanceof Error ? e.message : String(e);
-    if (wasRequestLikelyBlockedByClient(url)) {
-      err = "ERR_BLOCKED_BY_CLIENT";
-    }
+    const err = e instanceof Error ? e.message : String(e);
     const failureKind = classifyAgentConnectionFailure(err, latencyMs);
     return { ok: false, latencyMs, error: err, origin, failureKind };
   } finally {
@@ -1024,8 +988,7 @@ export function startConnectionMonitor(opts = {}) {
       const failureKind =
         /** @type {AgentFailureKind | undefined} */ (detail.failureKind) ??
         classifyAgentConnectionFailure(detail.rawError ?? detail.error, detail.latencyMs);
-      const isExtensionBlock =
-        failureKind === "client_blocked" || failureKind === "likely_client_block";
+      const isExtensionBlock = failureKind === "client_blocked";
       const dialogAfterStreak = isExtensionBlock ? 2 : MONITOR_DISCONNECT_DIALOG_STREAK;
       const shouldAlert =
         opts.autoShowInstallDialog &&
