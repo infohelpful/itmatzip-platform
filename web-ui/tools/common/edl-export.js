@@ -3,6 +3,7 @@
  */
 
 export const STORAGE_EDL = "itmatzip_silence_edl";
+export const STORAGE_FCP_XML = "itmatzip_silence_fcp_xml";
 export const STORAGE_NAME = "itmatzip_silence_edl_filename";
 export const STORAGE_VOCAL_MS = "itmatzip_silence_vocal_ms";
 export const STORAGE_SILENCES = "itmatzip_silence_silences";
@@ -11,6 +12,7 @@ export const STORAGE_DURATION = "itmatzip_silence_duration_sec";
 export const STORAGE_FPS_RATIONAL = "itmatzip_silence_fps_rational";
 export const STORAGE_FPS_NATIVE_RATIONAL = "itmatzip_silence_native_fps_rational";
 export const STORAGE_FPS = "itmatzip_silence_fps";
+export const STORAGE_NATIVE_FPS = "itmatzip_silence_native_fps";
 export const STORAGE_MEAN_VOLUME_DB = "itmatzip_silence_mean_volume_db";
 export const STORAGE_MAX_VOLUME_DB = "itmatzip_silence_max_volume_db";
 export const STORAGE_DYNAMIC_RANGE_DB = "itmatzip_silence_dynamic_range_db";
@@ -26,6 +28,11 @@ export const STORAGE_PADDING_MS = "itmatzip_silence_padding_ms";
 export const STORAGE_MIN_SILENCE_SEC = "itmatzip_silence_min_silence_sec";
 export const STORAGE_MIN_SILENCE = "itmatzip_silence_min_silence_sec";
 export const STORAGE_EDL_FINGERPRINT = "itmatzip_silence_edl_fp";
+export const STORAGE_DOWNLOAD_FORMAT = "itmatzip_silence_download_format";
+/** FCP7 XML rev — agent `<!-- itmatzip-fcp7 rev=N -->` 와 일치 */
+export const FCP7_XML_EXPORT_REV = 2;
+/** EDL 생성 로직 rev — agent `* itmatzip-edl rev=N` 와 일치 */
+export const EDL_EXPORT_LOGIC_REV = 2;
 /** 무음 분석 버튼 성공 후에만 파형 무음 미리보기 허용 (정규화된 경로) */
 export const STORAGE_SILENCE_OVERLAY_PATH = "itmatzip_silence_overlay_path";
 /** 다운로드 페이지 → 편집 화면 복귀 시에만 UI 복원 (일반 접속·새로고침은 빈 화면) */
@@ -108,7 +115,9 @@ export function loadStoredSilenceIntervals() {
 }
 
 export function getRemoveSilentFromSession() {
-  return sessionStorage.getItem(STORAGE_REMOVE_SILENT) === "true";
+  const v = sessionStorage.getItem(STORAGE_REMOVE_SILENT);
+  if (v === "false") return false;
+  return true;
 }
 
 export function getPaddingMsFromSession() {
@@ -121,6 +130,110 @@ export function getEditorFpsFromSession() {
   const stored = sessionStorage.getItem(STORAGE_FPS);
   const n = stored != null ? Number(stored) : NaN;
   return Number.isFinite(n) && n > 0 ? n : NaN;
+}
+
+export function getNativeFpsFromSession() {
+  const stored = sessionStorage.getItem(STORAGE_NATIVE_FPS);
+  const n = stored != null ? Number(stored) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : NaN;
+}
+
+export function setDownloadFormatForSession(_format) {
+  sessionStorage.setItem(STORAGE_DOWNLOAD_FORMAT, "fcp");
+}
+
+export function getDownloadFormatFromSession() {
+  return "fcp";
+}
+
+/** 분석 응답·저장용 — rev/rs 없어도 구조만 맞으면 OK */
+export function fcpXmlStructurallyValid(xml) {
+  const t = String(xml || "").trim();
+  return t.includes("<xmeml") && t.includes("<clipitem");
+}
+
+/** 다운로드 캐시용 — rev·remove_silent 옵션까지 현재 세션과 일치 */
+export function fcpXmlLooksValid(xml) {
+  if (!fcpXmlStructurallyValid(xml)) return false;
+  const t = String(xml || "").trim();
+  const revMatch = t.match(/itmatzip-fcp7 rev=(\d+)/i);
+  if (revMatch) {
+    const rev = Number.parseInt(revMatch[1], 10);
+    if (!Number.isFinite(rev) || rev < FCP7_XML_EXPORT_REV) return false;
+    const rsMatch = t.match(/itmatzip-fcp7 rev=\d+\s+rs=(\d+)/i);
+    if (rsMatch) {
+      const wantRs = getRemoveSilentFromSession() ? 1 : 0;
+      return Number.parseInt(rsMatch[1], 10) === wantRs;
+    }
+  }
+  return true;
+}
+
+export function getStoredFcpXmlFromSession() {
+  return sessionStorage.getItem(STORAGE_FCP_XML)?.trim() || "";
+}
+
+export function getSessionFcpXmlForDownload() {
+  const xml = getStoredFcpXmlFromSession();
+  if (!fcpXmlLooksValid(xml)) return "";
+  if (!getAnalysisBoundVideoPath()) return "";
+  if (!storedEdlMatchesExportSettingsFromSession()) return "";
+  return xml;
+}
+
+export function getSessionEdlForDownload() {
+  const edl = getStoredEdlFromSession();
+  if (!edl || edl.includes("말소리 구간이 없습니다")) return "";
+  if (!edlLooksCurrent(edl)) return "";
+  if (!canExportFromSession()) return "";
+  if (!storedEdlMatchesExportSettingsFromSession()) return "";
+  return edl;
+}
+
+export function fcpDownloadFilename() {
+  const base = sessionStorage.getItem(STORAGE_NAME) || "";
+  const stem = base.replace(/\.[^./\\]+$/i, "").trim() || "silence";
+  return `${stem}_silence.xml`;
+}
+
+export async function pickFcpSaveFileHandle() {
+  if (typeof window.showSaveFilePicker !== "function") return null;
+  return window.showSaveFilePicker({
+    suggestedName: fcpDownloadFilename(),
+    types: [
+      {
+        description: "FCP7 XML",
+        accept: { "application/xml": [".xml"], "text/xml": [".xml"] },
+      },
+    ],
+  });
+}
+
+export async function saveFcpXmlBlobToDisk(fcpXml, opts = {}) {
+  const blob = new Blob([fcpXml], { type: "application/xml;charset=utf-8" });
+  const filename = fcpDownloadFilename();
+  const handle = opts.fileHandle ?? null;
+  if (handle) {
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return { saved: true };
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  return { saved: true };
+}
+
+/** @returns {boolean} */
+export function hasCachedExportForDownload(_format) {
+  return Boolean(getSessionFcpXmlForDownload());
 }
 
 export function getMinSilenceSecFromSession() {
@@ -219,6 +332,7 @@ export function mediaPathsEqualForSession(a, b) {
 /** 무음 분석·EDL sessionStorage 전부 제거 (경로 키는 유지) */
 export function clearSilenceAnalysisSessionStorage() {
   sessionStorage.removeItem(STORAGE_EDL);
+  sessionStorage.removeItem(STORAGE_FCP_XML);
   sessionStorage.removeItem(STORAGE_EDL_FINGERPRINT);
   sessionStorage.removeItem(STORAGE_SILENCES);
   sessionStorage.removeItem(STORAGE_SILENCES_DISPLAY);
@@ -251,9 +365,15 @@ export function discardAnalysisSessionUnlessPath(videoPath, pathsEqual) {
   return true;
 }
 
+export function edlLooksCurrent(edl) {
+  const t = String(edl || "");
+  return new RegExp(`itmatzip-edl rev=${EDL_EXPORT_LOGIC_REV}`, "i").test(t);
+}
+
 export function edlExportSettingsFingerprintFromSession() {
   const fps = getEditorFpsFromSession();
   return JSON.stringify({
+    rev: EDL_EXPORT_LOGIC_REV,
     rs: getRemoveSilentFromSession() ? 1 : 0,
     pad: getPaddingMsFromSession(),
     min: getMinSilenceSecFromSession(),
@@ -349,9 +469,10 @@ export function snapshotExportSettingsFromDom() {
 export function canExportFromSession() {
   const bound = getAnalysisBoundVideoPath();
   if (!bound) return false;
-  const edl = sessionStorage.getItem(STORAGE_EDL);
+  const xml = getStoredFcpXmlFromSession();
+  if (xml && fcpXmlLooksValid(xml)) return true;
   const silences = sessionStorage.getItem(STORAGE_SILENCES);
-  return Boolean((edl && edl.trim()) || (silences && silences !== "[]"));
+  return Boolean(silences && silences !== "[]");
 }
 
 /** @returns {string} */
@@ -526,14 +647,15 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
     sessionStorage.getItem(STORAGE_CLIP_NAME) || clipNameFromVideoPath(videoPath);
 
   const forceFresh = opts.forceFresh === true;
-  const storedEdl = getStoredEdlFromSession();
+  const storedEdl = forceFresh ? "" : getStoredEdlFromSession();
   if (
     !forceFresh &&
     storedEdl &&
+    edlLooksCurrent(storedEdl) &&
     storedEdlMatchesExportSettingsFromSession() &&
     !storedEdl.includes("말소리 구간이 없습니다")
   ) {
-    return { ok: true, edl: storedEdl };
+    return { ok: true, edl: storedEdl, fromCache: true };
   }
 
   const tcOffRaw = sessionStorage.getItem(STORAGE_TC_OFFSET_SEC);
@@ -586,10 +708,11 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
     const msg = e instanceof Error ? e.message : String(e);
     if (
       storedEdl &&
+      edlLooksCurrent(storedEdl) &&
       storedEdlMatchesExportSettingsFromSession() &&
       !storedEdl.includes("말소리 구간이 없습니다")
     ) {
-      return { ok: true, edl: storedEdl };
+      return { ok: true, edl: storedEdl, fromCache: true };
     }
     const agentHint = /HTTP 500|500|에이전트|연결/i.test(msg)
       ? "로컬 에이전트를 재시작한 뒤, 편집 화면에서 무음 분석을 다시 실행해 주세요."
@@ -597,6 +720,75 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
     return {
       ok: false,
       error: `EDL 생성에 실패했습니다. ${agentHint}\n\n${msg}`,
+    };
+  }
+}
+
+/**
+ * @param {(opts: import("./bridge.js").AgentRequestOptions) => Promise<unknown>} requestAgent
+ * @param {{ forceFresh?: boolean }} [opts]
+ */
+export async function buildFcpXmlViaAgent(requestAgent, opts = {}) {
+  const check = validateExportPrerequisitesFromSession();
+  if (!check.ok) {
+    return { ok: false, error: check.message };
+  }
+
+  const silences = loadStoredSilenceIntervals();
+  const vocalIntervalsMs = loadStoredVocalIntervalsMs();
+  const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
+  const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
+  const editorFps = getEditorFpsFromSession();
+  const videoPath = sessionStorage.getItem(STORAGE_VIDEO_PATH) || "";
+  const clipName =
+    sessionStorage.getItem(STORAGE_CLIP_NAME) || clipNameFromVideoPath(videoPath);
+  const fpsRational = sessionStorage.getItem(STORAGE_FPS_RATIONAL)?.trim() || "";
+
+  const forceFresh = opts.forceFresh === true;
+  if (!forceFresh) {
+    const cached = getSessionFcpXmlForDownload();
+    if (cached) return { ok: true, fcp_xml: cached, fromCache: true };
+  }
+  sessionStorage.removeItem(STORAGE_FCP_XML);
+
+  try {
+    const data = await requestAgent({
+      method: "POST",
+      path: "/api/tools/silence-remover/build-fcp-xml",
+      json: {
+        silences,
+        ...(vocalIntervalsMs && vocalIntervalsMs.length > 0
+          ? { vocal_intervals_ms: vocalIntervalsMs }
+          : {}),
+        duration_sec: durationSec,
+        fps: editorFps,
+        ...(fpsRational ? { fps_rational: fpsRational } : {}),
+        remove_silent: getRemoveSilentFromSession(),
+        padding_ms: getPaddingMsFromSession(),
+        min_silence_sec: getMinSilenceSecFromSession(),
+        title: "AutoCut_Option",
+        ...(clipName ? { clip_name: clipName } : {}),
+        ...(videoPath ? { video_path: videoPath } : {}),
+      },
+    });
+    const fcpXml =
+      data && typeof data === "object" && typeof data.fcp_xml === "string" ? data.fcp_xml : "";
+    if (fcpXml.trim() && fcpXmlLooksValid(fcpXml)) {
+      sessionStorage.setItem(STORAGE_FCP_XML, fcpXml);
+      markStoredEdlFingerprintFromSession();
+      return { ok: true, fcp_xml: fcpXml };
+    }
+    return {
+      ok: false,
+      error: "XML을 생성하지 못했습니다. 무음 구간이 없거나 분석을 다시 실행해 주세요.",
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const fallback = getSessionFcpXmlForDownload();
+    if (fallback) return { ok: true, fcp_xml: fallback, fromCache: true };
+    return {
+      ok: false,
+      error: `XML 생성에 실패했습니다. 로컬 에이전트를 재시작한 뒤 무음 분석을 다시 실행해 주세요.\n\n${msg}`,
     };
   }
 }

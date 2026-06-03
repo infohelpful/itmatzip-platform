@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EDL Download</title>
+  <title>XML 다운로드</title>
   <link rel="stylesheet" href="download.css?v=4">
   <link rel="stylesheet" href="mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
@@ -12,60 +12,46 @@
   <div class="dl-page">
     <div class="dl-ad" id="dl-ad-top" aria-label="Advertisement"></div>
     <div class="dl-card">
-      <h1 id="dl-title">EDL Download</h1>
+      <h1 id="dl-title">XML 파일 다운로드</h1>
       <p class="dl-status" id="dl-status"></p>
       <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
       <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
-        <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled>Download now</button>
-        <button type="button" class="dl-btn dl-btn-back" id="dl-btn-back" disabled>Back to editor</button>
+        <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled>지금 다운로드</button>
+        <button type="button" class="dl-btn dl-btn-back" id="dl-btn-back" disabled>편집 화면으로 돌아가기</button>
       </div>
     </div>
 
-    <section class="dl-guides" aria-label="EDL 사용 가이드 및 FAQ">
+    <section class="dl-guides" aria-label="XML 사용 가이드 및 FAQ">
       <article class="dl-info-card">
         <header class="dl-info-card__head">
           <span class="dl-info-card__icon" aria-hidden="true">🎬</span>
           <div>
-            <h2 class="dl-info-card__title">주요 편집 프로그램별 EDL 불러오기 가이드</h2>
-            <p class="dl-info-card__subtitle">💡 3초 만에 끝내는 NLE 프로그램별 EDL 로드 방법</p>
+            <h2 class="dl-info-card__title">DaVinci Resolve — FCP7 XML 불러오기</h2>
+            <p class="dl-info-card__subtitle">💡 미디어 풀 링크 오류 없이 가장 안정적인 방법</p>
           </div>
         </header>
 
         <ul class="dl-nle-list">
           <li class="dl-nle-item">
             <div class="dl-nle-item__brand">
-              <span class="dl-nle-item__logo dl-nle-item__logo--pr" aria-hidden="true">Pr</span>
-              <h3 class="dl-nle-item__name">Adobe Premiere Pro</h3>
-            </div>
-            <p class="dl-nle-item__steps">
-              <span class="dl-step">File</span>
-              <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step">Import</span>
-              <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step">.edl 파일 선택</span>
-              <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step dl-step--highlight">생성된 시퀀스 더블 클릭!</span>
-            </p>
-          </li>
-          <li class="dl-nle-item">
-            <div class="dl-nle-item__brand">
               <span class="dl-nle-item__logo dl-nle-item__logo--dr" aria-hidden="true">DR</span>
-              <h3 class="dl-nle-item__name">DaVinci Resolve</h3>
+              <h3 class="dl-nle-item__name">DaVinci Resolve (권장)</h3>
             </div>
             <p class="dl-nle-item__steps">
-              <span class="dl-step">File</span>
+              <span class="dl-step">미디어 풀에 분석한 원본 mp4 넣기</span>
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step">Import</span>
+              <span class="dl-step">편집 타임라인 비우기</span>
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step">Timeline</span>
+              <span class="dl-step">File &gt; Import &gt; Timeline</span>
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step">.edl 파일 선택</span>
+              <span class="dl-step">다운로드한 .xml 선택</span>
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step"> Automatically set projects 체크</span>
-              <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step dl-step--highlight"> OK 클릭</span>
+              <span class="dl-step dl-step--highlight">OK (Automatically set project 체크)</span>
+            </p>
+            <p class="dl-nle-item__warn">
+              EDL은 미디어 풀 타임코드와 맞지 않으면 <strong>failed to link</strong> 오류가 납니다. Resolve에서는 XML만 사용하세요.
             </p>
           </li>
           <li class="dl-nle-item">
@@ -78,7 +64,20 @@
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
               <span class="dl-step">Import</span>
               <span class="dl-step-arrow" aria-hidden="true">➔</span>
-              <span class="dl-step dl-step--highlight">XML… (EDL 변환 후 로드)</span>
+              <span class="dl-step dl-step--highlight">XML…</span>
+            </p>
+          </li>
+          <li class="dl-nle-item">
+            <div class="dl-nle-item__brand">
+              <span class="dl-nle-item__logo dl-nle-item__logo--pr" aria-hidden="true">Pr</span>
+              <h3 class="dl-nle-item__name">Adobe Premiere Pro</h3>
+            </div>
+            <p class="dl-nle-item__steps">
+              <span class="dl-step">File</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step">Import</span>
+              <span class="dl-step-arrow" aria-hidden="true">➔</span>
+              <span class="dl-step dl-step--highlight">.xml 선택</span>
             </p>
           </li>
         </ul>
@@ -90,11 +89,18 @@
             <strong>동일한 프레임 레이트(FPS)</strong>를 설정해 주셔야 싱크가 밀리지 않습니다.
           </p>
         </aside>
+        <aside class="dl-callout">
+          <span class="dl-callout__icon" aria-hidden="true">🎬</span>
+          <p>
+            미디어 풀의 파일은 무음 분석에 사용한 <strong>같은 경로·같은 파일</strong>이어야 합니다.
+            XML은 소스 영상 <code>00:00:00:00</code> 기준으로 잘립니다.
+          </p>
+        </aside>
       </article>
 
       <article class="dl-info-card">
         <header class="dl-info-card__head">
-          <span class="dl-info-card__icon" aria-hidden="true">❓</span>
+          <span class="dl-callout__icon" aria-hidden="true">❓</span>
           <div>
             <h2 class="dl-info-card__title">팁 &amp; 자주 묻는 질문</h2>
             <p class="dl-info-card__subtitle">🛠️ 다운로드 관련 문제가 발생하셨나요?</p>
@@ -136,6 +142,6 @@
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=10"></script>
   <script src="mobile-only.js?v=1"></script>
-  <script type="module" src="download.js?v=7"></script>
+  <script type="module" src="download.js?v=14"></script>
 </body>
 </html>

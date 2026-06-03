@@ -78,7 +78,7 @@ class SilenceRemoverAnalyzeBody(BaseModel):
         description="말소리 구간 앞뒤 여백(ms). Auto_Cutter padding과 동일",
     )
     remove_silent: bool = Field(
-        False,
+        True,
         description="True면 무음 빼고 말소리만 이어 붙임. False면 무음·말소리 전부 컷만(전체 길이 유지)",
     )
     use_autocutter_pipeline: bool = Field(
@@ -194,7 +194,7 @@ class SilenceRemoverBuildEdlBody(BaseModel):
     fcm: str | None = Field(None, description="FCM 헤더(미지정 시 자동)")
     fps: float | None = Field(None, gt=0, le=240, description="EDL 타임코드 FPS(예: 29.97)")
     remove_silent: bool = Field(
-        False,
+        True,
         description="True면 무음 빼고 말소리만 이어 붙임. False면 무음·말소리 전부 컷만(전체 길이 유지)",
     )
     min_silence_sec: float = Field(
@@ -663,6 +663,23 @@ def _analyze_video_payload(
         edl_timing.content_duration_sec if edl_timing.content_duration_sec > 0 else duration_sec
     )
     out["edl_total_frames"] = edl_timing.total_frames
+    fps_f = float(body.fps) if body.fps is not None and body.fps > 0 else float(fps_edl)
+    clip_fn = silence_remover.clip_name_from_media_path(path)
+    ttl = (body.title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
+    if on_progress is not None:
+        on_progress(92.0, "XML 생성 중…")
+    fcp_xml = silence_remover.create_fcp7_xml(
+        vocal_ms,
+        fps=fps_f,
+        remove_silent=body.remove_silent,
+        title=ttl,
+        clip_filename=clip_fn,
+        source_file_path=str(path.resolve()),
+        duration_sec=float(duration_sec),
+        silences=segments,
+    )
+    if fcp_xml.strip():
+        out["fcp_xml"] = fcp_xml
     return out
 
 
@@ -769,6 +786,10 @@ def post_build_edl(
             )
         if not vocal_ms:
             raise HTTPException(status_code=400, detail="말소리 구간이 없습니다.")
+        vocal_ms = silence_remover._merge_vocal_intervals_by_min_gap(
+            vocal_ms,
+            min_gap_sec=float(body.min_silence_sec),
+        )
         tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
         total_frames: int | None = None
         if body.source_tc_offset_sec is not None and body.source_tc_offset_sec > 1e-6:
@@ -790,14 +811,23 @@ def post_build_edl(
                     )
                 else:
                     tc_offset = silence_remover.resolve_source_tc_offset_for_edl(0.0)
+        fps_export = float(body.fps or fps_f)
+        edl_frame_cap = silence_remover._resolve_edl_export_frame_cap(
+            total_frames if total_frames > 0 else None,
+            intervals_ms=vocal_ms,
+            fps_f=fps_export,
+            source_tc_offset_sec=tc_offset,
+            analysis_duration_sec=float(body.duration_sec),
+        )
         edl = silence_remover.create_edl_autocutter(
             vocal_ms,
-            fps=float(body.fps or fps_f),
+            fps=fps_export,
             remove_silent=body.remove_silent,
             title=ttl,
             clip_filename=clip_label,
             source_tc_offset_sec=tc_offset,
-            total_frames=total_frames,
+            total_frames=edl_frame_cap,
+            analysis_duration_sec=float(body.duration_sec),
         )
         if not edl.strip() or "말소리 구간이 없습니다" in edl:
             raise HTTPException(
@@ -805,6 +835,79 @@ def post_build_edl(
                 detail="EDL 내용이 비어 있습니다. 무음 분석 설정을 조정한 뒤 다시 시도하세요.",
             )
         return {"format": "cmx3600", "edl": edl, "source_tc_offset_sec": tc_offset}
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/build-fcp-xml")
+def post_build_fcp_xml(
+    _: SilenceRemoverReady,
+    body: SilenceRemoverBuildEdlBody,
+) -> dict[str, object]:
+    """분석에 저장된 무음 구간과 편집 FPS로 FCP7 XMEML을 생성합니다 (EDL과 동일한 무음 탐지·프레임)."""
+    try:
+        segs = [
+            silence_remover.SilenceSegment(float(s.start_sec), float(s.end_sec))
+            for s in body.silences
+            if float(s.end_sec) > float(s.start_sec)
+        ]
+        if not segs:
+            raise HTTPException(
+                status_code=400,
+                detail="무음 구간이 없습니다. 먼저 분석을 실행하세요.",
+            )
+        fps_frac = silence_remover.resolve_edl_fps_fraction(body.fps, body.fps_rational)
+        fps_f = silence_remover._edl_fps_float(fps_frac)
+        if body.fps is None or body.fps <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="편집기 FPS를 입력한 뒤 다시 시도하세요.",
+            )
+        ttl = (body.title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
+        clip_label = (body.clip_name or "").strip() or None
+        media_p = Path(body.video_path) if body.video_path else None
+        if media_p is not None and not clip_label and media_p.is_file():
+            clip_label = silence_remover.clip_name_from_media_path(media_p)
+        vocal_ms: list[tuple[float, float]] | None = None
+        if body.vocal_intervals_ms:
+            vocal_ms = [
+                (float(v.start_ms), float(v.end_ms))
+                for v in body.vocal_intervals_ms
+                if float(v.end_ms) > float(v.start_ms)
+            ]
+        if not vocal_ms:
+            vocal_ms = silence_remover._vocal_ms_from_silence_segments(
+                segs, float(body.duration_sec)
+            )
+        if not vocal_ms:
+            raise HTTPException(status_code=400, detail="말소리 구간이 없습니다.")
+        vocal_ms = silence_remover._merge_vocal_intervals_by_min_gap(
+            vocal_ms,
+            min_gap_sec=float(body.min_silence_sec),
+        )
+        src_path = str(media_p.resolve()) if media_p and media_p.is_file() else None
+        fcp_xml = silence_remover.create_fcp7_xml(
+            vocal_ms,
+            fps=float(body.fps or fps_f),
+            remove_silent=body.remove_silent,
+            title=ttl,
+            clip_filename=clip_label,
+            source_file_path=src_path,
+            duration_sec=float(body.duration_sec) if body.duration_sec else None,
+            silences=segs,
+        )
+        if not fcp_xml.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="XML 내용이 비어 있습니다. 무음 분석 설정을 조정한 뒤 다시 시도하세요.",
+            )
+        return {"format": "fcp7_xmeml", "fcp_xml": fcp_xml}
     except HTTPException:
         raise
     except FileNotFoundError as e:

@@ -20,6 +20,8 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -1353,6 +1355,52 @@ def get_video_fps_ffprobe(
     if r_fr is not None and r_fr > 0:
         return r_fr
     raise RuntimeError("ffprobe에서 유효한 프레임레이트를 읽지 못했습니다.")
+
+
+def get_video_dimensions_ffprobe(
+    video_path: Path | str,
+    *,
+    timeout_sec: float = 30.0,
+) -> tuple[int, int]:
+    """ffprobe v:0 width/height — FCP7 XML format용."""
+    path = Path(video_path)
+    if not path.is_file():
+        return 1920, 1080
+    ffprobe = get_ffprobe_executable()
+    cmd = [
+        str(ffprobe),
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "json",
+        str(path),
+    ]
+    try:
+        proc = run_hidden(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout_sec,
+            check=False,
+        )
+        if proc.returncode != 0:
+            return 1920, 1080
+        data = json.loads(proc.stdout or "{}")
+        streams = data.get("streams") or []
+        if not streams:
+            return 1920, 1080
+        st0 = streams[0]
+        w = int(st0.get("width") or 1920)
+        h = int(st0.get("height") or 1080)
+        return max(1, w), max(1, h)
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return 1920, 1080
 
 
 def _parse_rate_string(s: object) -> Fraction | None:
@@ -2737,10 +2785,11 @@ def get_nonsilent_intervals_ms_autocutter(
         timeout_sec=timeout_sec,
     )
     raw_silences = _parse_silencedetect_autocutter(log_text, duration_sec)
-    vocal_ms = _vocal_intervals_ms_with_padding(
+    vocal_ms = _vocal_intervals_for_edl(
         raw_silences,
         duration_sec,
         padding_ms=padding_ms,
+        min_silence_sec=min_len_sec,
     )
     return vocal_ms, duration_sec, raw_silences
 
@@ -2979,16 +3028,375 @@ def _frames_to_timecode_autocutter_edl(total_frames: int, tc_fps: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
 
+FCP7_XML_EXPORT_REV = 2
+
+
+def _autocutter_final_clips(
+    intervals_ms: list[tuple[float, float]],
+    *,
+    remove_silent: bool,
+    duration_sec: float | None = None,
+) -> list[dict[str, object]]:
+    """Auto_Cutter edl_generator — VOCAL(+SILENT) 클립 ms 목록."""
+    sorted_iv = sorted(intervals_ms, key=lambda x: x[0])
+    if not sorted_iv:
+        return []
+
+    all_clips: list[dict[str, object]] = [
+        {"start": float(s), "end": float(e), "type": "VOCAL"}
+        for s, e in sorted_iv
+        if float(e) > float(s) + 1e-3
+    ]
+    if not all_clips:
+        return []
+
+    if remove_silent:
+        return all_clips
+
+    silent_intervals: list[dict[str, object]] = []
+    current_time = 0.0
+    max_duration = float(all_clips[-1]["end"])  # type: ignore[index]
+    if duration_sec is not None and float(duration_sec) > 0:
+        max_duration = max(max_duration, float(duration_sec) * 1000.0)
+    for part in all_clips:
+        p_start = float(part["start"])  # type: ignore[arg-type]
+        p_end = float(part["end"])  # type: ignore[arg-type]
+        if p_start > current_time + 1e-3:
+            silent_intervals.append(
+                {"start": current_time, "end": p_start, "type": "SILENT"}
+            )
+        current_time = p_end
+    if current_time < max_duration - 1e-3:
+        silent_intervals.append(
+            {"start": current_time, "end": max_duration, "type": "SILENT"}
+        )
+    return sorted(all_clips + silent_intervals, key=lambda x: float(x["start"]))  # type: ignore[arg-type]
+
+
+def _resolve_edl_export_frame_cap(
+    total_frames: int | None,
+    *,
+    intervals_ms: list[tuple[float, float]],
+    fps_f: float,
+    source_tc_offset_sec: float = 0.0,
+    analysis_duration_sec: float | None = None,
+) -> int | None:
+    """
+    ffprobe nb_frames 가 실제 말소리 타임라인보다 짧을 때 EDL src 를 1프레임으로 깎지 않도록
+    캡을 끕니다. 신뢰할 수 있을 때만 cap 을 반환합니다.
+    """
+    cap = int(total_frames) if total_frames is not None and total_frames > 0 else 0
+    if cap <= 0:
+        return None
+    fps_f = _edl_fps_float(fps_f)
+    tc_offset_ms = max(0.0, float(source_tc_offset_sec)) * 1000.0
+    need_frame = 0
+    for start_ms, end_ms in intervals_ms:
+        end_fr = int(round(((float(end_ms) + tc_offset_ms) / 1000.0) * fps_f))
+        need_frame = max(need_frame, end_fr)
+    if analysis_duration_sec is not None and float(analysis_duration_sec) > 0:
+        need_from_dur = int(
+            round(
+                (float(analysis_duration_sec) + float(source_tc_offset_sec)) * fps_f
+            )
+        )
+        need_frame = max(need_frame, need_from_dur)
+    slack = max(3, int(round(fps_f * 0.25)))
+    if need_frame > cap + slack:
+        return None
+    return cap
+
+
+def _autocutter_src_frame_pairs(
+    intervals_ms: list[tuple[float, float]],
+    *,
+    fps: float,
+    remove_silent: bool,
+    source_tc_offset_sec: float = 0.0,
+    total_frames: int | None = None,
+    analysis_duration_sec: float | None = None,
+) -> list[tuple[int, int]]:
+    """
+    Auto_Cutter / 1d527a9 EDL 과 동일 — ms→frame round, (src_in, src_out exclusive).
+    """
+    fps_f = float(fps)
+    if fps_f <= 0 or not math.isfinite(fps_f):
+        fps_f = 29.97
+    final_clips = _autocutter_final_clips(
+        intervals_ms,
+        remove_silent=remove_silent,
+        duration_sec=analysis_duration_sec,
+    )
+    if not final_clips:
+        return []
+
+    tc_offset_ms = max(0.0, float(source_tc_offset_sec)) * 1000.0
+    frame_cap = _resolve_edl_export_frame_cap(
+        total_frames,
+        intervals_ms=intervals_ms,
+        fps_f=fps_f,
+        source_tc_offset_sec=source_tc_offset_sec,
+        analysis_duration_sec=analysis_duration_sec,
+    )
+    frame_cap = int(frame_cap) if frame_cap is not None and frame_cap > 0 else 0
+    pairs: list[tuple[int, int]] = []
+    for clip in final_clips:
+        start_ms = float(clip["start"]) + tc_offset_ms  # type: ignore[arg-type]
+        end_ms = float(clip["end"]) + tc_offset_ms  # type: ignore[arg-type]
+        src_in = int(round((start_ms / 1000.0) * fps_f))
+        src_out = int(round((end_ms / 1000.0) * fps_f))
+        if frame_cap > 0:
+            src_in = max(0, min(src_in, frame_cap - 1))
+            src_out = max(src_in + 1, min(src_out, frame_cap))
+        if src_out > src_in:
+            pairs.append((src_in, src_out))
+    return pairs
+
+
+def _fcp7_rate_from_fps(fps_f: float) -> tuple[int, bool]:
+    if abs(fps_f - 30) < 0.01:
+        return 30, False
+    if abs(fps_f - 24000 / 1001) < 0.002 or abs(fps_f - 23.976) < 0.03:
+        return 24, True
+    if abs(fps_f - 30000 / 1001) < 0.002 or abs(fps_f - 29.97) < 0.03:
+        return 30, True
+    if abs(fps_f - 60000 / 1001) < 0.002 or abs(fps_f - 59.94) < 0.03:
+        return 60, True
+    if abs(fps_f - 60) < 0.01:
+        return 60, False
+    if abs(fps_f - 24) < 0.01:
+        return 24, False
+    if abs(fps_f - 25) < 0.01:
+        return 25, False
+    timebase = int(round(fps_f))
+    if timebase <= 0:
+        timebase = 30
+    ntsc = abs(fps_f - float(timebase)) > 0.01
+    return timebase, ntsc
+
+
+def _fcp7_pathurl_from_local_path(path: str) -> str:
+    p = Path(path).resolve().as_posix()
+    return f"file:///{quote(p, safe='/:')}"
+
+
+def _fcp7_rate_xml(timebase: int, ntsc: bool, indent: str) -> list[str]:
+    return [
+        f"{indent}<rate>",
+        f"{indent}  <timebase>{timebase}</timebase>",
+        f"{indent}  <ntsc>{'TRUE' if ntsc else 'FALSE'}</ntsc>",
+        f"{indent}</rate>",
+    ]
+
+
+def create_fcp7_xml(
+    intervals_ms: list[tuple[float, float]],
+    *,
+    fps: float,
+    remove_silent: bool = True,
+    title: str = "AutoCut_Option",
+    clip_filename: str | None = None,
+    source_file_path: str | None = None,
+    duration_sec: float | None = None,
+    silences: list[SilenceSegment] | None = None,
+) -> str:
+    """
+    FCP7 XMEML — EDL(1d527a9)과 동일한 ms→frame round.
+    Resolve 풀 링크용 src in/out 은 파일 00:00:00:00 기준(source_tc_offset=0).
+
+    remove_silent=False: 무음·말소리 구간을 원본 타임라인 위치에 두고 컷만 (길이 유지).
+    remove_silent=True: 말소리만 이어 붙인 조립 타임라인.
+    """
+    fps_f = float(fps)
+    if fps_f <= 0:
+        fps_f = 29.97
+    export_iv = list(intervals_ms)
+    pair_remove_silent = remove_silent
+    if not remove_silent:
+        if silences and duration_sec is not None and float(duration_sec) > 0:
+            export_iv = clip_ms_from_stored_silences(
+                silences,
+                float(duration_sec),
+                drop_silent=False,
+            )
+            pair_remove_silent = True
+        elif duration_sec is not None and float(duration_sec) > 0:
+            export_iv = list(intervals_ms)
+    frame_pairs = _autocutter_src_frame_pairs(
+        export_iv,
+        fps=fps_f,
+        remove_silent=pair_remove_silent,
+        source_tc_offset_sec=0.0,
+        analysis_duration_sec=duration_sec,
+    )
+    if not frame_pairs:
+        return ""
+
+    media_label = (clip_filename or "").strip() or "clip.mp4"
+    custom_title = (title or "").strip()
+    if custom_title and custom_title != "AutoCut_Option":
+        safe_title = xml_escape(custom_title[:79])
+    else:
+        stem = Path(media_label).stem.strip() or "silence"
+        suffix = "silence" if remove_silent else "cuts"
+        safe_title = xml_escape(f"{stem}_{suffix}")
+    safe_name = xml_escape(media_label)
+
+    timebase, ntsc = _fcp7_rate_from_fps(fps_f)
+    tl_cursor = 0
+    clip_max_out = max(out for _, out in frame_pairs)
+    auth_out = (
+        int(round(float(duration_sec) * fps_f))
+        if duration_sec is not None and float(duration_sec) > 0
+        else 0
+    )
+    file_duration = max(clip_max_out, auth_out)
+    timeline_end = sum(out - inn for inn, out in frame_pairs)
+
+    pathurl = ""
+    vid_w, vid_h = 1920, 1080
+    probe_path = (source_file_path or "").strip()
+    if probe_path:
+        pathurl = _fcp7_pathurl_from_local_path(probe_path)
+        vid_w, vid_h = get_video_dimensions_ffprobe(probe_path)
+
+    lines: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        "<!DOCTYPE xmeml>",
+        '<xmeml version="4">',
+        f"<!-- itmatzip-fcp7 rev={FCP7_XML_EXPORT_REV} rs={1 if remove_silent else 0} -->",
+        '  <sequence id="sequence-1">',
+        f"    <name>{safe_title}</name>",
+        f"    <duration>{timeline_end}</duration>",
+    ]
+    lines.extend(_fcp7_rate_xml(timebase, ntsc, "    "))
+    lines.extend(
+        [
+            "    <media>",
+            "      <video>",
+            "        <format>",
+            "          <samplecharacteristics>",
+            f"            <width>{vid_w}</width>",
+            f"            <height>{vid_h}</height>",
+            "          </samplecharacteristics>",
+            "        </format>",
+            '        <track TL.SQTrackType="Video" TL.SQTrackDisabled="False">',
+        ]
+    )
+
+    for idx, (src_in, src_out) in enumerate(frame_pairs):
+        dur = src_out - src_in
+        tl_end = tl_cursor + dur
+        cid = f"clipitem-v-{idx + 1}"
+        lines.extend(
+            [
+                f'          <clipitem id="{cid}">',
+                f"            <name>{safe_name}</name>",
+                f"            <duration>{dur}</duration>",
+            ]
+        )
+        lines.extend(_fcp7_rate_xml(timebase, ntsc, "            "))
+        lines.extend(
+            [
+                f"            <start>{tl_cursor}</start>",
+                f"            <end>{tl_end}</end>",
+                f"            <in>{src_in}</in>",
+                f"            <out>{src_out}</out>",
+            ]
+        )
+        if idx == 0:
+            lines.append('            <file id="file-1">')
+            lines.append(f"              <name>{safe_name}</name>")
+            if pathurl:
+                lines.append(f"              <pathurl>{xml_escape(pathurl)}</pathurl>")
+            lines.extend(_fcp7_rate_xml(timebase, ntsc, "              "))
+            lines.append(f"              <duration>{file_duration}</duration>")
+            lines.append("            </file>")
+        else:
+            lines.append('            <file id="file-1"/>')
+        lines.extend(
+            [
+                '            <link>',
+                f'              <linkclipref>{cid}</linkclipref>',
+                "              <mediatype>video</mediatype>",
+                "              <trackindex>1</trackindex>",
+                f"              <clipindex>{idx + 1}</clipindex>",
+                "            </link>",
+                "          </clipitem>",
+            ]
+        )
+        tl_cursor = tl_end
+
+    lines.extend(["        </track>", "      </video>", "      <audio>"])
+    lines.append('        <track TL.SQTrackType="Audio" TL.SQTrackDisabled="False">')
+
+    tl_cursor = 0
+    for idx, (src_in, src_out) in enumerate(frame_pairs):
+        dur = src_out - src_in
+        tl_end = tl_cursor + dur
+        cid = f"clipitem-a-{idx + 1}"
+        vref = f"clipitem-v-{idx + 1}"
+        lines.extend(
+            [
+                f'          <clipitem id="{cid}">',
+                f"            <name>{safe_name}</name>",
+                f"            <duration>{dur}</duration>",
+            ]
+        )
+        lines.extend(_fcp7_rate_xml(timebase, ntsc, "            "))
+        lines.extend(
+            [
+                f"            <start>{tl_cursor}</start>",
+                f"            <end>{tl_end}</end>",
+                f"            <in>{src_in}</in>",
+                f"            <out>{src_out}</out>",
+            ]
+        )
+        if idx == 0:
+            lines.append('            <file id="file-1"/>')
+        else:
+            lines.append('            <file id="file-1"/>')
+        lines.extend(
+            [
+                '            <sourcetrack>',
+                "              <mediatype>audio</mediatype>",
+                "              <trackindex>1</trackindex>",
+                "            </sourcetrack>",
+                '            <link>',
+                f'              <linkclipref>{vref}</linkclipref>',
+                "              <mediatype>video</mediatype>",
+                "              <trackindex>1</trackindex>",
+                f"              <clipindex>{idx + 1}</clipindex>",
+                "            </link>",
+                "          </clipitem>",
+            ]
+        )
+        tl_cursor = tl_end
+
+    lines.extend(
+        [
+            "        </track>",
+            "      </audio>",
+            "    </media>",
+            "  </sequence>",
+            "</xmeml>",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def create_edl_autocutter(
     intervals_ms: list[tuple[float, float]],
     *,
     fps: float,
-    remove_silent: bool = False,
+    remove_silent: bool = True,
     title: str = "AutoCut_Option",
     clip_filename: str | None = None,
     reel: str | None = None,
     source_tc_offset_sec: float = 0.0,
     total_frames: int | None = None,
+    analysis_duration_sec: float | None = None,
 ) -> str:
     """
     Auto_Cutter `edl_generator.create_edl` 1:1 포트.
@@ -3028,46 +3436,26 @@ def create_edl_autocutter(
         lines.append("")
         return "\n".join(lines) + "\n"
 
-    all_clips: list[dict[str, object]] = [
-        {"start": float(s), "end": float(e), "type": "VOCAL"}
-        for s, e in sorted_iv
-        if float(e) > float(s) + 1e-3
-    ]
-    final_clips: list[dict[str, object]]
-    if remove_silent:
-        final_clips = all_clips
-    else:
-        silent_intervals: list[dict[str, object]] = []
-        current_time = 0.0
-        max_duration = float(all_clips[-1]["end"]) if all_clips else 0.0  # type: ignore[index]
-        for part in all_clips:
-            p_start = float(part["start"])  # type: ignore[arg-type]
-            p_end = float(part["end"])  # type: ignore[arg-type]
-            if p_start > current_time + 1e-3:
-                silent_intervals.append(
-                    {"start": current_time, "end": p_start, "type": "SILENT"}
-                )
-            current_time = p_end
-        if current_time < max_duration - 1e-3:
-            silent_intervals.append(
-                {"start": current_time, "end": max_duration, "type": "SILENT"}
-            )
-        final_clips = sorted(all_clips + silent_intervals, key=lambda x: float(x["start"]))  # type: ignore[arg-type]
+    frame_pairs = _autocutter_src_frame_pairs(
+        intervals_ms,
+        fps=fps_f,
+        remove_silent=remove_silent,
+        source_tc_offset_sec=source_tc_offset_sec,
+        total_frames=total_frames,
+        analysis_duration_sec=analysis_duration_sec,
+    )
+    if not frame_pairs:
+        lines.append("* 말소리 구간이 없습니다.")
+        lines.append("")
+        return "\n".join(lines) + "\n"
 
-    tc_offset_ms = max(0.0, float(source_tc_offset_sec)) * 1000.0
-    frame_cap = int(total_frames) if total_frames is not None and total_frames > 0 else 0
+    lines.append("* itmatzip-edl rev=2")
+    lines.append("")
 
     current_rec_frame = 3600 * tc_fps
     event_num = 1
 
-    for clip in final_clips:
-        start_ms = float(clip["start"]) + tc_offset_ms  # type: ignore[arg-type]
-        end_ms = float(clip["end"]) + tc_offset_ms  # type: ignore[arg-type]
-        src_in_frame = int(round((start_ms / 1000.0) * fps_f))
-        src_out_frame = int(round((end_ms / 1000.0) * fps_f))
-        if frame_cap > 0:
-            src_in_frame = max(0, min(src_in_frame, frame_cap - 1))
-            src_out_frame = max(src_in_frame + 1, min(src_out_frame, frame_cap))
+    for src_in_frame, src_out_frame in frame_pairs:
         duration_frames = src_out_frame - src_in_frame
         if duration_frames <= 0:
             continue
@@ -3079,8 +3467,7 @@ def create_edl_autocutter(
             current_rec_frame + duration_frames, tc_fps
         )
 
-        clip_type = str(clip.get("type") or "VOCAL")
-        from_name = media_name if use_media_name else clip_type
+        from_name = media_name if use_media_name else "VOCAL"
 
         lines.append(
             f"{event_num:03d}  {reel_field} V     C        "
@@ -3729,24 +4116,37 @@ def probe_media_edl_timing(
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
         pass
 
-    pool_dur = 0.0
+    dur_candidates: list[float] = []
     try:
-        pool_dur = float(get_format_duration_seconds_ffprobe(path, timeout_sec=t))
+        fmt_dur = float(get_format_duration_seconds_ffprobe(path, timeout_sec=t))
+        if fmt_dur > 0:
+            dur_candidates.append(fmt_dur)
     except (RuntimeError, OSError, ValueError):
-        pool_dur = 0.0
+        pass
+    a_dur, _sr = get_audio_stream_info_ffprobe(path, timeout_sec=t)
+    if a_dur is not None and a_dur > 0:
+        dur_candidates.append(float(a_dur))
     v_dur = get_video_stream_duration_ffprobe(path, timeout_sec=t)
     if v_dur is not None and v_dur > 0:
-        pool_dur = min(pool_dur, float(v_dur)) if pool_dur > 0 else float(v_dur)
+        dur_candidates.append(float(v_dur))
+    pool_dur = _playback_timeline_from_probe_candidates(dur_candidates)
 
-    total_frames = get_video_frame_count_ffprobe(path, timeout_sec=t)
-    if total_frames is not None and total_frames > 0:
-        content_dur = float(total_frames) / fps_f
+    nb_frames = get_video_frame_count_ffprobe(path, timeout_sec=t)
+    dur_frames = (
+        max(0, _ms_to_frame(pool_dur * 1000.0, fps_f)) if pool_dur > 0 else 0
+    )
+    if nb_frames is not None and nb_frames > 0:
+        if dur_frames > 0 and int(nb_frames) < dur_frames - max(3, int(round(fps_f * 0.5))):
+            total_frames = dur_frames
+        else:
+            total_frames = int(nb_frames)
     else:
-        audio_dur, _ = get_media_audio_timeline_sec(path, timeout_sec=t)
-        content_dur = pool_dur if pool_dur > 0 else float(audio_dur)
-        if pool_dur > 0 and audio_dur > 0:
-            content_dur = min(pool_dur, float(audio_dur))
-        total_frames = max(0, _ms_to_frame(content_dur * 1000.0, fps_f))
+        total_frames = dur_frames
+    content_dur = (
+        float(total_frames) / fps_f
+        if total_frames > 0
+        else max(0.0, pool_dur)
+    )
 
     return MediaEdlTiming(
         source_tc_offset_sec=max(0.0, offset_sec),
@@ -3830,7 +4230,7 @@ def build_edl_from_silence_segments(
     reel: str = "SILENCE",
     fcm: str | None = None,
     clip_comment: str | None = None,
-    remove_silent: bool = False,
+    remove_silent: bool = True,
     vocal_intervals_ms: list[tuple[float, float]] | None = None,
     min_silence_sec: float = 0.0,
     media_path: Path | str | None = None,
@@ -3863,13 +4263,27 @@ def build_edl_from_silence_segments(
             padding_ms=padding_ms,
             min_silence_sec=min_silence_sec,
         )
-    frame_cap = 0
+    frame_cap: int | None = None
+    analysis_dur = float(duration_sec)
     if media_path:
         timing = probe_media_edl_timing(Path(media_path), fps=fps_frac)
         if timing.total_frames > 0:
             frame_cap = timing.total_frames
+        if timing.content_duration_sec > 0:
             edl_dur = timing.content_duration_sec
-    vocal_ms = _clamp_vocal_intervals_ms(vocal_ms, edl_dur if edl_dur > 0 else duration_sec)
+        if analysis_dur <= 0 and edl_dur > 0:
+            analysis_dur = edl_dur
+    clamp_dur = max(analysis_dur, edl_dur if edl_dur > 0 else analysis_dur)
+    if vocal_ms:
+        clamp_dur = max(clamp_dur, float(vocal_ms[-1][1]) / 1000.0)
+    vocal_ms = _clamp_vocal_intervals_ms(vocal_ms, clamp_dur)
+    resolved_cap = _resolve_edl_export_frame_cap(
+        frame_cap,
+        intervals_ms=vocal_ms,
+        fps_f=fps_f,
+        source_tc_offset_sec=resolve_source_tc_offset_for_edl(tc_offset),
+        analysis_duration_sec=analysis_dur,
+    )
     return create_edl_autocutter(
         vocal_ms,
         fps=float(fps_f),
@@ -3877,7 +4291,8 @@ def build_edl_from_silence_segments(
         title=title,
         clip_filename=clip_comment,
         source_tc_offset_sec=resolve_source_tc_offset_for_edl(tc_offset),
-        total_frames=frame_cap if frame_cap > 0 else None,
+        total_frames=resolved_cap,
+        analysis_duration_sec=analysis_dur,
     )
 
 
@@ -3887,7 +4302,7 @@ def analyze_video_to_edl_with_metadata(
     noise_db: float = -50.0,
     min_silence_sec: float = 0.5,
     padding_ms: float = DEFAULT_VOCAL_PADDING_MS,
-    remove_silent: bool = False,
+    remove_silent: bool = True,
     timeout_sec: float = 3600.0,
     pixels_per_second: float = DEFAULT_WAVEFORM_PIXELS_PER_SECOND,
     max_waveform_width: int = DEFAULT_WAVEFORM_MAX_WIDTH,
@@ -3971,9 +4386,16 @@ def analyze_video_to_edl_with_metadata(
     fps_f = float(fps_float) if fps_float is not None and fps_float > 0 else float(fps_edl)
     ttl = (title or "AutoCut_Option").strip()[:79] or "AutoCut_Option"
     clip_fn = clip_name_from_media_path(path)
-    _prog(88.0, "EDL 생성 중…")
+    _prog(88.0, "XML 생성 중…")
     edl_timing = probe_media_edl_timing(path, fps=fps_edl, timeout_sec=t_probe)
     src_tc = resolve_source_tc_offset_for_edl(edl_timing.source_tc_offset_sec)
+    edl_frame_cap = _resolve_edl_export_frame_cap(
+        edl_timing.total_frames if edl_timing.total_frames > 0 else None,
+        intervals_ms=vocal_ms,
+        fps_f=fps_f,
+        source_tc_offset_sec=src_tc,
+        analysis_duration_sec=float(duration_sec),
+    )
     edl = create_edl_autocutter(
         vocal_ms,
         fps=fps_f,
@@ -3981,7 +4403,8 @@ def analyze_video_to_edl_with_metadata(
         title=ttl,
         clip_filename=clip_fn,
         source_tc_offset_sec=src_tc,
-        total_frames=edl_timing.total_frames if edl_timing.total_frames > 0 else None,
+        total_frames=edl_frame_cap,
+        analysis_duration_sec=float(duration_sec),
     )
 
     silence_column_ranges: list[tuple[int, int]] = []

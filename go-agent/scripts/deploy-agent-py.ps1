@@ -24,7 +24,9 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "common\bin_manager.py"; Dst = Join-Path $AgentDst "common\bin_manager.py" },
     @{ Src = Join-Path $AgentSrc "engines\demucs_runner.py"; Dst = Join-Path $AgentDst "engines\demucs_runner.py" },
     @{ Src = Join-Path $AgentSrc "engines\vocal_remover.py"; Dst = Join-Path $AgentDst "engines\vocal_remover.py" },
-    @{ Src = Join-Path $AgentSrc "engines\__init__.py"; Dst = Join-Path $AgentDst "engines\__init__.py" }
+    @{ Src = Join-Path $AgentSrc "engines\silence_remover.py"; Dst = Join-Path $AgentDst "engines\silence_remover.py" },
+    @{ Src = Join-Path $AgentSrc "engines\__init__.py"; Dst = Join-Path $AgentDst "engines\__init__.py" },
+    @{ Src = Join-Path $AgentSrc "routers\silence_remover.py"; Dst = Join-Path $AgentDst "routers\silence_remover.py" }
 )
 
 foreach ($f in $files) {

@@ -17,9 +17,11 @@ import {
   STORAGE_DURATION,
   STORAGE_EDL,
   STORAGE_EDL_FINGERPRINT,
+  STORAGE_FCP_XML,
   STORAGE_FPS,
   STORAGE_FPS_NATIVE_RATIONAL,
   STORAGE_FPS_RATIONAL,
+  STORAGE_NATIVE_FPS,
   STORAGE_MIN_SILENCE,
   STORAGE_MIN_SILENCE_SEC,
   STORAGE_NAME,
@@ -27,7 +29,6 @@ import {
   STORAGE_REMOVE_SILENT,
   STORAGE_SILENCES,
   STORAGE_SILENCES_DISPLAY,
-  STORAGE_TC_OFFSET_SEC,
   STORAGE_VOCAL_MS,
   STORAGE_VIDEO_PATH,
   clearProbeMetaFromSession,
@@ -45,6 +46,8 @@ import {
   getRecommendedNoiseDbFromSession,
   getSampleRateHzFromSession,
   getAnalysisBoundVideoPath,
+  getNativeFpsFromSession,
+  getSessionFcpXmlForDownload,
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
@@ -54,8 +57,13 @@ import {
   saveProbeMetaToSession,
   setAnalysisBoundVideoPath,
   snapshotExportSettingsFromDom,
+  edlExportSettingsFingerprintFromSession,
+  fcpXmlLooksValid,
+  fcpXmlStructurallyValid,
+  markStoredEdlFingerprintFromSession,
+  setDownloadFormatForSession,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna8";
+} from "../common/edl-export.js?v=lna43";
 import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
@@ -72,20 +80,6 @@ configureBridge({ healthPath: "/health" });
 
 function installDialogOpts() {
   return agentInstallDialogOptions(() => checkAgentConnection());
-}
-
-function edlExportSettingsFingerprint() {
-  const fps = getEditorFpsForExport();
-  return JSON.stringify({
-    rs: getRemoveSilentForEdlExport() ? 1 : 0,
-    pad: getPaddingMsForEdlExport(),
-    min: getMinSilenceSecForEdlExport(),
-    fps: Number.isFinite(fps) && fps > 0 ? Math.round(fps * 1000) / 1000 : null,
-  });
-}
-
-function markStoredEdlFingerprint() {
-  sessionStorage.setItem(STORAGE_EDL_FINGERPRINT, edlExportSettingsFingerprint());
 }
 
 function edlSettingsMatchAnalyzeSession() {
@@ -109,7 +103,9 @@ function edlSettingsMatchAnalyzeSession() {
 
 function storedEdlMatchesCurrentSettings() {
   const fp = sessionStorage.getItem(STORAGE_EDL_FINGERPRINT);
-  if (fp != null) return fp === edlExportSettingsFingerprint();
+  if (fp != null) {
+    return fp === edlExportSettingsFingerprintFromSession();
+  }
   return edlSettingsMatchAnalyzeSession();
 }
 
@@ -126,9 +122,14 @@ function mediaPathsEqual(a, b) {
   return norm(a) === norm(b);
 }
 
+/** @param {string} p */
+function looksLikeFullPath(p) {
+  return p.length > 4 && (/[/\\]/.test(p) || /^[a-zA-Z]:\\/.test(p));
+}
+
 function getRemoveSilentForEdlExport() {
   const el = document.getElementById("opt-remove-silent");
-  return el instanceof HTMLInputElement ? el.checked : false;
+  return el instanceof HTMLInputElement ? el.checked : true;
 }
 
 function getPaddingMsForEdlExport() {
@@ -150,7 +151,18 @@ function getEditorFpsForExport() {
   }
   const stored = sessionStorage.getItem(STORAGE_FPS);
   const n = stored != null ? Number(stored) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : NaN;
+  if (Number.isFinite(n) && n > 0) return n;
+  return getNativeFpsFromSession();
+}
+
+/** 분석·EDL — UI FPS 없으면 ffprobe 원본 FPS */
+function resolveAnalyzeFps() {
+  const el = document.getElementById("opt-fps");
+  if (el instanceof HTMLInputElement) {
+    const v = Number(el.value);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return getNativeFpsFromSession();
 }
 
 function getMinSilenceSecForEdlExport() {
@@ -164,22 +176,28 @@ function getMinSilenceSecForEdlExport() {
   return Number.isFinite(n) && n >= 0 ? n : 0.3;
 }
 
-const EXPORT_LINK_DEFAULT_HTML =
-  '<span class="icon">📥</span> EDL 파일 다운로드';
+const EXPORT_XML_LINK_DEFAULT_HTML =
+  '<span class="icon">📥</span> XML 파일 다운로드';
 
 /** 다운로드 페이지 이동 취소·뒤로가기(bfcache) 후 버튼 문구 복구 */
 function resetExportLinkUi() {
-  const exportA = document.getElementById("export-link");
-  if (!exportA) return;
-  exportA.classList.remove("is-busy");
-  exportA.removeAttribute("aria-busy");
-  exportA.innerHTML = EXPORT_LINK_DEFAULT_HTML;
-  exportA.classList.toggle("is-disabled", !canExportFromSession());
+  const exportXmlA = document.getElementById("export-xml-link");
+  if (!exportXmlA) return;
+  exportXmlA.classList.remove("is-busy");
+  exportXmlA.removeAttribute("aria-busy");
+  exportXmlA.innerHTML = EXPORT_XML_LINK_DEFAULT_HTML;
+  exportXmlA.classList.toggle("is-disabled", !canExportFromSession());
 }
 
-/** EDL 다운로드 전용 페이지로 이동 (비네트는 페이지 전환 시 AdSense가 처리) */
-async function navigateToEdlDownloadPage(exportLinkEl) {
+function syncExportLinksState() {
+  const el = document.getElementById("export-xml-link");
+  if (el) el.classList.toggle("is-disabled", !canExportFromSession());
+}
+
+/** XML 다운로드 전용 페이지로 이동 */
+async function navigateToExportDownloadPage(exportLinkEl) {
   snapshotExportSettingsFromDom();
+  setDownloadFormatForSession("fcp");
 
   const prereq = validateExportPrerequisitesFromSession();
   if (!prereq.ok) {
@@ -195,15 +213,76 @@ async function navigateToEdlDownloadPage(exportLinkEl) {
 
   let navigating = false;
   try {
-    const agent = await checkAgentConnection();
-    if (!agent.ok) {
-      await showInstallAgentDialog(await installDialogOpts());
-      return;
+    if (!getSessionFcpXmlForDownload()) {
+      const agent = await checkAgentConnection();
+      if (!agent.ok) {
+        await showInstallAgentDialog(await installDialogOpts());
+        return;
+      }
     }
     navigating = true;
-    window.location.assign(new URL(DOWNLOAD_PAGE, window.location.href).href);
+    const url = new URL(DOWNLOAD_PAGE, window.location.href);
+    window.location.assign(url.href);
   } finally {
     if (!navigating) resetExportLinkUi();
+  }
+}
+
+/** @param {boolean} visible */
+function setSilenceSummarySectionVisible(visible) {
+  const sec = document.getElementById("summary-silence-section");
+  const hint = document.getElementById("media-summary-hint");
+  const title = document.getElementById("media-summary-title");
+  const panel = document.getElementById("media-summary-panel");
+  if (sec) sec.hidden = !visible;
+  if (hint) hint.classList.toggle("is-hidden", visible);
+  if (title) {
+    title.textContent = visible ? "미디어 · 무음 요약" : "미디어 정보";
+  }
+  if (panel) {
+    panel.setAttribute(
+      "aria-label",
+      visible ? "미디어 정보 및 무음 분석 요약" : "미디어 정보 요약",
+    );
+  }
+  const subtitle = document.querySelector(".media-summary-subtitle");
+  if (subtitle) subtitle.textContent = "무음 분석";
+}
+
+function applySummaryPanelLabels() {
+  const mediaDt = [
+    "길이",
+    "최대 볼륨",
+    "다이내믹 레인지",
+    "원본 FPS",
+    "샘플레이트",
+  ];
+  const silenceDt = [
+    "무음 구간",
+    "무음 합계",
+    "최장 무음 구간",
+    "분석 설정",
+  ];
+  const mediaItems = document.querySelectorAll(
+    "#media-summary-panel .summary-media-item dt",
+  );
+  let i = 0;
+  for (const dt of mediaItems) {
+    if (i < mediaDt.length) dt.textContent = mediaDt[i];
+    i += 1;
+  }
+  i = 0;
+  const silenceItems = document.querySelectorAll(
+    "#summary-silence-section .summary-silence-item dt",
+  );
+  for (const dt of silenceItems) {
+    if (i < silenceDt.length) dt.textContent = silenceDt[i];
+    i += 1;
+  }
+  const hint = document.getElementById("media-summary-hint");
+  if (hint) {
+    hint.textContent =
+      "무음 구간 분석을 실행하면 아래에 통계가 표시됩니다.";
   }
 }
 
@@ -224,12 +303,16 @@ function applyStaticUiLabels() {
       "에이전트가 설치된 PC에서 파일을 선택하면 <strong>로컬 절대 경로(에이전트 기준)</strong>가 입력됩니다. 네트워크 드라이브는 지원하지 않습니다.";
   }
 
+  const dash = document.querySelector(".btn-to-dashboard");
+  if (dash) dash.textContent = "대시보드로 이동";
+  setText("connection-status", "에이전트 연결 확인 중…");
+
   setLabel("video-path", "영상 파일 경로");
   setText("btn-pick-local-file", "찾아보기");
   setText("bin-readiness", "무음 제거 · FFmpeg 준비 대기");
 
   setLabel("opt-fps", "프레임");
-  setText("opt-fps-hint", "EDL 컷·파형 보라 미리보기 모두 이 FPS 격자를 사용합니다.");
+  setText("opt-fps-hint", "찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다.");
   setLabel("opt-avg-db", "평균 볼륨 (dB)");
   setText("opt-avg-db-hint", "영상의 평균 볼륨 크기이며 수정은 불가능합니다.");
   setLabel("opt-rec-db", "추천 무음 민감도 (dB)");
@@ -240,32 +323,7 @@ function applyStaticUiLabels() {
   const minSilLbl = document.querySelector(".option-card-duration > label");
   if (minSilLbl) minSilLbl.textContent = "최소 무음 길이 (초)";
 
-  const summaryPanel = document.getElementById("media-summary-panel");
-  if (summaryPanel) summaryPanel.setAttribute("aria-label", "미디어 및 무음 구간 요약");
-  const summaryTitle = document.querySelector(".media-summary-title");
-  if (summaryTitle) summaryTitle.textContent = "미디어 요약";
-
-  const summaryDtTexts = [
-    "길이",
-    "최대 볼륨",
-    "다이내믹 레인지",
-    "원본 FPS",
-    "샘플레이트",
-    "무음 구간",
-    "무음 합계",
-    "최장 무음 구간",
-    "현재 설정",
-  ];
-  const dts = document.querySelectorAll(
-    "#media-summary-panel .media-summary-item dt",
-  );
-  let di = 0;
-  for (const dt of dts) {
-    if (di < summaryDtTexts.length) {
-      dt.textContent = summaryDtTexts[di];
-      di += 1;
-    }
-  }
+  applySummaryPanelLabels();
 
   setText("waveform-preview-title", "오디오 파형");
   const zoomHint = document.querySelector(".waveform-zoom-hint");
@@ -273,12 +331,11 @@ function applyStaticUiLabels() {
   const zoomReset = document.getElementById("waveform-zoom-reset");
   if (zoomReset) zoomReset.title = "확대 100% (기본 해상도)";
 
-  setText("waveform-analyze-label", "무음 구간 분석 중…");
-  const waveHint = document.querySelector(".waveform-analyze-hint");
-  if (waveHint) {
-    waveHint.textContent =
-      "분석 시 편집 FPS 격자로 파형을 만든 뒤 EDL을 생성합니다. 보라색은 파형 기준 미리보기(민감도·여백·최소무음·FPS)이며 EDL과 다를 수 있습니다. 긴 영상은 파형 생성(첫 1회)에 수 분 걸릴 수 있습니다.";
-  }
+  setText("analyze-overlay-status", "무음 구간 분석 중…");
+  setText(
+    "analyze-overlay-hint",
+    "분석 시 편집 FPS 격자로 파형을 만든 뒤 XML을 생성합니다. 긴 영상은 파형 생성(첫 1회)에 수 분 걸릴 수 있습니다.",
+  );
   const canvas = document.getElementById("waveform-preview-canvas");
   if (canvas) canvas.setAttribute("aria-label", "오디오 파형");
 
@@ -295,6 +352,29 @@ function applyStaticUiLabels() {
     "probe-loading-desc",
     "옵션·요약·오디오 파형을 준비하고 있습니다.",
   );
+
+  const mobileTitle = document.getElementById("mobile-only-title");
+  if (mobileTitle) mobileTitle.textContent = "PC에서만 이용할 수 있습니다";
+  const mobileDesc = document.querySelector(".mobile-only-desc");
+  if (mobileDesc) {
+    mobileDesc.innerHTML =
+      "Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.";
+  }
+  for (const ad of document.querySelectorAll(".editor-ad")) {
+    ad.setAttribute("aria-label", "광고");
+  }
+
+  const path = document.getElementById("video-path");
+  const p = path && "value" in path ? String(path.value).trim() : "";
+  setSilenceSummarySectionVisible(
+    Boolean(p && canRestoreAnalysisForPath(p, mediaPathsEqual)),
+  );
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", applyStaticUiLabels);
+} else {
+  applyStaticUiLabels();
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -302,7 +382,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const pathInput = document.getElementById("video-path");
   const btnPickLocalFile = document.getElementById("btn-pick-local-file");
   const btnAnalyze = document.getElementById("btn-analyze");
-  const exportLink = document.getElementById("export-link");
+  const exportXmlLink = document.getElementById("export-xml-link");
   const mediaWorkspace = document.getElementById("media-workspace");
   const mediaWorkspaceLoading = document.getElementById("media-workspace-loading");
   const probeTitleEl = document.getElementById("probe-loading-title");
@@ -341,6 +421,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function showMediaWorkspaceLoading() {
+    if (analyzeInProgress) return;
     if (!mediaWorkspaceLoading) return;
     resetMediaWorkspaceLoadingCopy();
     if (mediaWorkspace) mediaWorkspace.setAttribute("aria-busy", "true");
@@ -354,8 +435,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let probeBusyDepth = 0;
   let probeShowTimer = 0;
   const PROBE_LOADING_DELAY_MS = 220;
+  /** 분석 중에는 프로브 전체 로딩이 프로그레스 UI를 덮지 않도록 */
+  let analyzeInProgress = false;
 
   function bumpProbeLoading() {
+    if (analyzeInProgress) return;
     probeBusyDepth += 1;
     if (probeBusyDepth === 1) {
       window.clearTimeout(probeShowTimer);
@@ -367,7 +451,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function releaseProbeLoading() {
     probeBusyDepth = Math.max(0, probeBusyDepth - 1);
-    if (probeBusyDepth === 0) {
+    if (probeBusyDepth === 0 && !analyzeInProgress) {
       window.clearTimeout(probeShowTimer);
       probeShowTimer = 0;
       hideMediaWorkspaceLoading();
@@ -394,6 +478,7 @@ document.addEventListener("DOMContentLoaded", () => {
     scheduleProbe();
   }
 
+  /** 찾아보기·경로 변경 시 이전 분석·EDL·파형 무음 표시를 모두 제거합니다. */
   function beginNewMediaWorkflow() {
     window.clearTimeout(probeTimer);
     abortWaveformPreviewInFlight();
@@ -405,7 +490,9 @@ document.addEventListener("DOMContentLoaded", () => {
     probedMaxVolumeDb = null;
     probedFpsRational = null;
     probedRecommendedNoiseDb = null;
+    lastAnalyzedSettings = null;
     clearMediaSummary();
+    setSilenceSummarySectionVisible(false);
     if (waveformPreviewTitle) waveformPreviewTitle.textContent = "오디오 파형";
     setWaveformIdleStatus();
     syncExportLinkState();
@@ -440,8 +527,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function applyVideoPathToInput(trimmed) {
-    prepareMediaPathChange(trimmed, pathInput.value.trim() || getAnalysisBoundVideoPath() || "");
+  /**
+   * @param {string} trimmed
+   * @param {{ freshSelection?: boolean }} [opts] freshSelection: 찾아보기로 고른 파일(항상 이전 작업 초기화)
+   */
+  function applyVideoPathToInput(trimmed, opts = {}) {
+    if (opts.freshSelection) {
+      beginNewMediaWorkflow();
+    } else {
+      prepareMediaPathChange(
+        trimmed,
+        pathInput.value.trim() || getAnalysisBoundVideoPath() || "",
+      );
+    }
     pathInput.value = trimmed;
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
@@ -456,19 +554,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function syncExportLinkState() {
-    if (!exportLink) return;
-    exportLink.classList.toggle("is-disabled", !canExportFromSession());
+    syncExportLinksState();
   }
 
-  if (exportLink) {
+  if (exportXmlLink) {
     syncExportLinkState();
-    exportLink.addEventListener("click", (e) => {
+    exportXmlLink.addEventListener("click", (e) => {
       e.preventDefault();
-      if (exportLink.classList.contains("is-disabled")) {
+      if (exportXmlLink.classList.contains("is-disabled")) {
         alert("먼저 무음 구간 분석을 실행해 주세요.");
         return;
       }
-      void navigateToEdlDownloadPage(exportLink);
+      void navigateToExportDownloadPage(exportXmlLink);
     });
   }
 
@@ -541,7 +638,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      applyVideoPathToInput(vp);
+      applyVideoPathToInput(vp, { freshSelection: true });
     } catch (e) {
       const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
       if (name === "AbortError") {
@@ -584,6 +681,16 @@ document.addEventListener("DOMContentLoaded", () => {
     optRemoveSilentCaption.textContent =
       "무음 구간 자동 제거";
   }
+  if (optRemoveSilent) {
+    optRemoveSilent.addEventListener("change", () => {
+      sessionStorage.setItem(
+        STORAGE_REMOVE_SILENT,
+        optRemoveSilent.checked ? "true" : "false",
+      );
+      sessionStorage.removeItem(STORAGE_FCP_XML);
+      syncExportLinkState();
+    });
+  }
   const optPadding = /** @type {HTMLInputElement} */ (document.getElementById("opt-padding"));
   const optPaddingVal = document.getElementById("opt-padding-val");
   const waveformPreviewSection = document.getElementById("waveform-preview-section");
@@ -616,14 +723,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const waveformPreviewStatus = document.getElementById("waveform-preview-status");
   const waveformPreviewScroll = document.getElementById("waveform-preview-scroll");
   const waveformScrollTrack = document.getElementById("waveform-scroll-track");
-  const waveformAnalyzeLoading = document.getElementById("waveform-analyze-loading");
-  const waveformAnalyzeLabel = document.getElementById("waveform-analyze-label");
-  const waveformAnalyzeStatus = document.getElementById("waveform-analyze-status");
-  const waveformAnalyzeMeta = document.getElementById("waveform-analyze-meta");
-  const waveformAnalyzeProgressBar = document.getElementById("waveform-analyze-progress-bar");
-  const waveformAnalyzeProgressTrack = document.querySelector(
-    ".waveform-analyze-progress-track",
-  );
   const waveformZoomLevel = document.getElementById("waveform-zoom-level");
   const waveformZoomReset = document.getElementById("waveform-zoom-reset");
   const summaryDuration = document.getElementById("summary-duration");
@@ -637,9 +736,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const summarySettings = document.getElementById("summary-settings");
 
   applyStaticUiLabels();
+  applySummaryPanelLabels();
+  setSilenceSummarySectionVisible(false);
 
   /** @type {number | null} */
   let probedMediaDurationSec = null;
+  /** EDL/XML export 기준 — ffprobe·nb_frames 비디오 길이 */
+  /** @type {number | null} */
+  let probedVideoDurationSec = null;
   /** @type {number | null} */
   let probedMeanVolumeDb = null;
   /** @type {number | null} */
@@ -755,12 +859,16 @@ document.addEventListener("DOMContentLoaded", () => {
     lastAppliedNoiseDb = null;
     lastAnalyzedSettings = null;
     clearSilenceAnalysisSessionStorage();
+    setSilenceSummarySectionVisible(false);
+    if (summarySilenceCount) setSummaryCell(summarySilenceCount, "—");
+    if (summarySilenceTotal) setSummaryCell(summarySilenceTotal, "—");
+    if (summarySilenceLongest) setSummaryCell(summarySilenceLongest, "—");
+    if (summarySettings) setSummaryCell(summarySettings, "—");
     syncExportLinkState();
     if (btnAnalyze) {
       btnAnalyze.disabled = false;
       btnAnalyze.textContent = BTN_ANALYZE_LABEL;
     }
-    renderAnalyzedSettingsSummary();
   }
 
   function scheduleWaveformHighlightRefresh() {
@@ -943,7 +1051,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (waveformPreviewStatus) {
       const durTxt = formatDurationClock(waveformPeaksData.timeline_sec);
       waveformPreviewStatus.textContent = silencePreviewEnabled
-        ? `재생 시간 : ${durTxt} / 미리보기 화면은 실제 EDL 파일의 결과물과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.`
+        ? `재생 시간 : ${durTxt} / 미리보기 화면은 실제 XML 타임라인과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.`
         : `재생 시간 : ${durTxt}`;
       waveformPreviewStatus.classList.remove("is-err");
     }
@@ -988,10 +1096,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (optPaddingVal) optPaddingVal.textContent = `${ms}ms`;
   }
 
-  function looksLikeFullPath(p) {
-    return p.length > 4 && (/[/\\]/.test(p) || /^[a-zA-Z]:\\/.test(p));
-  }
-
   /** 소수 둘째 자리까지만 남기고 나머지는 절단(0 방향, 반올림 아님) */
   function truncTo2Decimals(n) {
     if (typeof n !== "number" || !Number.isFinite(n)) return n;
@@ -1033,6 +1137,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderAnalyzedSettingsSummary() {
+    const sec = document.getElementById("summary-silence-section");
+    if (sec && sec.hidden) return;
     if (!lastAnalyzedSettings) {
       setSummaryCell(summarySettings, "—");
       return;
@@ -1071,7 +1177,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function clearMediaSummary() {
-    applyStaticUiLabels();
     probedMediaDurationSec = null;
     probedMeanVolumeDb = null;
     probedMaxVolumeDb = null;
@@ -1083,10 +1188,11 @@ document.addEventListener("DOMContentLoaded", () => {
     setSummaryCell(summaryDr, "—");
     setSummaryCell(summaryFpsNative, "—");
     setSummaryCell(summarySampleRate, "—");
-    setSummaryCell(summarySilenceCount, "분석 전");
-    setSummaryCell(summarySilenceTotal, "—");
-    setSummaryCell(summarySilenceLongest, "—");
-    setSummaryCell(summarySettings, "—");
+    setSilenceSummarySectionVisible(false);
+    if (summarySilenceCount) setSummaryCell(summarySilenceCount, "—");
+    if (summarySilenceTotal) setSummaryCell(summarySilenceTotal, "—");
+    if (summarySilenceLongest) setSummaryCell(summarySilenceLongest, "—");
+    if (summarySettings) setSummaryCell(summarySettings, "—");
   }
 
   function applyProbeVolumeSummaryFromSession() {
@@ -1164,10 +1270,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return canRestoreAnalysisForPath(p, mediaPathsEqual);
   }
 
-  /** 파형 타임라인(초)을 미디어 요약·세션 길이에 반영합니다. */
+  /** 파형·원본 전체 길이(16:47) — EDL/XML 소스 상한과 동일 */
   function syncMediaSummaryDurationFromWaveform(timelineSec) {
     if (!Number.isFinite(timelineSec) || timelineSec <= 0) return;
     probedMediaDurationSec = timelineSec;
+    probedVideoDurationSec = timelineSec;
     setSummaryCell(summaryDuration, formatDurationClock(timelineSec));
     sessionStorage.setItem(STORAGE_DURATION, String(timelineSec));
   }
@@ -1177,7 +1284,15 @@ document.addEventListener("DOMContentLoaded", () => {
    */
   function applyMediaSummaryFromProbe(m) {
     if (!m || typeof m !== "object") return;
-    if (typeof m.duration_sec === "number" && Number.isFinite(m.duration_sec)) {
+    if (typeof m.video_duration_sec === "number" && Number.isFinite(m.video_duration_sec)) {
+      probedVideoDurationSec = m.video_duration_sec;
+    } else if (typeof m.duration_sec === "number" && Number.isFinite(m.duration_sec)) {
+      probedVideoDurationSec = m.duration_sec;
+    }
+    if (probedVideoDurationSec != null && probedVideoDurationSec > 0) {
+      probedMediaDurationSec = probedVideoDurationSec;
+      setSummaryCell(summaryDuration, formatDurationClock(probedVideoDurationSec));
+    } else if (typeof m.duration_sec === "number" && Number.isFinite(m.duration_sec)) {
       probedMediaDurationSec = m.duration_sec;
       setSummaryCell(summaryDuration, formatDurationClock(m.duration_sec));
     }
@@ -1215,11 +1330,12 @@ document.addEventListener("DOMContentLoaded", () => {
     if (m.has_video_stream === false) {
       setSummaryCell(summaryFpsNative, "오디오만 (25 fps 가정)");
     }
-    setSummaryCell(summarySilenceCount, "분석 전");
-    setSummaryCell(summarySilenceTotal, "—");
-    setSummaryCell(summarySilenceLongest, "—");
+    setSilenceSummarySectionVisible(false);
+    if (summarySilenceCount) setSummaryCell(summarySilenceCount, "—");
+    if (summarySilenceTotal) setSummaryCell(summarySilenceTotal, "—");
+    if (summarySilenceLongest) setSummaryCell(summarySilenceLongest, "—");
+    if (summarySettings) setSummaryCell(summarySettings, "—");
     refreshVolumeSummaryCells(m);
-    renderAnalyzedSettingsSummary();
   }
 
   /**
@@ -1227,6 +1343,7 @@ document.addEventListener("DOMContentLoaded", () => {
    * @param {number | undefined} durationSec
    */
   function applySilenceSummaryFromAnalyze(silences, durationSec) {
+    setSilenceSummarySectionVisible(true);
     const timeline =
       Number.isFinite(durationSec) && durationSec > 0
         ? durationSec
@@ -1255,6 +1372,7 @@ document.addEventListener("DOMContentLoaded", () => {
       setSummaryCell(summarySilenceTotal, `${totalTxt}${pct}`);
       setSummaryCell(summarySilenceLongest, formatDurationShort(longest, true));
     }
+    renderAnalyzedSettingsSummary();
   }
 
   /** @param {boolean} hidden */
@@ -1267,30 +1385,29 @@ document.addEventListener("DOMContentLoaded", () => {
   /** @param {number} pct 0–100 */
   function renderAnalyzeProgressBar(pct) {
     const p = clamp(Math.round(pct * 10) / 10, 0, 100);
-    if (waveformAnalyzeProgressBar) {
-      waveformAnalyzeProgressBar.style.width = `${p}%`;
-      waveformAnalyzeProgressBar.classList.add("is-determinate");
-    }
-    if (waveformAnalyzeProgressTrack) {
-      waveformAnalyzeProgressTrack.setAttribute("aria-valuenow", String(Math.round(p)));
-    }
+    const bar = document.getElementById("analyze-overlay-progress-bar");
+    const track = document.querySelector(".analyze-overlay-progress-track");
+    if (bar) bar.style.width = `${p}%`;
+    if (track) track.setAttribute("aria-valuenow", String(Math.round(p)));
   }
 
   function updateAnalyzeProgressMeta() {
-    if (!waveformAnalyzeMeta) return;
     const sec = Math.max(
       0,
       Math.floor((Date.now() - analyzeLoadingStartedAt) / 1000),
     );
     const pct = Math.round(analyzeProgressDisplay);
-    waveformAnalyzeMeta.textContent = sec > 0 ? `${pct}% · ${sec}초` : `${pct}%`;
+    const label = sec > 0 ? `${pct}% · ${sec}초` : `${pct}%`;
+    const meta = document.getElementById("analyze-overlay-meta");
+    if (meta) meta.textContent = label;
   }
 
   function setAnalyzeStatusText(text) {
     const t = String(text || "").trim();
     if (!t || t === analyzeProgressStatusText) return;
     analyzeProgressStatusText = t;
-    if (waveformAnalyzeStatus) waveformAnalyzeStatus.textContent = t;
+    const status = document.getElementById("analyze-overlay-status");
+    if (status) status.textContent = t;
   }
 
   function cancelAnalyzeProgressAnimation() {
@@ -1377,26 +1494,64 @@ document.addEventListener("DOMContentLoaded", () => {
     setAnalyzeProgressTarget(mapped);
   }
 
+  function ensureAnalyzeOverlayDom() {
+    if (document.getElementById("analyze-overlay-root")) return;
+    const root = document.createElement("div");
+    root.id = "analyze-overlay-root";
+    root.className = "analyze-overlay-root";
+    root.hidden = true;
+    root.setAttribute("aria-hidden", "true");
+    root.setAttribute("aria-live", "polite");
+    root.innerHTML =
+      '<div class="analyze-overlay-backdrop" aria-hidden="true"></div>' +
+      '<div class="analyze-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="analyze-overlay-status">' +
+      '<p id="analyze-overlay-status" class="analyze-overlay-status">무음 구간 분석 중…</p>' +
+      '<p id="analyze-overlay-meta" class="analyze-overlay-meta">0%</p>' +
+      '<div class="analyze-overlay-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">' +
+      '<div class="analyze-overlay-progress-bar" id="analyze-overlay-progress-bar"></div>' +
+      "</div>" +
+      '<p id="analyze-overlay-hint" class="analyze-overlay-hint"></p>' +
+      "</div>";
+    document.body.appendChild(root);
+  }
+
+  function getAnalyzeOverlayEls() {
+    ensureAnalyzeOverlayDom();
+    return {
+      root: document.getElementById("analyze-overlay-root"),
+      status: document.getElementById("analyze-overlay-status"),
+      meta: document.getElementById("analyze-overlay-meta"),
+      bar: document.getElementById("analyze-overlay-progress-bar"),
+      track: document.querySelector(".analyze-overlay-progress-track"),
+      hint: document.getElementById("analyze-overlay-hint"),
+    };
+  }
+
   /** @param {boolean} on @param {{ mode?: "full" | "waveform", label?: string, preserveProgress?: boolean }} [opts] */
   function setWaveformAnalyzeLoading(on, opts = {}) {
+    const ui = getAnalyzeOverlayEls();
     const mode = opts.mode === "waveform" ? "waveform" : "full";
     const label =
       opts.label ??
       (mode === "waveform" ? "무음 구간 분석 중…" : "파형 생성·무음 분석 중…");
 
-    if (waveformAnalyzeLoading) {
+    if (ui.root) {
       if (on) {
-        waveformAnalyzeLoading.removeAttribute("hidden");
-        waveformAnalyzeLoading.setAttribute("aria-hidden", "false");
-        waveformAnalyzeLoading.classList.add("is-active");
-        waveformAnalyzeLoading.style.display = "flex";
+        ui.root.removeAttribute("hidden");
+        ui.root.hidden = false;
+        ui.root.setAttribute("aria-hidden", "false");
+        ui.root.classList.add("is-active");
+        ui.root.style.display = "flex";
+        ui.root.style.visibility = "visible";
+        document.body.classList.add("analyze-overlay-open");
       } else {
-        waveformAnalyzeLoading.classList.remove("is-active");
-        waveformAnalyzeLoading.style.display = "none";
-        waveformAnalyzeLoading.hidden = true;
-        waveformAnalyzeLoading.setAttribute("aria-hidden", "true");
+        ui.root.classList.remove("is-active");
+        ui.root.setAttribute("aria-hidden", "true");
+        ui.root.hidden = true;
+        ui.root.style.removeProperty("display");
+        ui.root.style.removeProperty("visibility");
+        document.body.classList.remove("analyze-overlay-open");
       }
-      waveformAnalyzeLoading.classList.toggle("is-waveform-only", on && mode === "waveform");
     }
     if (waveformPreviewScroll) {
       waveformPreviewScroll.classList.toggle("is-analyze-loading", on);
@@ -1406,25 +1561,28 @@ document.addEventListener("DOMContentLoaded", () => {
     cancelAnalyzeProgressAnimation();
     analyzeLoadingTimer = 0;
     if (on) {
+      hideMediaWorkspaceLoading();
       analyzeLoadingStartedAt = Date.now();
       analyzeLoadingHideAfter = Math.max(
         analyzeLoadingHideAfter,
         analyzeLoadingStartedAt + ANALYZE_LOADING_MIN_MS,
       );
       setWaveformSectionVisible(true);
-      if (waveformPeaksData) {
-        setWaveformCanvasHidden(false);
-      }
+      setWaveformCanvasHidden(false);
       const onWaveform = mode === "waveform";
       analyzeProgressStatusText = label;
-      if (waveformAnalyzeStatus) waveformAnalyzeStatus.textContent = label;
+      if (ui.status) ui.status.textContent = label;
+      if (ui.hint && !ui.hint.textContent?.trim()) {
+        ui.hint.textContent =
+          "분석이 끝날 때까지 창을 닫지 마세요. 긴 영상은 수 분 걸릴 수 있습니다.";
+      }
       if (!opts.preserveProgress) {
         resetAnalyzeProgress(onWaveform ? 8 : 5);
       } else {
         updateAnalyzeProgressMeta();
       }
-      if (waveformAnalyzeLoading) {
-        void waveformAnalyzeLoading.offsetHeight;
+      if (ui.root) {
+        void ui.root.offsetHeight;
       }
       updateAnalyzeProgressMeta();
       analyzeLoadingTimer = window.setInterval(updateAnalyzeProgressMeta, 1000);
@@ -1433,18 +1591,15 @@ document.addEventListener("DOMContentLoaded", () => {
       cancelAnalyzeProgressAnimation();
       resetAnalyzeProgress(100);
       window.setTimeout(() => {
-        if (waveformAnalyzeProgressBar) {
-          waveformAnalyzeProgressBar.classList.remove("is-determinate");
-          waveformAnalyzeProgressBar.style.width = "";
-        }
+        const bar = document.getElementById("analyze-overlay-progress-bar");
+        if (bar) bar.style.width = "8%";
         analyzeProgressDisplay = 0;
         analyzeProgressTarget = 0;
       }, 350);
       analyzeProgressStatusText = "무음 구간 분석 중…";
-      if (waveformAnalyzeStatus) {
-        waveformAnalyzeStatus.textContent = analyzeProgressStatusText;
-      }
-      if (waveformAnalyzeMeta) waveformAnalyzeMeta.textContent = "0%";
+      const uiOff = getAnalyzeOverlayEls();
+      if (uiOff.status) uiOff.status.textContent = analyzeProgressStatusText;
+      if (uiOff.meta) uiOff.meta.textContent = "0%";
     }
   }
 
@@ -1471,12 +1626,6 @@ document.addEventListener("DOMContentLoaded", () => {
       analyzeLoadingHideAfter,
       Date.now() + ANALYZE_LOADING_MIN_MS,
     );
-    if (waveformAnalyzeLoading) {
-      waveformAnalyzeLoading.classList.toggle(
-        "is-waveform-only",
-        session.mode === "waveform",
-      );
-    }
     setAnalyzeStatusText(
       session.mode === "waveform"
         ? "무음 구간 분석 중…"
@@ -1812,7 +1961,9 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     disableSilencePreviewOverlay();
-    resetWaveformStateForNewMedia({ hideSection: false });
+    if (!opts.skipMediaReset) {
+      resetWaveformStateForNewMedia({ hideSection: false });
+    }
     waveformPreviewGen += 1;
     const myGen = waveformPreviewGen;
     const loadPath = videoPath;
@@ -2046,10 +2197,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     discardAnalysisSessionUnlessPath(p, mediaPathsEqual);
-    const shouldRestoreAnalysis = canRestoreAnalysisForPath(p, mediaPathsEqual);
-    if (!shouldRestoreAnalysis) {
-      beginNewMediaWorkflow();
-    }
+    disableSilencePreviewOverlay();
+    setSilenceSummarySectionVisible(false);
 
     setWaveformCanvasHidden(true);
 
@@ -2111,28 +2260,7 @@ document.addEventListener("DOMContentLoaded", () => {
             pixelsPerSecond: peaksPixelsPerSecondForEditorFps(probeFps, probeDur),
             useEditorTimeline: true,
           });
-        }
-
-        if (
-          shouldRestoreAnalysis &&
-          canRestoreAnalysisForPath(p, mediaPathsEqual)
-        ) {
-          const durationRaw = sessionStorage.getItem(STORAGE_DURATION);
-          const durationSec = durationRaw != null ? Number(durationRaw) : NaN;
-          applyOptionsFromSession();
-          applyProbeVolumeSummaryFromSession();
-          const summaryTimeline =
-            waveformPeaksData?.timeline_sec > 0
-              ? waveformPeaksData.timeline_sec
-              : durationSec;
-          applySilenceSummaryFromAnalyze(loadStoredSilenceIntervals(), summaryTimeline);
-          commitAnalyzedSettingsSnapshot({
-            fps: getEditorFpsForExport(),
-            noiseDb: getNoiseDb(),
-            paddingMs: getPaddingMs(),
-            minSilenceSec: getMinSilenceSec(),
-          });
-          syncExportLinkState();
+          setWaveformCanvasHidden(false);
         }
       } else {
         alert("프로브 응답 형식이 올바르지 않습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요.");
@@ -2232,7 +2360,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function applyOptionsFromSession() {
     const rs = sessionStorage.getItem(STORAGE_REMOVE_SILENT);
-    if (optRemoveSilent && rs != null) optRemoveSilent.checked = rs === "true";
+    if (optRemoveSilent) {
+      optRemoveSilent.checked = rs != null ? rs === "true" : true;
+    }
 
     const pad = sessionStorage.getItem(STORAGE_PADDING_MS);
     if (optPadding && pad != null) {
@@ -2359,7 +2489,17 @@ document.addEventListener("DOMContentLoaded", () => {
    * @param {unknown} data
    */
   function isAnalyzeResultReady(data) {
-    return Boolean(data && typeof data === "object" && typeof data.edl === "string");
+    if (!data || typeof data !== "object") return false;
+    const dur = Number(data.duration_sec);
+    if (!Number.isFinite(dur) || dur <= 0) return false;
+    const silences = Array.isArray(data.silences) ? data.silences : [];
+    const vocal = Array.isArray(data.vocal_intervals_ms) ? data.vocal_intervals_ms : [];
+    if (silences.length === 0 && vocal.length === 0) return false;
+    const xml = typeof data.fcp_xml === "string" ? data.fcp_xml : "";
+    const edl = typeof data.edl === "string" ? data.edl : "";
+    if (xml.trim() && fcpXmlStructurallyValid(xml)) return true;
+    if (edl.trim() && !edl.includes("말소리 구간이 없습니다")) return true;
+    return vocal.length > 0;
   }
 
   /**
@@ -2401,7 +2541,9 @@ document.addEventListener("DOMContentLoaded", () => {
   /**
    * 3. 무음 분석 요청 (에이전트 통신)
    */
-  btnAnalyze.addEventListener("click", async () => {
+  if (!btnAnalyze) {
+    console.error("[silence-remover] #btn-analyze not found");
+  } else btnAnalyze.addEventListener("click", async () => {
     const videoPath = pathInput.value.trim();
     if (!videoPath) {
       alert("영상 파일의 실제 로컬 경로를 입력해주세요.");
@@ -2409,14 +2551,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const fpsUi = optFps.value.trim();
-    const fpsParsed = fpsUi === "" ? NaN : Number(fpsUi);
+    const fpsParsed = resolveAnalyzeFps();
     if (!Number.isFinite(fpsParsed) || fpsParsed <= 0) {
       alert(
-        "편집기 FPS를 입력한 뒤 분석해 주세요.\n(파형·EDL·무음 표시는 모두 이 FPS 프레임 격자에 맞춥니다.)",
+        "영상 FPS를 읽지 못했습니다.\n찾아보기로 미디어를 선택한 뒤(원본 FPS 자동 입력) 분석해 주세요.",
       );
-      optFps.focus();
+      pathInput.focus();
       return;
+    }
+    if (optFps && !optFps.value.trim()) {
+      optFps.value = String(truncTo2Decimals(fpsParsed));
     }
 
     const estDur =
@@ -2435,16 +2579,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const needWaveformLoad = !hasPeaksForPath;
     const isReanalyze = silencePreviewEnabled || hasPeaksForPath;
 
+    analyzeInProgress = true;
+    window.clearTimeout(probeShowTimer);
+    probeShowTimer = 0;
+    hideMediaWorkspaceLoading();
+    probeBusyDepth = 0;
+
+    setWaveformSectionVisible(true);
+    const overlaySession = beginAnalyzeOverlay(isReanalyze ? "waveform" : "full");
+
     btnAnalyze.disabled = true;
     btnAnalyze.textContent = "분석 중...";
     setAgentLongOperationActive(true);
 
-    setWaveformSectionVisible(true);
-    if (waveformPreviewSection) {
-      waveformPreviewSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-
-    const overlaySession = beginAnalyzeOverlay(isReanalyze ? "waveform" : "full");
     await new Promise((resolve) => {
       window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
     });
@@ -2462,6 +2609,7 @@ document.addEventListener("DOMContentLoaded", () => {
           scrollIntoView: true,
           pixelsPerSecond: peaksPps,
           useEditorTimeline: true,
+          skipMediaReset: true,
         });
         stopAnalyzeProgressEstimate();
         setAnalyzeProgressTarget(38);
@@ -2482,7 +2630,7 @@ document.addEventListener("DOMContentLoaded", () => {
         noise_db: noiseDb,
         min_silence_sec: Number.isFinite(minSil) ? minSil : 0.3,
         padding_ms: getPaddingMs(),
-        remove_silent: optRemoveSilent ? optRemoveSilent.checked : false,
+        remove_silent: optRemoveSilent ? optRemoveSilent.checked : true,
         use_autocutter_pipeline: false,
         use_recommended_noise: false,
         use_pcm_preview: false,
@@ -2564,7 +2712,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       setAnalyzeProgressTarget(100);
 
-      const edl = data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
+      const edl =
+        data && typeof data === "object" && typeof data.edl === "string" ? data.edl : "";
       const appliedNoiseDb =
         data && typeof data === "object" && typeof data.applied_noise_db === "number"
           ? data.applied_noise_db
@@ -2578,8 +2727,20 @@ document.addEventListener("DOMContentLoaded", () => {
         paddingMs: analyzeBody.padding_ms,
         minSilenceSec: Number.isFinite(minSil) ? minSil : 0.3,
       });
-      sessionStorage.setItem(STORAGE_EDL, edl);
-      markStoredEdlFingerprint();
+      if (edl.trim()) {
+        sessionStorage.setItem(STORAGE_EDL, edl);
+        markStoredEdlFingerprintFromSession();
+      } else {
+        sessionStorage.removeItem(STORAGE_EDL);
+        sessionStorage.removeItem(STORAGE_EDL_FINGERPRINT);
+      }
+      const fcpXml =
+        data && typeof data === "object" && typeof data.fcp_xml === "string" ? data.fcp_xml : "";
+      if (fcpXml.trim() && fcpXmlStructurallyValid(fcpXml)) {
+        sessionStorage.setItem(STORAGE_FCP_XML, fcpXml);
+      } else {
+        sessionStorage.removeItem(STORAGE_FCP_XML);
+      }
       const vocalMsForStore =
         data && typeof data === "object" && Array.isArray(data.vocal_intervals_ms)
           ? data.vocal_intervals_ms
@@ -2620,19 +2781,18 @@ document.addEventListener("DOMContentLoaded", () => {
         probedFpsRational = fpsNat;
         const nativeFpsVal =
           typeof data.native_fps === "number" && Number.isFinite(data.native_fps)
-            ? truncTo2Decimals(data.native_fps)
+            ? data.native_fps
             : null;
-        const fpsNatDisp = nativeFpsVal != null ? ` (${nativeFpsVal})` : "";
+        if (nativeFpsVal != null && nativeFpsVal > 0) {
+          sessionStorage.setItem(STORAGE_NATIVE_FPS, String(nativeFpsVal));
+        }
+        const nativeFpsDisp =
+          nativeFpsVal != null ? truncTo2Decimals(nativeFpsVal) : null;
+        const fpsNatDisp = nativeFpsDisp != null ? ` (${nativeFpsDisp})` : "";
         setSummaryCell(summaryFpsNative, `${fpsNat}${fpsNatDisp}`);
       }
       if (Number.isFinite(fpsParsed) && fpsParsed > 0) {
         sessionStorage.setItem(STORAGE_FPS, String(fpsParsed));
-      }
-      if (data && typeof data === "object" && Number.isFinite(data.edl_source_tc_offset_sec)) {
-        sessionStorage.setItem(
-          STORAGE_TC_OFFSET_SEC,
-          String(data.edl_source_tc_offset_sec),
-        );
       }
       sessionStorage.setItem(
         STORAGE_REMOVE_SILENT,
@@ -2642,8 +2802,10 @@ document.addEventListener("DOMContentLoaded", () => {
       sessionStorage.setItem(STORAGE_MIN_SILENCE_SEC, String(minSil));
       sessionStorage.setItem(STORAGE_MIN_SILENCE, String(minSil));
       syncExportLinkState();
-      if (!edl.trim()) {
-        alert("분석은 완료됐지만 EDL 내용이 비어 있습니다. 무음 구간이 없거나 설정을 조정해 보세요.");
+      if (!fcpXml.trim() || !fcpXmlStructurallyValid(fcpXml)) {
+        alert(
+          "분석은 완료됐지만 XML을 만들지 못했습니다. 에이전트를 최신으로 맞춘 뒤 다시 분석하거나, 무음 설정을 조정해 보세요.",
+        );
       }
 
       const silences =
@@ -2652,13 +2814,21 @@ document.addEventListener("DOMContentLoaded", () => {
         data && typeof data === "object" && Number.isFinite(data.duration_sec)
           ? Number(data.duration_sec)
           : undefined;
-      if (waveformPeaksData?.timeline_sec > 0) {
-        syncMediaSummaryDurationFromWaveform(waveformPeaksData.timeline_sec);
+      if (durationSec != null && durationSec > 0) {
+        probedVideoDurationSec = durationSec;
+        probedMediaDurationSec = durationSec;
+        setSummaryCell(summaryDuration, formatDurationClock(durationSec));
+        sessionStorage.setItem(STORAGE_DURATION, String(durationSec));
+      }
+      if (data && typeof data === "object" && data.duration_probe && typeof data.duration_probe === "object") {
+        console.info("[silence-remover] duration_probe", data.duration_probe);
       }
       const summaryTimeline =
-        waveformPeaksData?.timeline_sec > 0
-          ? waveformPeaksData.timeline_sec
-          : durationSec;
+        durationSec != null && durationSec > 0
+          ? durationSec
+          : waveformPeaksData?.timeline_sec > 0
+            ? waveformPeaksData.timeline_sec
+            : undefined;
       applySilenceSummaryFromAnalyze(silences, summaryTimeline);
     } catch (err) {
       const msg = formatAgentConnectionError(err) || "분석에 실패했습니다.";
@@ -2669,10 +2839,13 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       console.error(err);
     } finally {
+      analyzeInProgress = false;
       setAgentLongOperationActive(false);
       await endAnalyzeOverlay(overlaySession);
-      btnAnalyze.disabled = false;
-      btnAnalyze.textContent = BTN_ANALYZE_LABEL;
+      if (btnAnalyze) {
+        btnAnalyze.disabled = false;
+        btnAnalyze.textContent = BTN_ANALYZE_LABEL;
+      }
       if (silenceAnalysisDone && waveformPeaksData) {
         window.requestAnimationFrame(() => redrawWaveformCanvas());
       }
