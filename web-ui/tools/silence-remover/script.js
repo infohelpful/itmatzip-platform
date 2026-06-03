@@ -10,7 +10,6 @@ import {
   showInstallAgentDialog,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
-import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js";
 import {
   STORAGE_CLIP_NAME,
@@ -2852,8 +2851,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  void showAdSense("editorAboveWorkspace", "#editor-ad-above-workspace");
-  void showAdSense("editorBelowExport", "#editor-ad-below-export");
 
   let lastConnectionUiOk = /** @type {boolean | null} */ (null);
 

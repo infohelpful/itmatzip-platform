@@ -188,12 +188,15 @@
   // no-cors fetch 실패, AdSense 로드 전 data-adsense-empty.
 
   const RECHECK_MIN_MS = 8000;
-  const AD_BLOCK_GRACE_MS = 8000;
-  const AD_BLOCK_POLL_MS = [500, 2000, 5000, AD_BLOCK_GRACE_MS, AD_BLOCK_GRACE_MS + 4000];
+  const AD_BLOCK_GRACE_MS = 12_000;
+  const AD_BLOCK_POLL_MS = [800, 3000, 7000, AD_BLOCK_GRACE_MS, AD_BLOCK_GRACE_MS + 5000];
+  const AD_BLOCK_DISMISS_POLL_MS = 1500;
+  const AD_BLOCK_DISMISS_MAX_MS = 90_000;
   const pageLoadedAt = Date.now();
 
   let adBlockLatched = false;
   let lastAdCheckAt = 0;
+  let adBlockDismissWatchUntil = 0;
   /** @type {MutationObserver | null} */
   let adsenseObserver = null;
   /** @type {MutationObserver | null} */
@@ -244,9 +247,57 @@
     );
   }
 
+  /** @returns {boolean} */
+  function pageShowsAdCreative() {
+    try {
+      const fn = window.__itmatzipPageShowsAdCreative;
+      if (typeof fn === "function") return fn();
+    } catch {
+      /* ignore */
+    }
+    try {
+      for (const ins of document.querySelectorAll("ins.adsbygoogle")) {
+        if (ins.getAttribute("data-ad-status") === "filled") return true;
+        for (const iframe of ins.querySelectorAll("iframe")) {
+          const r = iframe.getBoundingClientRect();
+          if (r.width >= 20 && r.height >= 20) return true;
+        }
+      }
+      for (const iframe of document.querySelectorAll(
+        'iframe[src*="googlesyndication"], iframe[src*="doubleclick.net"], iframe[id*="google_ads"]',
+      )) {
+        const r = iframe.getBoundingClientRect();
+        if (r.width >= 20 && r.height >= 20) return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  function startAdBlockDismissWatch() {
+    adBlockDismissWatchUntil = Date.now() + AD_BLOCK_DISMISS_MAX_MS;
+    const tick = () => {
+      if (!adBlockLatched) return;
+      if (pageShowsAdCreative()) {
+        clearAdBlockLatch();
+        return;
+      }
+      const snap = readAdSenseSnapshot();
+      if (snap && snap.filledCount > 0) {
+        clearAdBlockLatch();
+        return;
+      }
+      if (Date.now() >= adBlockDismissWatchUntil) return;
+      scheduler.setTimeout(tick, AD_BLOCK_DISMISS_POLL_MS);
+    };
+    scheduler.setTimeout(tick, AD_BLOCK_DISMISS_POLL_MS);
+  }
+
   function showAdBlockWall() {
     if (adBlockLatched) return;
     if (isAgentBlockDialogOpenSync()) return;
+    if (pageShowsAdCreative()) return;
 
     const modal = window.ItzSiteModal;
     if (!modal?.showSiteDialog) {
@@ -255,8 +306,8 @@
     }
 
     adBlockLatched = true;
-    adsenseObserver?.disconnect();
-    adsenseObserver = null;
+    watchAdsenseSlot();
+    startAdBlockDismissWatch();
 
     void modal
       .showSiteDialog({
@@ -344,15 +395,20 @@
    * @returns {boolean}
    */
   function evaluateAdBlock() {
+    if (pageShowsAdCreative()) return false;
+
     if (window.__itmatzipAdSenseBlocked === true) {
       const snapEarly = readAdSenseSnapshot();
-      if (!snapEarly || snapEarly.filledCount === 0) return true;
+      if (!snapEarly || snapEarly.filledCount === 0) {
+        if (!pageShowsAdCreative()) return true;
+      }
     }
 
     const snap = readAdSenseSnapshot();
     if (!snap) return false;
 
     if (snap.filledCount > 0) return false;
+    if (pageShowsAdCreative()) return false;
 
     const adWasRequested =
       snap.emptyContainerCount > 0 || snap.liveInsCount > 0;
@@ -365,7 +421,7 @@
       return true;
     }
 
-    if (wasAdResourceLikelyBlockedByClient()) return true;
+    if (wasAdResourceLikelyBlockedByClient() && !pageShowsAdCreative()) return true;
 
     if (!adBlockGraceExpired()) {
       if (snap.pendingInsCount > 0) return false;
@@ -382,12 +438,19 @@
       return true;
     }
 
-    if (snap.liveInsCount > 0 && snap.filledCount === 0) {
+    if (snap.liveInsCount > 0 && snap.filledCount === 0 && !pageShowsAdCreative()) {
       const triedCount = snap.unfilledCount + snap.pendingInsCount;
-      if (triedCount === snap.liveInsCount) return true;
+      if (triedCount === snap.liveInsCount && snap.unfilledCount > 0) return true;
     }
 
-    if (snap.emptyContainerCount > 0 && snap.filledCount === 0) return true;
+    if (
+      snap.emptyContainerCount > 0 &&
+      snap.filledCount === 0 &&
+      !pageShowsAdCreative() &&
+      snap.pendingInsCount === 0
+    ) {
+      return true;
+    }
 
     return false;
   }
@@ -399,6 +462,12 @@
 
   function clearAdBlockLatch() {
     adBlockLatched = false;
+    adBlockDismissWatchUntil = 0;
+    try {
+      window.__itmatzipAdSenseBlocked = false;
+    } catch {
+      /* ignore */
+    }
     hideAdBlockWall();
   }
 
@@ -410,13 +479,18 @@
       if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
       lastAdCheckAt = now;
 
+      if (pageShowsAdCreative()) {
+        if (adBlockLatched) clearAdBlockLatch();
+        return;
+      }
+
       const blocked = evaluateAdBlock();
       if (blocked) {
         latchAdBlock();
         return;
       }
       const snap = readAdSenseSnapshot();
-      if (adBlockLatched && snap && snap.filledCount > 0) {
+      if (adBlockLatched && (snap?.filledCount > 0 || pageShowsAdCreative())) {
         clearAdBlockLatch();
       }
     } catch (e) {
@@ -431,18 +505,20 @@
   }
 
   function watchAdsenseSlot() {
-    if (profile !== "full" || adBlockLatched) return;
+    if (profile !== "full") return;
 
     const slots = document.querySelectorAll("ins.adsbygoogle");
     if (!slots.length) return;
 
     adsenseObserver?.disconnect();
     adsenseObserver = new MutationObserver(() => {
+      if (pageShowsAdCreative()) {
+        clearAdBlockLatch();
+        return;
+      }
       const snap = readAdSenseSnapshot();
       if (snap && snap.filledCount > 0) {
         clearAdBlockLatch();
-        adsenseObserver?.disconnect();
-        adsenseObserver = null;
         return;
       }
       runAdBlockCheck({ force: true });

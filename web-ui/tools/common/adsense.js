@@ -23,8 +23,34 @@ let _blockedLogged = false;
 
 const FILL_WATCH_MS = 18_000;
 
+/**
+ * data-ad-status 없이도 iframe이 보이면 광고가 뜬 것으로 봄 (Auto ads·느린 filled 대응)
+ * @returns {boolean}
+ */
+export function pageShowsAdCreative() {
+  try {
+    for (const ins of document.querySelectorAll("ins.adsbygoogle")) {
+      if (ins.getAttribute("data-ad-status") === "filled") return true;
+      for (const iframe of ins.querySelectorAll("iframe")) {
+        const r = iframe.getBoundingClientRect();
+        if (r.width >= 20 && r.height >= 20) return true;
+      }
+    }
+    for (const iframe of document.querySelectorAll(
+      'iframe[src*="googlesyndication"], iframe[src*="doubleclick.net"], iframe[id*="google_ads"]',
+    )) {
+      const r = iframe.getBoundingClientRect();
+      if (r.width >= 20 && r.height >= 20) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 /** @param {string} unitKey */
 function notifyAdSlotFailed(unitKey) {
+  if (pageShowsAdCreative()) return;
   if (typeof window !== "undefined") {
     window.__itmatzipAdSenseBlocked = true;
   }
@@ -41,6 +67,7 @@ function notifyAdSlotFailed(unitKey) {
 function scheduleFillWatch(ins, container, unitKey) {
   window.setTimeout(() => {
     if (ins.getAttribute("data-ad-status") === "filled") return;
+    if (pageShowsAdCreative()) return;
     if (container.getAttribute("data-adsense-empty") === "1") return;
     markAdSlotEmpty(container);
     notifyAdSlotFailed(unitKey);
@@ -286,4 +313,5 @@ export function getAdSenseGuardSnapshot() {
 
 if (typeof window !== "undefined") {
   window.__itmatzipGetAdSenseGuardSnapshot = getAdSenseGuardSnapshot;
+  window.__itmatzipPageShowsAdCreative = pageShowsAdCreative;
 }
