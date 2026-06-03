@@ -8,17 +8,39 @@ function isBraveBrowser() {
   return typeof navigator !== "undefined" && navigator.brave != null;
 }
 
-/** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL 과 동일 */
+/** agent/common/update_config.py 의 DEFAULT_UPDATE_MANIFEST_URL (원격 백업) */
 export const AGENT_UPDATE_MANIFEST_URL =
   "https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main/agent/agent-update-manifest.json";
 
+const JSDELIVR_MANIFEST_URL =
+  "https://cdn.jsdelivr.net/gh/infohelpful/itmatzip-platform@main/agent/agent-update-manifest.json";
+
 /** manifest 조회 실패 시 사용 (agent/agent-update-manifest.json 과 동기화) */
 const FALLBACK_RELEASE = {
-  version: "1.3.3",
+  version: "1.3.5",
   download_url:
-    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.3.3/itmatzip-agent.msi",
+    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.3.5/itmatzip-agent.msi",
   package_type: "msi",
 };
+
+/** @returns {string[]} CORS-safe manifest URL 후보 (우선순위 순) */
+function manifestSourceUrls() {
+  const urls = [];
+  if (typeof globalThis.location !== "undefined" && globalThis.location.href) {
+    try {
+      urls.push(
+        new URL(
+          "../assets/agent-update-manifest.json",
+          globalThis.location.href,
+        ).href,
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+  urls.push(JSDELIVR_MANIFEST_URL, AGENT_UPDATE_MANIFEST_URL);
+  return urls;
+}
 
 /** @type {Promise<{ version: string, download_url: string, package_type: string }> | null} */
 let _manifestInflight = null;
@@ -31,32 +53,34 @@ export async function fetchAgentReleaseManifest() {
   if (_manifestInflight) return _manifestInflight;
 
   _manifestInflight = (async () => {
-    try {
-      const bust = `${AGENT_UPDATE_MANIFEST_URL}?_${Date.now()}`;
-      const res = await fetch(bust, {
-        cache: "no-store",
-        headers: { Accept: "application/json", "Cache-Control": "no-cache" },
-      });
-      if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
-      const data = await res.json();
-      const version = String(data?.version ?? "").trim();
-      const packageType = String(data?.package_type ?? "msi").trim() || "msi";
-      const url = String(
-        data?.msi_download_url ?? data?.download_url ?? "",
-      ).trim();
-      if (!url) throw new Error("manifest에 download_url 없음");
-      return {
-        version: version || FALLBACK_RELEASE.version,
-        download_url: url,
-        package_type: packageType,
-      };
-    } catch (e) {
-      console.warn("[agent-install] manifest 조회 실패 — fallback 사용", e);
-      return { ...FALLBACK_RELEASE };
-    } finally {
-      _manifestInflight = null;
+    let lastErr = null;
+    for (const baseUrl of manifestSourceUrls()) {
+      try {
+        const bust = `${baseUrl}${baseUrl.includes("?") ? "&" : "?"}_${Date.now()}`;
+        // 커스텀 헤더는 GitHub raw 에서 CORS preflight 를 유발하므로 simple GET 만 사용
+        const res = await fetch(bust, { cache: "no-store" });
+        if (!res.ok) throw new Error(`manifest HTTP ${res.status}`);
+        const data = await res.json();
+        const version = String(data?.version ?? "").trim();
+        const packageType = String(data?.package_type ?? "msi").trim() || "msi";
+        const url = String(
+          data?.msi_download_url ?? data?.download_url ?? "",
+        ).trim();
+        if (!url) throw new Error("manifest에 download_url 없음");
+        return {
+          version: version || FALLBACK_RELEASE.version,
+          download_url: url,
+          package_type: packageType,
+        };
+      } catch (e) {
+        lastErr = e;
+      }
     }
-  })();
+    console.warn("[agent-install] manifest 조회 실패 — fallback 사용", lastErr);
+    return { ...FALLBACK_RELEASE };
+  })().finally(() => {
+    _manifestInflight = null;
+  });
 
   return _manifestInflight;
 }
