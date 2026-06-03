@@ -40,7 +40,6 @@ const STORAGE_EDITOR_IMAGE_PATH = "image-enhancer:editor-image-path";
 const STORAGE_RETURN_FROM_DL = "image-enhancer:return-from-dl";
 const EXPORT_LINK_DEFAULT_HTML =
   '<span class="icon" aria-hidden="true">📥</span> 결과 다운로드';
-const originWarning = document.getElementById("origin-warning");
 const imagePathInput = document.getElementById("image-path");
 const btnPickLocalFile = document.getElementById("btn-pick-local-file");
 const btnNewJob = document.getElementById("btn-new-job");
@@ -128,13 +127,6 @@ function buildLocalPreviewImageUrl(filePath) {
   const native = pathForAgentApi(filePath);
   if (!native) return "";
   return `${getAgentOrigin()}${AGENT_READ_LOCAL_IMAGE}?path=${encodeURIComponent(native)}&_=${Date.now()}`;
-}
-
-function warnIfRemoteToolsPage() {
-  if (!originWarning || isAgentLoopbackPage()) return;
-  originWarning.hidden = false;
-  originWarning.textContent =
-    "지금 주소는 원격 웹 UI입니다. 미리보기가 안 되면 트레이 아이콘 → Image Enhancer로 열거나 주소가 http://127.0.0.1:19876/tools/image-enhancer/ 인지 확인하세요.";
 }
 
 function scrollPreviewIntoView() {
@@ -1371,7 +1363,6 @@ async function onImagePathChanged() {
 }
 
 async function init() {
-  warnIfRemoteToolsPage();
   setSetupLoading(false);
   setEnhanceLoading(false);
   setPreviewMode("empty");

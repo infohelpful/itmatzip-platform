@@ -298,6 +298,7 @@ func (u *updateManager) spawnMSIUpdater(msiPath string) error {
 		"-WindowStyle", "Hidden",
 		"-File", scriptPath,
 		"-MsiPath", msiPath,
+		"-InstallRoot", installRootPath,
 		"-LogPath", logPath,
 	)
 	hideExec(cmd)
