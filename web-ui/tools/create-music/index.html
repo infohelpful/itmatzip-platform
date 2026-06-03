@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
-  <title>Create Music ??AI ?�악 ?�성</title>
+  <title>Create Music — AI 음악 생성</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
   <link rel="stylesheet" href="style.css?v=13">
@@ -15,34 +15,34 @@
     <main class="main-content">
       <header class="app-header">
         <div class="logo-area">
-          <span class="badge">AI ?�악 ?�성</span>
+          <span class="badge">AI 음악 생성</span>
           <div class="logo-title-row">
             <h1>Create <span class="accent">Music</span></h1>
-            <a href="../index.html" class="btn-to-dashboard">?�?�보?�로 ?�동</a>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
           </div>
-          <p class="header-tagline">ACE-Step 1.5 기반 AI ?�악 ?�성 ???�스?��? 가?�로 ?�만???�악??만들?�보?�요.</p>
+          <p class="header-tagline">ACE-Step 1.5 기반 AI 음악 생성 — 텍스트와 가사로 나만의 음악을 만들어보세요.</p>
         </div>
         <div class="header-status-col">
-          <div id="compute-capability" class="compute-capability is-pending" title="">?�인 중�?/div>
-          <div id="connection-status" class="status-dot">?�이?�트 ?�결 ?�인 중�?/div>
-          <div class="bin-readiness" id="bin-readiness">Create Music · ?�경 준�??��?/div>
-          <button id="btn-prepare" class="btn btn-secondary btn-prepare">?�경 준�?/button>
+          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
+          <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
+          <div class="bin-readiness" id="bin-readiness">Create Music · 환경 준비 대기</div>
+          <button id="btn-prepare" class="btn btn-secondary btn-prepare">환경 준비</button>
         </div>
       </header>
 
-      <!-- 광고 (?�단) -->
+      <!-- 광고 (상단) -->
       <div class="editor-ad" id="editor-ad-above-tabs" aria-label="광고"></div>
 
-      <!-- 콘텐�??�역 (?�업?????�에?�만 ?? 광고??바깥) -->
+      <!-- 콘텐츠 영역 (팝업이 이 안에서만 뜸, 광고는 바깥) -->
       <div class="content-shell" id="content-shell">
 
-        <!-- ?�경 준�??�업 -->
+        <!-- 환경 준비 팝업 -->
         <div id="prepare-overlay" class="prepare-overlay" hidden>
           <div class="prepare-overlay__panel">
             <div class="prepare-overlay__spinner"></div>
-            <h3 class="prepare-overlay__title">?�경 준�?�?/h3>
+            <h3 class="prepare-overlay__title">환경 준비 중</h3>
             <p id="prepare-overlay-step" class="prepare-overlay__step"></p>
-            <p id="prepare-overlay-msg" class="prepare-overlay__message">AI ?�악 ?�성???�요???�키지?� 모델???�치?�니?��?/p>
+            <p id="prepare-overlay-msg" class="prepare-overlay__message">AI 음악 생성에 필요한 패키지와 모델을 설치합니다…</p>
             <div class="prepare-overlay__track">
               <div id="prepare-overlay-bar" class="prepare-overlay__bar"></div>
             </div>
@@ -50,40 +50,40 @@
           </div>
         </div>
 
-        <!-- ??-->
+        <!-- 탭 -->
         <nav class="tabs-nav">
-          <button class="tab-btn active" data-tab="generate">?�악 ?�성</button>
-          <button class="tab-btn" data-tab="lora">?��????�습 (LoRA)</button>
-          <button class="tab-btn" data-tab="history">?�성 기록</button>
+          <button class="tab-btn active" data-tab="generate">음악 생성</button>
+          <button class="tab-btn" data-tab="lora">스타일 학습 (LoRA)</button>
+          <button class="tab-btn" data-tab="history">생성 기록</button>
         </nav>
 
-        <!-- ?�악 ?�성 ??-->
+        <!-- 음악 생성 탭 -->
         <section class="tab-panel active" id="tab-generate">
-          <!-- ?�성 모드 ?�택 -->
+          <!-- 생성 모드 선택 -->
           <div class="form-row">
-            <label class="form-label">?�성 모드</label>
+            <label class="form-label">생성 모드</label>
             <select id="task-type" class="form-select" name="task-type">
-              <option value="text2music">?�스?????�악 (기본)</option>
-              <option value="remix">리�?????기존 �??��???변??/option>
-              <option value="repaint">리페?�트 ???�정 구간 ?�생??/option>
-              <option value="cover">커버 ???�른 ?�색?�로 ?�해??/option>
-              <option value="lego">?�고 ??구조 ?�조??/option>
+              <option value="text2music">텍스트 → 음악 (기본)</option>
+              <option value="remix">리믹스 — 기존 곡 스타일 변환</option>
+              <option value="repaint">리페인트 — 특정 구간 재생성</option>
+              <option value="cover">커버 — 다른 음색으로 재해석</option>
+              <option value="lego">레고 — 구조 재조합</option>
             </select>
           </div>
 
-          <!-- ?�악 ?��???(caption 빌더) -->
+          <!-- 음악 스타일 (caption 빌더) -->
           <div class="compose-panel" id="music-compose-root">
-            <h3 class="compose-panel-title">?�악 ?��???/h3>
-            <p class="compose-panel-desc">?�르·?�포·?�기???�택, 분위기는 직접 ?�력. Instrumental ?�주 ?�명?� 가?��? ?�니???�기(?�는 ?�주 구간)?�만 ?�습?�다.</p>
+            <h3 class="compose-panel-title">음악 스타일</h3>
+            <p class="compose-panel-desc">장르·템포·악기는 선택, 분위기는 직접 입력. Instrumental 연주 설명은 가사가 아니라 여기(또는 연주 구간)에만 넣습니다.</p>
 
             <div class="form-row">
-              <label class="form-label">?�르 <span class="form-label-note">(복수 ?�택 가??</span></label>
+              <label class="form-label">장르 <span class="form-label-note">(복수 선택 가능)</span></label>
               <div class="compose-chip-row" id="genre-chips"></div>
             </div>
 
             <div class="options-grid options-grid--compose">
               <div class="form-row">
-                <label class="form-label" for="tempo-preset">?�포</label>
+                <label class="form-label" for="tempo-preset">템포</label>
                 <select id="tempo-preset" class="form-select" name="tempo-preset"></select>
               </div>
               <div class="form-row is-hidden" id="bpm-custom-row">
@@ -93,20 +93,20 @@
               <div class="form-row">
                 <label class="form-label" for="vocal-type">보컬</label>
                 <select id="vocal-type" class="form-select" name="vocal-type"></select>
-                <span class="form-hint">?�별·?�?��? caption??반영?�니?? 100% 보장?� ?�렵?�니?????�래 <strong>참조 보컬</strong>??가???�실?�니??</span>
+                <span class="form-hint">성별·듀엣은 caption에 반영됩니다. 100% 보장은 어렵습니다 — 아래 <strong>참조 보컬</strong>이 가장 확실합니다.</span>
               </div>
             </div>
 
             <div class="form-row" id="vocal-style-row">
-              <label class="form-label">보컬 ?�낌 <span class="form-label-note">(복수 ?�택 · ?�택 ?�항)</span></label>
+              <label class="form-label">보컬 느낌 <span class="form-label-note">(복수 선택 · 선택 사항)</span></label>
               <div class="compose-chip-row" id="vocal-style-chips"></div>
             </div>
 
             <div class="form-row" id="vocal-ref-row">
-              <label class="form-label">참조 보컬 <span class="form-label-note">(?�택 · 가???�실??방법)</span></label>
+              <label class="form-label">참조 보컬 <span class="form-label-note">(선택 · 가장 확실한 방법)</span></label>
               <div class="vocal-ref-controls">
-                <button type="button" id="btn-vocal-ref" class="btn btn-outline btn-sm">참조 보컬 ?�택</button>
-                <button type="button" id="btn-vocal-ref-clear" class="btn btn-outline btn-sm">지?�기</button>
+                <button type="button" id="btn-vocal-ref" class="btn btn-outline btn-sm">참조 보컬 선택</button>
+                <button type="button" id="btn-vocal-ref-clear" class="btn btn-outline btn-sm">지우기</button>
                 <span id="vocal-ref-name" class="file-name-label"></span>
               </div>
               <div class="vocal-ref-strength-row is-hidden" id="vocal-ref-strength-row">
@@ -114,175 +114,175 @@
                 <input type="range" id="vocal-ref-strength" min="0.2" max="1" step="0.05" value="0.55">
                 <span id="vocal-ref-strength-val" class="vocal-ref-strength-val">0.55</span>
               </div>
-              <span class="form-hint">?�하??목소�??�이 ?�긴 보컬 ?�립(10~30�?권장, �??�일??가?????�으?�요. ACE-Step???�·중·??구간???�플링해 참조?�니?? 강도 0.4~0.7 권장.</span>
+              <span class="form-hint">원하는 목소리 톤이 담긴 보컬 클립(10~30초 권장, 긴 파일도 가능)을 넣으세요. ACE-Step이 앞·중·뒤 구간을 샘플링해 참조합니다. 강도 0.4~0.7 권장.</span>
             </div>
 
             <div class="form-row">
-              <label class="form-label">?�기 <span class="form-label-note">(복수 ?�택 가??</span></label>
+              <label class="form-label">악기 <span class="form-label-note">(복수 선택 가능)</span></label>
               <div class="compose-chip-row" id="instrument-chips"></div>
             </div>
 
             <div class="form-row">
-              <label class="form-label" for="mood-text">분위�?/label>
-              <input type="text" id="mood-text" class="form-input" name="mood" placeholder="?? 몽환?? �? 그리?�, ?�안??>
-              <span class="form-hint">짧게 ?�력 ??ACE-Step caption???�함?�니??</span>
+              <label class="form-label" for="mood-text">분위기</label>
+              <input type="text" id="mood-text" class="form-input" name="mood" placeholder="예: 몽환적, 밤, 그리움, 편안한">
+              <span class="form-hint">짧게 입력 — ACE-Step caption에 포함됩니다.</span>
             </div>
 
             <details class="compose-preview-details">
-              <summary>?��????�명 미리보기</summary>
+              <summary>스타일 설명 미리보기</summary>
               <pre id="caption-preview" class="compose-preview"></pre>
             </details>
 
-            <h3 class="compose-panel-title compose-panel-title--lyrics">가??구조</h3>
-            <p class="compose-panel-desc">구간별로 ?�눠 ?�력?�면 ?�동?�로 <code>[Verse]</code> ?�식?�로 조합?�니?? <strong>Instrumental ?�래?�는 가?��? ?��? 마세??</strong></p>
+            <h3 class="compose-panel-title compose-panel-title--lyrics">가사 구조</h3>
+            <p class="compose-panel-desc">구간별로 나눠 입력하면 자동으로 <code>[Verse]</code> 형식으로 조합됩니다. <strong>Instrumental 아래에는 가사를 넣지 마세요.</strong></p>
 
             <div class="lyrics-builder-toolbar">
-              <button type="button" id="btn-add-section" class="btn btn-outline btn-sm">+ 구간 추�?</button>
-              <span class="form-hint lyrics-builder-hint">가???�확?��? ?�해 ?�리???��?가???��???집중??권장</span>
+              <button type="button" id="btn-add-section" class="btn btn-outline btn-sm">+ 구간 추가</button>
+              <span class="form-hint lyrics-builder-hint">가사 정확도를 위해 프리셋 「🎯 가사/스타일 집중」 권장</span>
             </div>
 
             <div id="lyrics-sections-list" class="lyrics-sections-list"></div>
 
             <details class="compose-preview-details">
-              <summary>가???�문 미리보기</summary>
+              <summary>가사 원문 미리보기</summary>
               <pre id="lyrics-preview" class="compose-preview"></pre>
             </details>
           </div>
 
-          <!-- 기본 ?�션 -->
+          <!-- 기본 옵션 -->
           <div class="options-grid">
             <div class="form-row">
-              <label class="form-label" for="vocal-lang">보컬 ?�어</label>
+              <label class="form-label" for="vocal-lang">보컬 언어</label>
               <select id="vocal-lang" class="form-select" name="vocal-lang">
-                <option value="ko">?�국??/option>
-                <option value="en">?�어</option>
-                <option value="zh">중국??/option>
-                <option value="ja">?�본??/option>
-                <option value="es">?�페?�어</option>
-                <option value="fr">?�랑?�어</option>
+                <option value="ko">한국어</option>
+                <option value="en">영어</option>
+                <option value="zh">중국어</option>
+                <option value="ja">일본어</option>
+                <option value="es">스페인어</option>
+                <option value="fr">프랑스어</option>
               </select>
             </div>
             <div class="form-row">
-              <label class="form-label" for="duration">길이 (�?</label>
+              <label class="form-label" for="duration">길이 (초)</label>
               <input type="number" id="duration" class="form-input" name="duration" value="-1" min="-1" max="600" step="1">
-              <span class="form-hint" id="duration-hint">-1 = 가??�??�로 길이 추정 (?�어6a+LM 최�? 480�?. 고정?�려�?�??�위�??�력 (?? 180, 240)</span>
+              <span class="form-hint" id="duration-hint">-1 = 가사 줄 수로 길이 추정 (티어6a+LM 최대 480초). 고정하려면 초 단위로 입력 (예: 180, 240)</span>
             </div>
             <div class="form-row">
               <label class="form-label">출력</label>
-              <p class="form-hint form-hint-block">?�성·?�생?� WAV�??�?�됩?�다. ?�생???�나�??�래?�서 <strong>MP3 ?�운로드</strong>가 가?�합?�다.</p>
+              <p class="form-hint form-hint-block">생성·재생은 WAV로 저장됩니다. 재생이 끝나면 아래에서 <strong>MP3 다운로드</strong>가 가능합니다.</p>
               <select id="audio-format" class="form-select hidden" name="audio-format" aria-hidden="true" tabindex="-1">
                 <option value="wav" selected>WAV</option>
               </select>
             </div>
             <div class="form-row">
-              <label class="form-label" for="batch-size">?�시 ?�성 ??/label>
+              <label class="form-label" for="batch-size">동시 생성 수</label>
               <input type="number" id="batch-size" class="form-input" name="batch-size" value="1" min="1" max="8">
-              <span class="form-hint">?�러 변?�을 ?�번???�성 (1~8)</span>
+              <span class="form-hint">여러 변형을 한번에 생성 (1~8)</span>
             </div>
           </div>
 
-        <!-- 고급 ?�정 -->
+        <!-- 고급 설정 -->
         <div class="advanced-panel-open">
           <div class="advanced-header">
-            <h3 class="section-title">고급 ?�정</h3>
+            <h3 class="section-title">고급 설정</h3>
             <div class="preset-bar">
-              <span class="preset-label">?�리??</span>
-              <button class="preset-btn active" data-preset="speed" title="?�도 최우?? ?�스?�용. Turbo · LM 1.7B · ?�텝 8 · CFG 3.5 (4.0 ?�상 금�?)">?? ?�피??초안</button>
-              <button class="preset-btn" data-preset="quality" title="?�질 최상. SFT · LM 1.7B · ?�텝 25 · CFG 6.5 · ?�프??4.0">??고품�?마스?�링</button>
-              <button class="preset-btn" data-preset="creative" title="AI ?�특 변�? SFT · LM 1.7B · ?�텝 15 · CFG 3.0">?�� ?�리?�이?�브</button>
-              <button class="preset-btn" data-preset="strict" title="가???��???집중. SFT ?�수 · LM 1.7B · ?�텝 30 · CFG 8.5">?�� 가???��???집중</button>
-              <button class="preset-btn" data-preset="custom" title="모든 ?�션??직접 ?�정?�니??">?���?커스?�</button>
+              <span class="preset-label">프리셋:</span>
+              <button class="preset-btn active" data-preset="speed" title="속도 최우선, 테스트용. Turbo · LM 1.7B · 스텝 8 · CFG 3.5 (4.0 이상 금지)">🚀 스피드 초안</button>
+              <button class="preset-btn" data-preset="quality" title="음질 최상. SFT · LM 1.7B · 스텝 25 · CFG 6.5 · 시프트 4.0">✨ 고품질 마스터링</button>
+              <button class="preset-btn" data-preset="creative" title="AI 독특 변주. SFT · LM 1.7B · 스텝 15 · CFG 3.0">🎲 크리에이티브</button>
+              <button class="preset-btn" data-preset="strict" title="가사/스타일 집중. SFT 필수 · LM 1.7B · 스텝 30 · CFG 8.5">🎯 가사/스타일 집중</button>
+              <button class="preset-btn" data-preset="custom" title="모든 옵션을 직접 설정합니다.">🛠️ 커스텀</button>
             </div>
           </div>
-          <p id="preset-tooltip" class="preset-tooltip">?? ?�피??초안 (?�도 최우?? ?�스?�용) ???�보 모델?� ?�치�???��???�아갑니??</p>
+          <p id="preset-tooltip" class="preset-tooltip">🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다.</p>
           <div class="options-grid">
               <div class="form-row">
-                <label class="form-label" for="dit-model">?�악 ?�성 모델 (DiT)</label>
+                <label class="form-label" for="dit-model">음악 생성 모델 (DiT)</label>
                 <select id="dit-model" class="form-select" name="dit-model">
-                  <option value="turbo" selected>?�보 ??빠른 ?�성 (권장)</option>
-                  <option value="sft">SFT ??고품�?/option>
-                  <option value="base">베이????기본</option>
-                  <option value="xl-turbo">XL ?�보 ???�?�·빠�?/option>
-                  <option value="xl-sft">XL SFT ???�?�·고?�질</option>
-                  <option value="xl-base">XL 베이?????�?�·기�?/option>
+                  <option value="turbo" selected>터보 — 빠른 생성 (권장)</option>
+                  <option value="sft">SFT — 고품질</option>
+                  <option value="base">베이스 — 기본</option>
+                  <option value="xl-turbo">XL 터보 — 대형·빠름</option>
+                  <option value="xl-sft">XL SFT — 대형·고품질</option>
+                  <option value="xl-base">XL 베이스 — 대형·기본</option>
                 </select>
-                <span class="form-hint">ACE-Step 공식 체크?�인??(Python 3.12 ?�용 ?�경)</span>
+                <span class="form-hint">ACE-Step 공식 체크포인트 (Python 3.12 전용 환경)</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="lm-model">가???�해 모델 (LM)</label>
+                <label class="form-label" for="lm-model">가사 이해 모델 (LM)</label>
                 <select id="lm-model" class="form-select" name="lm-model">
-                  <option value="auto" selected>?�동 (VRAM???�라 추천)</option>
-                  <option value="none">?�용 ????/option>
+                  <option value="auto" selected>자동 (VRAM에 따라 추천)</option>
+                  <option value="none">사용 안 함</option>
                   <option value="0.6B">0.6B (경량)</option>
                   <option value="1.7B">1.7B (균형)</option>
-                  <option value="4B">4B (고품�? VRAM 20GB+)</option>
+                  <option value="4B">4B (고품질, VRAM 20GB+)</option>
                 </select>
-                <span class="form-hint">6GB ?�하: LM 꺼짐 권장 · 12GB+: 1.7B · 24GB+: 4B</span>
+                <span class="form-hint">6GB 이하: LM 꺼짐 권장 · 12GB+: 1.7B · 24GB+: 4B</span>
               </div>
               <div class="form-row">
-              <label class="form-label" for="inference-steps">추론 ?�텝 ??/label>
+              <label class="form-label" for="inference-steps">추론 스텝 수</label>
               <input type="number" id="inference-steps" class="form-input" name="inference-steps" value="8" min="1" max="200">
-              <span class="form-hint">??��?�록 빠름, ?�을?�록 ?�테??/span>
+              <span class="form-hint">낮을수록 빠름, 높을수록 디테일</span>
             </div>
             <div class="form-row">
-              <label class="form-label" for="guidance-scale">가?�던??강도 (CFG)</label>
+              <label class="form-label" for="guidance-scale">가이던스 강도 (CFG)</label>
               <input type="number" id="guidance-scale" class="form-input" name="guidance-scale" value="3.5" min="1.0" max="15.0" step="0.5">
-              <span class="form-hint">??���??�유�?��, ?�으�??�롬?�트??충실</span>
+              <span class="form-hint">낮으면 자유롭게, 높으면 프롬프트에 충실</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="shift">?�?�스???�프??/label>
+                <label class="form-label" for="shift">타임스텝 시프트</label>
                 <input type="number" id="shift" class="form-input" name="shift" value="3.0" min="1.0" max="5.0" step="0.1">
-                <span class="form-hint">기본�?3.0 권장</span>
+                <span class="form-hint">기본값 3.0 권장</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="seed">?�드 (?�현??</label>
+                <label class="form-label" for="seed">시드 (재현용)</label>
                 <input type="number" id="seed" class="form-input" name="seed" value="-1" min="-1">
-                <span class="form-hint">-1 = 매번 ?�른 결과 (?�반 ?�도 권장)</span>
+                <span class="form-hint">-1 = 매번 다른 결과 (일반 용도 권장)</span>
               </div>
               <div class="form-row">
                 <label class="form-label" for="infer-method">추론 방식</label>
                 <select id="infer-method" class="form-select" name="infer-method">
-                  <option value="ode" selected>ODE ??빠르�??�정??(권장)</option>
-                  <option value="sde">SDE ???�률?�·다?�한 결과</option>
+                  <option value="ode" selected>ODE — 빠르고 안정적 (권장)</option>
+                  <option value="sde">SDE — 확률적·다양한 결과</option>
                 </select>
-                <span class="form-hint">?�반 ?�도?�는 ODE 권장</span>
+                <span class="form-hint">일반 용도에는 ODE 권장</span>
               </div>
               <div class="form-row">
-                <label class="form-label" for="lora-select">LoRA ?��???/label>
+                <label class="form-label" for="lora-select">LoRA 스타일</label>
                 <select id="lora-select" class="form-select" name="lora-select">
-                  <option value="" selected>?�용 ????/option>
+                  <option value="" selected>사용 안 함</option>
                 </select>
-                <span class="form-hint">?�습???��??�이 ?�으�??�기???�택</span>
+                <span class="form-hint">학습된 스타일이 있으면 여기서 선택</span>
               </div>
             </div>
           </div>
 
-          <!-- 리�???리페?�트 구간 (기본 ?��?) -->
+          <!-- 리믹스/리페인트 구간 (기본 숨김) -->
           <div id="remix-section" class="remix-section hidden">
-            <h3 class="section-title">?�본 / 참조 ?�디??/h3>
+            <h3 class="section-title">원본 / 참조 오디오</h3>
             <div class="options-grid">
               <div class="form-row">
-                <label class="form-label">?�본 ?�디??/label>
-                <button id="btn-src-audio" class="btn btn-outline">?�일 ?�택</button>
+                <label class="form-label">원본 오디오</label>
+                <button id="btn-src-audio" class="btn btn-outline">파일 선택</button>
                 <span id="src-audio-name" class="file-name-label"></span>
               </div>
               <div class="form-row">
-                <label class="form-label">참조 ?�디??(?��???</label>
-                <button id="btn-ref-audio" class="btn btn-outline">?�일 ?�택</button>
+                <label class="form-label">참조 오디오 (스타일)</label>
+                <button id="btn-ref-audio" class="btn btn-outline">파일 선택</button>
                 <span id="ref-audio-name" class="file-name-label"></span>
               </div>
             </div>
           </div>
 
-          <!-- ?�형 ?�레?�어 + ?�성 -->
-          <section id="music-player" class="music-player is-empty" aria-label="?�성 결과 ?�생">
+          <!-- 파형 플레이어 + 생성 -->
+          <section id="music-player" class="music-player is-empty" aria-label="생성 결과 재생">
             <div class="music-player__wave-wrap">
-              <canvas id="music-wave-canvas" class="music-player__canvas" height="120" aria-label="?�디???�형" hidden></canvas>
+              <canvas id="music-wave-canvas" class="music-player__canvas" height="120" aria-label="오디오 파형" hidden></canvas>
               <div id="music-playhead" class="music-player__playhead" hidden aria-hidden="true">
                 <span id="music-playhead-time" class="music-player__playhead-time">0:00</span>
               </div>
               <div id="music-player-overlay" class="music-player__overlay" hidden>
-                <p id="music-player-overlay-msg" class="music-player__overlay-msg">?�악 ?�성 중�?/p>
+                <p id="music-player-overlay-msg" class="music-player__overlay-msg">음악 생성 중…</p>
                 <div class="music-player__progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
                   <div id="music-player-progress-bar" class="music-player__progress-bar"></div>
                 </div>
@@ -290,81 +290,81 @@
               </div>
             </div>
             <div class="music-player__transport">
-              <button type="button" id="music-btn-play" class="music-player__play" disabled title="?�생/?�시?��?">??/button>
+              <button type="button" id="music-btn-play" class="music-player__play" disabled title="재생/일시정지">▶</button>
               <span id="music-time-current" class="music-player__time">0:00</span>
               <span class="music-player__sep">/</span>
               <span id="music-time-total" class="music-player__time">0:00</span>
-              <span id="music-player-status" class="music-player__status">?�성???�악???�기 ?�생?�니??/span>
+              <span id="music-player-status" class="music-player__status">생성된 음악이 여기 재생됩니다</span>
             </div>
           </section>
 
           <div class="generate-section generate-section--full">
             <button id="btn-generate" class="btn btn-primary btn-large btn-full" disabled>
-              <span class="btn-icon">?��</span> ?�악 ?�성?�기
+              <span class="btn-icon">🎵</span> 음악 생성하기
             </button>
           </div>
 
           <div id="download-section" class="generate-section generate-section--full download-section">
             <button type="button" id="btn-download-mp3" class="btn btn-download-mp3 btn-large btn-full" disabled>
-              <span class="btn-icon" aria-hidden="true">�?/span>
-              <span class="btn-label">MP3 ?�운로드</span>
+              <span class="btn-icon" aria-hidden="true">⬇</span>
+              <span class="btn-label">MP3 다운로드</span>
             </button>
           </div>
         </section>
 
-        <!-- ?��????�습 (LoRA) ??-->
+        <!-- 스타일 학습 (LoRA) 탭 -->
         <section class="tab-panel" id="tab-lora">
-          <h2 class="section-title">?�만???��????�습 (LoRA)</h2>
-          <p class="section-desc">3~20곡의 ?�디???�일�??�만???�악 ?��??�을 ?�습?�키?�요. ?�습 ?�료 ???�성 ???�용?????�습?�다.</p>
+          <h2 class="section-title">나만의 스타일 학습 (LoRA)</h2>
+          <p class="section-desc">3~20곡의 오디오 파일로 나만의 음악 스타일을 학습시키세요. 학습 완료 후 생성 시 적용할 수 있습니다.</p>
 
           <div class="form-row">
-            <label class="form-label" for="lora-name">?��????�름</label>
-            <input type="text" id="lora-name" class="form-input" name="lora-name" placeholder="?? ??로파???��???>
+            <label class="form-label" for="lora-name">스타일 이름</label>
+            <input type="text" id="lora-name" class="form-input" name="lora-name" placeholder="예: 내-로파이-스타일">
           </div>
           <div class="form-row">
-            <label class="form-label">?�습???�디???�일</label>
-            <button id="btn-lora-files" class="btn btn-outline">?�일 ?�택 (?�러 �?</button>
+            <label class="form-label">학습용 오디오 파일</label>
+            <button id="btn-lora-files" class="btn btn-outline">파일 선택 (여러 개)</button>
             <span id="lora-files-count" class="file-name-label"></span>
           </div>
           <div class="options-grid">
             <div class="form-row">
-              <label class="form-label" for="lora-steps">?�습 ?�텝 ??/label>
+              <label class="form-label" for="lora-steps">학습 스텝 수</label>
               <input type="number" id="lora-steps" class="form-input" name="lora-steps" value="1000" min="100" max="10000">
-              <span class="form-hint">많을?�록 ?��??�게 ?�습 (기본 1000)</span>
+              <span class="form-hint">많을수록 정밀하게 학습 (기본 1000)</span>
             </div>
             <div class="form-row">
-              <label class="form-label" for="lora-lr">?�습�?/label>
+              <label class="form-label" for="lora-lr">학습률</label>
               <input type="text" id="lora-lr" class="form-input" name="lora-lr" value="1e-4">
-              <span class="form-hint">?�무 ?�으�?과적?? ??���??�습 ?�림</span>
+              <span class="form-hint">너무 높으면 과적합, 낮으면 학습 느림</span>
             </div>
             <div class="form-row">
-              <label class="form-label" for="lora-rank">??�� (모델 ?�기)</label>
+              <label class="form-label" for="lora-rank">랭크 (모델 크기)</label>
               <input type="number" id="lora-rank" class="form-input" name="lora-rank" value="32" min="4" max="128">
-              <span class="form-hint">?�을?�록 ?�현?�↑ VRAM??(기본 32)</span>
+              <span class="form-hint">높을수록 표현력↑ VRAM↑ (기본 32)</span>
             </div>
           </div>
           <div class="generate-section">
-            <button id="btn-train-lora" class="btn btn-primary btn-large" disabled>?��????�습 ?�작</button>
+            <button id="btn-train-lora" class="btn btn-primary btn-large" disabled>스타일 학습 시작</button>
           </div>
           <div id="lora-progress-area" class="progress-area hidden">
             <div class="progress-bar-container">
               <div id="lora-progress-bar" class="progress-bar" style="width:0%"></div>
             </div>
-            <p id="lora-progress-msg" class="progress-msg">?��?중�?/p>
+            <p id="lora-progress-msg" class="progress-msg">대기 중…</p>
           </div>
         </section>
 
-        <!-- ?�성 기록 ??-->
+        <!-- 생성 기록 탭 -->
         <section class="tab-panel" id="tab-history">
-          <h2 class="section-title">?�성 기록</h2>
+          <h2 class="section-title">생성 기록</h2>
           <div id="history-list" class="history-list">
-            <p class="empty-state">?�직 ?�성???�악???�습?�다.</p>
+            <p class="empty-state">아직 생성된 음악이 없습니다.</p>
           </div>
         </section>
 
       </div><!-- /.content-shell -->
 
-      <!-- 광고 (?�단) -->
+      <!-- 광고 (하단) -->
       <div class="editor-ad" id="editor-ad-below-generate" aria-label="광고"></div>
 
     </main>

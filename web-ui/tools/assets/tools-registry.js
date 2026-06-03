@@ -20,14 +20,14 @@ export const TOOLS = [
     id: "silence-remover",
     href: "silence-remover/",
     title: "Silence Detector",
-    subtitle: "무음 구간 분석 · EDL",
+    subtitle: "무음 구간 분석 · XML",
     description:
-      "영상의 무음 구간을 자동 분석하고 편집 프로그램용 EDL을 생성합니다. 로컬 에이전트로 파일은 PC에서만 처리됩니다.",
+      "영상의 무음 구간을 자동 분석하고 편집 프로그램용 FCP7 XML을 생성합니다. 로컬 에이전트로 파일은 PC에서만 처리됩니다.",
     icon: "🔇",
     accent: "#3b82f6",
     available: true,
     badge: "AI",
-    tags: ["무음", "silence", "edl", "premiere", "ffmpeg", "파형", "오디오"],
+    tags: ["무음", "silence", "xml", "premiere", "ffmpeg", "파형", "오디오", "davinci"],
   },
   {
     id: "auto-subtitle",

@@ -19,21 +19,22 @@
           <span class="badge">AI Powered</span>
           <div class="logo-title-row">
             <h1>Silence <span class="accent">Detector</span></h1>
-            <a href="../index.html" class="btn-to-dashboard" id="btn-to-dashboard">????? ??</a>
+            <a href="../index.html" class="btn-to-dashboard" id="btn-to-dashboard">대시보드로 이동</a>
           </div>
         </div>
         <div class="header-status-col">
-          <div id="connection-status" class="status-dot">???? ?? ?? ??</div>
-          <div class="bin-readiness" id="bin-readiness">?? ?? ? FFmpeg ?? ??</div>
+          <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
+          <div class="bin-readiness" id="bin-readiness">무음 제거 · FFmpeg 준비 대기</div>
         </div>
       </header>
+      <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
       <section class="drop-zone itmatzip-workflow-no-ads">
         <div class="path-input-group">
-          <label for="video-path">?? ?? ??</label>
+          <label for="video-path">영상 파일 경로</label>
           <p class="path-hint" id="path-hint"></p>
           <div class="path-row">
             <input type="text" id="video-path" autocomplete="off" spellcheck="false">
-            <button type="button" id="btn-pick-local-file" class="btn-pick-file">????</button>
+            <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
           </div>
         </div>
       </section>
@@ -42,38 +43,38 @@
           <div class="options-main">
             <div class="options-row">
               <div class="option-card">
-                <label for="opt-fps">???</label>
-                <p class="option-hint" id="opt-fps-hint">EDL ???? ?? ???? ?? ? FPS ??? ?????.</p>
+                <label for="opt-fps">프레임</label>
+                <p class="option-hint" id="opt-fps-hint">찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다.</p>
                 <input type="number" id="opt-fps" step="0.01" min="0" value="">
               </div>
               <div class="option-card">
-                <label for="opt-avg-db">?? ?? (dB)</label>
-                <p class="option-hint" id="opt-avg-db-hint">??? ?? ?? ???? ??? ??????.</p>
+                <label for="opt-avg-db">평균 볼륨 (dB)</label>
+                <p class="option-hint" id="opt-avg-db-hint">영상의 평균 볼륨 크기이며 수정은 불가능합니다.</p>
                 <input type="text" id="opt-avg-db" value="" readonly>
               </div>
             </div>
             <div class="options-row">
               <div class="option-card highlight">
-                <label for="opt-rec-db">?? ?? ??? (dB)</label>
-                <p class="option-hint" id="opt-rec-db-hint">?? ??? ?? ?? ??? ???.</p>
+                <label for="opt-rec-db">추천 무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-rec-db-hint">자동 계산된 추천 무음 민감도 입니다.</p>
                 <input type="text" id="opt-rec-db" value="" readonly title="">
               </div>
               <div class="option-card">
-                <label for="opt-sensitivity">?? ??? (dB)</label>
-                <p class="option-hint" id="opt-sensitivity-hint">???? ???? ?? ???? ?? ?? ?? ???.</p>
+                <label for="opt-sensitivity">무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-sensitivity-hint">추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.</p>
                 <input type="number" id="opt-sensitivity" step="0.01" min="-60" max="-10" value="-40" inputmode="decimal">
               </div>
             </div>
             <div class="options-duration-stack">
               <div class="option-card option-card-padding">
-                <label for="opt-padding">??? ?? ?? (ms, 100ms = 0.1?)</label>
+                <label for="opt-padding">말소리 앞뒤 여백 (ms, 100ms = 0.1초)</label>
                 <div class="range-group range-group-padding">
                   <input type="range" id="opt-padding" min="0" max="1000" step="1" value="100">
                   <span class="range-val" id="opt-padding-val">100ms</span>
                 </div>
               </div>
               <div class="option-card option-card-duration">
-                <label>?? ?? ?? (?)</label>
+                <label>최소 무음 길이 (초)</label>
                 <div class="duration-chips">
                   <div class="duration-chip-list" id="duration-chip-list">
                     <button type="button" class="chip" data-val="0.1">0.1s</button>
@@ -138,34 +139,35 @@
         <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true">
           <div class="media-workspace-loading__panel" role="status" aria-live="polite">
             <div class="media-workspace-loading__spinner" aria-hidden="true"></div>
-            <p class="media-workspace-loading__title" id="probe-loading-title">?? ???? ?</p>
+            <p class="media-workspace-loading__title" id="probe-loading-title">영상 불러오는 중</p>
             <p class="media-workspace-loading__desc" id="probe-loading-desc"></p>
           </div>
         </div>
       </div>
       <div class="action-center">
-        <button id="btn-analyze" class="btn-main">?? ?? ??</button>
+        <button id="btn-analyze" class="btn-main">무음 구간 분석</button>
         <div class="edl-export-block" style="padding-top: 10px; box-sizing: border-box;">
           <label class="edl-export-option" for="opt-remove-silent">
             <input type="checkbox" id="opt-remove-silent" checked>
-            <span id="opt-remove-silent-caption">?? ?? ?? ??</span>
+            <span id="opt-remove-silent-caption">무음 구간 자동 제거</span>
           </label>
           <a href="download.html" id="export-xml-link" class="btn-export btn-export--xml is-disabled" role="button"></a>
         </div>
+        <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
       </div>
     </main>
   </div>
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
     <div class="mobile-only-card">
       <div class="mobile-only-icon" aria-hidden="true">???</div>
-      <h2 id="mobile-only-title" class="mobile-only-title">PC??? ??? ? ????</h2>
-      <p class="mobile-only-desc">Silence Detector? ???? PC? ?? ????? ??? ?????.<br>PC ????? ??? ???.</p>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">Silence Detector는 데스톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
     </div>
   </div>
   <div id="analyze-overlay-root" class="analyze-overlay-root" hidden aria-hidden="true" aria-live="polite">
     <div class="analyze-overlay-backdrop" aria-hidden="true"></div>
     <div class="analyze-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="analyze-overlay-status">
-      <p id="analyze-overlay-status" class="analyze-overlay-status">무음 구간 분석 중�?/p>
+      <p id="analyze-overlay-status" class="analyze-overlay-status">무음 구간 분석 중…</p>
       <p id="analyze-overlay-meta" class="analyze-overlay-meta">0%</p>
       <div class="analyze-overlay-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="analyze-overlay-progress-bar" id="analyze-overlay-progress-bar"></div>

@@ -87,14 +87,14 @@ function scheduleFillWatch(ins, container, unitKey) {
  * @type {Record<string, AdSenseUnit>}
  */
 export const AD_UNITS = {
-  /** EDL 다운로드 페이지 상단 */
+  /** XML 다운로드 페이지 상단 */
   downloadTop: {
     slot: "5724069500",
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
   },
-  /** EDL 다운로드 페이지 하단 */
+  /** XML 다운로드 페이지 하단 */
   downloadBottom: {
     slot: "5724069500",
     adFormat: "horizontal",
@@ -115,7 +115,7 @@ export const AD_UNITS = {
     fullWidthResponsive: true,
     style: "display:block",
   },
-  /** 편집 화면 — EDL 다운로드 버튼 아래 */
+  /** 편집 화면 — XML 다운로드 버튼 아래 */
   editorBelowExport: {
     slot: "5724069500",
     adFormat: "horizontal",

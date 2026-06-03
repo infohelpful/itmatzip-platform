@@ -702,7 +702,7 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
     }
     return {
       ok: false,
-      error: "EDL을 생성하지 못했습니다. 무음 구간이 없거나 분석을 다시 실행해 주세요.",
+      error: "XML을 생성하지 못했습니다. 무음 구간이 없거나 분석을 다시 실행해 주세요.",
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -719,7 +719,7 @@ export async function buildEdlViaAgent(requestAgent, opts = {}) {
       : "편집 화면에서 무음 분석을 다시 실행하거나 설정(FPS·패딩)을 확인해 주세요.";
     return {
       ok: false,
-      error: `EDL 생성에 실패했습니다. ${agentHint}\n\n${msg}`,
+      error: `XML 생성에 실패했습니다. ${agentHint}\n\n${msg}`,
     };
   }
 }
