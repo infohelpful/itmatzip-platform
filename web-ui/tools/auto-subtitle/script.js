@@ -1683,6 +1683,17 @@ async function loadSystemFontsFromAgent({ selectFamily = "" } = {}) {
   }
 }
 
+function formatFontInstallError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/권한|permission|denied|ProgramData|Font/i.test(msg)) {
+    return `${msg}\n\n에이전트를 최신 버전으로 설치·재시작한 뒤 다시 시도하세요. (글꼴은 %ProgramData%\\itmatzip-agent\\Font 에 저장됩니다)`;
+  }
+  if (/Windows 글꼴 등록/i.test(msg)) {
+    return `${msg}\n\n다른 글꼴 파일(.ttf/.otf)로 시도하거나, 에이전트를 한 번 종료 후 트레이에서 다시 실행해 보세요.`;
+  }
+  return friendlyAgentError(err);
+}
+
 async function addCustomFontFromDialog() {
   if (!agentConnected) {
     openFontAddModal({
@@ -1694,6 +1705,12 @@ async function addCustomFontFromDialog() {
   }
   if (btnAddFont) btnAddFont.disabled = true;
   try {
+    openFontAddModal({
+      title: "폰트 추가",
+      message: "글꼴 파일 선택 창을 여는 중입니다…\n(창이 가려져 있으면 작업 표시줄을 확인하세요.)",
+      loading: true,
+    });
+
     const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-font-file`, {
       method: "POST",
       headers: { Accept: "application/json" },
@@ -1708,7 +1725,10 @@ async function addCustomFontFromDialog() {
       return;
     }
     const sourcePath = String(pick?.path || "").trim();
-    if (!sourcePath || pick?.cancelled) return;
+    if (!sourcePath || pick?.cancelled) {
+      closeFontAddModal();
+      return;
+    }
 
     openFontAddModal({
       title: "폰트 추가",
@@ -1736,14 +1756,13 @@ async function addCustomFontFromDialog() {
     scheduleSaveUserPreferences();
     openFontAddModal({
       title: "폰트 추가 완료",
-      message: `${family}\n저장 위치: ${installed?.fonts_dir || "C:\\ProgramData\\Itmatzip\\Font"}`,
+      message: `${family}\n저장 위치: ${installed?.fonts_dir || ""}`,
       showOk: true,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     openFontAddModal({
       title: "폰트 추가 실패",
-      message: msg,
+      message: formatFontInstallError(err),
       showOk: true,
     });
   } finally {
@@ -1856,6 +1875,16 @@ function openFontAddModal({ title = "폰트 추가", message = "", loading = fal
   if (!fontAddModal) return;
   closeGpuInstallModal();
   closeWatermarkPositionModal();
+  wordAlignLoading?.classList.remove("is-active");
+  if (wordAlignLoading) {
+    wordAlignLoading.hidden = true;
+    wordAlignLoading.setAttribute("aria-hidden", "true");
+  }
+  exportLoading?.classList.remove("is-active");
+  if (exportLoading) {
+    exportLoading.hidden = true;
+    exportLoading.setAttribute("aria-hidden", "true");
+  }
   setupLoading?.classList.remove("is-active");
   if (setupLoading) {
     setupLoading.hidden = true;

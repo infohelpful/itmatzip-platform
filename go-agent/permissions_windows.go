@@ -68,6 +68,11 @@ func ensureRuntimeSitePackagesDir() {
 		createMusicRoot := filepath.Join(settingsRootPath, "create-music")
 		ensureDirWritable(createMusicRoot)
 		ensureDirWritable(filepath.Join(createMusicRoot, ".venv-acestep"))
+		ensureDirWritable(filepath.Join(settingsRootPath, "Font"))
+	}
+
+	if pd := os.Getenv("ProgramData"); pd != "" {
+		grantUsersModifyRecursive(filepath.Join(pd, "Itmatzip"))
 	}
 }
 

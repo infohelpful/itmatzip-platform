@@ -418,28 +418,36 @@ func agentHTTPPortFromRequest(r *http.Request) int {
 	return defaultPort
 }
 
+func writeAgentPickJSON(w http.ResponseWriter, status int, payload map[string]any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
 func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool, projectOnly bool, fontOnly bool, imageOnly bool) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
+	if !isCurrentProcessInteractive() {
+		writeAgentPickJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"detail": "파일 선택 창을 띄울 수 없습니다. 작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.",
+		})
+		return
+	}
+
 	path, err := pickFileViaUserDialog(audioOnly, projectOnly, fontOnly, imageOnly)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeAgentPickJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"detail": fmt.Sprintf("파일 대화상자 오류: %v", err),
 		})
 		return
 	}
 	if strings.TrimSpace(path) == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{"path": "", "cancelled": true})
+		writeAgentPickJSON(w, http.StatusOK, map[string]any{"path": "", "cancelled": true})
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
 	if imageOnly {
 		payload := map[string]any{"path": path}
 		if strings.TrimSpace(path) != "" {
@@ -451,23 +459,23 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 			)
 			payload["preview_url"] = preview
 		}
-		_ = json.NewEncoder(w).Encode(payload)
+		writeAgentPickJSON(w, http.StatusOK, payload)
 		return
 	}
 	if fontOnly {
-		_ = json.NewEncoder(w).Encode(map[string]any{"path": path})
+		writeAgentPickJSON(w, http.StatusOK, map[string]any{"path": path})
 		return
 	}
 	if projectOnly {
-		_ = json.NewEncoder(w).Encode(map[string]any{"project_path": path})
+		writeAgentPickJSON(w, http.StatusOK, map[string]any{"project_path": path})
 		return
 	}
 	if audioOnly {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		writeAgentPickJSON(w, http.StatusOK, map[string]any{
 			"audio_path": path,
 			"video_path": path,
 		})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"video_path": path})
+	writeAgentPickJSON(w, http.StatusOK, map[string]any{"video_path": path})
 }

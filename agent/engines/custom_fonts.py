@@ -31,23 +31,121 @@ def _agent_data_root() -> Path:
     return Path.home() / ".itmatzip"
 
 
-def get_fonts_dir() -> Path:
-    """`C:\\ProgramData\\Itmatzip\\Font` (없으면 에이전트 data/Font)."""
+def _legacy_program_data_font_dir() -> Path | None:
     program_data = os.environ.get("ProgramData", r"C:\ProgramData").strip()
-    if program_data:
-        fonts_dir = Path(program_data) / "Itmatzip" / "Font"
-    else:
-        fonts_dir = _agent_data_root() / "Font"
-    fonts_dir.mkdir(parents=True, exist_ok=True)
-    return fonts_dir
+    if not program_data:
+        return None
+    return Path(program_data) / "Itmatzip" / "Font"
+
+
+def _dir_is_writable(fonts_dir: Path) -> bool:
+    try:
+        fonts_dir.mkdir(parents=True, exist_ok=True)
+        probe = fonts_dir / ".write_probe"
+        probe.write_bytes(b"1")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
+def get_fonts_dir() -> Path:
+    """에이전트 데이터 `Font` 우선 — 쓰기 가능한 첫 경로 (구버전 ProgramData 경로는 이전만)."""
+    candidates: list[Path] = []
+    data = os.environ.get("ITMATZIP_AGENT_DATA", "").strip()
+    if data:
+        candidates.append(Path(data) / "Font")
+    legacy = _legacy_program_data_font_dir()
+    if legacy is not None:
+        candidates.append(legacy)
+    candidates.append(_agent_data_root() / "Font")
+
+    chosen: Path | None = None
+    for path in candidates:
+        if _dir_is_writable(path):
+            chosen = path.resolve()
+            break
+    if chosen is None:
+        chosen = (candidates[0] if candidates else Path("Font")).resolve()
+        chosen.mkdir(parents=True, exist_ok=True)
+
+    _migrate_legacy_fonts_if_needed(chosen)
+    return chosen
+
+
+def _migrate_legacy_fonts_if_needed(primary: Path) -> None:
+    legacy = _legacy_program_data_font_dir()
+    if legacy is None or not legacy.is_dir():
+        return
+    try:
+        if legacy.resolve() == primary.resolve():
+            return
+    except OSError:
+        return
+
+    legacy_manifest = legacy / _MANIFEST_NAME
+    if not legacy_manifest.is_file():
+        return
+
+    try:
+        raw = json.loads(legacy_manifest.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    items = raw.get("fonts") if isinstance(raw, dict) else raw
+    if not isinstance(items, list) or not items:
+        return
+
+    primary.mkdir(parents=True, exist_ok=True)
+    merged = _load_manifest_from_dir(primary)
+    known_files = {str(x.get("file_name") or "") for x in merged}
+    changed = False
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        file_name = str(item.get("file_name") or "").strip()
+        if not file_name or file_name in known_files:
+            continue
+        src = legacy / file_name
+        if not src.is_file():
+            continue
+        dest = primary / file_name
+        if dest.is_file():
+            known_files.add(file_name)
+            continue
+        try:
+            shutil.copy2(src, dest)
+        except OSError:
+            continue
+        merged.append(
+            {
+                "id": str(item.get("id") or file_name),
+                "family": str(item.get("family") or "").strip() or file_name,
+                "file_name": file_name,
+                "installed_at": str(item.get("installed_at") or ""),
+            }
+        )
+        known_files.add(file_name)
+        changed = True
+        try:
+            _register_font_windows(dest)
+        except (OSError, RuntimeError):
+            pass
+
+    if changed:
+        _save_manifest_to_dir(primary, merged)
+
+
+def _manifest_path_for(fonts_dir: Path) -> Path:
+    return fonts_dir / _MANIFEST_NAME
 
 
 def _manifest_path() -> Path:
-    return get_fonts_dir() / _MANIFEST_NAME
+    return _manifest_path_for(get_fonts_dir())
 
 
-def _load_manifest() -> list[dict[str, Any]]:
-    path = _manifest_path()
+def _load_manifest_from_dir(fonts_dir: Path) -> list[dict[str, Any]]:
+    path = _manifest_path_for(fonts_dir)
     if not path.is_file():
         return []
     try:
@@ -76,9 +174,20 @@ def _load_manifest() -> list[dict[str, Any]]:
     return out
 
 
-def _save_manifest(items: list[dict[str, Any]]) -> None:
+def _load_manifest() -> list[dict[str, Any]]:
+    return _load_manifest_from_dir(get_fonts_dir())
+
+
+def _save_manifest_to_dir(fonts_dir: Path, items: list[dict[str, Any]]) -> None:
     payload = {"fonts": items}
-    _manifest_path().write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    _manifest_path_for(fonts_dir).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _save_manifest(items: list[dict[str, Any]]) -> None:
+    _save_manifest_to_dir(get_fonts_dir(), items)
 
 
 def _safe_file_name(name: str) -> str:
@@ -208,8 +317,10 @@ def _register_font_windows(path: Path) -> None:
     import ctypes
 
     added = ctypes.windll.gdi32.AddFontResourceW(str(path.resolve()))
-    if added <= 0:
-        raise RuntimeError(f"Windows 글꼴 등록 실패: {path.name}")
+    if added <= 0 and key not in _REGISTERED:
+        raise RuntimeError(
+            f"Windows 글꼴 등록 실패: {path.name} (관리자 권한·손상된 파일·이미 등록된 글꼴 여부 확인)"
+        )
     _REGISTERED.add(key)
     HWND_BROADCAST = 0xFFFF
     WM_FONTCHANGE = 0x001D
