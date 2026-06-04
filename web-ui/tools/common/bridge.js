@@ -647,7 +647,7 @@ export async function fetchAgent(url, init = {}) {
 const _mediaBlobByDirectUrl = new Map();
 
 /**
- * HTTPS 공개 사이트 → 로컬 에이전트 HTTP 미디어는 `<video src>` 직접 로드 시 LNA/CORS 차단.
+ * HTTPS 공개 사이트 → 로컬 에이전트 HTTP — `<video|audio|img src>` 직접 로드 시 Mixed Content/LNA 차단.
  * @param {string} url
  */
 export function needsAgentMediaFetchProxy(url) {
@@ -672,7 +672,7 @@ export function needsAgentMediaFetchProxy(url) {
 }
 
 /**
- * 미리보기 `<video>` / `<audio>`용 URL — 필요 시 fetchAgent로 blob URL 생성.
+ * 미리보기 `<video>` / `<audio>` / `<img>`용 URL — 필요 시 fetchAgent로 blob URL 생성.
  * @param {string} directUrl
  * @param {{ signal?: AbortSignal, onAttempt?: (attempt: number) => void }} [opts]
  * @returns {Promise<string>}

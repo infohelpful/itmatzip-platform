@@ -485,6 +485,19 @@ let previewMediaDirectUrl = "";
 /** @type {string} */
 let previewMediaResolvedUrl = "";
 let previewMediaLoadGen = 0;
+/** @type {string} */
+let watermarkMediaDirectUrl = "";
+/** @type {string} */
+let watermarkMediaResolvedUrl = "";
+let watermarkMediaLoadGen = 0;
+
+function releaseWatermarkMediaBlob() {
+  if (watermarkMediaDirectUrl) {
+    revokeAgentMediaObjectUrl(watermarkMediaDirectUrl);
+    watermarkMediaDirectUrl = "";
+  }
+  watermarkMediaResolvedUrl = "";
+}
 
 function releasePreviewMediaBlob() {
   if (previewMediaDirectUrl) {
@@ -681,7 +694,9 @@ function normalizeWatermarkConfig(raw) {
 function watermarkImageUrl(path) {
   const p = String(path || "").trim();
   if (!p) return "";
-  return `${getAgentOrigin()}${TOOL_PREFIX}/media/image?image_path=${encodeURIComponent(p)}`;
+  return buildAgentResourceUrl(
+    `${TOOL_PREFIX}/media/image?image_path=${encodeURIComponent(p)}`,
+  );
 }
 
 function computeWatermarkDisplaySize(videoW, videoH, imgW, imgH) {
@@ -730,6 +745,8 @@ function updatePreviewWatermark() {
   if (!previewWatermarkOverlay) return;
   const { path, position } = watermarkConfig;
   if (!path) {
+    watermarkMediaLoadGen += 1;
+    releaseWatermarkMediaBlob();
     previewWatermarkOverlay.hidden = true;
     previewWatermarkOverlay.setAttribute("aria-hidden", "true");
     previewWatermarkOverlay.replaceChildren();
@@ -754,15 +771,36 @@ function updatePreviewWatermark() {
     });
     previewWatermarkOverlay.replaceChildren(img);
   }
-  const url = watermarkImageUrl(path);
-  if (img.dataset.src !== url) {
-    img.dataset.src = url;
-    img.src = url;
-  } else if (img.complete && img.naturalWidth) {
-    layoutWatermarkPreviewImage(img, position);
-  } else {
-    img.dataset.pos = normalizeWatermarkPosition(position);
+  const directUrl = watermarkImageUrl(path);
+  if (!directUrl) return;
+
+  const loadGen = ++watermarkMediaLoadGen;
+  if (directUrl !== watermarkMediaDirectUrl) {
+    releaseWatermarkMediaBlob();
+    watermarkMediaDirectUrl = directUrl;
   }
+
+  void resolveAgentMediaObjectUrl(directUrl)
+    .then((url) => {
+      if (loadGen !== watermarkMediaLoadGen) return;
+      watermarkMediaResolvedUrl = url;
+      if (img.dataset.src !== directUrl) {
+        img.dataset.src = directUrl;
+        img.src = url;
+      } else if (img.src !== url) {
+        img.src = url;
+      } else if (img.complete && img.naturalWidth) {
+        layoutWatermarkPreviewImage(img, position);
+      } else {
+        img.dataset.pos = normalizeWatermarkPosition(position);
+      }
+    })
+    .catch((err) => {
+      if (loadGen !== watermarkMediaLoadGen) return;
+      console.warn("[preview-watermark] image load failed", err);
+      previewWatermarkOverlay.hidden = true;
+      previewWatermarkOverlay.setAttribute("aria-hidden", "true");
+    });
 }
 
 function initWatermarkPositionGrid() {
