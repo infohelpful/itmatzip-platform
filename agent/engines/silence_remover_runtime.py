@@ -5,12 +5,11 @@ from __future__ import annotations
 from common.runtime_site_packages import (
     TOOL_SILENCE_REMOVER,
     activate_runtime_site_packages,
-    pip_install_cmd,
+    run_runtime_pip,
     tool_has_module,
     use_runtime_site_packages,
     verify_importable,
 )
-from common.subprocess_util import agent_subprocess_env, run_hidden
 
 RUNTIME_TOOL_ID = TOOL_SILENCE_REMOVER
 _ready = False
@@ -31,13 +30,7 @@ def ensure_silence_remover_runtime(*, install: bool = True) -> None:
         return
     if not install:
         return
-    proc = run_hidden(
-        pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True) + ["Pillow>=10.0.0"],
-        capture_output=True,
-        text=True,
-        timeout=600,
-        env=agent_subprocess_env({"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID}),
-    )
+    proc = run_runtime_pip(RUNTIME_TOOL_ID, "Pillow>=10.0.0", upgrade=True, timeout=600)
     if proc.returncode != 0:
         detail = proc.stderr or proc.stdout or "unknown"
         raise RuntimeError(f"Silence Remover Pillow 설치 실패: {detail[-1200:]}")

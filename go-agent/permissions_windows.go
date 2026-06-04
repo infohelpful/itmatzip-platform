@@ -32,13 +32,31 @@ func ensureDataFolderWritable() {
 	ensureEngineSitePackagesWritable()
 }
 
+func grantUsersModifyRecursive(dir string) {
+	if dir == "" {
+		return
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	cmd := exec.Command("icacls", dir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/Q")
+	hideExec(cmd)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("warning: icacls grant on %s failed: %v (%s)", dir, err, string(out))
+		return
+	}
+	log.Printf("granted Users modify access to %s", dir)
+}
+
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python pip --target
 	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
+		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
+		grantUsersModifyRecursive(runtimeRoot)
 		for _, toolID := range engineRuntimeTools {
-			siteDir := filepath.Join(appData, "ItMatZip", "engine-runtime", toolID, "Lib", "site-packages")
+			siteDir := filepath.Join(runtimeRoot, toolID, "Lib", "site-packages")
 			ensureDirWritable(siteDir)
 		}
 		imageEnhancerRoot := filepath.Join(appData, "ItMatZip", "image-enhancer")

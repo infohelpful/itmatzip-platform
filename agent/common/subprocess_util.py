@@ -34,4 +34,19 @@ def run_hidden(*args: Any, creationflags: int = 0, **kwargs: Any) -> subprocess.
         kwargs["env"] = agent_subprocess_env(kwargs["env"])
     else:
         kwargs["env"] = agent_subprocess_env()
-    return subprocess.run(*args, **kwargs)
+    cmd = args[0] if args else kwargs.get("args")
+    tool_id = None
+    if isinstance(cmd, list):
+        from common.runtime_site_packages import (
+            ensure_runtime_tree_acl,
+            finalize_runtime_pip,
+            runtime_pip_tool_id_from_command,
+        )
+
+        tool_id = runtime_pip_tool_id_from_command(cmd, kwargs["env"])
+        if tool_id:
+            ensure_runtime_tree_acl(tool_id)
+    proc = subprocess.run(*args, **kwargs)
+    if tool_id:
+        finalize_runtime_pip(tool_id)
+    return proc

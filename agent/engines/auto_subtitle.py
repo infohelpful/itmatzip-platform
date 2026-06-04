@@ -451,8 +451,10 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "Python 패키지",
         f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
     )
+    from common.runtime_site_packages import ensure_runtime_tree_acl, finalize_runtime_pip
     from common.subprocess_util import agent_subprocess_env
 
+    ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
     cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True)
     cmd.extend(missing)
     proc = subprocess.Popen(
@@ -484,6 +486,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
     proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"pip install 실패 (exit {proc.returncode}): {last_line}")
+    finalize_runtime_pip(RUNTIME_TOOL_ID)
     activate_runtime_site_packages(RUNTIME_TOOL_ID)
     verify_importable(
         RUNTIME_TOOL_ID,

@@ -31,9 +31,28 @@ from pathlib import Path
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from common.runtime_site_packages import use_runtime_site_packages
 
-ensure_silence_remover_runtime(install=use_runtime_site_packages())
+_PIL_OK = False
+_PIL_BOOT_ERROR: str | None = None
+try:
+    ensure_silence_remover_runtime(install=use_runtime_site_packages())
+    from PIL import Image, ImageDraw, ImageFont
 
-from PIL import Image, ImageDraw, ImageFont
+    _PIL_OK = True
+except (PermissionError, OSError, ImportError, RuntimeError) as exc:
+    Image = ImageDraw = ImageFont = None  # type: ignore[misc, assignment]
+    _PIL_BOOT_ERROR = str(exc)
+
+
+def require_pillow() -> None:
+    """파형 PNG 등 Pillow 가 필요한 경로에서 호출."""
+    if _PIL_OK:
+        return
+    detail = _PIL_BOOT_ERROR or "Pillow not installed"
+    raise RuntimeError(
+        f"Silence Remover Pillow를 사용할 수 없습니다 ({detail}). "
+        "에이전트를 관리자 권한 없이 재시작하거나, 관리자 PowerShell에서 "
+        "go-agent\\scripts\\fix-engine-runtime-permissions.ps1 실행 후 다시 시도하세요."
+    )
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable
 from common.subprocess_util import run_hidden
@@ -484,6 +503,7 @@ class SilenceSegment:
 
 def _load_waveform_ruler_font() -> ImageFont.ImageFont:
     """가능하면 OS 기본 산세리프로 눈금 숫자 가독성을 올립니다."""
+    require_pillow()
     candidates: list[Path] = []
     windir = os.environ.get("WINDIR", r"C:\Windows")
     candidates.extend(
@@ -1194,6 +1214,7 @@ def _render_scope_waveform_png(
     max_volume_db: float | None = None,
 ) -> float:
     """파형 PNG 저장. 반환값은 X축·오버레이에 쓸 **실효 타임라인(초)**."""
+    require_pillow()
     canvas_w = waveform_width
     canvas_h = waveform_height
     frac = max(0.5, min(0.98, float(wave_vertical_fraction)))
@@ -1246,6 +1267,7 @@ def _draw_scope_waveform_from_peaks(
     max_volume_db: float | None = None,
 ) -> None:
     """디코드된 열 피크로 Premiere 스타일(녹색 트랙·흰색 대칭 채움) 파형 PNG를 그립니다."""
+    require_pillow()
     canvas_w = waveform_width
     canvas_h = waveform_height
     frac = max(0.5, min(0.98, float(wave_vertical_fraction)))
@@ -2313,6 +2335,7 @@ def render_waveform_preview_png(
 
     반환: (출력 경로, X축·눈금에 쓸 실효 길이 초).
     """
+    require_pillow()
     path = Path(media_path)
     out = Path(output_path)
     if not path.is_file():
