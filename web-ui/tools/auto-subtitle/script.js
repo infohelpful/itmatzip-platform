@@ -84,7 +84,7 @@ import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
-} from "./shared/cues-ssot.js?v=32";
+} from "./shared/cues-ssot.js?v=33";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,

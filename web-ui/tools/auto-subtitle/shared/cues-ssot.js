@@ -16,7 +16,7 @@ import {
   scaleSubtitleLinesTimes,
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
-} from "./subtitles.js?v=24";
+} from "./subtitles.js?v=25";
 
 /** 추출 직후 gap-fill 기본값 (Electron gapFillWhenBuildingVrew 기본 false) */
 export const DEFAULT_GAP_FILL_ON_EXTRACT = false;

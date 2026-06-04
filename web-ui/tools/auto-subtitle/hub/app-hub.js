@@ -13,7 +13,7 @@ import {
   postProcessCuesAfterTranscribe,
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
-} from "../shared/cues-ssot.js?v=32";
+} from "../shared/cues-ssot.js?v=33";
 import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=3";
 import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";

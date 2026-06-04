@@ -222,10 +222,75 @@ export function mergeConsecutiveSilenceWords(words) {
   return out;
 }
 
+/** 추출 후 줄·단어 사이에만 `--` 를 넣을 최소 간격(초) */
+export const EXTRACT_TEMPORAL_GAP_SILENCE_SEC = 0.08;
+
+/**
+ * 인접 단어 블록 시간 겹침 제거 (말 끝 음절과 `--` 가 같은 구간을 공유하는 현상).
+ *
+ * @param {readonly SubtitleWord[]} words
+ */
+export function resolveAdjacentWordTimelineOverlaps(words) {
+  if (!words?.length) return words || [];
+  const out = words.map((w) => ({ ...w }));
+  out.sort((a, b) => a.start - b.start || a.end - b.end);
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const a = out[i];
+    const b = out[i + 1];
+    if (wordIsDeleted(a) || wordIsDeleted(b)) continue;
+    const aStart = Math.min(a.start, a.end);
+    const bStart = Math.min(b.start, b.end);
+    const aEnd = Math.max(a.start, a.end);
+    if (aEnd > bStart + FLOAT_EPS) {
+      a.end = Math.max(aStart + FLOAT_EPS, bStart);
+      if (a.start > a.end) a.start = aStart;
+    }
+  }
+  return out;
+}
+
+/**
+ * 줄 끝 피크 분할 잔여 `--` 제거: 직전 말소리와 겹치거나 너무 짧은 trailing silence.
+ *
+ * @param {readonly SubtitleWord[]} words
+ * @param {number} [minKeepSilenceSec]
+ */
+export function suppressTrailingOverlapSilence(
+  words,
+  minKeepSilenceSec = EXTRACT_TEMPORAL_GAP_SILENCE_SEC,
+) {
+  let w = resolveAdjacentWordTimelineOverlaps(words);
+  if (w.length < 2) return w;
+  const last = w[w.length - 1];
+  const prev = w[w.length - 2];
+  if (wordIsDeleted(last) || wordIsDeleted(prev)) return w;
+  if (!wordIsSilence(last) || wordIsSilence(prev)) return w;
+
+  const ps = Math.min(prev.start, prev.end);
+  let pe = Math.max(prev.start, prev.end);
+  const ss = Math.min(last.start, last.end);
+  const se = Math.max(last.start, last.end);
+  const overlap = pe - ss;
+  const silDur = se - ss;
+
+  if (overlap > FLOAT_EPS) {
+    pe = Math.max(ps + FLOAT_EPS, ss);
+    prev.end = pe;
+  }
+
+  if (silDur < minKeepSilenceSec - FLOAT_EPS || overlap > FLOAT_EPS) {
+    return w.slice(0, -1);
+  }
+  return w;
+}
+
 /** @param {readonly SubtitleWord[]} words */
 export function normalizeSilenceWordsForLineWords(words) {
   let w = mergeConsecutiveSilenceWords(words);
   w = collapseGapLikeRunsInWords(w);
+  w = mergeConsecutiveSilenceWords(w);
+  w = resolveAdjacentWordTimelineOverlaps(w);
+  w = suppressTrailingOverlapSilence(w);
   w = mergeConsecutiveSilenceWords(w);
   return w;
 }
@@ -265,8 +330,6 @@ export function mergeConsecutiveSilenceWordsInLine(line) {
       : displayTextFromSubtitleWords(merged) || line.text,
   };
 }
-
-export const EXTRACT_TEMPORAL_GAP_SILENCE_SEC = 0.08;
 
 /**
  * @param {SubtitleLine} line
