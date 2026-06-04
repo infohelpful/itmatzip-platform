@@ -22,14 +22,14 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from agent_config import AGENT_HOST, AGENT_PORT, agent_base_url  # noqa: E402
-from common.runtime_site_packages import activate_runtime_site_packages  # noqa: E402
+from common.runtime_site_packages import ensure_runtime_directories  # noqa: E402
 from runtime_paths import agent_root, is_frozen  # noqa: E402
 
 _AGENT_ROOT = agent_root()
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
-activate_runtime_site_packages()
+ensure_runtime_directories()
 
 from common.auto_update import get_update_status_snapshot, schedule_background_update_checks  # noqa: E402
 from engines import silence_remover as silence_remover_engine  # noqa: E402

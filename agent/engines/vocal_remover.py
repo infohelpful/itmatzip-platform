@@ -39,13 +39,18 @@ from common.bin_manager import (
     prepend_ffmpeg_bin_to_env,
 )
 from common.runtime_site_packages import (
+    TOOL_VOCAL_REMOVER,
+    activate_runtime_site_packages,
     engine_python_c_prefix,
     pip_install_cmd,
     prepend_runtime_pythonpath,
     purge_runtime_site_entries,
+    tool_has_module,
     use_runtime_site_packages,
     verify_importable,
 )
+
+RUNTIME_TOOL_ID = TOOL_VOCAL_REMOVER
 from common.subprocess_util import no_window_creationflags, run_hidden
 from runtime_paths import agent_package_root, demucs_runner_script, is_frozen
 
@@ -196,6 +201,7 @@ def _run_demucs_with_progress(
     if data:
         env["ITMATZIP_AGENT_DATA"] = data
     prepend_ffmpeg_bin_to_env(env)
+    env["ITMATZIP_RUNTIME_TOOL"] = RUNTIME_TOOL_ID
     prepend_runtime_pythonpath(env)
     existing_py_path = env.get("PYTHONPATH", "").strip()
     if existing_py_path:
@@ -300,7 +306,7 @@ def is_allowed_media_path(path: Path) -> bool:
 
 
 def _importable(module_name: str) -> bool:
-    return importlib.util.find_spec(module_name) is not None
+    return tool_has_module(RUNTIME_TOOL_ID, module_name)
 
 
 def ensure_workspace() -> None:
@@ -479,7 +485,7 @@ def _invalidate_torch_import_cache() -> None:
 def _probe_torch_subprocess(timeout: float = 90.0) -> dict[str, object]:
     """새 Python 프로세스에서 torch 빌드/CUDA를 확인 (에이전트가 CPU torch를 캐시한 경우 방지)."""
     script = (
-        engine_python_c_prefix()
+        engine_python_c_prefix(RUNTIME_TOOL_ID)
         + "import json\n"
         "d = {'version': '', 'variant': None, 'cuda_available': False, 'error': None}\n"
         "try:\n"
@@ -837,13 +843,13 @@ def _pip_uninstall_torch_stack() -> None:
         timeout=600,
     )
     if use_runtime_site_packages():
-        purge_runtime_site_entries("torch", "torchaudio", "torchcodec", "functorch")
+        purge_runtime_site_entries(RUNTIME_TOOL_ID, "torch", "torchaudio", "torchcodec", "functorch")
     _invalidate_torch_import_cache()
 
 
 def _pip_install_torch_runtime_deps() -> subprocess.CompletedProcess:
     """torch wheel 의존성은 PyPI에서 설치 (torch 패키지 자체는 제외)."""
-    cmd = pip_install_cmd()
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID)
     cmd.extend(TORCH_PIP_RUNTIME_DEPS)
     return run_hidden(cmd, capture_output=True, text=True, timeout=600)
 
@@ -860,7 +866,7 @@ def _pip_install_torch_stack_from_wheels(
     deps_proc = _pip_install_torch_runtime_deps()
     if deps_proc.returncode != 0:
         return deps_proc
-    cmd = pip_install_cmd(force_reinstall=True)
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID, force_reinstall=True)
     cmd.extend(["--no-deps", *[str(path) for path in wheel_paths]])
     proc = run_hidden(cmd, capture_output=True, text=True, timeout=3600)
     _invalidate_torch_import_cache()
@@ -943,7 +949,7 @@ def _bundle_sdist_artifacts(wheel_dir: Path) -> tuple[Path, Path]:
 
 def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
     """GitHub wheel 번들의 demucs/diffq는 tar.gz(sdist) — Cython·numpy 선설치."""
-    cmd = pip_install_cmd(upgrade=True)
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True)
     numpy_wheels = sorted(
         p
         for p in wheel_dir.glob("numpy-*.whl")
@@ -960,7 +966,7 @@ def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
             "demucs/diffq 빌드 준비(Cython·numpy) 실패: "
             + (proc.stderr or proc.stdout or "unknown")
         )
-    verify_importable("Cython", "numpy")
+    verify_importable(RUNTIME_TOOL_ID, "Cython", "numpy")
 
 
 def _pip_install_demucs_diffq_from_bundle(
@@ -979,7 +985,7 @@ def _pip_install_demucs_diffq_from_bundle(
         for p in wheel_dir.glob("lameenc-*.whl")
         if p.is_file() and _wheel_filename_matches_runtime(p.name)
     )
-    cmd = pip_install_cmd(force_reinstall=force_reinstall, upgrade=True)
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID, force_reinstall=force_reinstall, upgrade=True)
     cmd.extend([*_pip_find_links_args(wheel_dir), "--prefer-binary", "--no-build-isolation"])
     if lameenc:
         cmd.append(str(lameenc[-1]))
@@ -996,7 +1002,7 @@ def _pip_install_other_packages_from_wheel_dir(
     """demucs·diffq — 번들 tar.gz 직접 설치; 그 외 패키지는 find-links + PyPI."""
     if set(packages) <= {"demucs", "diffq"} and packages:
         return _pip_install_demucs_diffq_from_bundle(wheel_dir, force_reinstall=force_reinstall)
-    cmd = pip_install_cmd(force_reinstall=force_reinstall, upgrade=True)
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID, force_reinstall=force_reinstall, upgrade=True)
     cmd.extend([*_pip_find_links_args(wheel_dir), "--prefer-binary", *packages])
     return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
 
@@ -1143,8 +1149,8 @@ def _install_wheels_bundle(
             )
         from common.runtime_site_packages import activate_runtime_site_packages, verify_importable
 
-        activate_runtime_site_packages()
-        verify_importable("demucs", "diffq", "torch")
+        activate_runtime_site_packages(RUNTIME_TOOL_ID)
+        verify_importable(RUNTIME_TOOL_ID, "demucs", "diffq", "torch")
 
 
 def reinstall_cuda_torch_wheels(on_progress: PrepareProgressCallback | None = None) -> None:
@@ -1417,7 +1423,8 @@ def _resolve_device(device: str | None) -> str:
         try:
             import importlib
 
-            if importlib.util.find_spec("torch"):
+            if _importable("torch"):
+                activate_runtime_site_packages(RUNTIME_TOOL_ID)
                 import torch as _torch
 
                 if getattr(_torch, "cuda", None) and _torch.cuda.is_available():

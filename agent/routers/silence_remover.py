@@ -23,13 +23,15 @@ from common.async_io import run_sync
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
 from engines import silence_remover
+from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from runtime_paths import pick_file_available
 
 router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"])
 
 
 def _ensure_silence_remover_environment() -> None:
-    """무음 탐지 툴이 필요로 하는 로컬 바이너리만 준비합니다."""
+    """무음 탐지 툴이 필요로 하는 로컬 바이너리·Python runtime 만 준비합니다."""
+    ensure_silence_remover_runtime(install=True)
     ensure_ffmpeg(download_timeout_sec=300.0)
 
 
@@ -302,6 +304,7 @@ def get_readiness() -> dict[str, object]:
 def post_prepare() -> dict[str, object]:
     """FFmpeg/ffprobe가 없으면 다운로드·설치합니다 (최초 1회, 수십 초~수 분 소요 가능)."""
     try:
+        ensure_silence_remover_runtime(install=True)
         ensure_ffmpeg(download_timeout_sec=300.0)
     except Exception as e:
         raise HTTPException(

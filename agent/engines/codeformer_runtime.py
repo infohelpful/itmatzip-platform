@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.subprocess_util import no_window_creationflags, run_hidden
+from common.runtime_site_packages import TOOL_IMAGE_ENHANCER
 
 logger = logging.getLogger(__name__)
 
@@ -729,6 +730,7 @@ def venv_python() -> Path:
 def _venv_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
+    env["ITMATZIP_RUNTIME_TOOL"] = TOOL_IMAGE_ENHANCER
     return env
 
 

@@ -33,18 +33,34 @@ func ensureDataFolderWritable() {
 }
 
 func ensureRuntimeSitePackagesDir() {
+	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python pip --target
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle"}
 	appData := os.Getenv("APPDATA")
-	if appData == "" {
+	if appData != "" {
+		for _, toolID := range engineRuntimeTools {
+			siteDir := filepath.Join(appData, "ItMatZip", "engine-runtime", toolID, "Lib", "site-packages")
+			ensureDirWritable(siteDir)
+		}
+		imageEnhancerRoot := filepath.Join(appData, "ItMatZip", "image-enhancer")
+		ensureDirWritable(imageEnhancerRoot)
+		ensureDirWritable(filepath.Join(imageEnhancerRoot, ".venv-codeformer"))
+	}
+
+	if settingsRootPath != "" {
+		createMusicRoot := filepath.Join(settingsRootPath, "create-music")
+		ensureDirWritable(createMusicRoot)
+		ensureDirWritable(filepath.Join(createMusicRoot, ".venv-acestep"))
+	}
+}
+
+func ensureDirWritable(dir string) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("warning: create runtime dir %s: %v", dir, err)
 		return
 	}
-	siteDir := filepath.Join(appData, "ItMatZip", "engine-runtime", "Lib", "site-packages")
-	if err := os.MkdirAll(siteDir, 0755); err != nil {
-		log.Printf("warning: create runtime site-packages %s: %v", siteDir, err)
-		return
-	}
-	testFile := filepath.Join(siteDir, ".write_test")
+	testFile := filepath.Join(dir, ".write_test")
 	if err := os.WriteFile(testFile, []byte("1"), 0644); err != nil {
-		log.Printf("warning: runtime site-packages not writable: %s (%v)", siteDir, err)
+		log.Printf("warning: runtime dir not writable: %s (%v)", dir, err)
 		return
 	}
 	os.Remove(testFile)
@@ -70,7 +86,7 @@ func ensureEngineSitePackagesWritable() {
 	hideExec(cmd)
 	if out, icaclsErr := cmd.CombinedOutput(); icaclsErr != nil {
 		log.Printf(
-			"engine site-packages not writable (%s); runtime pip uses %%APPDATA%%\\ItMatZip\\engine-runtime: %v (%s)",
+			"engine site-packages not writable (%s); runtime pip uses per-tool dirs (engine-runtime/<tool>, image-enhancer/.venv, create-music/.venv): %v (%s)",
 			siteDir, icaclsErr, string(out),
 		)
 	} else {

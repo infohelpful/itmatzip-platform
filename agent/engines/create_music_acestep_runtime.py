@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from common.subprocess_util import run_hidden
+from common.runtime_site_packages import TOOL_CREATE_MUSIC, agent_data_root
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ print(torch.__version__)
 
 
 def _data_root() -> Path:
-    return Path(os.environ.get("ITMATZIP_DATA_ROOT", r"C:\ProgramData\itmatzip-agent"))
+    return agent_data_root()
 
 
 def acestep_checkpoints_dir() -> Path:
@@ -978,6 +979,7 @@ def _acestep_env(extra: Optional[dict[str, str]] = None, *, lm_backend: str = "p
         "ACESTEP_CHECKPOINTS_DIR": ckpt,
         "ITMATZIP_ACESTEP_ROOT": root,
         "ITMATZIP_ACESTEP_CHECKPOINTS": ckpt,
+        "ITMATZIP_RUNTIME_TOOL": TOOL_CREATE_MUSIC,
         "PYTHONNOUSERSITE": "1",
         "ACESTEP_DISABLE_TQDM": "1",
         "HF_HUB_DISABLE_PROGRESS_BARS": "0",

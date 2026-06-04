@@ -18,8 +18,17 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.bin_manager import ensure_ffmpeg, get_ffmpeg_executable, is_file_locked_error, prepend_ffmpeg_bin_to_env
+from common.runtime_site_packages import (
+    TOOL_AUTO_SUBTITLE,
+    activate_runtime_site_packages,
+    pip_install_cmd,
+    tool_has_module,
+    verify_importable,
+)
 from common.subprocess_util import no_window_creationflags, run_hidden
 from runtime_paths import is_frozen
+
+RUNTIME_TOOL_ID = TOOL_AUTO_SUBTITLE
 
 PrepareProgressCallback = Callable[[float, str, str], None]
 
@@ -135,11 +144,15 @@ def _is_ct2_model_dir(path: Path) -> bool:
 
 
 def is_faster_whisper_installed() -> bool:
-    return importlib.util.find_spec("faster_whisper") is not None
+    return tool_has_module(RUNTIME_TOOL_ID, "faster_whisper")
 
 
 def is_huggingface_hub_installed() -> bool:
-    return importlib.util.find_spec("huggingface_hub") is not None
+    return tool_has_module(RUNTIME_TOOL_ID, "huggingface_hub")
+
+
+def _runtime_module_installed(module_name: str) -> bool:
+    return tool_has_module(RUNTIME_TOOL_ID, module_name)
 
 
 def resolve_model_dir() -> Path:
@@ -418,10 +431,16 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         missing.append("faster-whisper>=1.0.3")
     if not is_huggingface_hub_installed():
         missing.append("huggingface_hub>=0.26.0")
-    if importlib.util.find_spec("tqdm") is None:
+    if not _runtime_module_installed("tqdm"):
         missing.append("tqdm>=4.66.0")
-    if importlib.util.find_spec("numpy") is None:
+    if not _runtime_module_installed("numpy"):
         missing.append("numpy")
+    if not _runtime_module_installed("tokenizers"):
+        missing.append("tokenizers")
+    if not _runtime_module_installed("ctranslate2"):
+        missing.append("ctranslate2")
+    if not _runtime_module_installed("av"):
+        missing.append("av")
     if not missing:
         _emit_prepare_progress(on_progress, 12.0, "Python 패키지", "faster-whisper 이미 설치됨")
         return
@@ -432,10 +451,9 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "Python 패키지",
         f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
     )
-    from common.runtime_site_packages import pip_install_cmd
     from common.subprocess_util import agent_subprocess_env
 
-    cmd = pip_install_cmd(upgrade=True)
+    cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True)
     cmd.extend(missing)
     proc = subprocess.Popen(
         cmd,
@@ -445,7 +463,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         encoding="utf-8",
         errors="replace",
         creationflags=no_window_creationflags(),
-        env=agent_subprocess_env(),
+        env=agent_subprocess_env({"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID}),
     )
     lines_seen = 0
     last_line = ""
@@ -466,22 +484,17 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
     proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"pip install 실패 (exit {proc.returncode}): {last_line}")
-    from common.runtime_site_packages import activate_runtime_site_packages, verify_importable
-
-    activate_runtime_site_packages()
-    verify_names: list[str] = []
-    for spec in missing:
-        base = spec.split(">=")[0].split("==")[0].strip()
-        if base.startswith("faster-whisper"):
-            verify_names.append("faster_whisper")
-        elif base.startswith("huggingface"):
-            verify_names.append("huggingface_hub")
-        elif base == "tqdm":
-            verify_names.append("tqdm")
-        elif base == "numpy":
-            verify_names.append("numpy")
-    if verify_names:
-        verify_importable(*verify_names)
+    activate_runtime_site_packages(RUNTIME_TOOL_ID)
+    verify_importable(
+        RUNTIME_TOOL_ID,
+        "faster_whisper",
+        "huggingface_hub",
+        "tqdm",
+        "numpy",
+        "tokenizers",
+        "ctranslate2",
+        "av",
+    )
     prepend_cuda_runtime_dll_dirs()
     _emit_prepare_progress(on_progress, 18.0, "Python 패키지", "설치 완료")
 
@@ -610,6 +623,7 @@ def load_whisper_model(on_progress: PrepareProgressCallback | None = None) -> di
     if not _is_ct2_model_dir(model_dir):
         raise RuntimeError("Whisper 모델이 없습니다. prepare를 먼저 실행하세요.")
 
+    activate_runtime_site_packages(RUNTIME_TOOL_ID)
     from faster_whisper import WhisperModel
 
     path = str(model_dir.resolve())
@@ -690,6 +704,7 @@ def _is_cuda_runtime_missing_error(err: Exception) -> bool:
 
 def _force_reload_model_cpu() -> None:
     global _whisper_model, _model_device
+    activate_runtime_site_packages(RUNTIME_TOOL_ID)
     from faster_whisper import WhisperModel
 
     path = str(resolve_model_dir().resolve())

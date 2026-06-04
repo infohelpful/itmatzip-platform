@@ -28,6 +28,11 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
+from engines.silence_remover_runtime import ensure_silence_remover_runtime
+from common.runtime_site_packages import use_runtime_site_packages
+
+ensure_silence_remover_runtime(install=use_runtime_site_packages())
+
 from PIL import Image, ImageDraw, ImageFont
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable

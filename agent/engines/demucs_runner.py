@@ -17,9 +17,10 @@ def _bootstrap_import_paths() -> None:
     if agent and agent not in sys.path:
         sys.path.insert(0, agent)
     try:
-        from common.runtime_site_packages import activate_runtime_site_packages
+        from common.runtime_site_packages import TOOL_VOCAL_REMOVER, activate_runtime_site_packages
 
-        activate_runtime_site_packages()
+        os.environ.setdefault("ITMATZIP_RUNTIME_TOOL", TOOL_VOCAL_REMOVER)
+        activate_runtime_site_packages(TOOL_VOCAL_REMOVER)
     except Exception as exc:
         print(f"warning: runtime site-packages bootstrap failed: {exc}", file=sys.stderr)
 

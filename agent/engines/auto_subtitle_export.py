@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable, prepend_ffmpeg_bin_to_env
 from common.subprocess_util import no_window_creationflags, run_hidden
-from engines.auto_subtitle import WORKSPACE_ROOT, ensure_workspace
+from engines.auto_subtitle import RUNTIME_TOOL_ID, WORKSPACE_ROOT, ensure_workspace
 from engines.auto_subtitle_formats import (
     SubtitleStyle,
     build_ass_text,
@@ -203,7 +203,7 @@ def _run_ffmpeg_with_progress(
 
     from common.subprocess_util import agent_subprocess_env
 
-    env = agent_subprocess_env(os.environ.copy())
+    env = agent_subprocess_env({"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID})
     prepend_ffmpeg_bin_to_env(env)
     proc = subprocess.Popen(
         args,
