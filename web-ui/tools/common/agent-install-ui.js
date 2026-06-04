@@ -17,9 +17,9 @@ const JSDELIVR_MANIFEST_URL =
 
 /** manifest 조회 실패 시 사용 (agent/agent-update-manifest.json 과 동기화) */
 const FALLBACK_RELEASE = {
-  version: "1.3.6",
+  version: "1.3.7",
   download_url:
-    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.3.6/itmatzip-agent.msi",
+    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.3.7/itmatzip-agent.msi",
   package_type: "msi",
 };
 
@@ -91,6 +91,17 @@ export async function fetchAgentReleaseManifest() {
 export async function getAgentDownloadHref() {
   const manifest = await fetchAgentReleaseManifest();
   return manifest.download_url;
+}
+
+/**
+ * manifest.version 기준 다운로드 버튼 문구 (모달·고정 버튼 공용).
+ * manifest만 올리면 설치 팝업 버튼명이 자동으로 바뀝니다.
+ * @returns {Promise<string>}
+ */
+export async function getAgentDownloadButtonLabel() {
+  const manifest = await fetchAgentReleaseManifest();
+  const v = String(manifest.version ?? "").trim();
+  return v ? `에이전트 다운로드 v${v}` : "에이전트 다운로드";
 }
 
 export function escHtml(s) {
@@ -183,6 +194,9 @@ export function buildAgentInstallDialogBodyHtml(
 ) {
   const linkAttrs = agentDownloadLinkAttrs(downloadHref);
   const verLabel = version ? ` v${escHtml(version)}` : "";
+  const downloadBtnText = version
+    ? `에이전트 다운로드 v${escHtml(version)}`
+    : "에이전트 다운로드";
   const isMsi = String(packageType).toLowerCase() === "msi";
   const pkgName = isMsi ? "itmatzip-agent.msi" : "itmatzip-agent.exe";
   const installHint = isMsi
@@ -212,7 +226,7 @@ export function buildAgentInstallDialogBodyHtml(
       에이전트를 <strong>삭제·제거</strong>했거나 버전을 올릴 때도 여기서 최신 MSI 를 받으면 됩니다.
       (탭을 오래 켜 둔 경우 <strong>F5 새로고침</strong> 후 다운로드하세요.)
     </p>
-    <a class="itz-install__download-btn" ${linkAttrs} role="button">에이전트 다운로드${verLabel}</a>
+    <a class="itz-install__download-btn" ${linkAttrs} role="button">${downloadBtnText}</a>
   </section>
   <section class="itz-install__card--installed">
     <h3 class="itz-install__card-title">이미 설치하셨나요?</h3>

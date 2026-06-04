@@ -12,7 +12,7 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
 import { showAdSense } from "../common/adsense.js";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna17";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 if (typeof window !== "undefined") {
