@@ -441,6 +441,8 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         missing.append("ctranslate2")
     if not _runtime_module_installed("av"):
         missing.append("av")
+    if not tool_has_module(RUNTIME_TOOL_ID, "kiwipiepy"):
+        missing.append("kiwipiepy>=0.18.0")
     if not missing:
         _emit_prepare_progress(on_progress, 12.0, "Python 패키지", "faster-whisper 이미 설치됨")
         return
@@ -756,6 +758,8 @@ def _collect_transcribe_segments(
 
 
 _GAP_THRESHOLD_SEC = 0.1
+# 말끝 짧은 간격(예: 0.3s)을 별도 `--` cue 로 두지 않고 이전 cue end 연장
+_MERGE_SHORT_GAP_SEC = 0.45
 _SILENCE_GAP_TEXT = "--"
 _UNKNOWN_WORD_LABEL = "???"
 
@@ -861,7 +865,10 @@ def _fill_unvoiced_gaps(raw_cues: list[dict[str, Any]], total_dur: float) -> lis
         gap = s - prev_end
         if gap > 1e-9:
             if gap >= _GAP_THRESHOLD_SEC:
-                out.append(_silence_gap_cue(prev_end, s))
+                if out and gap < _MERGE_SHORT_GAP_SEC:
+                    _extend_last_cue_end(out, s)
+                else:
+                    out.append(_silence_gap_cue(prev_end, s))
             elif out:
                 _extend_last_cue_end(out, s)
 
@@ -878,7 +885,10 @@ def _fill_unvoiced_gaps(raw_cues: list[dict[str, Any]], total_dur: float) -> lis
     if td > 0:
         gap_tail = td - prev_end
         if gap_tail >= _GAP_THRESHOLD_SEC:
-            out.append(_silence_gap_cue(prev_end, td))
+            if out and gap_tail < _MERGE_SHORT_GAP_SEC:
+                _extend_last_cue_end(out, td)
+            else:
+                out.append(_silence_gap_cue(prev_end, td))
         elif gap_tail > 1e-9 and out:
             _extend_last_cue_end(out, td)
 

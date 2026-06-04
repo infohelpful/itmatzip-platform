@@ -280,6 +280,12 @@ body.as-app {
   padding-top: 4px;
 }
 
+.as-stylebar-export .as-word-align-box {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
 .as-stylebar-export .as-lang-box {
   flex: 0 0 auto;
   display: flex;
@@ -1485,6 +1491,39 @@ body.as-app {
 
 .export-loading.is-active {
   display: block;
+}
+
+.word-align-loading {
+  position: static;
+  display: none;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.word-align-loading[hidden] {
+  display: none !important;
+}
+
+.word-align-loading.is-active {
+  display: block;
+}
+
+.as-word-align-license {
+  margin: 14px 0 0;
+  font-size: 0.78rem;
+  color: var(--as-text-dim);
+  line-height: 1.45;
+}
+
+.as-word-align-license a {
+  color: var(--as-accent);
+  text-decoration: none;
+}
+
+.as-word-align-license a:hover {
+  text-decoration: underline;
 }
 
 /* In-app busy — unified blur over shell; ads stay above (as-ad-exempt) */

@@ -5,8 +5,9 @@
 import { mediaSecondsToPeakPixelRange } from "../peaks-metrics.js";
 import {
   displayTextFromSubtitleWords,
+  MAX_ABSORB_TRAILING_TAIL_SEC,
   mergeConsecutiveSilenceWordsInLine,
-} from "./subtitles.js?v=26";
+} from "./subtitles.js?v=27";
 import { DEFAULT_GAP_THRESHOLD_SEC, SILENCE_PLACEHOLDER_TEXT } from "./word-contract.js";
 
 const DBFS_GATE_DEFAULT = -40;
@@ -221,7 +222,12 @@ function splitSingleWordByPeakSilenceRuns(
         if (prev && !(prev.is_silence || prev.isSilence)) {
           const ps = Math.min(prev.start, prev.end);
           const pe = Math.max(prev.start, prev.end);
-          prev.end = Math.max(ps + EPS, Math.min(pe, t0));
+          const tailDur = t1 - t0;
+          if (tailDur <= MAX_ABSORB_TRAILING_TAIL_SEC + EPS) {
+            prev.end = Math.max(ps + EPS, pe, t1);
+          } else {
+            prev.end = Math.max(ps + EPS, Math.min(pe, t0));
+          }
         }
         continue;
       }

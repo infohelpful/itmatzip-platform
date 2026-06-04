@@ -9,6 +9,10 @@ import {
   scrubTimelineNoiseFromWordPiece,
   shouldOmitFromSubtitleEditLineText,
 } from "./word-contract.js";
+import { intervalHasAudibleSpeechInPeaks } from "./peak-interval-speech.js";
+
+/** 말끝에 붙는 짧은 `--` / 무음 줄 흡수 상한(초) */
+export const MAX_ABSORB_TRAILING_TAIL_SEC = 0.55;
 
 /**
  * @typedef {{ start: number, end: number, word: string, is_silence?: boolean, is_deleted?: boolean, isSilence?: boolean, isDeleted?: boolean, merged_by_edge_trim?: boolean, mergedByEdgeTrim?: boolean, split_chain?: string, splitChain?: string }} SubtitleWord
@@ -250,11 +254,44 @@ export function resolveAdjacentWordTimelineOverlaps(words) {
 }
 
 /**
- * 한 줄 맨 끝 `--` 제거 (피크 분할이 말끝 음절 꼬리를 무음 칩으로 붙이는 현상).
- *
  * @param {SubtitleLine} line
  */
-export function stripLineEndTrailingSilenceWords(line) {
+export function lineIsSilenceOnlyCue(line) {
+  if (!line) return false;
+  if (line.is_silence || line.isSilence) return true;
+  const words = line.words ?? [];
+  const alive = words.filter((w) => !wordIsDeleted(w));
+  if (!alive.length) {
+    return String(line.text ?? "").trim() === SILENCE_PLACEHOLDER_TEXT;
+  }
+  return alive.every((w) => wordIsSilence(w));
+}
+
+/**
+ * @param {import("../peaks-metrics.js").PeaksTimelineMetrics | null | undefined} metrics
+ * @param {number} t0
+ * @param {number} t1
+ */
+export function shouldAbsorbMislabeledSpeechTail(metrics, t0, t1) {
+  const a = Math.min(t0, t1);
+  const b = Math.max(t0, t1);
+  const dur = b - a;
+  if (dur <= FLOAT_EPS) return false;
+  if (dur <= MAX_ABSORB_TRAILING_TAIL_SEC + FLOAT_EPS) {
+    if (!metrics?.data?.length) return true;
+    return intervalHasAudibleSpeechInPeaks(metrics, a, b);
+  }
+  if (!metrics?.data?.length) return false;
+  return intervalHasAudibleSpeechInPeaks(metrics, a, b);
+}
+
+/**
+ * 한 줄 맨 끝 `--` 제거 — 꼬리 구간을 앞 말소리 단어 end 로 흡수 (피크·짧은 구간 기준).
+ *
+ * @param {SubtitleLine} line
+ * @param {import("../peaks-metrics.js").PeaksTimelineMetrics | null | undefined} [metrics]
+ */
+export function stripLineEndTrailingSilenceWords(line, metrics = null) {
   if (!line?.words?.length || line.is_silence || line.isSilence) return line;
 
   let words = [...line.words].sort((a, b) => a.start - b.start || a.end - b.end);
@@ -263,19 +300,19 @@ export function stripLineEndTrailingSilenceWords(line) {
   while (words.length > 0) {
     const last = words[words.length - 1];
     if (wordIsDeleted(last) || !wordIsSilence(last)) break;
+    const ss = Math.min(last.start, last.end);
+    const se = Math.max(last.start, last.end);
+    let absorbed = false;
     if (words.length >= 2) {
       const prev = words[words.length - 2];
-      if (!wordIsDeleted(prev) && !wordIsSilence(prev)) {
-        const ss = Math.min(last.start, last.end);
-        const ps = Math.min(prev.start, prev.end);
+      if (!wordIsDeleted(prev) && !wordIsSilence(prev) && shouldAbsorbMislabeledSpeechTail(metrics, ss, se)) {
         const pe = Math.max(prev.start, prev.end);
-        const nextEnd = Math.min(pe, Math.max(ps + FLOAT_EPS, ss));
-        if (nextEnd !== pe) {
-          words = [...words.slice(0, -2), { ...prev, end: nextEnd }];
-          changed = true;
-        }
+        words = [...words.slice(0, -2), { ...prev, end: Math.max(pe, se) }];
+        changed = true;
+        absorbed = true;
       }
     }
+    if (absorbed) continue;
     words = words.slice(0, -1);
     changed = true;
   }
@@ -284,11 +321,60 @@ export function stripLineEndTrailingSilenceWords(line) {
   return mergeConsecutiveSilenceWordsInLine({ ...line, words });
 }
 
-/** @param {readonly SubtitleLine[]} lines */
-export function repairCueLinesWordTimelines(lines) {
-  return (lines || []).map((line) => {
+/**
+ * 말소리 줄 직후 짧은 `--` 전용 줄을 이전 줄 마지막 단어에 흡수.
+ *
+ * @param {readonly SubtitleLine[]} lines
+ * @param {import("../peaks-metrics.js").PeaksTimelineMetrics | null | undefined} [metrics]
+ */
+export function absorbSpuriousSilenceCuesAfterSpeech(lines, metrics = null) {
+  if (!lines?.length) return [];
+  /** @type {SubtitleLine[]} */
+  const out = [];
+  for (const line of lines) {
+    if (!lineIsSilenceOnlyCue(line)) {
+      out.push(line);
+      continue;
+    }
+    const prev = out[out.length - 1];
+    if (!prev || lineIsSilenceOnlyCue(prev)) {
+      out.push(line);
+      continue;
+    }
+    const t0 = Math.min(line.start, line.end);
+    const t1 = Math.max(line.start, line.end);
+    if (!shouldAbsorbMislabeledSpeechTail(metrics, t0, t1)) {
+      out.push(line);
+      continue;
+    }
+    const tailEnd = Math.max(
+      t1,
+      ...(line.words ?? []).map((w) => Math.max(w.start, w.end)),
+    );
+    let words = [...(prev.words ?? [])].sort((a, b) => a.start - b.start || a.end - b.end);
+    for (let wi = words.length - 1; wi >= 0; wi -= 1) {
+      const w = words[wi];
+      if (wordIsDeleted(w) || wordIsSilence(w)) continue;
+      words[wi] = { ...w, end: Math.max(w.start + FLOAT_EPS, Math.max(w.start, w.end), tailEnd) };
+      break;
+    }
+    const merged = syncSubtitleLineFromWords(
+      stripLineEndTrailingSilenceWords({ ...prev, words }, metrics),
+    );
+    out[out.length - 1] = merged;
+  }
+  return out;
+}
+
+/**
+ * @param {readonly SubtitleLine[]} lines
+ * @param {import("../peaks-metrics.js").PeaksTimelineMetrics | null | undefined} [metrics]
+ */
+export function repairCueLinesWordTimelines(lines, metrics = null) {
+  const absorbed = absorbSpuriousSilenceCuesAfterSpeech(lines || [], metrics);
+  return absorbed.map((line) => {
     if (line.is_silence || line.isSilence) return line;
-    return syncSubtitleLineFromWords(stripLineEndTrailingSilenceWords(line));
+    return syncSubtitleLineFromWords(stripLineEndTrailingSilenceWords(line, metrics));
   });
 }
 
@@ -342,7 +428,11 @@ export function mergeConsecutiveSilenceWordsInLine(line) {
  * @param {SubtitleLine} line
  * @param {number} [gapThresholdSec]
  */
-export function insertMissingTemporalSilenceGapsInLine(line, gapThresholdSec = EXTRACT_TEMPORAL_GAP_SILENCE_SEC) {
+export function insertMissingTemporalSilenceGapsInLine(
+  line,
+  gapThresholdSec = EXTRACT_TEMPORAL_GAP_SILENCE_SEC,
+  metrics = null,
+) {
   if (!line.words?.length) return line;
   if (line.words.some(wordIsDeleted)) return line;
 
@@ -364,7 +454,15 @@ export function insertMissingTemporalSilenceGapsInLine(line, gapThresholdSec = E
       const pe = Math.max(prev.start, prev.end);
       const cs = Math.min(cur.start, cur.end);
       const dur = cs - pe;
-      if (dur >= gapThresholdSec - FLOAT_EPS && !intervalTouchedBySilence(pe, cs)) {
+      const skipAsSpeechTail =
+        dur >= gapThresholdSec - FLOAT_EPS &&
+        !wordIsSilence(prev) &&
+        shouldAbsorbMislabeledSpeechTail(metrics, pe, cs);
+      if (
+        dur >= gapThresholdSec - FLOAT_EPS &&
+        !intervalTouchedBySilence(pe, cs) &&
+        !skipAsSpeechTail
+      ) {
         out.push({
           start: pe,
           end: cs,

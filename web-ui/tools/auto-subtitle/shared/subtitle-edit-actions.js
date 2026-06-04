@@ -96,6 +96,69 @@ export function mergeEmptySubtitleAt(hub, index) {
  * @param {number} index
  * @param {number} wordIndex
  */
+/**
+ * 한 cue의 words 를 break_after(포함) 기준으로 여러 cue 로 분할. 칩 단위 유지.
+ * @param {import("./subtitles.js").SubtitleLine} cue
+ * @param {number[]} breakAfterStorageIndices
+ * @returns {import("./subtitles.js").SubtitleLine[]}
+ */
+export function explodeCueByWordBreaks(cue, breakAfterStorageIndices) {
+  const words = cue.words ?? [];
+  if (!words.length) return [cue];
+
+  const breaks = [...new Set(breakAfterStorageIndices)]
+    .filter((i) => Number.isFinite(i) && i >= 0 && i < words.length - 1)
+    .sort((a, b) => a - b);
+
+  if (!breaks.length) return [cue];
+
+  const chunks = [];
+  let start = 0;
+  for (const end of breaks) {
+    if (end >= start) {
+      chunks.push(words.slice(start, end + 1));
+      start = end + 1;
+    }
+  }
+  if (start < words.length) chunks.push(words.slice(start));
+  if (chunks.length <= 1) return [cue];
+
+  return chunks
+    .filter((chunk) => chunk.length > 0)
+    .map((chunkWords) => {
+      let startSec = chunkWords[0].start;
+      let endSec = chunkWords[chunkWords.length - 1].end;
+      if (!Number.isFinite(startSec)) startSec = cue.start;
+      if (!Number.isFinite(endSec)) endSec = cue.end;
+      const text = textFromWords(cue, chunkWords, "");
+      return withLineEditText(
+        {
+          ...cue,
+          start: startSec,
+          end: Math.max(startSec + 0.05, endSec),
+          words: chunkWords,
+          lineTextUserEdited: false,
+          line_text_user_edited: false,
+        },
+        text,
+      );
+    });
+}
+
+/**
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {number} cueIndex
+ * @param {number[]} breakAfterStorageIndices
+ */
+export function applyCueWordAutoAlign(hub, cueIndex, breakAfterStorageIndices) {
+  hub.applySubtitleChange((prev) => {
+    if (cueIndex < 0 || cueIndex >= prev.length) return prev;
+    const parts = explodeCueByWordBreaks(prev[cueIndex], breakAfterStorageIndices);
+    if (parts.length <= 1) return prev;
+    return [...prev.slice(0, cueIndex), ...parts, ...prev.slice(cueIndex + 1)];
+  });
+}
+
 export function splitSubtitleAtWord(hub, index, wordIndex) {
   hub.applySubtitleChange((prev) => {
     if (index < 0 || index >= prev.length) return prev;

@@ -107,6 +107,17 @@
         </div>
       </div>
       <div class="as-stylebar-export">
+        <div class="as-word-align-box">
+          <button
+            type="button"
+            id="btn-word-auto-align"
+            class="as-btn as-btn-ghost as-btn-sm"
+            disabled
+            title="한국어를 선택했을 때만 사용할 수 있습니다"
+          >
+            단어 자동정렬
+          </button>
+        </div>
         <div class="as-lang-box">
           <label for="language-select">언어</label>
           <select id="language-select" class="as-select as-select--lang">
@@ -259,13 +270,39 @@
           <p class="transcribe-percent" id="export-loading-percent"></p>
         </div>
       </div>
+      <div class="word-align-loading" id="word-align-loading" hidden aria-hidden="true">
+        <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="word-align-loading-title">
+          <p class="setup-loading__title" id="word-align-loading-title">단어 자동정렬</p>
+          <p class="setup-loading__step" id="word-align-loading-step"></p>
+          <p class="setup-loading__desc" id="word-align-loading-message">형태소 분석으로 줄 나눔 위치를 계산합니다…</p>
+          <div
+            class="setup-loading__track"
+            id="word-align-loading-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div class="setup-loading__bar" id="word-align-loading-bar"></div>
+          </div>
+          <p class="transcribe-percent" id="word-align-loading-percent"></p>
+          <p class="as-word-align-license">
+            <a
+              id="word-align-kiwi-link"
+              href="https://github.com/bab2min/kiwipiepy"
+              target="_blank"
+              rel="noopener noreferrer"
+            >Kiwi 오픈소스(LGPL)를 사용 중입니다</a>
+          </p>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- as-build:166 watermark-aspect -->
+  <!-- as-build:167 word-auto-align -->
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=11"></script>
-  <script type="module" src="script.js?v=166"></script>
+  <script type="module" src="script.js?v=167"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

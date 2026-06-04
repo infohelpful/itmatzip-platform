@@ -92,6 +92,12 @@ import {
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
 import { SubtitleAppHub } from "./hub/app-hub.js?v=25";
+import {
+  runWordAutoAlign,
+  isKoreanLanguageSelected,
+  collectWordAlignTargetIndices,
+  KIWI_LGPL_URL,
+} from "./word-auto-align.js?v=1";
 import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=6";
 import {
   applyPlaybackSkipToPreviewMedia,
@@ -175,6 +181,7 @@ const btnExport = document.getElementById("btn-export");
 const btnDownloadResult = document.getElementById("btn-download-result");
 const btnShowExportFolder = document.getElementById("btn-show-export-folder");
 const languageSelect = document.getElementById("language-select");
+const btnWordAutoAlign = document.getElementById("btn-word-auto-align");
 const binReadiness = document.getElementById("bin-readiness");
 const subtitleList = document.getElementById("subtitle-list");
 const subtitleEmpty = document.getElementById("subtitle-empty");
@@ -216,6 +223,16 @@ const exportLoadingMessage = document.getElementById("export-loading-message");
 const exportLoadingBar = document.getElementById("export-loading-bar");
 const exportLoadingTrack = document.getElementById("export-loading-track");
 const exportLoadingPercent = document.getElementById("export-loading-percent");
+
+const wordAlignLoading = document.getElementById("word-align-loading");
+const wordAlignLoadingTitle = document.getElementById("word-align-loading-title");
+const wordAlignLoadingStep = document.getElementById("word-align-loading-step");
+const wordAlignLoadingMessage = document.getElementById("word-align-loading-message");
+const wordAlignLoadingBar = document.getElementById("word-align-loading-bar");
+const wordAlignLoadingTrack = document.getElementById("word-align-loading-track");
+const wordAlignLoadingPercent = document.getElementById("word-align-loading-percent");
+const wordAlignKiwiLink = document.getElementById("word-align-kiwi-link");
+
 const styleFontFamily = document.getElementById("style-font-family");
 const styleFontSizeRange = document.getElementById("style-font-size-range");
 const styleFontSizeOut = document.getElementById("style-font-size-out");
@@ -404,6 +421,7 @@ let sessionMediaDurationSec = null;
 let sessionWhisperDurationSec = null;
 /** readiness.binaries.audiowaveform — false면 pcm_columns만 사용 */
 let agentAudiowaveformAvailable = false;
+let wordAlignRunning = false;
 
 const subtitleHub = new SubtitleAppHub({
   onStateChange: () => {
@@ -881,7 +899,10 @@ function loadAndApplyUserPreferences() {
 function attachUserPreferencesAutosave() {
   const save = () => scheduleSaveUserPreferences();
   styleFontFamily?.addEventListener("change", save);
-  languageSelect?.addEventListener("change", save);
+  languageSelect?.addEventListener("change", () => {
+    syncWordAlignButtonState();
+    save();
+  });
   exportFormatSelect?.addEventListener("change", save);
   for (const id of [
     "style-font-size-range",
@@ -1804,7 +1825,15 @@ function syncInAppBusyShell() {
   const gpuPromptActive = Boolean(gpuInstallPrompt?.classList.contains("is-active"));
   const fontAddActive = Boolean(fontAddModal?.classList.contains("is-active"));
   const watermarkModalActive = Boolean(watermarkPositionModal?.classList.contains("is-active"));
-  const busy = setupActive || transcribeActive || exportActive || gpuPromptActive || fontAddActive || watermarkModalActive;
+  const wordAlignActive = Boolean(wordAlignLoading?.classList.contains("is-active"));
+  const busy =
+    setupActive ||
+    transcribeActive ||
+    exportActive ||
+    gpuPromptActive ||
+    fontAddActive ||
+    watermarkModalActive ||
+    wordAlignActive;
   asShell?.classList.toggle("is-inapp-busy", busy);
   if (inappBusyHost) {
     inappBusyHost.hidden = !busy;
@@ -1926,6 +1955,19 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
   syncInAppBusyShell();
 }
 
+function syncWordAlignButtonState() {
+  if (!btnWordAutoAlign) return;
+  const ko = isKoreanLanguageSelected(languageSelect?.value);
+  const hasTargets = collectWordAlignTargetIndices(lastCues).length > 0;
+  const enabled = ko && hasTargets && agentConnected && !wordAlignRunning;
+  btnWordAutoAlign.disabled = !enabled;
+  btnWordAutoAlign.title = ko
+    ? hasTargets
+      ? "말소리 자막의 단어 칩을 형태소 분석으로 줄 나눕니다"
+      : "자동정렬할 말소리 자막(단어 2개 이상)이 없습니다"
+    : "한국어를 선택했을 때만 사용할 수 있습니다";
+}
+
 function updateActionButtons() {
   const hasCues = lastCues.some((c) => !c.is_silence && String(c.text || "").trim());
   if (btnPrepare) btnPrepare.disabled = !agentConnected;
@@ -1945,6 +1987,113 @@ function updateActionButtons() {
   if (btnSaveProjectAs) btnSaveProjectAs.disabled = !hasCues;
   if (subtitleEmpty) subtitleEmpty.hidden = hasCues;
   if (resultsMeta) resultsMeta.hidden = !hasCues;
+  syncWordAlignButtonState();
+}
+
+function setWordAlignLoading(active, { title, step, message, progress } = {}) {
+  if (!wordAlignLoading) return;
+  const wasActive = wordAlignLoading.classList.contains("is-active");
+  if (active) {
+    if (!wasActive) setAgentLongOperationActive(true);
+    closeGpuInstallModal();
+    closeFontAddModal();
+    closeWatermarkPositionModal();
+    setupLoading?.classList.remove("is-active");
+    if (setupLoading) {
+      setupLoading.hidden = true;
+      setupLoading.setAttribute("aria-hidden", "true");
+    }
+    transcribeLoading?.classList.remove("is-active");
+    if (transcribeLoading) {
+      transcribeLoading.hidden = true;
+      transcribeLoading.setAttribute("aria-hidden", "true");
+    }
+    exportLoading?.classList.remove("is-active");
+    if (exportLoading) {
+      exportLoading.hidden = true;
+      exportLoading.setAttribute("aria-hidden", "true");
+    }
+    if (wordAlignKiwiLink) wordAlignKiwiLink.href = KIWI_LGPL_URL;
+    wordAlignLoading.hidden = false;
+    wordAlignLoading.classList.add("is-active");
+    wordAlignLoading.setAttribute("aria-hidden", "false");
+    if (title && wordAlignLoadingTitle) wordAlignLoadingTitle.textContent = title;
+    if (wordAlignLoadingStep) wordAlignLoadingStep.textContent = step || "";
+    if (message && wordAlignLoadingMessage) wordAlignLoadingMessage.textContent = message;
+    if (wordAlignLoadingBar && wordAlignLoadingTrack) {
+      if (typeof progress === "number") {
+        const pct = Math.max(0, Math.min(100, progress));
+        wordAlignLoadingBar.style.width = `${pct}%`;
+        wordAlignLoadingTrack.setAttribute("aria-valuenow", String(Math.round(pct)));
+        if (wordAlignLoadingPercent) wordAlignLoadingPercent.textContent = `${Math.round(pct)}%`;
+      } else {
+        wordAlignLoadingBar.style.width = "12%";
+        wordAlignLoadingTrack.setAttribute("aria-valuenow", "0");
+        if (wordAlignLoadingPercent) wordAlignLoadingPercent.textContent = "";
+      }
+    }
+    syncInAppBusyShell();
+    syncWordAlignButtonState();
+    return;
+  }
+  if (wasActive) setAgentLongOperationActive(false);
+  wordAlignLoading.hidden = true;
+  wordAlignLoading.classList.remove("is-active");
+  wordAlignLoading.setAttribute("aria-hidden", "true");
+  syncInAppBusyShell();
+  syncWordAlignButtonState();
+}
+
+async function onWordAutoAlignClick() {
+  if (!isKoreanLanguageSelected(languageSelect?.value)) return;
+  if (!agentConnected) {
+    alert(MSG_SUBTITLE_NEED_APP);
+    return;
+  }
+  if (wordAlignRunning) return;
+  const targets = collectWordAlignTargetIndices(lastCues);
+  if (!targets.length) {
+    alert("자동정렬할 말소리 자막(단어 2개 이상)이 없습니다.");
+    return;
+  }
+
+  if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  syncCuesFromDom();
+
+  wordAlignRunning = true;
+  syncWordAlignButtonState();
+  setWordAlignLoading(true, {
+    title: "단어 자동정렬",
+    step: "",
+    message: "형태소 분석으로 줄 나눔 위치를 계산합니다…",
+    progress: 0,
+  });
+
+  try {
+    const result = await runWordAutoAlign(subtitleHub, (pct, msg) => {
+      setWordAlignLoading(true, {
+        title: "단어 자동정렬",
+        message: msg,
+        progress: pct,
+      });
+    });
+    renderCuesTable(lastCues, { capturePendingEdits: false });
+    if (resultsMeta) {
+      resultsMeta.textContent = `${lastCues.length} cues · 단어 자동정렬 (${result.splitCount}줄 분할)`;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  } catch (err) {
+    setWordAlignLoading(true, {
+      title: "단어 자동정렬 실패",
+      message: friendlyAgentError(err),
+      progress: 0,
+    });
+    await new Promise((r) => setTimeout(r, 2800));
+  } finally {
+    wordAlignRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+  }
 }
 
 function setExportLoading(active, { title, step, message, progress } = {}) {
@@ -1964,6 +2113,11 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
     if (transcribeLoading) {
       transcribeLoading.hidden = true;
       transcribeLoading.setAttribute("aria-hidden", "true");
+    }
+    wordAlignLoading?.classList.remove("is-active");
+    if (wordAlignLoading) {
+      wordAlignLoading.hidden = true;
+      wordAlignLoading.setAttribute("aria-hidden", "true");
     }
     exportLoading.hidden = false;
     exportLoading.classList.add("is-active");
@@ -2366,9 +2520,11 @@ async function loadWaveformPeaks() {
       return false;
     }
     peaksPayload = result.payload;
-    if (expandedCueIndex >= 0 && expandedWordIndex >= 0) {
-      renderCuesTable(lastCues);
+    const metrics = resolvePeaksTimelineMetrics(result.payload, sessionMediaDurationSec);
+    if (metrics?.data?.length && lastCues.length) {
+      subtitleHub.reapplyExtractPostProcessWithPeaks(metrics);
     }
+    renderCuesTable(lastCues);
     return true;
   } catch (err) {
     peaksPayload = null;
@@ -3684,6 +3840,10 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+btnWordAutoAlign?.addEventListener("click", () => {
+  void onWordAutoAlignClick();
+});
+
 btnExport?.addEventListener("click", async () => {
   btnExport.disabled = true;
   try {
@@ -3804,6 +3964,7 @@ attachUserPreferencesAutosave();
 
 populateFontSelect(SYSTEM_FONT_CANDIDATES);
 loadAndApplyUserPreferences();
+syncWordAlignButtonState();
 
 startConnectionMonitor({
   onChange: async (connected, detail) => {

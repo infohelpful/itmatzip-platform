@@ -40,8 +40,11 @@ from engines import auto_subtitle_runtime
 from engines import silence_remover as silence_remover_engine
 from engines import custom_fonts
 from engines import system_fonts
+from engines import auto_subtitle_word_align
 
 router = APIRouter(prefix="/api/tools/auto-subtitle", tags=["auto-subtitle"])
+
+KIWI_LGPL_URL = "https://github.com/bab2min/kiwipiepy"
 
 
 def _ensure_auto_subtitle_environment() -> None:
@@ -571,6 +574,66 @@ def post_prepare(
 @router.get("/prepare/status")
 def get_prepare_status() -> AutoSubtitlePrepareStatus:
     return _get_prepare_state()
+
+
+class AutoSubtitleWordChip(BaseModel):
+    start: float = Field(0.0, ge=0.0)
+    end: float = Field(0.0, ge=0.0)
+    word: str = ""
+    is_silence: bool = False
+    is_deleted: bool = False
+    isSilence: bool = False
+    isDeleted: bool = False
+
+
+class AutoSubtitleWordAlignCueBody(BaseModel):
+    words: list[AutoSubtitleWordChip] = Field(default_factory=list)
+
+
+class AutoSubtitleWordAlignRequest(BaseModel):
+    cues: list[AutoSubtitleWordAlignCueBody] = Field(default_factory=list)
+    min_chars: int = Field(14, ge=6, le=40)
+    max_chars: int = Field(22, ge=8, le=60)
+
+
+class AutoSubtitleWordAlignCueResult(BaseModel):
+    break_after_storage_indices: list[int] = Field(default_factory=list)
+    line_count: int = 0
+
+
+class AutoSubtitleWordAlignResponse(BaseModel):
+    results: list[AutoSubtitleWordAlignCueResult] = Field(default_factory=list)
+    kiwi_lgpl_url: str = KIWI_LGPL_URL
+
+
+@router.post("/words/auto-align", response_model=AutoSubtitleWordAlignResponse)
+def post_words_auto_align(
+    body: AutoSubtitleWordAlignRequest,
+    _: AutoSubtitleReady,
+) -> AutoSubtitleWordAlignResponse:
+    if body.max_chars < body.min_chars:
+        raise HTTPException(status_code=400, detail="max_chars must be >= min_chars")
+    try:
+        results: list[AutoSubtitleWordAlignCueResult] = []
+        for cue in body.cues:
+            words = [w.model_dump() for w in cue.words]
+            out = auto_subtitle_word_align.align_words_breakpoints(
+                words,
+                min_chars=body.min_chars,
+                max_chars=body.max_chars,
+            )
+            results.append(
+                AutoSubtitleWordAlignCueResult(
+                    break_after_storage_indices=out["break_after_storage_indices"],
+                    line_count=int(out.get("line_count") or 0),
+                )
+            )
+        return AutoSubtitleWordAlignResponse(results=results)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("words/auto-align failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/transcribe", response_model=AutoSubtitleTranscribeStatus)
