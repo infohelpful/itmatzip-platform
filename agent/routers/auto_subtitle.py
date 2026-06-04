@@ -896,6 +896,7 @@ def get_media_stream(
         media_type=media_type,
         filename=media.name,
         stat_result=st,
+        headers={"Access-Control-Allow-Origin": "*"},
     )
 
 

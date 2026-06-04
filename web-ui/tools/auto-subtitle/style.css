@@ -591,12 +591,30 @@ body.as-app {
   background: #000;
 }
 
+.as-preview-video-stack {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .as-preview-video {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: fill;
   background: #000;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.as-preview-video.is-layer-active {
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 1;
 }
 
 .as-preview-audio {
@@ -1199,9 +1217,29 @@ body.as-app {
 }
 
 .as-subtitle-cards-root {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.subtitle-line-drop-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  margin-top: -1.5px;
+  background: #facc15;
+  border-radius: 2px;
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.85);
+  pointer-events: none;
+  z-index: 30;
+  opacity: 0;
+  transition: opacity 0.08s ease;
+}
+
+.subtitle-line-drop-indicator.is-visible {
+  opacity: 1;
 }
 
 /* Word rail — compact (Electron timelineLayoutThisRow = false) */
@@ -1452,12 +1490,99 @@ body.as-app {
 
 /* Subtitle cards */
 .subtitle-card {
-  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.55rem;
+  padding: 0.75rem 0.85rem 0.75rem 0.55rem;
   border-radius: 10px;
   border: 1px solid #323b4e;
   background: linear-gradient(180deg, rgba(26, 31, 44, 0.96), rgba(14, 17, 26, 0.99));
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.subtitle-card-line-rail {
+  flex: 0 0 2.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  padding: 0.2rem 0.35rem 0.2rem 0.15rem;
+  margin: -0.1rem 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  align-self: stretch;
+  user-select: none;
+}
+
+.subtitle-card-line-idx {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #8fa3be;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.subtitle-card-line-checkbox {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--as-border-active, #5b9fd4);
+}
+
+.subtitle-card-line-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #9aabb8;
+  font-size: 0.72rem;
+  line-height: 1;
+  letter-spacing: -0.12em;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.subtitle-card-line-drag-handle:hover,
+.subtitle-card-line-drag-handle:focus-visible,
+.subtitle-card.is-line-checked .subtitle-card-line-drag-handle {
+  color: #c8d6e8;
+  background: rgba(91, 159, 212, 0.12);
+}
+
+.subtitle-card-line-drag-handle:active {
+  cursor: grabbing;
+}
+
+.as-subtitle-list.is-line-drag-active {
+  user-select: none;
+}
+
+.subtitle-card-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.subtitle-card.is-line-checked {
+  border-color: #3d6a9a;
+  touch-action: pan-y;
+}
+
+.subtitle-card.is-drag-hold {
+  box-shadow: 0 0 0 2px rgba(91, 159, 212, 0.45);
+}
+
+.subtitle-card.is-drag-source {
+  opacity: 0.55;
 }
 
 .subtitle-card:hover {

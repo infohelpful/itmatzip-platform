@@ -8,7 +8,7 @@ import {
   markLineTextUserEdited,
   reconcileCueWordsToLineText,
 } from "../subtitle-words.js?v=24";
-import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=26";
+import { pickActiveCueIndex, pickActiveWordIndex, timeInCueSpan } from "../playback.js?v=28";
 import { syncFindHighlightLayerToTextarea } from "../subtitle-find-replace-highlight.js?v=2";
 import { LineWaveformPanel } from "../line-waveform-panel.js?v=6";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
@@ -20,6 +20,7 @@ import { visibleWordStorageIndices } from "../shared/subtitle-word-caret-map.js"
 import { subtitleLinesToVrewRows } from "../shared/vrew-subtitle-adapter.js";
 import { wordIsDeleted } from "../shared/subtitles.js?v=20";
 import { normalizePreviewSubtitleText } from "../shared/subtitle-box-chrome.js?v=25";
+import { listableCueIndices } from "../shared/subtitle-list-indices.js?v=5";
 import {
   buildWordChipsAndCarets,
   clearAllRowCaretState,
@@ -31,7 +32,11 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=54";
+} from "./word-caret-ui.js?v=56";
+import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=5";
+import { wireSubtitleListLineDrag } from "./subtitle-line-drag-ui.js?v=3";
+
+export { listableCueIndices };
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -149,25 +154,8 @@ export function scrollCueIntoView(container, cues, _opts, cueIndex, scrollOpts =
   container.scrollTo({ top: target, behavior });
 }
 
-function listableCueIndices(cues) {
-  const out = [];
-  for (let i = 0; i < (cues || []).length; i += 1) {
-    const cue = cues[i];
-    if (cue.is_deleted || cue.isDeleted) continue;
-    const start = Number(cue.start) || 0;
-    const end = Number(cue.end) || 0;
-    const hasSpan = end > start + 1e-6;
-    if (cue.is_silence || cue.isSilence) {
-      if (hasSpan) out.push(i);
-      continue;
-    }
-    if (!String(cue.text || "").trim() && !(cue.words?.length)) continue;
-    out.push(i);
-  }
-  return out;
-}
-
 /**
+
  * @param {HTMLElement} container
  * @param {readonly object[]} cues
  * @param {object} opts
@@ -199,25 +187,35 @@ function renderAllCards(container, cues, opts) {
   const listRoot = document.createElement("div");
   listRoot.className = "as-subtitle-cards-root";
 
-  for (const i of indices) {
+  indices.forEach((i, listPos) => {
     const cue = cues[i];
     ensureCueWords(cue);
 
     const card = document.createElement("article");
     card.className = "subtitle-card";
     card.dataset.cueIndex = String(i);
+    card.dataset.listPos = String(listPos);
 
     const isExpanded =
       opts.expandedCueIndex === i && opts.expandedWordIndex != null && opts.expandedWordIndex >= 0;
     const isCardActive = activeCue === i || opts.selectedCueIndex === i;
     if (isCardActive) card.classList.add("is-active");
+    if (opts.isCueLineChecked?.(i)) card.classList.add("is-line-checked");
     if (playing && activeCue === i) card.classList.add("is-playing");
     if (isExpanded) card.classList.add("has-waveform-open");
+
+    const getOpts = () => opts;
+    const railParts = buildSubtitleLineRail(i, listPos + 1, getOpts);
+    card.appendChild(railParts.rail);
+    wireSubtitleLineDrag(card, i, listPos, container, getOpts, railParts);
+
+    const body = document.createElement("div");
+    body.className = "subtitle-card-body";
 
     const times = document.createElement("div");
     times.className = "subtitle-card-times";
     times.textContent = `${formatFull(cue.start)} ~ ${formatFull(cue.end)}`;
-    card.appendChild(times);
+    body.appendChild(times);
 
     ensureCueWords(cue);
     const words = getCueWords(cue);
@@ -264,7 +262,7 @@ function renderAllCards(container, cues, opts) {
 
     inner.appendChild(tracks);
     rail.appendChild(inner);
-    card.appendChild(rail);
+    body.appendChild(rail);
 
     const accordion = document.createElement("div");
     accordion.className = "subtitle-waveform-accordion";
@@ -273,7 +271,7 @@ function renderAllCards(container, cues, opts) {
     mount.className = "subtitle-card-media-rail subtitle-waveform-mount";
     mount.setAttribute("data-waveform-mount-for-open-line", isExpanded ? "1" : "");
     accordion.appendChild(mount);
-    card.appendChild(accordion);
+    body.appendChild(accordion);
 
     const stack = document.createElement("div");
     stack.className = "subtitle-card-textarea-stack";
@@ -331,19 +329,21 @@ function renderAllCards(container, cues, opts) {
     ta.dataset.waveformNoDismiss = "1";
     stack.appendChild(findLayer);
     stack.appendChild(ta);
-    card.appendChild(stack);
+    body.appendChild(stack);
+    card.appendChild(body);
 
-    card.addEventListener("click", () =>
-      opts.onSelectCue?.(i, { scroll: false, rerender: false }),
-    );
+    card.addEventListener("click", () => {
+      opts.onSelectCue?.(i, { scroll: false, rerender: false });
+    });
     wireSubtitleCardCaretHost(card, i, words, cues, container, opts);
 
     if (isExpanded) mountWordRail(mount, card, i, opts.expandedWordIndex, cues, opts);
 
     listRoot.appendChild(card);
-  }
+  });
 
   container.appendChild(listRoot);
+  wireSubtitleListLineDrag(container, () => opts);
 }
 
 export function renderSubtitleCards(container, cues, opts = {}) {
@@ -396,7 +396,7 @@ export function resetPlaybackHighlightCache() {
 
 export function updatePlaybackHighlights(container, cues, opts) {
   if (!container) return;
-  const t = Number(opts.playheadSec) || 0;
+  const t = Number(opts.playheadMediaSec ?? opts.playheadSec) || 0;
   const playing = Boolean(opts.isPlaying);
   const selectedIdx =
     typeof opts.selectedCueIndex === "number" ? opts.selectedCueIndex : -1;
@@ -430,6 +430,21 @@ export function updatePlaybackHighlights(container, cues, opts) {
     return;
   }
 
+  const storageWi =
+    typeof opts.activeWordIndex === "number" ? opts.activeWordIndex : -1;
+  if (storageWi >= 0) {
+    const cardEl = queryCardByCueIndex(container, playingIdx);
+    const target = cardEl?.querySelector(
+      `.subtitle-word-chip[data-word-index="${storageWi}"]`,
+    );
+    if (target && lastPlayingWordEl !== target) {
+      lastPlayingWordEl?.classList.remove("subtitle-word-chip--active");
+      target.classList.add("subtitle-word-chip--active");
+      lastPlayingWordEl = target;
+    }
+    if (target) return;
+  }
+
   if (wordChipCache.cardIdx !== playingIdx) {
     const cardEl = queryCardByCueIndex(container, playingIdx);
     const collected = [];
@@ -442,10 +457,18 @@ export function updatePlaybackHighlights(container, cues, opts) {
   }
 
   let nextChip = null;
+  const timeEps = 1e-4;
   for (const c of wordChipCache.chips) {
-    if (t >= c.s && t < c.e) {
+    if (t >= c.s - timeEps && t < c.e + timeEps) {
       nextChip = c.el;
       break;
+    }
+  }
+  if (!nextChip && wordChipCache.chips.length > 0 && playingIdx >= 0) {
+    const cue = cues[playingIdx];
+    const first = wordChipCache.chips[0];
+    if (cue && timeInCueSpan(cue, t) && t < first.s + timeEps) {
+      nextChip = first.el;
     }
   }
 

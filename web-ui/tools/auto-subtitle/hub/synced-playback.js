@@ -8,8 +8,17 @@ import {
   assignMasterAudioTimelineSecIfNeeded,
   playMasterVideoSynced,
 } from "./html-audio-master-playback.js?v=2";
-import { mergeCutRanges, skipCutRangeAt } from "../playback.js";
+import { mergeCutRanges, skipCutRangeAt } from "../playback.js?v=28";
 import { getPlaybackOrchestrator } from "./playback-orchestrator.js";
+import {
+  armListOrderSeamlessPlayback,
+  clearListOrderPreviewTimeline,
+  getListOrderPreviewClipPos,
+  isListOrderPreviewTimelineActive,
+  isListOrderSeamlessPlaybackActive,
+  syncListOrderPreviewPlayback,
+} from "./list-order-preview-sync.js?v=7";
+import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=7";
 
 /** @type {WebAudioMasterPlayback | null} */
 let waEngine = null;
@@ -72,46 +81,94 @@ export async function startSyncedPlayback(mediaUrl, video, audio, opts) {
   const start = Math.max(0, opts.startMediaSec || 0);
   const skipRanges = opts.skipRanges || [];
   const orch = getPlaybackOrchestrator();
-  if (orch.video !== video) orch.attachVideo(video, { masterAudio: audio });
+  const bridge = getPreviewMediaBridge();
 
   getWebAudioEngine().stopPlayback();
   orch.suspendSyncEngineForWebAudio();
 
-  audio.pause();
-  if (audio.src !== mediaUrl) {
-    audio.src = mediaUrl;
-    try {
-      audio.load();
-    } catch {
-      /* ignore */
+  const t = skipCutRangeAt(start, skipRanges);
+
+  if (isListOrderPreviewTimelineActive() && bridge.stack) {
+    const slaveVideo = bridge.video;
+    if (slaveVideo) {
+      await bridge.setMediaUrl(mediaUrl);
+      await bridge.unlockAudioOutput();
+      await armListOrderSeamlessPlayback({
+        startMediaSec: t,
+        skipRanges,
+        clipPos: getListOrderPreviewClipPos(),
+      });
+      const masterAudio = bridge.audio;
+      if (masterAudio && orch.video !== slaveVideo) {
+        orch.attachVideo(slaveVideo, { masterAudio });
+      }
+      if (masterAudio) {
+        slaveVideo.muted = true;
+        masterAudio.muted = false;
+        masterAudio.removeAttribute("muted");
+        playMasterVideoSynced(masterAudio, slaveVideo, {
+          targetVideoSec: t,
+          targetAudioSec: t,
+          onAudioPlayRejected: (err) => {
+            console.warn("seamless list play() rejected", err);
+          },
+        });
+        htmlAudioMasterActive = true;
+      }
     }
   }
-  audio.preload = "auto";
+  if (!htmlAudioMasterActive) {
+    await bridge.unlockAudioOutput();
+    if (bridge.stack?.graphReady) {
+      bridge.stack.setGainLevels(1, 0);
+    }
 
-  const t = skipCutRangeAt(start, skipRanges);
-  video.muted = true;
-  audio.muted = false;
-  audio.removeAttribute("muted");
+    if (orch.video !== video) orch.attachVideo(video, { masterAudio: audio });
 
-  playMasterVideoSynced(audio, video, {
-    targetVideoSec: t,
-    targetAudioSec: t,
-    onAudioPlayRejected: (err) => {
-      console.warn("html-audio master play() rejected", err);
-    },
-  });
+    audio.pause();
+    if (audio.src !== mediaUrl) {
+      assignPreviewMediaSrc(audio, mediaUrl);
+    }
+    if (video.src !== mediaUrl) {
+      assignPreviewMediaSrc(video, mediaUrl);
+    }
+    audio.preload = "auto";
 
-  htmlAudioMasterActive = true;
+    video.muted = true;
+    audio.muted = false;
+    audio.removeAttribute("muted");
+
+    playMasterVideoSynced(audio, video, {
+      targetVideoSec: t,
+      targetAudioSec: t,
+      onAudioPlayRejected: (err) => {
+        console.warn("html-audio master play() rejected", err);
+      },
+    });
+
+    htmlAudioMasterActive = true;
+  }
+
+  const masterAudio =
+    (isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive()) &&
+    bridge.stack
+      ? bridge.audio ?? audio
+      : audio;
+  const slaveVideo =
+    (isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive()) &&
+    bridge.stack
+      ? bridge.video ?? video
+      : video;
 
   const onEnded = () => {
     if (!htmlAudioMasterActive) return;
     htmlAudioMasterActive = false;
     orch.resumeSyncEngineAfterWebAudio();
-    video.pause();
-    audio.removeEventListener("ended", onEnded);
+    slaveVideo.pause();
+    masterAudio.removeEventListener("ended", onEnded);
     if (opts.onEnded) opts.onEnded();
   };
-  audio.addEventListener("ended", onEnded);
+  masterAudio.addEventListener("ended", onEnded);
 
   return { mode: "html-audio", engine: null };
 }
@@ -122,6 +179,7 @@ export async function startSyncedPlayback(mediaUrl, video, audio, opts) {
  */
 export function stopSyncedPlayback(video, audio) {
   htmlAudioMasterActive = false;
+  clearListOrderPreviewTimeline();
   getWebAudioEngine().stopPlayback();
   getPlaybackOrchestrator().resumeSyncEngineAfterWebAudio();
   if (audio) {
@@ -152,7 +210,28 @@ export function applySkipCutToHtmlAudioIfNeeded(audio, skipRanges) {
  * @param {{ skipRanges: { start: number, end: number }[] }} opts
  */
 export function syncVideoFromHtmlAudioMaster(video, audio, opts) {
-  if (!htmlAudioMasterActive || audio.paused) return false;
+  if (!htmlAudioMasterActive) return false;
+
+  const bridge = getPreviewMediaBridge();
+  const stackAudible = bridge.audio;
+  const useStackSync =
+    isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive();
+
+  if (useStackSync && bridge.stack && stackAudible) {
+    if (stackAudible.paused) return false;
+    if (isListOrderSeamlessPlaybackActive()) {
+      return syncListOrderPreviewPlayback(
+        bridge.video ?? video,
+        stackAudible,
+        opts,
+      );
+    }
+    audio = stackAudible;
+    video = bridge.video ?? video;
+  } else if (audio.paused) {
+    return false;
+  }
+
   if (video.seeking || audio.seeking) return true;
   if (audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
     if (!video.paused) video.pause();
@@ -184,7 +263,25 @@ export function syncVideoFromHtmlAudioMaster(video, audio, opts) {
  * @returns {{ active: boolean, mediaSec: number | null }}
  */
 export function readHtmlAudioMasterPlayhead(audio, opts) {
-  if (!htmlAudioMasterActive || audio.paused) {
+  if (!htmlAudioMasterActive) {
+    return { active: false, mediaSec: null };
+  }
+
+  const bridge = getPreviewMediaBridge();
+  const useStackClock =
+    isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive();
+
+  if (useStackClock && bridge.stack) {
+    const audible = bridge.audio;
+    const mediaSec = bridge.getMasterPlayheadSec();
+    const active = Boolean(
+      (audible && !audible.paused) ||
+        (bridge.video && !bridge.video.paused),
+    );
+    return { active, mediaSec };
+  }
+
+  if (audio.paused) {
     return { active: false, mediaSec: null };
   }
   if (audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {

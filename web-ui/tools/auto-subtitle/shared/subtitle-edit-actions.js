@@ -17,6 +17,10 @@ import {
 import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
 import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-edit-ops.js";
 import { timelineEditLog } from "./timeline-edit-log.js";
+import {
+  reorderCuesByListInsert,
+  reorderCuesByListPosition,
+} from "./subtitle-list-indices.js?v=5";
 
 function textFromWords(line, words, fallback) {
   const t = displayTextFromSubtitleWords(words);
@@ -106,6 +110,58 @@ export function splitSubtitleAt(hub, index, cursorPos) {
  */
 export function mergeEmptySubtitleAt(hub, index) {
   hub.applySubtitleChange((prev) => mergeEmptySubtitleWithPrevious(prev, index) ?? prev);
+}
+
+/**
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {number} index
+ */
+export function deleteSubtitleLineAt(hub, index) {
+  timelineEditLog("delete-line", { index });
+  hub.applySubtitleChange((prev) => {
+    if (index < 0 || index >= prev.length) return prev;
+    return [...prev.slice(0, index), ...prev.slice(index + 1)];
+  });
+}
+
+/**
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {readonly number[]} indices cue indices, any order
+ */
+export function deleteSubtitleLinesAt(hub, indices) {
+  const unique = [...new Set(indices)].filter((i) => i >= 0).sort((a, b) => b - a);
+  if (!unique.length) return;
+  timelineEditLog("delete-lines", { indices: unique });
+  hub.applySubtitleChange((prev) => {
+    let next = prev;
+    for (const i of unique) {
+      if (i < 0 || i >= next.length) continue;
+      next = [...next.slice(0, i), ...next.slice(i + 1)];
+    }
+    return next;
+  });
+}
+
+/**
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {number} fromListPos
+ * @param {number} toListPos
+ */
+export function reorderSubtitleLinesByListPosition(hub, fromListPos, toListPos) {
+  timelineEditLog("reorder-line", { fromListPos, toListPos });
+  hub.applySubtitleChange((prev) => reorderCuesByListPosition(prev, fromListPos, toListPos));
+}
+
+/**
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {number} fromListPos
+ * @param {number} insertBeforePos
+ */
+export function reorderSubtitleLinesByListInsert(hub, fromListPos, insertBeforePos) {
+  timelineEditLog("reorder-line-insert", { fromListPos, insertBeforePos });
+  hub.applySubtitleChange((prev) =>
+    reorderCuesByListInsert(prev, fromListPos, insertBeforePos),
+  );
 }
 
 /**

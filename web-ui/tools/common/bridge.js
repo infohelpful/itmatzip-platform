@@ -10,7 +10,7 @@
  *   Bridge.startConnectionMonitor({ onChange: (ok) => { ... } });
  */
 
-import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
+import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js";
 import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna20";
 import {
   ensureSiteModalStyles,
@@ -386,6 +386,8 @@ const _originFallbacks = AGENT_ORIGIN_FALLBACKS;
  * @returns {string}
  */
 function defaultAgentOriginForPage() {
+  const embedded = getPageLocalAgentOrigin();
+  if (embedded) return embedded;
   if (typeof window === "undefined") return _originFallbacks[0];
   const h = window.location.hostname;
   if (h === "localhost") return `http://localhost:${AGENT_PORT}`;
@@ -432,6 +434,16 @@ export function configureBridge(cfg = {}) {
 
 export function getAgentOrigin() {
   return _origin;
+}
+
+/**
+ * UI가 에이전트에서 열렸으면 상대 경로(페이지 origin 자동 일치).
+ * @param {string} relativePath
+ */
+export function buildAgentResourceUrl(relativePath) {
+  const path = relativePath.startsWith("/") ? relativePath : `/${relativePath}`;
+  if (isPageServedFromLocalAgent()) return path;
+  return `${getAgentOrigin()}${path}`;
 }
 
 /**
@@ -640,15 +652,23 @@ const _mediaBlobByDirectUrl = new Map();
  */
 export function needsAgentMediaFetchProxy(url) {
   if (typeof window === "undefined") return false;
-  if (window.location.protocol !== "https:") return false;
   try {
     const target = new URL(url, window.location.href);
-    if (target.protocol !== "http:") return false;
-    const h = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
-    return h === "127.0.0.1" || h === "localhost" || h === "::1";
+    const page = new URL(window.location.href);
+    const th = target.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const ph = page.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const loopback = (h) => h === "127.0.0.1" || h === "localhost" || h === "::1";
+
+    if (target.origin !== page.origin) {
+      if (loopback(th) && loopback(ph)) return true;
+      if (page.protocol === "https:" && target.protocol === "http:" && loopback(th)) {
+        return true;
+      }
+    }
   } catch {
     return false;
   }
+  return false;
 }
 
 /**
@@ -829,7 +849,10 @@ async function pingAgentOrigin(origin, signal) {
 
 export async function checkAgentConnection(signal) {
   await primeLocalNetworkAccess();
-  const candidates = [...new Set([_origin, ..._originFallbacks])];
+  const pageOrigin = getPageLocalAgentOrigin();
+  const candidates = pageOrigin
+    ? [...new Set([pageOrigin, _origin, ..._originFallbacks])]
+    : [...new Set([_origin, ..._originFallbacks])];
   /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string } | null} */
   let lastFail = null;
 
@@ -837,7 +860,7 @@ export async function checkAgentConnection(signal) {
     const origin = candidates[i];
     const detail = await pingAgentOrigin(origin, signal);
     if (detail.ok) {
-      _origin = origin.replace(/\/+$/, "");
+      _origin = (pageOrigin ?? origin).replace(/\/+$/, "");
       recordCircuitSuccess();
       return {
         ok: true,
@@ -1654,6 +1677,7 @@ function delay(ms, sig) {
 const Bridge = {
   configureBridge,
   getAgentOrigin,
+  buildAgentResourceUrl,
   setAgentOrigin,
   fetchAgent,
   needsAgentMediaFetchProxy,

@@ -11,6 +11,28 @@ export const AGENT_ORIGIN_FALLBACKS = [
   `http://localhost:${AGENT_PORT}`,
 ];
 
+/** @param {string} host */
+function isLoopbackHost(host) {
+  const h = host.replace(/^\[|\]$/g, "").toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h === "::1";
+}
+
+/**
+ * UI가 로컬 에이전트(19876)에서 제공될 때 — 페이지 origin 그대로 사용.
+ * @returns {string | null}
+ */
+export function getPageLocalAgentOrigin() {
+  if (typeof window === "undefined") return null;
+  const loc = window.location;
+  if (!isLoopbackHost(loc.hostname)) return null;
+  if (loc.port !== String(AGENT_PORT)) return null;
+  return loc.origin.replace(/\/+$/, "");
+}
+
+export function isPageServedFromLocalAgent() {
+  return getPageLocalAgentOrigin() != null;
+}
+
 /**
  * @param {string} [origin] HTTP origin (ws:// derived from it)
  * @returns {string}

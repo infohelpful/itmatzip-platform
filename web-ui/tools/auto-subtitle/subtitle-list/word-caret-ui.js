@@ -91,6 +91,16 @@ export function getFocusedSubtitleCardIndex() {
   return -1;
 }
 
+/** 단어 캐럿 버튼에 키보드 포커스가 있으면 Delete는 단어 삭제로 처리 */
+export function isWordCaretKeyboardFocus() {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  return (
+    el.classList.contains("subtitle-word-caret-btn") ||
+    Boolean(el.closest(".subtitle-word-caret-btn"))
+  );
+}
+
 export function hintActiveCaretCardIndex(idx) {
   activeCaretCardIndex = typeof idx === "number" && idx >= 0 ? idx : null;
 }
@@ -1871,6 +1881,16 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
       focusCaretButtonSync(cardIndex, words, 0);
       return true;
     };
+
+    const lineDragReady =
+      Boolean(opts.isCueLineChecked?.(cardIndex)) ||
+      (typeof opts.selectedCueIndex === "number" && opts.selectedCueIndex === cardIndex);
+
+    if (lineDragReady && t.closest(".subtitle-card-times, .subtitle-word-rail")) {
+      spaceSeekIntent = "wholeLine";
+      lastCardFocusIndex = cardIndex;
+      return;
+    }
 
     if (t.closest(".subtitle-card-times") && tryFirstCaret()) return;
     if (t.closest(".subtitle-word-rail") && tryFirstCaret()) return;

@@ -23,7 +23,8 @@ export function assignMasterAudioTimelineSecIfNeeded(audio, timelineSec) {
  * @param {number} targetSec
  * @param {() => void} done
  */
-function seekWithNudge(el, targetSec, done) {
+/** @param {HTMLMediaElement} el @param {number} targetSec @param {() => void} done */
+export function seekWithNudge(el, targetSec, done) {
   const target = Math.max(0, Number(targetSec));
   const cur = el.currentTime;
   const dur = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null;

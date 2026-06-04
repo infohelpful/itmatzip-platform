@@ -1,5 +1,6 @@
 import {
   applyConnectionStatusDot,
+  buildAgentResourceUrl,
   checkAgentConnection,
   configureBridge,
   fetchAgent,
@@ -15,7 +16,7 @@ import {
   setAgentLongOperationActive,
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
-} from "../common/bridge.js?v=lna15";
+} from "../common/bridge.js?v=lna16";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { showAdSense } from "../common/adsense.js";
 import {
@@ -42,9 +43,10 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=69";
+} from "./cue-cards.js?v=75";
 import {
   handleGlobalArrowKey,
+  isWordCaretKeyboardFocus,
   resetKeyboardPauseCaret,
   resetSpaceSeekIntent,
   syncCaretOnPlaybackPause,
@@ -72,10 +74,11 @@ import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
   pickActiveWordIndex,
+  pickActiveWordIndexWithHint,
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=26";
+} from "./playback.js?v=29";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
@@ -110,7 +113,7 @@ import {
   startSyncedPlayback,
   stopSyncedPlayback,
   syncVideoFromHtmlAudioMaster,
-} from "./hub/synced-playback.js?v=31";
+} from "./hub/synced-playback.js?v=37";
 import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=2";
 import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=24";
 import {
@@ -120,7 +123,31 @@ import {
   backspaceWordAt,
   deleteWordAt,
   deleteWordRangeAt,
-} from "./shared/subtitle-edit-actions.js?v=23";
+  deleteSubtitleLinesAt,
+  reorderSubtitleLinesByListInsert,
+} from "./shared/subtitle-edit-actions.js?v=27";
+import { listableCueIndices } from "./shared/subtitle-list-indices.js?v=5";
+import {
+  bumpListableCueIndicesCache,
+  clipIndexForListPos,
+  createListOrderPreviewMapping,
+  cueIndexForClipIndex,
+  getListableCueIndicesCached,
+  listPosForCueIndex,
+  resolveListClipIndexFromMedia,
+} from "./shared/subtitle-list-playback.js?v=6";
+import {
+  clearListOrderPreviewTimeline,
+  getListOrderPreviewClipPos,
+  isListOrderPreviewTimelineActive,
+  isListOrderSeamlessPlaybackActive,
+  resetListOrderPreviewClipPos,
+  setListOrderPreviewTimeline,
+} from "./hub/list-order-preview-sync.js?v=7";
+import {
+  getPreviewMediaBridge,
+  initPreviewMediaBridgeFromDom,
+} from "./hub/seamless-preview-stack.js?v=7";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 
@@ -193,8 +220,36 @@ const subtitleEmpty = document.getElementById("subtitle-empty");
 const resultsMeta = document.getElementById("results-meta");
 const previewSection = document.getElementById("preview-section");
 const previewMediaFrame = document.getElementById("preview-media-frame");
-const previewVideo = document.getElementById("preview-video");
-const previewAudio = document.getElementById("preview-audio");
+const previewVideoEl = document.getElementById("preview-video-a");
+const previewAudioEl = document.getElementById("preview-audio-a");
+initPreviewMediaBridgeFromDom();
+const previewBridge = getPreviewMediaBridge();
+previewBridge.setOnLayerSwapped(() => {
+  const orch = getPlaybackOrchestrator();
+  const v = previewBridge.video;
+  const a = previewBridge.audio;
+  if (v) orch.attachVideo(v, { masterAudio: a ?? undefined });
+});
+
+/** Web Audio 그래프·목록 seamless 시 audible 레이어 SSOT */
+function usesSeamlessAudioClock() {
+  const stack = previewBridge.stack;
+  return Boolean(
+    stack &&
+      (stack.isListOrderMode() || (stack.graphReady && !stack.graphFailed)),
+  );
+}
+
+/** 재생 중 더블 버퍼 스왑 반영 */
+function getPv() {
+  return previewBridge.video ?? previewVideoEl;
+}
+function getPa() {
+  if (usesSeamlessAudioClock()) {
+    return previewBridge.audio ?? previewAudioEl;
+  }
+  return previewBridge.primaryAudio ?? previewAudioEl;
+}
 const previewOverlay = document.getElementById("preview-subtitle-overlay");
 const previewWatermarkOverlay = document.getElementById("preview-watermark-overlay");
 const previewEmpty = document.getElementById("preview-empty");
@@ -301,6 +356,9 @@ let lastCutRanges = [];
 let lastExportPath = null;
 let waveformLoading = false;
 let selectedCueIndex = -1;
+/** @type {Set<number>} */
+let checkedCueIndices = new Set();
+let subtitleLineDragActive = false;
 let expandedCueIndex = -1;
 /** @type {ReturnType<typeof setTimeout> | null} */
 let waveformChipCloseTimer = null;
@@ -314,21 +372,26 @@ let isVideoPlaying = false;
 /** RAF 루프와 무관하게 실제 미디어 재생 여부 */
 function isPreviewMediaPlaying() {
   if (isVideoPlaying) return true;
-  if (previewAudio && isHtmlAudioMasterActive()) {
-    return !previewAudio.paused;
+  if (getPa() && isHtmlAudioMasterActive()) {
+    return !getPa().paused;
   }
-  return Boolean(previewVideo && !previewVideo.paused);
+  return Boolean(getPv() && !getPv().paused);
 }
 
 /** 재생 클럭 — Whisper/RMS·피크·단어 블록과 동일한 오디오 축 (Electron masterAudio) */
 function readPreviewMediaClockSec() {
   const skip = getPlaybackSkipRanges();
-  if (previewAudio && isHtmlAudioMasterActive()) {
-    const { mediaSec } = readHtmlAudioMasterPlayhead(previewAudio, { skipRanges: skip });
+  if (getPa() && isHtmlAudioMasterActive()) {
+    const { mediaSec, active } = readHtmlAudioMasterPlayhead(getPa(), {
+      skipRanges: skip,
+    });
     if (mediaSec != null) return mediaSec;
+    if (active && getPv() && Number.isFinite(getPv().currentTime)) {
+      return getPv().currentTime;
+    }
   }
-  if (previewVideo && Number.isFinite(previewVideo.currentTime)) {
-    return previewVideo.currentTime;
+  if (getPv() && Number.isFinite(getPv().currentTime)) {
+    return getPv().currentTime;
   }
   return 0;
 }
@@ -339,14 +402,14 @@ function capturePlayheadFromPreviewMedia() {
   let media = null;
   if (
     isHtmlAudioMasterActive() &&
-    previewAudio &&
-    Number.isFinite(previewAudio.currentTime)
+    getPa() &&
+    Number.isFinite(getPa().currentTime)
   ) {
-    media = previewAudio.currentTime;
-  } else if (previewVideo && Number.isFinite(previewVideo.currentTime)) {
-    media = previewVideo.currentTime;
-  } else if (previewAudio && Number.isFinite(previewAudio.currentTime)) {
-    media = previewAudio.currentTime;
+    media = getPa().currentTime;
+  } else if (getPv() && Number.isFinite(getPv().currentTime)) {
+    media = getPv().currentTime;
+  } else if (getPa() && Number.isFinite(getPa().currentTime)) {
+    media = getPa().currentTime;
   }
   if (media == null) return;
   playheadSec = orch.mapMediaToEditSec(media);
@@ -354,30 +417,31 @@ function capturePlayheadFromPreviewMedia() {
 
 /** Electron syncPausedMasterToEdit — 정지 시 미디어 시계를 playheadSec 에 맞춤 */
 function syncPausedPreviewMediaToPlayhead() {
-  if (!previewVideo || !Number.isFinite(playheadSec)) return;
+  if (!getPv() || !Number.isFinite(playheadSec)) return;
   const orch = getPlaybackOrchestrator();
   const skip = getPlaybackSkipRanges();
   let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
-  if (Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
-    media = Math.min(media, Math.max(0, previewVideo.duration - 0.001));
+  if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+    media = Math.min(media, Math.max(0, getPv().duration - 0.001));
   }
-  if (previewAudio?.src) {
-    assignMasterAudioTimelineSecIfNeeded(previewAudio, media);
+  if (getPa()?.src) {
+    assignMasterAudioTimelineSecIfNeeded(getPa(), media);
   }
-  if (Math.abs(previewVideo.currentTime - media) > 0.002) {
-    previewVideo.currentTime = media;
+  if (Math.abs(getPv().currentTime - media) > 0.002) {
+    getPv().currentTime = media;
   }
-  previewAudio?.pause();
-  previewVideo.pause();
+  getPa()?.pause();
+  getPv().pause();
   playheadSec = orch.mapMediaToEditSec(media);
 }
 
 /** @param {number} startMediaSec */
-function beginPreviewSyncedPlayback(startMediaSec) {
+async function beginPreviewSyncedPlayback(startMediaSec) {
   const url = getPreviewMediaPlaybackUrl();
-  if (!url || !previewVideo || !previewAudio) return false;
+  if (!url || !getPv() || !getPa()) return false;
   masterMediaUrl = url;
-  void startSyncedPlayback(url, previewVideo, previewAudio, {
+  await previewBridge.unlockAudioOutput();
+  await startSyncedPlayback(url, getPv(), getPa(), {
     startMediaSec,
     skipRanges: getPlaybackSkipRanges(),
   });
@@ -390,6 +454,12 @@ let waveformPlayRangeEndEdit = null;
 let deleteGuardUntil = 0;
 let lastPlaybackCueIndex = -1;
 let lastPlaybackWordIndex = -1;
+/** 목록(표시 IDX) 기준 재생 — listPos 0..n-1, 파형 구간 재생 시 -1 */
+let listPlaybackListPos = -1;
+/** @type {ReturnType<typeof createListOrderPreviewMapping> | null} */
+let listPreviewBundle = null;
+/** 목록 stitched 클립 인덱스 (미디어 시각 역매핑 대신 SSOT) */
+let listPlaybackClipPos = -1;
 let lastOverlayCueIndex = -1;
 let lastOverlayDisplayText = "";
 /** 재생 오버레이 — 인접 cue 사이 짧은 구간에서 깜박임 방지 (초) */
@@ -448,6 +518,7 @@ const subtitleHub = new SubtitleAppHub({
 
 function syncHubFromState() {
   lastCues = subtitleHub.cues;
+  bumpListableCueIndicesCache();
   lastCutRanges = subtitleHub.cutRanges;
   persistCues();
   persistCuts();
@@ -460,8 +531,8 @@ function syncHubFromState() {
 function rebuildPlaybackSync() {
   const orch = getPlaybackOrchestrator();
   const dur =
-    previewVideo?.duration && Number.isFinite(previewVideo.duration)
-      ? previewVideo.duration
+    getPv()?.duration && Number.isFinite(getPv().duration)
+      ? getPv().duration
       : 0;
   orch.rebuild(lastCues, getPlaybackSkipRanges(), dur);
 }
@@ -488,6 +559,10 @@ function clearSubtitleWorkspace() {
   lastCutRanges = [];
   lastExportPath = null;
   selectedCueIndex = -1;
+  checkedCueIndices = new Set();
+  subtitleLineDragActive = false;
+  listPlaybackListPos = -1;
+  deactivateListOrderPreviewPlayback();
   expandedCueIndex = -1;
   expandedWordIndex = -1;
   peaksPayload = null;
@@ -526,8 +601,8 @@ function computePreviewContainRect(containerW, containerH, mediaW, mediaH) {
 }
 
 function getPreviewNativeMediaSize() {
-  const vw = previewVideo?.videoWidth || 0;
-  const vh = previewVideo?.videoHeight || 0;
+  const vw = getPv()?.videoWidth || 0;
+  const vh = getPv()?.videoHeight || 0;
   if (vw > 0 && vh > 0) return { width: vw, height: vh };
   return { width: 1920, height: 1080 };
 }
@@ -553,7 +628,7 @@ function layoutPreviewMediaFrame() {
 }
 
 function getPreviewOverlayScale(style) {
-  const nativeH = style.videoHeight || previewVideo?.videoHeight || 1080;
+  const nativeH = style.videoHeight || getPv()?.videoHeight || 1080;
   const frameH = previewMediaFrame?.clientHeight || 0;
   if (frameH > 0 && nativeH > 0) return frameH / nativeH;
   return 0.55;
@@ -582,8 +657,8 @@ function readSubtitleStyleFromDom() {
     x: Number(styleX?.value) ?? DEFAULT_SUBTITLE_STYLE.x,
     y: Number(styleYRange?.value) ?? DEFAULT_SUBTITLE_STYLE.y,
   };
-  const vw = previewVideo?.videoWidth;
-  const vh = previewVideo?.videoHeight;
+  const vw = getPv()?.videoWidth;
+  const vh = getPv()?.videoHeight;
   if (vw > 0 && vh > 0) {
     style.videoWidth = vw;
     style.videoHeight = vh;
@@ -660,7 +735,7 @@ function updatePreviewWatermark() {
     previewWatermarkOverlay.replaceChildren();
     return;
   }
-  const hasMedia = Boolean(previewVideo?.src || previewAudio?.src);
+  const hasMedia = Boolean(getPv()?.src || getPa()?.src);
   if (!hasMedia) {
     previewWatermarkOverlay.hidden = true;
     previewWatermarkOverlay.setAttribute("aria-hidden", "true");
@@ -953,7 +1028,9 @@ function getPlaybackSkipRanges() {
 function getMediaStreamUrl() {
   const p = videoPathInput?.value?.trim() || sessionVideoPath;
   if (!p || !agentConnected) return null;
-  return `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+  return buildAgentResourceUrl(
+    `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
+  );
 }
 
 function getPreviewMediaPlaybackUrl() {
@@ -1015,6 +1092,11 @@ function getPreviewCueText(cue) {
 function resolveOverlayDisplayTextAt(editSec) {
   const t = Number(editSec);
   if (!Number.isFinite(t)) return "";
+
+  if (isPreviewMediaPlaying() && useListIndexPlayback()) {
+    const { ai } = resolvePlaybackIndices(t);
+    if (ai >= 0) return getPreviewCueText(lastCues[ai]);
+  }
 
   let hit = -1;
   for (let i = 0; i < lastCues.length; i += 1) {
@@ -1083,7 +1165,8 @@ function editSecForStorageWord(cue, storageWordIndex) {
 
 /** @param {number} editSec */
 function seekEditSecAndPlay(editSec) {
-  if (!previewVideo || !previewAudio || !Number.isFinite(editSec)) return false;
+  if (!getPv() || !getPa() || !Number.isFinite(editSec)) return false;
+  if (selectedCueIndex >= 0) setListPlaybackListPosFromCueIndex(selectedCueIndex);
   const orch = getPlaybackOrchestrator();
   const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
   orch.seekMediaSec(media);
@@ -1148,7 +1231,7 @@ function getPreviewEditDurationSec() {
 }
 
 function updatePreviewTransportAvailability() {
-  const hasMedia = Boolean(previewVideo?.src);
+  const hasMedia = Boolean(getPv()?.src);
   if (btnPreviewPlay) btnPreviewPlay.disabled = !hasMedia;
   if (previewSeek) previewSeek.disabled = !hasMedia;
 }
@@ -1167,7 +1250,7 @@ function updatePreviewTransportUi() {
 
 /** @param {number} editSec @param {{ resumePlayback?: boolean }} [opts] */
 function seekPreviewToEditSec(editSec, opts = {}) {
-  if (!previewVideo || !Number.isFinite(editSec)) return;
+  if (!getPv() || !Number.isFinite(editSec)) return;
   const dur = getPreviewEditDurationSec();
   const clamped = dur > 0 ? Math.max(0, Math.min(dur, editSec)) : Math.max(0, editSec);
   playheadSec = clamped;
@@ -1193,9 +1276,9 @@ function setPreviewPlaybackUiActive(active) {
     btnPreviewPlay.setAttribute("aria-label", active ? "일시정지" : "재생");
     btnPreviewPlay.classList.toggle("is-playing", active);
   }
-  if (previewVideo) {
-    previewVideo.controls = false;
-    previewVideo.removeAttribute("controls");
+  if (getPv()) {
+    getPv().controls = false;
+    getPv().removeAttribute("controls");
   }
   updatePreviewTransportUi();
 }
@@ -1204,10 +1287,123 @@ function setPreviewPlaybackUiActive(active) {
  * @param {number} t
  * @returns {{ ai: number, wi: number }}
  */
+function useListIndexPlayback() {
+  return (
+    isVideoPlaying &&
+    listPlaybackListPos >= 0 &&
+    waveformPlayRangeEndEdit == null &&
+    listPreviewBundle?.clips?.length > 0 &&
+    isListOrderSeamlessPlaybackActive()
+  );
+}
+
+function activateListOrderPreviewPlayback() {
+  const hint =
+    (getPv()?.duration && Number.isFinite(getPv().duration)
+      ? getPv().duration
+      : 0) ||
+    (getPa()?.duration && Number.isFinite(getPa().duration)
+      ? getPa().duration
+      : 0);
+  listPreviewBundle = createListOrderPreviewMapping(lastCues, hint);
+  setListOrderPreviewTimeline(listPreviewBundle);
+}
+
+function deactivateListOrderPreviewPlayback() {
+  clearListOrderPreviewTimeline();
+  listPreviewBundle = null;
+  listPlaybackClipPos = -1;
+}
+
+function setListPlaybackListPosFromCueIndex(cueIndex) {
+  const pos = listPosForCueIndex(lastCues, cueIndex);
+  listPlaybackListPos = pos >= 0 ? pos : -1;
+}
+
+/** 단어 칩 하이라이트 — 오디오 마스터 재생 시 미디어 시계 SSOT */
+function getPreviewWordClockSec() {
+  if (isPreviewMediaPlaying() && isHtmlAudioMasterActive()) {
+    const media = readPreviewMediaClockSec();
+    if (Number.isFinite(media)) return media;
+  }
+  return playheadSec;
+}
+
+function resolveActiveWordIndexForCue(cue) {
+  if (!cue) return -1;
+  const t = getPreviewWordClockSec();
+  return pickActiveWordIndexWithHint(cue, t, lastPlaybackWordIndex);
+}
+
+function syncPlaybackWordHighlights(activeCueIndex, activeWordIndex) {
+  if (!subtitleList || activeCueIndex < 0) return;
+  updatePlaybackHighlights(subtitleList, lastCues, {
+    playheadSec: getPreviewWordClockSec(),
+    playheadMediaSec: getPreviewWordClockSec(),
+    isPlaying: true,
+    selectedCueIndex,
+    activeCueIndex,
+    activeWordIndex,
+  });
+}
+
+function syncListPlaybackPosFromStack() {
+  const clips = listPreviewBundle?.clips;
+  if (!clips?.length) return;
+  const clipPos = getListOrderPreviewClipPos();
+  if (clipPos < 0) return;
+  listPlaybackClipPos = clipPos;
+  resetListOrderPreviewClipPos(clipPos);
+  const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
+  if (ci >= 0) {
+    listPlaybackListPos = listPosForCueIndex(lastCues, ci);
+  } else {
+    listPlaybackListPos = clipPos;
+  }
+}
+
+function syncListPlaybackPosFromMedia(t) {
+  const clips = listPreviewBundle?.clips;
+  if (!clips?.length) return;
+  if (useListIndexPlayback()) {
+    syncListPlaybackPosFromStack();
+    return;
+  }
+  const prefer = Math.max(
+    listPlaybackClipPos >= 0 ? listPlaybackClipPos : -1,
+    getListOrderPreviewClipPos(),
+  );
+  const clipPos = resolveListClipIndexFromMedia(clips, t, prefer, {
+    listOrderSequential: true,
+  });
+  listPlaybackClipPos = clipPos;
+  resetListOrderPreviewClipPos(clipPos);
+  const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
+  if (ci >= 0) {
+    listPlaybackListPos = listPosForCueIndex(lastCues, ci);
+    return;
+  }
+  listPlaybackListPos = clipPos;
+}
+
 function resolvePlaybackIndices(t) {
+  if (useListIndexPlayback() && listPreviewBundle?.clips?.length) {
+    syncListPlaybackPosFromStack();
+    const clipPos =
+      listPlaybackClipPos >= 0
+        ? listPlaybackClipPos
+        : getListOrderPreviewClipPos();
+    const ci = cueIndexForClipIndex(listPreviewBundle.clips, lastCues, clipPos);
+    if (ci < 0) return { ai: -1, wi: -1 };
+    const cue = lastCues[ci];
+    return {
+      ai: ci,
+      wi: resolveActiveWordIndexForCue(cue),
+    };
+  }
   const ai = pickActiveCueIndexWithHint(lastCues, t, lastPlaybackCueIndex);
   const cue = ai >= 0 ? lastCues[ai] : null;
-  const wi = cue ? pickActiveWordIndex(cue, t) : -1;
+  const wi = resolveActiveWordIndexForCue(cue);
   return { ai, wi };
 }
 
@@ -1215,6 +1411,7 @@ function commitPlayheadUi({
   scrollActiveCard = false,
   activeCueIndex,
   activeWordIndex,
+  skipWordHighlight = false,
 } = {}) {
   const t = playheadSec;
   const mediaPlaying = isPreviewMediaPlaying();
@@ -1222,14 +1419,14 @@ function commitPlayheadUi({
     typeof activeCueIndex === "number"
       ? activeCueIndex
       : mediaPlaying
-        ? pickActiveCueIndexWithHint(lastCues, t, lastPlaybackCueIndex)
+        ? resolvePlaybackIndices(t).ai
         : selectedCueIndex;
   const cue = ai >= 0 ? lastCues[ai] : null;
   const wi =
     typeof activeWordIndex === "number"
       ? activeWordIndex
       : cue && mediaPlaying
-        ? pickActiveWordIndex(cue, t)
+        ? resolveActiveWordIndexForCue(cue)
         : -1;
 
   const cueChanged = ai !== lastPlaybackCueIndex;
@@ -1255,12 +1452,14 @@ function commitPlayheadUi({
     cueChanged || wordChanged || selectionChanged || playStateChanged;
 
   if (mediaPlaying) {
-    if (highlightNeedsUpdate) {
+    if (highlightNeedsUpdate && !skipWordHighlight) {
       updatePlaybackHighlights(subtitleList, lastCues, {
-        playheadSec: t,
+        playheadSec: getPreviewWordClockSec(),
+        playheadMediaSec: getPreviewWordClockSec(),
         isPlaying: true,
         selectedCueIndex,
         activeCueIndex: ai,
+        activeWordIndex: wi,
       });
     }
     if (scrollActiveCard && cueChanged && subtitleList && ai >= 0) {
@@ -1319,7 +1518,7 @@ function commitPlayheadUi({
 }
 
 function playbackTick() {
-  if (!previewVideo) {
+  if (!getPv()) {
     stopPlaybackLoop();
     return;
   }
@@ -1327,13 +1526,13 @@ function playbackTick() {
   const skip = getPlaybackSkipRanges();
   const skipOpts = { skipRanges: skip };
 
-  if (previewAudio && isHtmlAudioMasterActive()) {
-    if (previewAudio.paused) {
+  if (getPa() && isHtmlAudioMasterActive()) {
+    if (getPa().paused) {
       if (isVideoPlaying) {
-        if (previewAudio.readyState >= 3) {
-          previewAudio.play().then(() => {
-            if (previewVideo && previewVideo.paused) {
-              previewVideo.play().catch(() => {});
+        if (getPa().readyState >= 3) {
+          getPa().play().then(() => {
+            if (getPv() && getPv().paused) {
+              getPv().play().catch(() => {});
             }
           }).catch(() => {});
         }
@@ -1343,12 +1542,12 @@ function playbackTick() {
       }
       return;
     }
-    syncVideoFromHtmlAudioMaster(previewVideo, previewAudio, skipOpts);
-  } else if (previewVideo.paused) {
+    syncVideoFromHtmlAudioMaster(getPv(), getPa(), skipOpts);
+  } else if (getPv().paused) {
     playbackRafId = 0;
     return;
   } else {
-    applyThrottledVideoSkipCut(previewVideo, skip);
+    applyThrottledVideoSkipCut(getPv(), skip);
   }
 
   const orch = getPlaybackOrchestrator();
@@ -1358,13 +1557,37 @@ function playbackTick() {
   const { ai, wi } = resolvePlaybackIndices(playheadSec);
   const cueChanged = ai !== lastPlaybackCueIndex;
   const wordChanged = wi !== lastPlaybackWordIndex;
+  if (isVideoPlaying && subtitleList && ai >= 0) {
+    syncPlaybackWordHighlights(ai, wi);
+    lastPlaybackWordIndex = wi;
+    lastPlaybackCueIndex = ai;
+  }
+
+  if (useListIndexPlayback() && listPreviewBundle?.clips?.length && getPa()) {
+    syncListPlaybackPosFromStack();
+    const clips = listPreviewBundle.clips;
+    const clipPos =
+      listPlaybackClipPos >= 0 ? listPlaybackClipPos : clips.length - 1;
+    const cur = clips[clipPos];
+    if (
+      clipPos >= clips.length - 1 &&
+      cur &&
+      media >= cur.mediaEnd - 0.05
+    ) {
+      getPa()?.pause();
+      getPv()?.pause();
+      stopPlaybackLoop();
+      commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+      return;
+    }
+  }
 
   if (
     waveformPlayRangeEndEdit != null &&
     playheadSec >= waveformPlayRangeEndEdit - 0.02
   ) {
-    previewAudio?.pause();
-    previewVideo.pause();
+    getPa()?.pause();
+    getPv().pause();
     stopPlaybackLoop({ waveformRangeNaturalEnd: true });
     commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
     return;
@@ -1387,7 +1610,11 @@ function playbackTick() {
   const uiDue = wall - lastPlayheadUiCommitWallMs >= PLAYHEAD_UI_COMMIT_MS;
   if (cueChanged || wordChanged || uiDue) {
     lastPlayheadUiCommitWallMs = wall;
-    commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+    commitPlayheadUi({
+      activeCueIndex: ai,
+      activeWordIndex: wi,
+      skipWordHighlight: true,
+    });
   }
 
   playbackRafId = requestAnimationFrame(playbackTick);
@@ -1399,7 +1626,7 @@ function startPlaybackLoop(opts = {}) {
     window.setTimeout(() => startPlaybackLoop(opts), 35);
     return;
   }
-  if (!previewVideo || !previewAudio) { /* console.log("[PLAY-DBG] startLoop ABORT: no media"); */ return; }
+  if (!getPv() || !getPa()) { /* console.log("[PLAY-DBG] startLoop ABORT: no media"); */ return; }
   if (isVideoPlaying && playbackRafId) { /* console.log("[PLAY-DBG] startLoop SKIP: already playing"); */ return; }
 
   if (playbackRafId) {
@@ -1409,6 +1636,9 @@ function startPlaybackLoop(opts = {}) {
 
   if (!opts.fromWaveformRange) {
     waveformPlayRangeEndEdit = null;
+  } else {
+    listPlaybackListPos = -1;
+    deactivateListOrderPreviewPlayback();
   }
 
   playbackLoopGeneration += 1;
@@ -1425,29 +1655,46 @@ function startPlaybackLoop(opts = {}) {
     waveformChipCloseTimer = null;
   }
 
-  stopSyncedPlayback(previewVideo, previewAudio);
+  stopSyncedPlayback(getPv(), getPa());
 
   const orch = getPlaybackOrchestrator();
   orch.suspendSyncEngineForWebAudio();
 
   const skip = getPlaybackSkipRanges();
   let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
-  if (previewVideo?.duration && Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
-    media = Math.min(media, Math.max(0, previewVideo.duration - 0.001));
+
+  if (!opts.fromWaveformRange && listPlaybackListPos >= 0) {
+    activateListOrderPreviewPlayback();
+    const clips = listPreviewBundle?.clips ?? [];
+    const clipPos = clipIndexForListPos(clips, lastCues, listPlaybackListPos);
+    listPlaybackClipPos = clipPos;
+    resetListOrderPreviewClipPos(clipPos);
+    const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
+    const cue = ci >= 0 ? lastCues[ci] : null;
+    const cueStart = Number(cue?.start);
+    if (cue && Number.isFinite(cueStart)) {
+      media = skipCutRangeAt(cueStart, skip);
+      playheadSec = orch.mapMediaToEditSec(media);
+    }
+  } else if (!opts.fromWaveformRange) {
+    deactivateListOrderPreviewPlayback();
   }
-  if (previewAudio?.src) {
-    assignMasterAudioTimelineSecIfNeeded(previewAudio, media);
+
+  if (getPv()?.duration && Number.isFinite(getPv().duration) && getPv().duration > 0) {
+    media = Math.min(media, Math.max(0, getPv().duration - 0.001));
   }
-  if (previewVideo && Math.abs(previewVideo.currentTime - media) > 0.002) {
-    previewVideo.currentTime = media;
+  if (getPa()?.src) {
+    assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+  }
+  if (getPv() && Math.abs(getPv().currentTime - media) > 0.002) {
+    getPv().currentTime = media;
   }
   playheadSec = orch.mapMediaToEditSec(media);
 
-  // console.log("[PLAY-DBG] startLoop: beginSyncedPlayback media=%.3f, audio.paused=%s, audio.readyState=%d, audio.src=%s",
-  //   media, previewAudio?.paused, previewAudio?.readyState, previewAudio?.src ? "set" : "empty");
-  beginPreviewSyncedPlayback(media);
-  playbackTick._stallLogged = null;
-  playbackTick();
+  void beginPreviewSyncedPlayback(media).then(() => {
+    playbackTick._stallLogged = null;
+    playbackTick();
+  });
 }
 
 /**
@@ -1508,10 +1755,12 @@ function stopPlaybackLoop(opts = {}) {
     cancelAnimationFrame(playbackRafId);
     playbackRafId = 0;
   }
-  if (previewVideo) stopSyncedPlayback(previewVideo, previewAudio ?? undefined);
+  if (getPv()) stopSyncedPlayback(getPv(), getPa() ?? undefined);
   syncPausedPreviewMediaToPlayhead();
   lastPlaybackCueIndex = -1;
   lastPlaybackWordIndex = -1;
+  listPlaybackListPos = -1;
+  deactivateListOrderPreviewPlayback();
   lastOverlayCueIndex = -1;
   if (wasWaveformRange && expandedCueIndex >= 0 && expandedWordIndex >= 0) {
     finishExpandedPanelRangePlay(subtitleList, {
@@ -1532,13 +1781,13 @@ function stopPlaybackLoop(opts = {}) {
  * @param {{ showCaretOnPause?: boolean, playFromCaret?: boolean }} [opts]
  */
 function applyPlaybackSkipIfNeeded() {
-  applyPlaybackSkipToPreviewMedia(previewVideo, previewAudio, {
+  applyPlaybackSkipToPreviewMedia(getPv(), getPa(), {
     skipRanges: getPlaybackSkipRanges(),
   });
 }
 
-function togglePreviewPlayback(opts = {}) {
-  if (!previewVideo) return;
+async function togglePreviewPlayback(opts = {}) {
+  if (!getPv()) return;
   const playing = isPreviewMediaPlaying() || isVideoPlaying;
   if (playing) {
     // console.log("[PLAY-DBG] toggle → PAUSE");
@@ -1548,8 +1797,24 @@ function togglePreviewPlayback(opts = {}) {
     userRequestedPreviewPause = false;
     return;
   }
+  await previewBridge.unlockAudioOutput();
   // console.log("[PLAY-DBG] toggle → PLAY (selectedCue=%d)", selectedCueIndex);
   resetSpaceSeekIntent();
+  if (selectedCueIndex >= 0 && lastCues[selectedCueIndex]) {
+    setListPlaybackListPosFromCueIndex(selectedCueIndex);
+    const cue = lastCues[selectedCueIndex];
+    const start = Number(cue.start);
+    if (Number.isFinite(start)) {
+      lastPlaybackCueIndex = selectedCueIndex;
+      const orch = getPlaybackOrchestrator();
+      const media = skipCutRangeAt(orch.mapEditToMediaSec(start), getPlaybackSkipRanges());
+      orch.seekMediaSec(media);
+      playheadSec = orch.mapMediaToEditSec(media);
+    }
+  } else {
+    listPlaybackListPos = -1;
+    deactivateListOrderPreviewPlayback();
+  }
   if (!isVideoPlaying) startPlaybackLoop();
 }
 
@@ -1562,6 +1827,7 @@ function playAtSubtitleCaret(cardIndex, storageCaret) {
   if (!Number.isFinite(editSec)) { /* console.log("[PLAY-DBG] playAtCaret: bad editSec for card=%d", cardIndex); */ return; }
   // console.log("[PLAY-DBG] playAtCaret: card=%d, editSec=%.2f, text=%s", cardIndex, editSec, getPreviewCueText(cue)?.slice(0, 20));
   selectCueLine(cardIndex, { seek: false, scroll: false, rerender: false });
+  setListPlaybackListPosFromCueIndex(cardIndex);
   seekEditSecAndPlay(editSec);
 }
 
@@ -1870,9 +2136,58 @@ function bindStyleControl(id, outEl, fmt) {
   sync();
 }
 
-function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true } = {}) {
+/**
+ * @param {readonly number[]} removedSortedDesc
+ * @param {number} index
+ */
+function remapCueIndexAfterRemovals(removedSortedDesc, index) {
+  let n = index;
+  for (const r of removedSortedDesc) {
+    if (n === r) return -1;
+    if (n > r) n -= 1;
+  }
+  return n;
+}
+
+function syncCheckedCueIndicesExclusive(cueIndex) {
+  checkedCueIndices.clear();
+  if (cueIndex >= 0) checkedCueIndices.add(cueIndex);
+}
+
+function adjustEditorIndicesAfterCueRemovals(removedSortedDesc) {
+  const nextChecked = new Set();
+  for (const c of checkedCueIndices) {
+    const n = remapCueIndexAfterRemovals(removedSortedDesc, c);
+    if (n >= 0) nextChecked.add(n);
+  }
+  checkedCueIndices = nextChecked;
+  selectedCueIndex = remapCueIndexAfterRemovals(removedSortedDesc, selectedCueIndex);
+  expandedCueIndex = remapCueIndexAfterRemovals(removedSortedDesc, expandedCueIndex);
+  if (expandedCueIndex < 0) expandedWordIndex = -1;
+}
+
+function deleteSelectedSubtitleLines() {
+  const targets =
+    checkedCueIndices.size > 0
+      ? [...checkedCueIndices]
+      : selectedCueIndex >= 0
+        ? [selectedCueIndex]
+        : [];
+  if (!targets.length) return;
+  if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  const sorted = [...new Set(targets)].sort((a, b) => b - a);
+  deleteSubtitleLinesAt(subtitleHub, sorted);
+  adjustEditorIndicesAfterCueRemovals(sorted);
+  if (selectedCueIndex < 0) checkedCueIndices.clear();
+  armDeleteGuard();
+  renderCuesTable(lastCues);
+  commitPlayheadUi();
+}
+
+function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true, syncCheck = true } = {}) {
   const prevSelected = selectedCueIndex;
   selectedCueIndex = cueIndex;
+  if (syncCheck) syncCheckedCueIndicesExclusive(cueIndex);
   const cue = lastCues[cueIndex];
   if (!cue || cue.is_silence) {
     if (rerender) {
@@ -1884,7 +2199,7 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true }
     return;
   }
   ensureCueWords(cue);
-  if (seek && previewVideo && Number.isFinite(cue.start)) {
+  if (seek && getPv() && Number.isFinite(cue.start)) {
     const orch = getPlaybackOrchestrator();
     const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
     orch.seekMediaSec(media);
@@ -2335,8 +2650,8 @@ function persistCuts() {
 
 function getMediaDurationSecHint() {
   if (sessionMediaDurationSec != null && sessionMediaDurationSec > 0) return sessionMediaDurationSec;
-  if (previewVideo?.duration && Number.isFinite(previewVideo.duration) && previewVideo.duration > 0) {
-    return previewVideo.duration;
+  if (getPv()?.duration && Number.isFinite(getPv().duration) && getPv().duration > 0) {
+    return getPv().duration;
   }
   return null;
 }
@@ -2373,13 +2688,13 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     getPeaksData: () => peaksPayload,
     mediaDurationSec,
     getMediaDurationSec: getMediaDurationSecHint,
-    video: previewVideo,
+    video: getPv(),
     getCues: () => lastCues,
     getPlaybackSkipRanges: () => subtitleHub.getPlaybackSkipRanges(),
     formatTimeFull: formatTime,
     ensurePeaksLoad: () => loadWaveformPeaks(),
     onCardNavigate: (sec) => {
-      if (previewVideo && Number.isFinite(sec)) {
+      if (getPv() && Number.isFinite(sec)) {
         const orch = getPlaybackOrchestrator();
         const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
         orch.seekMediaSec(media);
@@ -2488,11 +2803,49 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         );
       }
     },
+    isCueLineChecked: (cueIndex) => checkedCueIndices.has(cueIndex),
+    onToggleCueLineCheck: (cueIndex, checked) => {
+      if (checked) checkedCueIndices.add(cueIndex);
+      else checkedCueIndices.delete(cueIndex);
+      selectCueLine(cueIndex, {
+        seek: false,
+        scroll: false,
+        rerender: false,
+        syncCheck: false,
+      });
+      renderCuesTable(lastCues, { capturePendingEdits: true });
+    },
+    isCueLineDragActive: () => subtitleLineDragActive,
+    onSubtitleLineDragStart: () => {
+      subtitleLineDragActive = true;
+    },
+    onDragReorderEnd: () => {
+      subtitleLineDragActive = false;
+    },
+    onReorderCueByListInsert: (fromListPos, insertBeforePos) => {
+      if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+      const before = listableCueIndices(lastCues);
+      const movedCueIndex = before[fromListPos];
+      const wasExpanded = expandedCueIndex === movedCueIndex;
+      let newListPos = insertBeforePos;
+      if (fromListPos < insertBeforePos) newListPos = insertBeforePos - 1;
+      reorderSubtitleLinesByListInsert(subtitleHub, fromListPos, insertBeforePos);
+      const after = listableCueIndices(lastCues);
+      const newCueIndex = after[newListPos] ?? movedCueIndex;
+      selectedCueIndex = newCueIndex;
+      syncCheckedCueIndicesExclusive(newCueIndex);
+      if (wasExpanded) expandedCueIndex = newCueIndex;
+      setListPlaybackListPosFromCueIndex(newCueIndex);
+      subtitleLineDragActive = false;
+      renderCuesTable(lastCues);
+      commitPlayheadUi();
+    },
     onSelectCue: (cueIndex, detail) =>
       selectCueLine(cueIndex, {
         seek: detail?.seek !== false,
         scroll: detail?.scroll !== false,
         rerender: detail?.rerender !== false,
+        syncCheck: detail?.syncCheck !== false,
       }),
     onWordExpand: (ci, wi) => {
       if (expandedCueIndex === ci && expandedWordIndex === wi) {
@@ -2526,7 +2879,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       renderCuesTable(lastCues);
     },
     onSeek: (sec) => {
-      if (previewVideo && Number.isFinite(sec)) {
+      if (getPv() && Number.isFinite(sec)) {
         const orch = getPlaybackOrchestrator();
         const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
         orch.seekMediaSec(media);
@@ -2535,7 +2888,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
     },
     onSeekWord: (cue, storageWordIndex) => {
-      if (!previewVideo) return;
+      if (!getPv()) return;
       const editSec = editSecForStorageWord(cue, storageWordIndex);
       if (!Number.isFinite(editSec)) return;
       const orch = getPlaybackOrchestrator();
@@ -2629,7 +2982,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (subtitleHub.undo()) renderCuesTable(lastCues);
     },
     onPlayEditRange: (startEdit, endEdit) => {
-      if (!previewVideo || !previewAudio || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
+      if (!getPv() || !getPa() || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
       const lo = Math.min(startEdit, endEdit);
       const hi = Math.max(startEdit, endEdit);
       const skips = getPlaybackSkipRanges();
@@ -2653,7 +3006,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onPausePlayback: () => {
       userRequestedPreviewPause = true;
       stopPlaybackLoop();
-      previewVideo?.pause();
+      getPv()?.pause();
       userRequestedPreviewPause = false;
     },
     onWaveformFocusWord: (ci, wi) => {
@@ -2673,6 +3026,8 @@ function resetEditorSessionForProjectLoad() {
   clearListPlayFromCaretPreferred();
   clearWaveformCutSecCache();
   selectedCueIndex = -1;
+  checkedCueIndices = new Set();
+  subtitleLineDragActive = false;
   expandedCueIndex = -1;
   expandedWordIndex = -1;
   peaksPayload = null;
@@ -2684,6 +3039,7 @@ function resetEditorSessionForProjectLoad() {
 
 function renderCuesTable(cues, { scrollActive = false, capturePendingEdits = false } = {}) {
   if (!subtitleList) return;
+  bumpListableCueIndicesCache();
   if (capturePendingEdits) {
     captureTextareaEditsIntoCues(subtitleList, lastCues);
   }
@@ -3635,18 +3991,11 @@ function resetJob() {
 }
 
 function detachPreviewMasterAudio() {
-  if (!previewAudio) return;
-  previewAudio.pause();
-  previewAudio.removeAttribute("src");
-  try {
-    previewAudio.load();
-  } catch {
-    /* ignore */
-  }
+  previewBridge.clearMedia();
 }
 
 function updatePreview(videoPath) {
-  if (!previewVideo || !previewSection) return;
+  if (!getPv() || !previewSection) return;
   stopPlaybackLoop();
   setPreviewPlaybackUiActive(false);
   detachPreviewMasterAudio();
@@ -3656,15 +4005,7 @@ function updatePreview(videoPath) {
 
   if (!p || !agentConnected) {
     setPreviewMediaLoading(false);
-    previewVideo.removeAttribute("src");
-    if (previewAudio) {
-      previewAudio.removeAttribute("src");
-      try {
-        previewAudio.load();
-      } catch {
-        /* ignore */
-      }
-    }
+    previewBridge.clearMedia();
     if (previewEmpty) {
       previewEmpty.hidden = false;
       previewEmpty.textContent = "영상·오디오 파일을 선택하세요.";
@@ -3676,7 +4017,9 @@ function updatePreview(videoPath) {
     return;
   }
 
-  const directUrl = `${getAgentOrigin()}${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`;
+  const directUrl = buildAgentResourceUrl(
+    `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
+  );
   previewMediaDirectUrl = directUrl;
   if (previewEmpty) {
     previewEmpty.hidden = false;
@@ -3707,34 +4050,31 @@ function updatePreview(videoPath) {
       if (loadGen !== previewMediaLoadGen) return;
       previewMediaResolvedUrl = url;
       masterMediaUrl = url;
-      previewVideo.src = url;
-      if (previewAudio) {
-        previewAudio.src = url;
-        previewAudio.preload = "auto";
-      }
+      void previewBridge.setMediaUrl(url);
       if (previewEmpty) previewEmpty.hidden = true;
-      previewVideo.onloadedmetadata = () => {
+      previewVideoEl.onloadedmetadata = () => {
         if (loadGen !== previewMediaLoadGen) return;
         setPreviewMediaLoading(false);
-        if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
+        const dur = previewVideoEl.duration;
+        if (dur > 0) sessionMediaDurationSec = dur;
         layoutPreviewMediaFrame();
         updatePreviewOverlay();
         updatePreviewWatermark();
         updatePreviewTransportUi();
         const orch = getPlaybackOrchestrator();
         if (!orch.video) {
-          orch.attachVideo(previewVideo, {
-            masterAudio: previewAudio ?? undefined,
+          orch.attachVideo(previewVideoEl, {
+            masterAudio: previewAudioEl ?? undefined,
             onPlayheadChange: ({ editSec }) => {
               if (!isVideoPlaying) playheadSec = editSec;
             },
           });
-        } else if (previewAudio) {
-          orch.masterAudio = previewAudio;
+        } else if (previewAudioEl) {
+          orch.masterAudio = previewAudioEl;
         }
         rebuildPlaybackSync();
       };
-      previewVideo.onerror = () => {
+      previewVideoEl.onerror = () => {
         if (loadGen !== previewMediaLoadGen) return;
         setPreviewMediaLoading(true, {
           title: "미리보기 불러오기 실패",
@@ -3751,15 +4091,7 @@ function updatePreview(videoPath) {
         return;
       }
       console.warn("[auto-subtitle] preview media load", err);
-      previewVideo.removeAttribute("src");
-      if (previewAudio) {
-        previewAudio.removeAttribute("src");
-        try {
-          previewAudio.load();
-        } catch {
-          /* ignore */
-        }
-      }
+      previewBridge.clearMedia();
       const errText = String(err?.message || err || "");
       const lenMismatch = /CONTENT_LENGTH_MISMATCH|length mismatch|미디어 파일이 비어/i.test(
         errText,
@@ -3827,7 +4159,7 @@ async function onPickLocalFile() {
 
   userRequestedPreviewPause = true;
   stopPlaybackLoop();
-  previewVideo?.pause();
+  getPv()?.pause();
   detachPreviewMasterAudio();
 
   setPickBusy(true);
@@ -4051,13 +4383,26 @@ document.addEventListener("keydown", (e) => {
   // console.log("[DOC-SPACE] toggle, target=%s, ts=%.1f, now=%.1f",
   //   target?.tagName ?? "null", e.timeStamp, performance.now());
   e.preventDefault();
-  if (!previewVideo) return;
+  if (!getPv()) return;
   togglePreviewPlayback();
 });
 
 document.addEventListener("keydown", (e) => {
   if (!subtitleList || !lastCues.length) return;
   handleGlobalArrowKey(e, subtitleList, lastCues, buildSubtitleCardOpts(lastCues));
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Delete" || e.repeat) return;
+  if (e.isComposing || e.defaultPrevented) return;
+  if (!subtitleList || !lastCues.length) return;
+  const target = e.target;
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+  if (target instanceof HTMLSelectElement) return;
+  if (isWordCaretKeyboardFocus()) return;
+  if (checkedCueIndices.size === 0 && selectedCueIndex < 0) return;
+  e.preventDefault();
+  deleteSelectedSubtitleLines();
 });
 
 document.addEventListener("keydown", (e) => {
@@ -4140,46 +4485,58 @@ previewSeek?.addEventListener("change", () => {
   commitPlayheadUi();
 });
 
-previewVideo?.addEventListener("click", () => togglePreviewPlayback());
-previewVideo?.addEventListener("play", () => {
-  if (!isHtmlAudioMasterActive()) startPlaybackLoop();
-});
-previewVideo?.addEventListener("timeupdate", () => {
-  if (isHtmlAudioMasterActive()) return;
-  if (!previewVideo || previewVideo.paused) return;
-  const orch = getPlaybackOrchestrator();
-  playheadSec = orch.mapMediaToEditSec(previewVideo.currentTime);
-  if (!playbackRafId) {
-    applyThrottledVideoSkipCut(previewVideo, getPlaybackSkipRanges());
-    commitPlayheadUi();
-  }
-});
-previewVideo?.addEventListener("pause", () => {
-  if (userRequestedPreviewPause) stopPlaybackLoop();
-});
-previewVideo?.addEventListener("ended", () => stopPlaybackLoop());
-previewVideo?.addEventListener("seeked", () => {
-  if (!isVideoPlaying && previewVideo) {
+function wirePreviewStackVideoEvents(videoEl) {
+  if (!videoEl) return;
+  videoEl.addEventListener("click", () => togglePreviewPlayback());
+  videoEl.addEventListener("play", () => {
+    if (!isHtmlAudioMasterActive()) startPlaybackLoop();
+  });
+  videoEl.addEventListener("timeupdate", () => {
+    if (isHtmlAudioMasterActive()) return;
+    if (videoEl.paused) return;
     const orch = getPlaybackOrchestrator();
-    playheadSec = orch.mapMediaToEditSec(previewVideo.currentTime);
-    applyPlaybackSkipIfNeeded();
-    commitPlayheadUi();
-  }
-});
-previewAudio?.addEventListener("seeked", () => {
-  if (!isVideoPlaying && previewAudio) {
-    const orch = getPlaybackOrchestrator();
-    playheadSec = orch.mapMediaToEditSec(previewAudio.currentTime);
-    applyPlaybackSkipIfNeeded();
-    commitPlayheadUi();
-  }
-});
-previewAudio?.addEventListener("pause", () => {
-  if (userRequestedPreviewPause && isHtmlAudioMasterActive()) stopPlaybackLoop();
-});
-previewAudio?.addEventListener("ended", () => {
-  if (isHtmlAudioMasterActive()) stopPlaybackLoop();
-});
+    playheadSec = orch.mapMediaToEditSec(videoEl.currentTime);
+    if (!playbackRafId) {
+      applyThrottledVideoSkipCut(videoEl, getPlaybackSkipRanges());
+      commitPlayheadUi();
+    }
+  });
+  videoEl.addEventListener("pause", () => {
+    if (userRequestedPreviewPause) stopPlaybackLoop();
+  });
+  videoEl.addEventListener("ended", () => stopPlaybackLoop());
+  videoEl.addEventListener("seeked", () => {
+    if (!isVideoPlaying) {
+      const orch = getPlaybackOrchestrator();
+      playheadSec = orch.mapMediaToEditSec(videoEl.currentTime);
+      applyPlaybackSkipIfNeeded();
+      commitPlayheadUi();
+    }
+  });
+}
+
+function wirePreviewStackAudioEvents(audioEl) {
+  if (!audioEl) return;
+  audioEl.addEventListener("seeked", () => {
+    if (!isVideoPlaying) {
+      const orch = getPlaybackOrchestrator();
+      playheadSec = orch.mapMediaToEditSec(audioEl.currentTime);
+      applyPlaybackSkipIfNeeded();
+      commitPlayheadUi();
+    }
+  });
+  audioEl.addEventListener("pause", () => {
+    if (userRequestedPreviewPause && isHtmlAudioMasterActive()) stopPlaybackLoop();
+  });
+  audioEl.addEventListener("ended", () => {
+    if (isHtmlAudioMasterActive()) stopPlaybackLoop();
+  });
+}
+
+wirePreviewStackVideoEvents(previewVideoEl);
+wirePreviewStackVideoEvents(document.getElementById("preview-video-b"));
+wirePreviewStackAudioEvents(previewAudioEl);
+wirePreviewStackAudioEvents(document.getElementById("preview-audio-b"));
 
 styleFontFamily?.addEventListener("change", () => {
   syncFontSelectTitle();
@@ -4215,7 +4572,7 @@ startConnectionMonitor({
     if (agentConnected) {
       await fetchReadiness();
       await loadSystemFontsFromAgent();
-      if (sessionVideoPath && previewVideo && !previewVideo.src) {
+      if (sessionVideoPath && getPv() && !getPv().src) {
         updatePreview(sessionVideoPath);
       }
     } else {
@@ -4265,7 +4622,7 @@ if (previewSection && typeof ResizeObserver !== "undefined") {
   });
   previewLayoutObserver.observe(previewSection);
 }
-previewVideo?.addEventListener("loadeddata", () => {
+previewVideoEl?.addEventListener("loadeddata", () => {
   layoutPreviewMediaFrame();
   updatePreviewOverlay();
   updatePreviewWatermark();
@@ -4311,7 +4668,7 @@ const subtitleFindReplace = initSubtitleFindReplace({
         }
       }
     }
-    if (cue && previewVideo && Number.isFinite(cue.start)) {
+    if (cue && getPv() && Number.isFinite(cue.start)) {
       const orch = getPlaybackOrchestrator();
       const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
       orch.seekMediaSec(media);
