@@ -17,12 +17,13 @@ import {
   hideModalShell,
   installGlobals,
   positionModalBetweenAds,
+  scrollToEditorAdGapCenter,
   dismissActiveSiteModal,
   isPersistentSiteModalOpen,
   setSiteDialogStatus,
   showModalShell,
   showSiteDialog,
-} from "./site-modal.js?v=sm1";
+} from "./site-modal.js?v=sm2";
 
 installGlobals();
 
@@ -1163,7 +1164,9 @@ export function showInstallAgentDialog(options = {}) {
     if (!alreadyOpen) {
       showModalShell(dlg);
     } else {
-      requestAnimationFrame(() => positionModalBetweenAds(dlg));
+      void scrollToEditorAdGapCenter().then(() => {
+        requestAnimationFrame(() => positionModalBetweenAds(dlg));
+      });
     }
     requestAnimationFrame(() => {
       options.onShown?.();

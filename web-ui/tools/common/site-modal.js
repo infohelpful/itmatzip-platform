@@ -243,6 +243,90 @@ function collectAdElements() {
 }
 
 /**
+ * @returns {{ topEl: HTMLElement, bottomEl: HTMLElement } | null}
+ */
+function findPageEditorAdPair() {
+  const topEl =
+    document.querySelector('[id^="editor-ad-above"]') ||
+    document.querySelector('[id^="dl-ad-above"]');
+  const bottomEl =
+    document.querySelector('[id^="editor-ad-below"]') ||
+    document.querySelector('[id^="dl-ad-below"]');
+  if (
+    !(topEl instanceof HTMLElement) ||
+    !(bottomEl instanceof HTMLElement) ||
+    topEl === bottomEl
+  ) {
+    return null;
+  }
+  return { topEl, bottomEl };
+}
+
+/**
+ * 상·하단 editor-ad 슬롯 사이가 뷰포트 중앙에 오도록 스크롤 (모달 표시 전 호출).
+ * @returns {Promise<boolean>}
+ */
+export function scrollToEditorAdGapCenter() {
+  const pair = findPageEditorAdPair();
+  if (!pair) return Promise.resolve(false);
+
+  const viewH = window.innerHeight || document.documentElement.clientHeight || 600;
+  const topRect = pair.topEl.getBoundingClientRect();
+  const bottomRect = pair.bottomEl.getBoundingClientRect();
+  const gapTopDoc = topRect.bottom + window.scrollY;
+  const gapBottomDoc = bottomRect.top + window.scrollY;
+  if (gapBottomDoc - gapTopDoc < 80) return Promise.resolve(false);
+
+  const gapCenterDoc = (gapTopDoc + gapBottomDoc) / 2;
+  const maxScroll = Math.max(
+    0,
+    (document.documentElement.scrollHeight || document.body.scrollHeight || 0) - viewH,
+  );
+  const targetScroll = Math.min(maxScroll, Math.max(0, gapCenterDoc - viewH / 2));
+
+  if (Math.abs(window.scrollY - targetScroll) < 6) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    try {
+      window.scrollTo({ top: targetScroll, behavior: "smooth" });
+    } catch {
+      window.scrollTo(0, targetScroll);
+    }
+    let ticks = 0;
+    const done = () => resolve(true);
+    const poll = () => {
+      ticks += 1;
+      if (Math.abs(window.scrollY - targetScroll) < 6 || ticks > 45) {
+        done();
+        return;
+      }
+      requestAnimationFrame(poll);
+    };
+    window.setTimeout(() => requestAnimationFrame(poll), 40);
+    window.setTimeout(done, 520);
+  });
+}
+
+/**
+ * @param {number} viewH
+ * @returns {{ top: number, bottom: number } | null}
+ */
+function findAdGapForModal(viewH) {
+  const pair = findPageEditorAdPair();
+  if (pair) {
+    const pad = 12;
+    const topR = pair.topEl.getBoundingClientRect();
+    const bottomR = pair.bottomEl.getBoundingClientRect();
+    const gapTop = topR.bottom + pad;
+    const gapBottom = bottomR.top - pad;
+    if (gapBottom - gapTop >= 80) {
+      return { top: gapTop, bottom: gapBottom };
+    }
+  }
+  return findViewportAdGap(viewH);
+}
+
+/**
  * 화면(뷰포트) 좌표에서 광고 사이 가장 넓은 구간 — 보이는 영역 기준
  * @param {number} viewH
  * @returns {{ top: number, bottom: number } | null}
@@ -320,7 +404,7 @@ export function positionModalBetweenAds(dialogEl) {
   if (!dialogEl) return;
 
   const viewH = window.innerHeight || document.documentElement.clientHeight || 600;
-  const gap = findViewportAdGap(viewH);
+  const gap = findAdGapForModal(viewH);
   const dlgH = Math.min(dialogEl.offsetHeight || 0, viewH - 32) || 320;
   const top = computeDialogTopPx(dlgH, viewH, gap);
 
@@ -336,26 +420,36 @@ function scheduleReposition(dialogEl) {
   }, 50);
 }
 
+function bindModalRepositionListeners(dialogEl) {
+  if (!dialogEl || dialogEl._itzModalOnResize) return;
+  const onResize = () => scheduleReposition(dialogEl);
+  dialogEl._itzModalOnResize = onResize;
+  window.addEventListener("resize", onResize, { passive: true });
+  window.addEventListener("scroll", onResize, { passive: true });
+}
+
 /**
  * @param {HTMLElement} dialogEl
  */
 export function showModalShell(dialogEl) {
   const backdrop = ensureBackdrop();
-  document.body?.classList.add(MODAL_BODY_CLASS);
-  backdrop.removeAttribute("hidden");
-  dialogEl.removeAttribute("hidden");
-  const place = () => positionModalBetweenAds(dialogEl);
-  requestAnimationFrame(() => {
+
+  const revealAndPlace = () => {
+    document.body?.classList.add(MODAL_BODY_CLASS);
+    backdrop.removeAttribute("hidden");
+    dialogEl.removeAttribute("hidden");
+    const place = () => positionModalBetweenAds(dialogEl);
     place();
-    requestAnimationFrame(place);
-  });
-  window.setTimeout(place, 120);
-  if (!dialogEl._itzModalOnResize) {
-    const onResize = () => scheduleReposition(dialogEl);
-    dialogEl._itzModalOnResize = onResize;
-    window.addEventListener("resize", onResize, { passive: true });
-    window.addEventListener("scroll", onResize, { passive: true });
-  }
+    requestAnimationFrame(() => {
+      place();
+      requestAnimationFrame(place);
+    });
+    window.setTimeout(place, 120);
+    window.setTimeout(place, 480);
+    bindModalRepositionListeners(dialogEl);
+  };
+
+  void scrollToEditorAdGapCenter().then(revealAndPlace);
 }
 
 /**
@@ -572,8 +666,9 @@ export function installGlobals() {
       isAdBlockDialogOpen,
       getActiveSiteDialogKind,
       setSiteDialogStatus,
-      positionModalBetweenAds,
-      ensureSiteModalStyles,
+  positionModalBetweenAds,
+  scrollToEditorAdGapCenter,
+  ensureSiteModalStyles,
       AD_EXEMPT_SELECTORS,
       MODAL_BODY_CLASS,
     };
