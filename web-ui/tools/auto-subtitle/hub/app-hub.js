@@ -6,6 +6,7 @@ import { mergeCutRanges } from "../shared/timeline-collapse.js";
 import {
   mergeWaveformPeaksStitchCutRanges,
   mergeDeletedMediaIntoTimeline,
+  virtualTimelineBlocksFromCueSoftDeletes,
 } from "../shared/virtual-timeline.js";
 import { visibleSubtitleWords, wordIsDeleted } from "../shared/subtitles.js?v=24";
 import {
@@ -181,6 +182,7 @@ export class SubtitleAppHub {
     if (!cuesMeaningfullyChanged(prev.cues, next)) return;
     this.cues = this._commitLines(next);
     opts.afterCommit?.(this);
+    this.virtualTimelineDeleted = virtualTimelineBlocksFromCueSoftDeletes(this.cues);
     if (recordHistory) this._pushHistory(prev);
     this._notify();
   }

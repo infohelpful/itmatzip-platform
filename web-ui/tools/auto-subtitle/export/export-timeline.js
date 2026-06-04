@@ -48,6 +48,9 @@ export function buildMappedSubtitles(subtitles, cuts) {
   return normalizeMappedSubtitles(out);
 }
 
+/** 번인 오버레이 프레임 간 짧은 무자막 깜박임 방지 (~2프레임 @30fps) */
+export const EXPORT_CUE_BRIDGE_SEC = 0.07;
+
 /** @param {readonly { start: number, end: number, text: string }[]} subtitles */
 export function normalizeMappedSubtitles(subtitles) {
   if (!subtitles || subtitles.length <= 1) return [...(subtitles || [])];
@@ -61,7 +64,13 @@ export function normalizeMappedSubtitles(subtitles) {
       continue;
     }
     const last = out[out.length - 1];
-    const nextStart = Math.max(cur.start, last.end + 0.01);
+    const gap = cur.start - last.end;
+    let nextStart = cur.start;
+    if (nextStart < last.end) {
+      nextStart = last.end;
+    } else if (gap > 0 && gap < EXPORT_CUE_BRIDGE_SEC) {
+      nextStart = last.end;
+    }
     if (cur.end <= nextStart + 0.01) continue;
     out.push({ start: nextStart, end: cur.end, text });
   }

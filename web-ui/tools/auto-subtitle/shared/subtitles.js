@@ -28,6 +28,17 @@ export function wordIsSilence(w) {
   return w.is_silence === true || w.isSilence === true || String(w.word ?? "").trim() === SILENCE_PLACEHOLDER_TEXT;
 }
 
+/** 파형 edge trim 으로 이웃에 흡수된 tombstone — 재생 스킵 대상 아님 */
+export function wordMergedByEdgeTrim(w) {
+  return w?.merged_by_edge_trim === true || w?.mergedByEdgeTrim === true;
+}
+
+/** 단어 칩·캐럿에 표시할 단어(soft-delete 된 edge-trim 무음 포함) */
+export function wordVisibleInWordChipRail(w) {
+  if (!wordIsDeleted(w)) return true;
+  return wordMergedByEdgeTrim(w) && wordIsSilence(w);
+}
+
 /** @param {readonly SubtitleWord[] | undefined} words */
 export function visibleSubtitleWords(words) {
   if (!words?.length) return [];
@@ -92,17 +103,23 @@ export function clearLineTextUserEdited(line) {
 /**
  * @param {{ text?: string, words?: readonly SubtitleWord[] }} line
  */
-export function subtitleLineEditDisplayText(line) {
-  const words = line.words;
-  const fromWords = words?.length ? displayTextFromSubtitleWords(words) : "";
-  const raw = String(line.text ?? "").trim();
-  const fromTextSanitized = raw
+function sanitizeLineEditText(raw) {
+  return String(raw ?? "")
     .split(/\s+/)
     .map((t) => scrubTimelineNoiseFromWordPiece(t))
     .filter((piece) => piece.length > 0 && !shouldOmitFromSubtitleEditLineText(piece))
     .join(" ")
     .trim();
+}
 
+export function subtitleLineEditDisplayText(line) {
+  const words = line.words;
+  const fromWords = words?.length ? displayTextFromSubtitleWords(words) : "";
+  const fromTextSanitized = sanitizeLineEditText(line.text);
+
+  if (lineTextIsUserLocked(line)) {
+    return fromTextSanitized;
+  }
   if (fromTextSanitized.length > 0) return fromTextSanitized;
   return fromWords;
 }
@@ -110,14 +127,10 @@ export function subtitleLineEditDisplayText(line) {
 /** @param {{ text?: string, words?: readonly SubtitleWord[] }} line */
 export function subtitleLineTextDiffersFromWords(line) {
   const fromWords = line.words?.length ? displayTextFromSubtitleWords(line.words) : "";
-  const raw = String(line.text ?? "").trim();
-  if (raw.length === 0) return false;
-  const fromTextSanitized = raw
-    .split(/\s+/)
-    .map((t) => scrubTimelineNoiseFromWordPiece(t))
-    .filter((piece) => piece.length > 0 && !shouldOmitFromSubtitleEditLineText(piece))
-    .join(" ")
-    .trim();
+  const fromTextSanitized = sanitizeLineEditText(line.text);
+  if (lineTextIsUserLocked(line)) {
+    return normSubtitleLineEdit(fromTextSanitized) !== normSubtitleLineEdit(fromWords);
+  }
   if (fromTextSanitized.length === 0) return false;
   if (fromWords.length === 0) return true;
   return normSubtitleLineEdit(fromTextSanitized) !== normSubtitleLineEdit(fromWords);

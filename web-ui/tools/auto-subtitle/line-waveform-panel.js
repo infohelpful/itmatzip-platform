@@ -28,7 +28,7 @@ import {
 import { splitWordAtMediaSecInLines } from "./shared/split-word-actions.js";
 import {
   shouldDeferWaveformSpaceToCaret,
-} from "./subtitle-list/word-caret-ui.js?v=53";
+} from "./subtitle-list/word-caret-ui.js?v=54";
 import { registerWaveformPanel, unregisterWaveformPanel } from "./waveform-panel-registry.js";
 
 const MIN_SPLIT_SEC = 0.02;

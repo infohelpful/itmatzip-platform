@@ -1,11 +1,11 @@
 /**
- * ?¬ìƒ ?¤ë“œ Â· ì»??¤í‚µ Â· ?œì„± ?ë§‰/?¨ì–´ ? íƒ.
+ * ??? ??? ? ????? ? ??? ???/??? ???.
  */
 
 import { mergeCutRanges } from "./shared/timeline-collapse.js?v=17";
 import { collectDeletedWordSkipRangesFromLines } from "./shared/virtual-timeline.js?v=17";
 import { getCueWords, visibleWords } from "./subtitle-words.js?v=18";
-import { wordIsDeleted } from "./shared/subtitles.js?v=20";
+import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
 
 export const SKIP_CUT_TAIL_SEC = 0.02;
 
@@ -33,7 +33,7 @@ export function skipCutRangeAt(timeSec, ranges) {
 }
 
 /**
- * [rangeStart, rangeEnd) êµ¬ê°„?ì„œ skip ë°?ì²?edit ?œê°.
+ * [rangeStart, rangeEnd) ????? skip ????edit ???.
  *
  * @param {number} rangeStart
  * @param {number} rangeEnd
@@ -62,7 +62,7 @@ export function firstPlayableSecInRange(rangeStart, rangeEnd, ranges) {
 }
 
 /**
- * ?¨ì–´ ë¸”ë¡ span ?ˆì—???¬ìƒ ê°€?¥í•œ edit ?œê° (trim/tombstone skip ?´í›„).
+ * ??? ?? span ???????? ???? edit ??? (trim/tombstone skip ???).
  *
  * @param {{ start?: number, end?: number } | null | undefined} word
  * @param {readonly { start: number, end: number }[]} skipRanges
@@ -122,7 +122,7 @@ export function pickActiveCueIndex(cues, t) {
 }
 
 /**
- * ?¬ìƒ ì¤??´ì „ ?œì„± ì¤??ŒíŠ¸ë¡?êµ?†Œ ?ìƒ‰ ??ê²¹ì¹˜??êµ¬ê°„?€ ??ì¤??°ì„  (pickActiveCueIndex ?€ ?™ì¼).
+ * ??? ????? ??? ??????????? ??? ?????????? ??????? (pickActiveCueIndex ?? ???).
  * @param {Array<{ start: number, end: number, text?: string, is_silence?: boolean }>} cues
  * @param {number} t
  * @param {number} [hint]
@@ -161,7 +161,7 @@ export function pickActiveWordIndex(cue, t) {
   let found = -1;
   for (let wi = 0; wi < words.length; wi += 1) {
     const w = words[wi];
-    if (wordIsDeleted(w)) continue;
+    if (!wordVisibleInWordChipRail(w)) continue;
     const s = Number(w.start);
     const e = Number(w.end);
     if (!Number.isFinite(s) || !Number.isFinite(e)) continue;

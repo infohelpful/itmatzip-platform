@@ -5,6 +5,7 @@ export {
   renderSubtitleCards,
   readCuesFromCards,
   captureTextareaEditsIntoCues,
+  captureTextareaForCue,
   scrollCueIntoView,
   syncExpandedPanelPlayhead,
   refreshExpandedPanelSkipRanges,
@@ -15,7 +16,7 @@ export {
   resetPlaybackHighlightCache,
   patchSelectedCueHighlight,
   requestFocusCaret,
-} from "./subtitle-list/virtual-scroll-list.js?v=62";
+} from "./subtitle-list/virtual-scroll-list.js?v=63";
 export {
   requestFocusCaretDeferred,
   syncPlaybackCaretVisibility,
@@ -23,4 +24,4 @@ export {
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
   hintActiveCaretCardIndex,
-} from "./subtitle-list/word-caret-ui.js?v=53";
+} from "./subtitle-list/word-caret-ui.js?v=54";

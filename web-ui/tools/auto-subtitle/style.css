@@ -284,6 +284,7 @@ body.as-app {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .as-stylebar-export .as-lang-box {
@@ -464,6 +465,124 @@ body.as-app {
   overflow: hidden;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--as-border);
+}
+
+/* 찾기·바꾸기 — 프리뷰 오른쪽(자막 왼쪽), 블러·배경 딤 없음, 광고(z-index 50) 아래 */
+.as-find-replace {
+  position: fixed;
+  z-index: 45;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.as-find-replace[hidden] {
+  display: none !important;
+}
+
+.as-find-replace__panel {
+  pointer-events: auto;
+  width: min(300px, calc(100vw - 24px));
+  padding: 12px 14px 14px;
+  border-radius: var(--as-radius);
+  border: 1px solid var(--as-border);
+  background: var(--as-panel);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.as-find-replace__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.as-find-replace__title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.as-find-replace__close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--as-text-dim);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.as-find-replace__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--as-text);
+}
+
+.as-find-replace__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.as-find-replace__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--as-text-dim);
+}
+
+.as-find-replace__input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--as-radius);
+  border: 1px solid var(--as-border);
+  background: var(--as-bg);
+  color: var(--as-text);
+  font-size: 0.88rem;
+}
+
+.as-find-replace__input:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.45);
+  outline-offset: 1px;
+}
+
+.as-find-replace__meta {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  color: var(--as-text-dim);
+  line-height: 1.35;
+}
+
+.as-find-replace__nav {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.as-find-replace__nav-btn {
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 8px 14px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.as-find-replace__actions {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.as-find-replace__actions .as-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 0.82rem;
+  padding: 8px 10px;
 }
 
 .as-preview-media-frame {
@@ -1212,6 +1331,62 @@ body.as-app {
   border-radius: 2px;
 }
 
+/* 찾기·바꾸기 — 자막 편집 textarea */
+.subtitle-card-textarea-stack {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.subtitle-find-text-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--as-text);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  border-radius: var(--as-radius);
+}
+
+.subtitle-card-textarea-stack .subtitle-card-textarea {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--as-panel);
+}
+
+.subtitle-card-textarea-stack.is-find-open .subtitle-card-textarea {
+  color: transparent;
+  caret-color: var(--as-text);
+  -webkit-text-fill-color: transparent;
+  background: transparent;
+}
+
+.subtitle-find-text-mark {
+  background: rgba(250, 204, 21, 0.55);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0;
+}
+
+.subtitle-find-text-mark--active {
+  background: rgba(251, 191, 36, 0.95);
+  color: #1a1200;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.75);
+}
+
+.subtitle-card--find-line-hit .subtitle-card-textarea-stack {
+  box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.35);
+  border-radius: var(--as-radius);
+}
+
+.subtitle-card--find-line-active .subtitle-card-textarea-stack {
+  box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.75);
+  border-radius: var(--as-radius);
+}
+
 .subtitle-word-chip--active {
   border-color: #fbbf24 !important;
   background: rgba(251, 191, 36, 0.22) !important;
@@ -1245,6 +1420,15 @@ body.as-app {
 
 .subtitle-word-chip--silence.subtitle-word-chip--active {
   opacity: 1;
+  border-color: #fbbf24 !important;
+  background: rgba(251, 191, 36, 0.32) !important;
+  color: #fff8e7 !important;
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.35);
+}
+
+.subtitle-word-chip--edge-trimmed {
+  opacity: 0.55;
+  border-style: dashed;
 }
 
 .subtitle-word-chip-text {
@@ -1476,7 +1660,8 @@ body.as-app {
 }
 
 /* Loading overlays — export only (full-screen modal) */
-.export-loading {
+.export-loading,
+.preview-media-loading {
   position: static;
   display: none;
   background: none;
@@ -1485,12 +1670,20 @@ body.as-app {
   pointer-events: auto;
 }
 
-.export-loading[hidden] {
+.export-loading[hidden],
+.preview-media-loading[hidden] {
   display: none !important;
 }
 
-.export-loading.is-active {
+.export-loading.is-active,
+.preview-media-loading.is-active {
   display: block;
+}
+
+.preview-media-loading__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .word-align-loading {

@@ -8,7 +8,8 @@ import {
   markLineTextUserEdited,
   reconcileCueWordsToLineText,
 } from "../subtitle-words.js?v=24";
-import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=24";
+import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=26";
+import { syncFindHighlightLayerToTextarea } from "../subtitle-find-replace-highlight.js?v=2";
 import { LineWaveformPanel } from "../line-waveform-panel.js?v=6";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
@@ -30,7 +31,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=53";
+} from "./word-caret-ui.js?v=54";
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -274,6 +275,13 @@ function renderAllCards(container, cues, opts) {
     accordion.appendChild(mount);
     card.appendChild(accordion);
 
+    const stack = document.createElement("div");
+    stack.className = "subtitle-card-textarea-stack";
+
+    const findLayer = document.createElement("div");
+    findLayer.className = "subtitle-find-text-layer";
+    findLayer.setAttribute("aria-hidden", "true");
+
     const ta = document.createElement("textarea");
     ta.className = "subtitle-card-textarea";
     ta.name = `subtitle-cue-${i}`;
@@ -284,12 +292,17 @@ function renderAllCards(container, cues, opts) {
     if (cue.lineTextUserEdited || cue.line_text_user_edited) {
       ta.dataset.lineTextUserEdited = "1";
     }
+
+    const syncFindLayer = () => syncFindHighlightLayerToTextarea(findLayer, ta);
+    ta.addEventListener("scroll", syncFindLayer);
+
     ta.addEventListener("click", (e) => e.stopPropagation());
     ta.addEventListener("mousedown", (e) => e.stopPropagation());
     ta.addEventListener("input", () => {
       ta.dataset.lineTextUserEdited = "1";
       markLineTextUserEdited(cue);
       opts.onPreviewLineTextInput?.(i, ta.value);
+      opts.onFindReplaceTextInput?.();
     });
     ta.addEventListener("blur", () => {
       const cur = ta.value;
@@ -316,7 +329,9 @@ function renderAllCards(container, cues, opts) {
     });
     wireTextareaCaretNavigation(ta, i, cues, container, opts);
     ta.dataset.waveformNoDismiss = "1";
-    card.appendChild(ta);
+    stack.appendChild(findLayer);
+    stack.appendChild(ta);
+    card.appendChild(stack);
 
     card.addEventListener("click", () =>
       opts.onSelectCue?.(i, { scroll: false, rerender: false }),
@@ -596,6 +611,26 @@ export function captureTextareaEditsIntoCues(container, cues) {
       }
     }
   });
+  return cues;
+}
+
+/**
+ * 구조 변경(분할·삭제) 직전 — 해당 줄 textarea 만 SSOT에 반영.
+ *
+ * @param {HTMLElement | null} container
+ * @param {import("../shared/subtitles.js").SubtitleLine[]} cues
+ * @param {number} cueIndex
+ */
+export function captureTextareaForCue(container, cues, cueIndex) {
+  if (!container || !cues?.length || cueIndex < 0 || cueIndex >= cues.length) return cues;
+  const card = container.querySelector(`.subtitle-card[data-cue-index="${cueIndex}"]`);
+  if (!card) return cues;
+  const ta = card.querySelector(".subtitle-card-textarea");
+  if (!(ta instanceof HTMLTextAreaElement)) return cues;
+  cues[cueIndex].text = ta.value;
+  if (ta.dataset.lineTextUserEdited === "1") {
+    markLineTextUserEdited(cues[cueIndex]);
+  }
   return cues;
 }
 

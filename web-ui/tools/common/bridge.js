@@ -11,7 +11,7 @@
  */
 
 import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
-import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna19";
+import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna20";
 import {
   ensureSiteModalStyles,
   hideModalShell,
@@ -654,7 +654,7 @@ export function needsAgentMediaFetchProxy(url) {
 /**
  * 미리보기 `<video>` / `<audio>`용 URL — 필요 시 fetchAgent로 blob URL 생성.
  * @param {string} directUrl
- * @param {{ signal?: AbortSignal }} [opts]
+ * @param {{ signal?: AbortSignal, onAttempt?: (attempt: number) => void }} [opts]
  * @returns {Promise<string>}
  */
 export async function resolveAgentMediaObjectUrl(directUrl, opts = {}) {
@@ -666,18 +666,35 @@ export async function resolveAgentMediaObjectUrl(directUrl, opts = {}) {
   if (cached) return cached;
 
   await primeLocalNetworkAccess();
-  const res = await fetchAgent(key, {
-    method: "GET",
-    cache: "no-store",
-    signal: opts.signal,
-  });
-  if (!res.ok) {
-    throw new Error(`미디어 로드 실패 (HTTP ${res.status})`);
+
+  let lastErr = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    opts.onAttempt?.(attempt + 1);
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    try {
+      const res = await fetchAgent(key, {
+        method: "GET",
+        cache: "no-store",
+        signal: opts.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`미디어 로드 실패 (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      if (!blob.size) {
+        throw new Error("미디어 파일이 비어 있습니다.");
+      }
+      const objUrl = URL.createObjectURL(blob);
+      _mediaBlobByDirectUrl.set(key, objUrl);
+      return objUrl;
+    } catch (err) {
+      lastErr = err;
+      if (opts.signal?.aborted) throw err;
+    }
   }
-  const blob = await res.blob();
-  const objUrl = URL.createObjectURL(blob);
-  _mediaBlobByDirectUrl.set(key, objUrl);
-  return objUrl;
+  throw lastErr ?? new Error("미디어 로드 실패");
 }
 
 /** @param {string} directUrl */

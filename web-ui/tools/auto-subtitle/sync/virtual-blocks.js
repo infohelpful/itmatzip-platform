@@ -2,7 +2,10 @@
  * SubtitleLine·TimelineClip ??SyncEngine VirtualBlockMs
  */
 
-import { wordIsDeleted, wordIsSilence } from "../shared/subtitles.js?v=20";
+import {
+  wordIsDeleted,
+  wordMergedByEdgeTrim,
+} from "../shared/subtitles.js?v=28";
 import { playbackIntervalsFromSubtitleLines } from "../shared/playback-intervals.js";
 
 /**
@@ -15,7 +18,7 @@ export function virtualBlocksFromSubtitleWords(lines, _cutRanges) {
   const blocks = [];
   for (const line of lines || []) {
     for (const w of line.words || []) {
-      if (wordIsSilence(w)) continue;
+      if (wordIsDeleted(w) && wordMergedByEdgeTrim(w)) continue;
       const oStartMs = Math.round(Math.min(w.start, w.end) * 1000);
       const oEndMs = Math.round(Math.max(w.start, w.end) * 1000);
       if (oEndMs <= oStartMs) continue;

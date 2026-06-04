@@ -110,6 +110,15 @@
         <div class="as-word-align-box">
           <button
             type="button"
+            id="btn-find-replace"
+            class="as-btn as-btn-ghost as-btn-sm"
+            disabled
+            title="자막 찾기 및 바꾸기 (Ctrl+F)"
+          >
+            찾기 및 바꾸기
+          </button>
+          <button
+            type="button"
             id="btn-word-auto-align"
             class="as-btn as-btn-ghost as-btn-sm"
             disabled
@@ -169,6 +178,85 @@
         </div>
         <div class="as-preview-ad-wrap">
           <div class="as-ad-slot editor-ad as-ad-exempt" id="editor-ad-preview-pane" aria-label="광고"></div>
+        </div>
+        <div
+          id="subtitle-find-replace"
+          class="as-find-replace"
+          hidden
+          aria-hidden="true"
+        >
+          <div
+            class="as-find-replace__panel"
+            role="dialog"
+            aria-labelledby="find-replace-title"
+            aria-modal="false"
+          >
+            <div class="as-find-replace__head">
+              <h2 class="as-find-replace__title" id="find-replace-title">찾기 및 바꾸기</h2>
+              <button
+                type="button"
+                id="btn-find-replace-close"
+                class="as-find-replace__close"
+                title="닫기 (Esc)"
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+            <label class="as-find-replace__field">
+              <span class="as-find-replace__label">찾을 단어</span>
+              <input
+                type="text"
+                id="find-replace-query"
+                class="as-find-replace__input"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="검색"
+              />
+            </label>
+            <label class="as-find-replace__field">
+              <span class="as-find-replace__label">바꿀 단어</span>
+              <input
+                type="text"
+                id="find-replace-with"
+                class="as-find-replace__input"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="변경"
+              />
+            </label>
+            <p class="as-find-replace__meta" id="find-replace-meta">찾을 단어를 입력하세요.</p>
+            <div class="as-find-replace__nav" role="group" aria-label="찾기 이동">
+              <button
+                type="button"
+                id="btn-find-replace-prev"
+                class="as-btn as-btn-ghost as-find-replace__nav-btn"
+                disabled
+                title="이전 찾은 단어"
+                aria-label="이전 찾은 단어"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                id="btn-find-replace-forward"
+                class="as-btn as-btn-ghost as-find-replace__nav-btn"
+                disabled
+                title="다음 찾은 단어"
+                aria-label="다음 찾은 단어"
+              >
+                →
+              </button>
+            </div>
+            <div class="as-find-replace__actions">
+              <button type="button" id="btn-find-replace-one" class="as-btn as-btn-ghost" disabled>
+                하나씩 바꾸기
+              </button>
+              <button type="button" id="btn-find-replace-all" class="as-btn as-btn-primary" disabled>
+                모두 바꾸기
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -259,6 +347,33 @@
           </div>
         </div>
       </div>
+      <div class="preview-media-loading" id="preview-media-loading" hidden aria-hidden="true">
+        <div
+          class="setup-loading__panel"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="preview-media-loading-title"
+        >
+          <p class="setup-loading__title" id="preview-media-loading-title">미리보기 불러오기</p>
+          <p class="setup-loading__step" id="preview-media-loading-step"></p>
+          <p class="setup-loading__desc" id="preview-media-loading-message">잠시만 기다려 주세요…</p>
+          <div
+            class="setup-loading__track"
+            id="preview-media-loading-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <div class="setup-loading__bar" id="preview-media-loading-bar"></div>
+          </div>
+          <div class="preview-media-loading__actions" id="preview-media-loading-actions" hidden>
+            <button type="button" id="btn-preview-media-loading-ok" class="as-btn as-btn-primary">
+              확인
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="export-loading" id="export-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
           <p class="setup-loading__title" id="export-loading-title">보내기</p>
@@ -302,7 +417,7 @@
   <!-- as-build:167 word-auto-align -->
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=11"></script>
-  <script type="module" src="script.js?v=167"></script>
+  <script type="module" src="script.js?v=179"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

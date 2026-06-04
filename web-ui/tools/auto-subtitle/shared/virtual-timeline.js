@@ -1,8 +1,16 @@
 /**
- * AutoSubtitle virtualTimeline.ts ??tombstone∑????ù?(???ù? ?ù?.
+ * AutoSubtitle virtualTimeline.ts ??tombstone???????(????? ???.
  */
 
-import { wordIsDeleted, displayTextFromSubtitleWords, visibleSubtitleWords, lineTextIsUserLocked, subtitleLineEditDisplayText } from "./subtitles.js?v=24";
+import {
+  wordIsDeleted,
+  displayTextFromSubtitleWords,
+  visibleSubtitleWords,
+  lineTextIsUserLocked,
+  subtitleLineEditDisplayText,
+  subtitleLineTextAfterWordMutation,
+  wordMergedByEdgeTrim,
+} from "./subtitles.js?v=28";
 import { mergeCutRanges, snapTimelineSec } from "./timeline-collapse.js";
 
 const DELETE_RANGE_MIN_SEC = 1e-5;
@@ -13,13 +21,12 @@ const DELETE_RANGE_MIN_SEC = 1e-5;
  */
 function rebuildLineMetaAfterWordsChange(line, newWords) {
   const vis = visibleSubtitleWords(newWords);
+  const fromWords = displayTextFromSubtitleWords(newWords);
   if (vis.length === 0) {
     return {
       ...line,
       words: newWords,
-      text: lineTextIsUserLocked(line)
-        ? subtitleLineEditDisplayText(line)
-        : displayTextFromSubtitleWords(newWords),
+      text: subtitleLineTextAfterWordMutation(line, newWords, fromWords),
     };
   }
   return {
@@ -27,14 +34,17 @@ function rebuildLineMetaAfterWordsChange(line, newWords) {
     words: newWords,
     start: vis[0].start,
     end: Math.max(vis[0].start + 0.1, vis[vis.length - 1].end),
-    text: lineTextIsUserLocked(line)
-      ? subtitleLineEditDisplayText(line)
-      : displayTextFromSubtitleWords(newWords),
+    text: subtitleLineTextAfterWordMutation(line, newWords, fromWords),
   };
 }
 
-export function wordMergedByEdgeTrim(w) {
-  return w.merged_by_edge_trim === true || w.mergedByEdgeTrim === true;
+/**
+ * soft-delete ??? ?? ??(virtual) ?? ??? ? ?? ??? ??? ??? ?? ?? ??.
+ *
+ * @param {readonly import("./subtitles.js").SubtitleLine[]} lines
+ */
+export function virtualTimelineBlocksFromCueSoftDeletes(lines) {
+  return tombstoneBlocksFromSoftDeletedSubtitleWords(lines, []);
 }
 
 /**
@@ -158,7 +168,7 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts) {
 }
 
 /**
- * Peaks/?ù? EDL ???ù? ù?+ tombstone ?ù? + ?????ùù ??.
+ * Peaks/??? EDL ????? ??+ tombstone ??? + ??????? ??.
  *
  * @param {readonly { start: number, end: number }[]} mergedCuts
  * @param {readonly import("./subtitles.js").SubtitleLine[]} lines

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated, Any
@@ -359,6 +361,57 @@ def _validate_media_path(raw: str) -> Path:
             detail=f"지원하지 않는 형식입니다: {resolved.suffix}",
         )
     return resolved
+
+
+def _stat_media_ready_for_stream(media: Path, *, max_wait_sec: float = 5.0) -> os.stat_result:
+    """
+    FFmpeg 등이 파일을 쓰는 동안 Content-Length 와 실제 바이트가 어긋나
+    ERR_CONTENT_LENGTH_MISMATCH 가 나는 경우를 줄이기 위해 크기가 잠깐 안정될 때까지 대기.
+    """
+    deadline = time.monotonic() + max(0.0, float(max_wait_sec))
+    last_size = -1
+    stable_passes = 0
+    last_err: OSError | None = None
+
+    while time.monotonic() < deadline:
+        try:
+            st = media.stat()
+        except OSError as exc:
+            last_err = exc
+            time.sleep(0.2)
+            continue
+        if st.st_size <= 0:
+            last_size = 0
+            stable_passes = 0
+            time.sleep(0.2)
+            continue
+        if st.st_size == last_size:
+            stable_passes += 1
+            if stable_passes >= 2:
+                return st
+        else:
+            stable_passes = 0
+            last_size = st.st_size
+        time.sleep(0.2)
+
+    try:
+        st = media.stat()
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"미디어 파일을 읽을 수 없습니다: {media}",
+        ) from (last_err or exc)
+    if st.st_size <= 0:
+        raise HTTPException(
+            status_code=503,
+            detail="미디어 파일이 비어 있거나 아직 생성 중입니다. 잠시 후 다시 시도하세요.",
+        )
+    logger.warning(
+        "media/stream: size still changing for %s (size=%d), serving anyway",
+        media,
+        st.st_size,
+    )
+    return st
 
 
 def _validate_image_path(raw: str) -> Path:
@@ -823,6 +876,7 @@ def get_media_stream(
 ) -> FileResponse:
     """브라우저 <video> 미리보기 — Range 요청 지원."""
     media = _validate_media_path(video_path)
+    st = _stat_media_ready_for_stream(media)
     suffix = media.suffix.lower()
     media_types = {
         ".mp4": "video/mp4",
@@ -837,7 +891,12 @@ def get_media_stream(
         ".ogg": "audio/ogg",
     }
     media_type = media_types.get(suffix, "application/octet-stream")
-    return FileResponse(media, media_type=media_type, filename=media.name)
+    return FileResponse(
+        path=media,
+        media_type=media_type,
+        filename=media.name,
+        stat_result=st,
+    )
 
 
 @router.get("/media/image")

@@ -2,7 +2,7 @@
  * AutoSubtitle subtitleWordCaretMap.ts
  */
 
-import { wordIsDeleted } from "./subtitles.js?v=20";
+import { wordIsDeleted, wordVisibleInWordChipRail } from "./subtitles.js?v=28";
 
 /** @param {readonly import("./subtitles.js").SubtitleWord[] | undefined} words */
 export function nearestValidStorageCaret(words, caret) {
@@ -12,8 +12,8 @@ export function nearestValidStorageCaret(words, caret) {
 
   const boundaryOk = (pos) => {
     if (pos === 0 || pos === n) return true;
-    const leftAlive = !wordIsDeleted(words[pos - 1]);
-    const rightAlive = !wordIsDeleted(words[pos]);
+    const leftAlive = wordVisibleInWordChipRail(words[pos - 1]);
+    const rightAlive = wordVisibleInWordChipRail(words[pos]);
     return leftAlive || rightAlive;
   };
 
@@ -32,7 +32,7 @@ export function renderableCaretToStorageCaret(words, renderableCaret) {
   let need = Math.max(0, renderableCaret);
   for (let i = 0; i <= n; i += 1) {
     if (i === n) return n;
-    if (!wordIsDeleted(words[i])) {
+    if (wordVisibleInWordChipRail(words[i])) {
       if (need === 0) return i;
       need -= 1;
     }
@@ -45,7 +45,7 @@ export function storageCaretToRenderableCaret(words, storageCaret) {
   const c = Math.max(0, Math.min(storageCaret, n));
   let r = 0;
   for (let i = 0; i < c; i += 1) {
-    if (!wordIsDeleted(words[i])) r += 1;
+    if (wordVisibleInWordChipRail(words[i])) r += 1;
   }
   return r;
 }
@@ -54,12 +54,12 @@ export function visibleWordStorageIndices(words) {
   if (!words) return [];
   const out = [];
   for (let i = 0; i < words.length; i += 1) {
-    if (!wordIsDeleted(words[i])) out.push(i);
+    if (wordVisibleInWordChipRail(words[i])) out.push(i);
   }
   return out;
 }
 
-/** ??????ë³´ì´???¨ì–´ ê²½ê³„ë§??°ë¼ storage caret ?´ë™ */
+/** ???????????? ????? storage caret ?? */
 export function stepStorageCaretByRenderable(words, storageCaret, deltaRenderable) {
   const rc = storageCaretToRenderableCaret(words, storageCaret);
   const m = visibleWordStorageIndices(words).length;

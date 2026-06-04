@@ -196,7 +196,7 @@ export function reconcileCueWordsToLineText(cue) {
   if (!cue || cue.is_silence || cue.isSilence) return cue;
   ensureCueWords(cue);
   if (lineTextIsUserLocked(cue)) {
-    const next = { ...cue, text: subtitleLineEditDisplayText(cue) };
+    const next = { ...cue, text: String(cue.text ?? "") };
     markLineTextUserEdited(next);
     return rebuildWordsFromLineText(next);
   }

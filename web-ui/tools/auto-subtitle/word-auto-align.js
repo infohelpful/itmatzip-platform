@@ -5,7 +5,7 @@
 import { requestAgent } from "../common/bridge.js?v=lna15";
 import { visibleSubtitleWords } from "./shared/subtitles.js?v=24";
 import { explodeCueByWordBreaks } from "./shared/subtitle-edit-actions.js";
-import { markCaretListStructuralMutation } from "./subtitle-list/word-caret-ui.js?v=53";
+import { markCaretListStructuralMutation } from "./subtitle-list/word-caret-ui.js?v=54";
 
 export const KIWI_LGPL_URL = "https://github.com/bab2min/kiwipiepy";
 

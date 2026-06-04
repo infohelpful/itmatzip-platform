@@ -28,6 +28,8 @@ func proxyTimeoutForPath(path string) time.Duration {
 		return 8 * time.Second
 	case strings.Contains(p, "video-burn-in/frame"):
 		return 45 * time.Minute
+	case strings.Contains(p, "/media/stream"), strings.Contains(p, "/download"):
+		return 45 * time.Minute
 	case strings.Contains(p, "/export"):
 		return 45 * time.Minute
 	case strings.Contains(p, "waveform"):

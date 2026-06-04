@@ -4,7 +4,7 @@
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
 import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=3";
-import { buildMappedSubtitles } from "./export-timeline.js";
+import { buildMappedSubtitles } from "./export-timeline.js?v=2";
 import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=4";
 
 const TRANSIENT_HTTP = new Set([502, 503, 504]);

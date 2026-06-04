@@ -2,7 +2,7 @@
  * AutoSubtitle SubtitleVirtualList — 캐럿 UI·키보드·hover 정책.
  */
 
-import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=24";
+import { pickActiveCueIndex, pickActiveWordIndex } from "../playback.js?v=26";
 import {
   nearestValidStorageCaret,
   renderableCaretToStorageCaret,
@@ -432,8 +432,7 @@ function refreshCaretRowUi(container, cardIndex, words, opts) {
  */
 function enterTextareaEditMode(cardIndex, words, container, opts) {
   if (isPlaybackActive(opts)) {
-    setSkipPlayheadCaretSyncOnPause(true);
-    opts.onPausePlayback?.();
+    pausePlaybackKeepingUserCaret(cardIndex, opts);
   }
   spaceSeekIntent = "none";
   listPlayFromCaretPreferred = false;
@@ -1277,10 +1276,37 @@ export function requestFocusRow(container, cues, opts, cardIndex, caret) {
  * @param {HTMLElement} container
  * @param {object} opts
  */
-function pauseForCaretArrowNav(cardIndex, opts) {
-  skipPlayheadCaretSyncOnPause = true;
+function pausePlaybackKeepingUserCaret(cardIndex, opts) {
+  setSkipPlayheadCaretSyncOnPause(true);
   keyboardPauseCaretIndex = cardIndex;
   opts.onPausePlayback?.();
+}
+
+function pauseForCaretArrowNav(cardIndex, opts) {
+  pausePlaybackKeepingUserCaret(cardIndex, opts);
+}
+
+/**
+ * 키 입력 시 DOM 포커스된 캐럿 버튼(k)과 row 상태가 어긋날 수 있어 — 저장된 캐럿 우선.
+ *
+ * @param {number} cardIndex
+ * @param {readonly object[]} words
+ * @param {number} fallbackRenderable
+ */
+function caretStorageForEdit(cardIndex, words, fallbackRenderable) {
+  const st = getRowCaret(cardIndex, words);
+  if (st.rowHasFocus && Number.isFinite(st.storageCaret) && st.storageCaret >= 0) {
+    return nearestValidStorageCaret(words, st.storageCaret);
+  }
+  return renderableCaretToStorageCaret(words, fallbackRenderable);
+}
+
+/** @param {number} cardIndex @param {readonly object[]} words @param {number} storageCaret */
+function focusCaretButtonSync(cardIndex, words, storageCaret) {
+  const rc = storageCaretToRenderableCaret(words, nearestValidStorageCaret(words, storageCaret));
+  caretFocusGeneration += 1;
+  const el = document.getElementById(`subtitle-caret-${cardIndex}-${rc}`);
+  if (el instanceof HTMLElement) el.focus({ preventScroll: true });
 }
 
 function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts) {
@@ -1289,7 +1315,8 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
   if (!isUndoRedo) e.stopPropagation();
 
   const st = getRowCaret(cardIndex, words);
-  const ci = renderableCaretToStorageCaret(words, renderableCi);
+  const ci = caretStorageForEdit(cardIndex, words, renderableCi);
+  const renderableCiActive = storageCaretToRenderableCaret(words, ci);
   const visN = visibleWordStorageIndices(words).length;
   const hasSelection = st.selectionAnchor !== null && st.selectionAnchor !== ci;
   const selStart = hasSelection ? Math.min(st.selectionAnchor, ci) : -1;
@@ -1388,7 +1415,7 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     } else {
       clearSelection();
     }
-    if (renderableCi < visN) {
+    if (renderableCiActive < visN) {
       const next = stepStorageCaretByRenderable(words, ci, 1);
       activateCaretAt(cardIndex, words, next, true);
       refreshCaretRowUi(container, cardIndex, words, opts);
@@ -1415,7 +1442,7 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     } else {
       clearSelection();
     }
-    if (renderableCi > 0) {
+    if (renderableCiActive > 0) {
       const prev = stepStorageCaretByRenderable(words, ci, -1);
       activateCaretAt(cardIndex, words, prev, true);
       refreshCaretRowUi(container, cardIndex, words, opts);
@@ -1523,11 +1550,13 @@ function appendCaretsOverlay(
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       if (k > 0) st.selectionAnchor = null;
-      const armSeek = !isPlaybackActive(opts) && !isExpanded;
+      const playing = isPlaybackActive(opts);
+      const armSeek = !playing && !isExpanded;
       activateCaretAt(cardIndex, words, storageK, true, armSeek);
+      if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
       globalHoveredRowIndex = cardIndex;
       patchCaretVisibility(listContainer, cardIndex, words, isPlaybackActive(opts));
-      btn.focus({ preventScroll: true });
+      focusCaretButtonSync(cardIndex, words, storageK);
     });
     btn.addEventListener("focus", () => syncCaretFromFocus(cardIndex, words, k, opts));
     btn.addEventListener("mouseenter", () => {
@@ -1589,6 +1618,7 @@ export function buildWordChipsAndCarets(
 
   visibleStorageIndices.forEach((storageWi, vi) => {
     const w = words[storageWi];
+    const token = String(w.word ?? "");
     const slot = document.createElement("div");
     slot.className = "subtitle-word-slot subtitle-word-slot--compact";
 
@@ -1598,10 +1628,14 @@ export function buildWordChipsAndCarets(
     pill.id = `subtitle-word-${cardIndex}-${storageWi}`;
     pill.className = "subtitle-word-chip subtitle-word-chip--proportional";
     if (w.is_silence || w.isSilence) pill.classList.add("subtitle-word-chip--silence");
+    if (w.merged_by_edge_trim || w.mergedByEdgeTrim) {
+      pill.classList.add("subtitle-word-chip--edge-trimmed");
+    }
     pill.dataset.wordIndex = String(storageWi);
     pill.dataset.visibleIndex = String(vi);
     pill.dataset.wordStart = String(w.start);
     pill.dataset.wordEnd = String(w.end);
+    pill.dataset.wordText = token;
     const blockId = vrewWords?.[vi]?.id;
     if (blockId) {
       pill.dataset.wordId = blockId;
@@ -1616,7 +1650,7 @@ export function buildWordChipsAndCarets(
     if (hasSelection && storageWi >= selStart && storageWi < selEnd) {
       span.classList.add("subtitle-word-chip-text--selected");
     }
-    span.textContent = w.word || " ";
+    span.textContent = token || " ";
     pill.appendChild(span);
     slot.appendChild(pill);
     tracks.appendChild(slot);
@@ -1648,16 +1682,18 @@ export function buildWordChipsAndCarets(
 
       if (rowHasWaveform && opts.onWaveformChipClick) {
         const isActiveChip = liveExpandedWi === storageWi;
+        const playing = isPlaybackActive(opts);
         opts.onWaveformChipClick(cardIndex, vi, storageWi, isActiveChip, e.detail);
-        if (isPlaybackActive(opts)) opts.onPausePlayback?.();
         activateCaretAt(cardIndex, words, storageWi, true, false);
         onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
+        if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
         seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
+        focusCaretButtonSync(cardIndex, words, storageWi);
         const cardEl = pill.closest(".subtitle-card");
         if (cardEl instanceof HTMLElement) {
           lastCardFocusIndex = cardIndex;
-          cardEl.focus({ preventScroll: true });
+          if (!playing) cardEl.focus({ preventScroll: true });
         }
         return;
       }
@@ -1665,11 +1701,13 @@ export function buildWordChipsAndCarets(
       if (liveExpandedCue >= 0 && liveExpandedCue !== cardIndex) {
         opts.onCloseWaveform?.({ restoreFocus: false });
       }
-      if (isPlaybackActive(opts)) opts.onPausePlayback?.();
-      activateCaretAt(cardIndex, words, storageWi, true, true);
+      const playing = isPlaybackActive(opts);
+      activateCaretAt(cardIndex, words, storageWi, true, !playing);
       onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
+      if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
       seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
       requestFocusCaret(listContainer, cues, opts, cardIndex, storageWi, { seek: false });
+      focusCaretButtonSync(cardIndex, words, storageWi);
     });
     pill.addEventListener("dblclick", (e) => {
       e.stopPropagation();
@@ -1824,11 +1862,13 @@ export function wireSubtitleCardCaretHost(card, cardIndex, words, cues, containe
     const tryFirstCaret = () => {
       if (visibleWordStorageIndices(words).length === 0) return false;
       e.preventDefault();
-      if (isPlaybackActive(opts)) opts.onPausePlayback?.();
+      const playing = isPlaybackActive(opts);
       const st = getRowCaret(cardIndex, words);
       st.selectionAnchor = null;
       activateCaretAt(cardIndex, words, 0, true);
+      if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
       refreshCaretRowUi(container, cardIndex, words, opts);
+      focusCaretButtonSync(cardIndex, words, 0);
       return true;
     };
 

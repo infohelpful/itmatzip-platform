@@ -8,7 +8,11 @@ import {
   markLineTextUserEdited,
   clearLineTextUserEdited,
   subtitleLineEditDisplayText,
+  subtitleLineTextAfterWordMutation,
+  syncSubtitleLineFromWords,
+  visibleSubtitleWords,
   wordIsDeleted,
+  wordIsSilence,
 } from "./subtitles.js?v=24";
 import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
 import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-edit-ops.js";
@@ -19,6 +23,19 @@ function textFromWords(line, words, fallback) {
   return t.length > 0 ? t : fallback;
 }
 
+/** @param {readonly import("./subtitles.js").SubtitleLine[]} lines @param {number} cardIndex */
+function linesWithoutEmptySpeechCue(lines, cardIndex) {
+  const card = lines[cardIndex];
+  if (!card || card.is_silence || card.isSilence) return lines;
+  if (visibleSubtitleWords(card.words ?? []).length > 0) return lines;
+  const words = card.words ?? [];
+  const hasVisibleSilenceChip = words.some(
+    (w) => !wordIsDeleted(w) && wordIsSilence(w),
+  );
+  if (hasVisibleSilenceChip) return lines;
+  return [...lines.slice(0, cardIndex), ...lines.slice(cardIndex + 1)];
+}
+
 /** @param {import("./subtitles.js").SubtitleLine} line @param {number} storageSplitIndex */
 function splitLockedLineTextAtStorageIndex(line, storageSplitIndex) {
   const full = subtitleLineEditDisplayText(line);
@@ -26,7 +43,7 @@ function splitLockedLineTextAtStorageIndex(line, storageSplitIndex) {
   let leftVisCount = 0;
   for (let i = 0; i < storageSplitIndex && i < words.length; i += 1) {
     const w = words[i];
-    if (wordIsDeleted(w)) continue;
+    if (wordIsDeleted(w) || wordIsSilence(w)) continue;
     if (!String(w.word ?? "").trim()) continue;
     leftVisCount += 1;
   }
@@ -184,23 +201,28 @@ export function splitSubtitleAtWord(hub, index, wordIndex) {
     const leftText = locked ? lockedLeft : textFromWords(cur, leftWords, cur.text);
     const rightText = locked ? lockedRight : textFromWords(cur, rightWords, cur.text);
 
-    const first = withLineEditText(
-      {
-        ...cur,
-        end: splitTime,
-        words: leftWords,
-      },
-      leftText,
-    );
-    const second = withLineEditText(
-      {
-        ...cur,
-        start: splitTime,
-        end: cur.end,
-        words: rightWords,
-      },
-      rightText,
-    );
+    let first = {
+      ...cur,
+      end: splitTime,
+      words: leftWords,
+    };
+    let second = {
+      ...cur,
+      start: splitTime,
+      end: cur.end,
+      words: rightWords,
+    };
+    if (locked) {
+      first = withLineEditText(first, leftText);
+      second = withLineEditText(second, rightText);
+    } else {
+      clearLineTextUserEdited(first);
+      clearLineTextUserEdited(second);
+      first.text = leftText;
+      second.text = rightText;
+      syncSubtitleLineFromWords(first);
+      syncSubtitleLineFromWords(second);
+    }
     return [...prev.slice(0, index), first, second, ...prev.slice(index + 1)];
   });
 }
@@ -222,20 +244,19 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
       const nextWords = words.map((w, i) =>
         i === wordIndex - 1 ? { ...w, is_deleted: true, isDeleted: true } : w,
       );
-      const visibleNext = nextWords.filter((w) => !wordIsDeleted(w));
+      const visibleNext = visibleSubtitleWords(nextWords);
       if (visibleNext.length === 0) {
-        return [...prev.slice(0, cardIndex), ...prev.slice(cardIndex + 1)];
+        return linesWithoutEmptySpeechCue(prev, cardIndex);
       }
       const nextStart = visibleNext[0].start;
       const nextEnd = visibleNext[visibleNext.length - 1].end;
+      const fromWords = textFromWords(cur, nextWords, cur.text);
       const updated = {
         ...cur,
         start: nextStart,
         end: Math.max(nextStart + 0.1, nextEnd),
         words: nextWords,
-        text: lineTextIsUserLocked(cur)
-          ? subtitleLineEditDisplayText(cur)
-          : textFromWords(cur, nextWords, cur.text),
+        text: subtitleLineTextAfterWordMutation(cur, nextWords, fromWords),
       };
       return [...prev.slice(0, cardIndex), updated, ...prev.slice(cardIndex + 1)];
     }
@@ -288,11 +309,11 @@ export function deleteWordAt(hub, cardIndex, caretIndex) {
         if (!result) return prev;
         const { lines: next, mediaCutsForVirtual } = result;
         const updatedCard = next[cardIndex];
-        const visible = (updatedCard?.words ?? []).filter((w) => !wordIsDeleted(w));
+        const visible = visibleSubtitleWords(updatedCard?.words ?? []);
         pendingMediaCuts = mediaCutsForVirtual;
         pendingHint = words[caretIndex]?.word ?? "";
         if (visible.length === 0) {
-          return [...next.slice(0, cardIndex), ...next.slice(cardIndex + 1)];
+          return linesWithoutEmptySpeechCue(next, cardIndex);
         }
         return next;
       }
@@ -347,9 +368,9 @@ export function deleteWordRangeAt(hub, cardIndex, fromWordIndex, toWordIndex) {
       pendingMediaCuts = mediaCutsForVirtual;
       pendingHint = words[start]?.word ?? "";
       const updatedCard = next[cardIndex];
-      const visible = (updatedCard?.words ?? []).filter((w) => !wordIsDeleted(w));
+      const visible = visibleSubtitleWords(updatedCard?.words ?? []);
       if (visible.length > 0) return next;
-      return [...next.slice(0, cardIndex), ...next.slice(cardIndex + 1)];
+      return linesWithoutEmptySpeechCue(next, cardIndex);
     },
     {
       afterCommit: () => applyPendingVirtualMediaCuts(hub, pendingMediaCuts, pendingHint),

@@ -16,7 +16,7 @@ import {
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
 } from "../common/bridge.js?v=lna15";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna19";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { showAdSense } from "../common/adsense.js";
 import {
   LOCAL_HELPER_NAME,
@@ -28,6 +28,7 @@ import {
   renderSubtitleCards,
   readCuesFromCards,
   captureTextareaEditsIntoCues,
+  captureTextareaForCue,
   scrollCueIntoView,
   requestFocusCaret,
   requestFocusCaretDeferred,
@@ -41,7 +42,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=68";
+} from "./cue-cards.js?v=69";
 import {
   handleGlobalArrowKey,
   resetKeyboardPauseCaret,
@@ -53,17 +54,18 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=53";
+} from "./subtitle-list/word-caret-ui.js?v=54";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
-} from "./shared/subtitle-word-caret-map.js?v=21";
+} from "./shared/subtitle-word-caret-map.js?v=22";
 import {
   syncAllCuesFromWords,
   ensureCueWords,
   subtitleLineEditDisplayText,
   rebuildWordsFromLineText,
   markLineTextUserEdited,
+  lineTextIsUserLocked,
   MIN_WORD_SPAN_SEC,
 } from "./subtitle-words.js?v=24";
 import {
@@ -73,7 +75,7 @@ import {
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=25";
+} from "./playback.js?v=26";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
@@ -118,7 +120,9 @@ import {
   backspaceWordAt,
   deleteWordAt,
   deleteWordRangeAt,
-} from "./shared/subtitle-edit-actions.js?v=22";
+} from "./shared/subtitle-edit-actions.js?v=23";
+import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
+import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 
 configureBridge({ healthPath: "/health" });
 
@@ -181,6 +185,7 @@ const btnExport = document.getElementById("btn-export");
 const btnDownloadResult = document.getElementById("btn-download-result");
 const btnShowExportFolder = document.getElementById("btn-show-export-folder");
 const languageSelect = document.getElementById("language-select");
+const btnFindReplace = document.getElementById("btn-find-replace");
 const btnWordAutoAlign = document.getElementById("btn-word-auto-align");
 const binReadiness = document.getElementById("bin-readiness");
 const subtitleList = document.getElementById("subtitle-list");
@@ -223,6 +228,15 @@ const exportLoadingMessage = document.getElementById("export-loading-message");
 const exportLoadingBar = document.getElementById("export-loading-bar");
 const exportLoadingTrack = document.getElementById("export-loading-track");
 const exportLoadingPercent = document.getElementById("export-loading-percent");
+
+const previewMediaLoading = document.getElementById("preview-media-loading");
+const previewMediaLoadingTitle = document.getElementById("preview-media-loading-title");
+const previewMediaLoadingStep = document.getElementById("preview-media-loading-step");
+const previewMediaLoadingMessage = document.getElementById("preview-media-loading-message");
+const previewMediaLoadingBar = document.getElementById("preview-media-loading-bar");
+const previewMediaLoadingTrack = document.getElementById("preview-media-loading-track");
+const previewMediaLoadingActions = document.getElementById("preview-media-loading-actions");
+const btnPreviewMediaLoadingOk = document.getElementById("btn-preview-media-loading-ok");
 
 const wordAlignLoading = document.getElementById("word-align-loading");
 const wordAlignLoadingTitle = document.getElementById("word-align-loading-title");
@@ -377,6 +391,9 @@ let deleteGuardUntil = 0;
 let lastPlaybackCueIndex = -1;
 let lastPlaybackWordIndex = -1;
 let lastOverlayCueIndex = -1;
+let lastOverlayDisplayText = "";
+/** 재생 오버레이 — 인접 cue 사이 짧은 구간에서 깜박임 방지 (초) */
+const PREVIEW_OVERLAY_BRIDGE_SEC = 0.07;
 /** @type {{ path: string, position: string }} */
 let watermarkConfig = { path: "", position: "" };
 let pendingWatermarkPath = "";
@@ -976,12 +993,62 @@ function getPreviewCueText(cue) {
       `.subtitle-card[data-cue-index="${previewIdx}"] .subtitle-card-textarea`,
     );
     if (ta instanceof HTMLTextAreaElement) {
+      if (ta.dataset.lineTextUserEdited === "1" || lineTextIsUserLocked(cue)) {
+        return normalizePreviewSubtitleText(ta.value);
+      }
       const live = normalizePreviewSubtitleText(ta.value);
       if (live) return live;
     }
   }
+  if (lineTextIsUserLocked(cue)) {
+    return normalizePreviewSubtitleText(String(cue.text ?? ""));
+  }
   ensureCueWords(cue);
   return normalizePreviewSubtitleText(subtitleLineEditDisplayText(cue));
+}
+
+/**
+ * 재생 시각 기준 오버레이 문구 (짧은 cue 경계에서 동일 문구 유지 → 깜박임 감소).
+ *
+ * @param {number} editSec
+ */
+function resolveOverlayDisplayTextAt(editSec) {
+  const t = Number(editSec);
+  if (!Number.isFinite(t)) return "";
+
+  let hit = -1;
+  for (let i = 0; i < lastCues.length; i += 1) {
+    const c = lastCues[i];
+    if (!c || c.is_silence || c.isSilence) continue;
+    if (t >= c.start && t < c.end) hit = i;
+  }
+
+  if (hit >= 0) {
+    return getPreviewCueText(lastCues[hit]);
+  }
+
+  if (isPreviewMediaPlaying()) {
+    for (let i = 0; i < lastCues.length; i += 1) {
+      const c = lastCues[i];
+      if (!c || c.is_silence || c.isSilence) continue;
+      const gap = t - c.end;
+      if (gap >= 0 && gap < PREVIEW_OVERLAY_BRIDGE_SEC) {
+        const text = getPreviewCueText(c);
+        if (text) return text;
+      }
+    }
+    for (let i = 0; i < lastCues.length; i += 1) {
+      const c = lastCues[i];
+      if (!c || c.is_silence || c.isSilence) continue;
+      const lead = c.start - t;
+      if (lead > 0 && lead < PREVIEW_OVERLAY_BRIDGE_SEC) {
+        const text = getPreviewCueText(c);
+        if (text) return text;
+      }
+    }
+  }
+
+  return "";
 }
 
 function armDeleteGuard(ms = 280) {
@@ -1174,11 +1241,13 @@ function commitPlayheadUi({
   lastPlaybackWordIndex = wi;
 
   const previewIdx = getPreviewCueIndex();
-  if (previewIdx !== lastOverlayCueIndex) {
+  const overlayText = mediaPlaying
+    ? resolveOverlayDisplayTextAt(t)
+    : previewIdx >= 0
+      ? getPreviewCueText(lastCues[previewIdx])
+      : "";
+  if (overlayText !== lastOverlayDisplayText || previewIdx !== lastOverlayCueIndex) {
     updatePreviewOverlay();
-    // console.log("[PREVIEW-DBG] overlay updated: idx=%d→%d, playing=%s, text=%s",
-    //   lastOverlayCueIndex, previewIdx, mediaPlaying,
-    //   getPreviewCueText(lastCues[previewIdx])?.slice(0, 25));
     lastOverlayCueIndex = previewIdx;
   }
 
@@ -1496,28 +1565,10 @@ function playAtSubtitleCaret(cardIndex, storageCaret) {
   seekEditSecAndPlay(editSec);
 }
 
-function updatePreviewOverlay() {
-  if (!previewOverlay) return;
-  layoutPreviewMediaFrame();
-  const cue = getActiveCueForPreview();
-  const previewText = normalizePreviewSubtitleText(getPreviewCueText(cue));
-  const style = readSubtitleStyleFromDom();
-  if (!cue || !previewText) {
-    previewOverlay.hidden = true;
-    previewOverlay.replaceChildren();
-    updatePreviewWatermark();
-    return;
-  }
-  const scale = getPreviewOverlayScale(style);
+function applyPreviewOverlayInnerStyles(inner, style, scale) {
   const { fontSize: previewFontSize, strokeWidth: previewStrokeWidth, chrome, position } =
     buildSubtitleOverlayInnerStyle(style, scale);
   const bgAlpha = Math.max(0, Math.min(1, (style.bgOpacity ?? 60) / 100));
-  previewOverlay.hidden = false;
-  previewOverlay.replaceChildren();
-
-  const inner = document.createElement("div");
-  inner.className = "as-preview-overlay-inner";
-  inner.textContent = previewText;
   inner.style.top = position.top;
   inner.style.left = position.left;
   inner.style.right = position.right;
@@ -1536,8 +1587,46 @@ function updatePreviewOverlay() {
   inner.style.borderRadius = `${chrome.borderRadius}px`;
   inner.style.border = chrome.border;
   inner.style.boxSizing = chrome.boxSizing;
+}
+
+function updatePreviewOverlay() {
+  if (!previewOverlay) return;
+  layoutPreviewMediaFrame();
+  const style = readSubtitleStyleFromDom();
+  const scale = getPreviewOverlayScale(style);
+  const previewText = normalizePreviewSubtitleText(
+    isPreviewMediaPlaying()
+      ? resolveOverlayDisplayTextAt(playheadSec)
+      : getPreviewCueText(getActiveCueForPreview()),
+  );
+
+  if (!previewText) {
+    previewOverlay.hidden = true;
+    previewOverlay.replaceChildren();
+    lastOverlayDisplayText = "";
+    updatePreviewWatermark();
+    return;
+  }
+
+  const existing = previewOverlay.querySelector(".as-preview-overlay-inner");
+  if (existing instanceof HTMLElement && existing.textContent === previewText) {
+    previewOverlay.hidden = false;
+    applyPreviewOverlayInnerStyles(existing, style, scale);
+    applySubtitleOverlayTextLayout(existing, previewOverlay);
+    lastOverlayDisplayText = previewText;
+    updatePreviewWatermark();
+    return;
+  }
+
+  previewOverlay.hidden = false;
+  previewOverlay.replaceChildren();
+  const inner = document.createElement("div");
+  inner.className = "as-preview-overlay-inner";
+  inner.textContent = previewText;
+  applyPreviewOverlayInnerStyles(inner, style, scale);
   previewOverlay.appendChild(inner);
   applySubtitleOverlayTextLayout(inner, previewOverlay);
+  lastOverlayDisplayText = previewText;
   updatePreviewWatermark();
 }
 
@@ -1845,6 +1934,7 @@ function syncInAppBusyShell() {
   const fontAddActive = Boolean(fontAddModal?.classList.contains("is-active"));
   const watermarkModalActive = Boolean(watermarkPositionModal?.classList.contains("is-active"));
   const wordAlignActive = Boolean(wordAlignLoading?.classList.contains("is-active"));
+  const previewMediaActive = Boolean(previewMediaLoading?.classList.contains("is-active"));
   const busy =
     setupActive ||
     transcribeActive ||
@@ -1852,7 +1942,8 @@ function syncInAppBusyShell() {
     gpuPromptActive ||
     fontAddActive ||
     watermarkModalActive ||
-    wordAlignActive;
+    wordAlignActive ||
+    previewMediaActive;
   asShell?.classList.toggle("is-inapp-busy", busy);
   if (inappBusyHost) {
     inappBusyHost.hidden = !busy;
@@ -1906,11 +1997,49 @@ function openFontAddModal({ title = "폰트 추가", message = "", loading = fal
   if (showOk) btnFontAddOk?.focus({ preventScroll: true });
 }
 
+function hidePreviewMediaLoadingModal() {
+  if (!previewMediaLoading) return;
+  previewMediaLoading.hidden = true;
+  previewMediaLoading.classList.remove("is-active");
+  previewMediaLoading.setAttribute("aria-hidden", "true");
+  if (previewMediaLoadingActions) previewMediaLoadingActions.hidden = true;
+  if (previewMediaLoadingTrack) previewMediaLoadingTrack.hidden = false;
+}
+
+/**
+ * @param {boolean} active
+ * @param {{ title?: string, step?: string, message?: string, showOk?: boolean }} [opts]
+ */
+function setPreviewMediaLoading(active, { title, step, message, showOk = false } = {}) {
+  if (!previewMediaLoading) return;
+  if (!active) {
+    hidePreviewMediaLoadingModal();
+    syncInAppBusyShell();
+    return;
+  }
+  {
+    previewMediaLoading.hidden = false;
+    previewMediaLoading.classList.add("is-active");
+    previewMediaLoading.setAttribute("aria-hidden", "false");
+    if (title && previewMediaLoadingTitle) previewMediaLoadingTitle.textContent = title;
+    if (previewMediaLoadingStep) previewMediaLoadingStep.textContent = step || "";
+    if (previewMediaLoadingMessage && message) previewMediaLoadingMessage.textContent = message;
+    if (previewMediaLoadingTrack) previewMediaLoadingTrack.hidden = showOk;
+    if (previewMediaLoadingActions) previewMediaLoadingActions.hidden = !showOk;
+    if (previewMediaLoadingBar && previewMediaLoadingTrack && !showOk) {
+      previewMediaLoadingBar.style.width = "35%";
+      previewMediaLoadingTrack.setAttribute("aria-valuenow", "0");
+    }
+    syncInAppBusyShell();
+  }
+}
+
 function setSetupLoading(active, { title, step, message, progress } = {}) {
   if (!setupLoading) return;
   const wasActive = setupLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
+    hidePreviewMediaLoadingModal();
     closeGpuInstallModal();
     closeFontAddModal();
     closeWatermarkPositionModal();
@@ -1952,6 +2081,7 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
   const wasActive = transcribeLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
+    hidePreviewMediaLoadingModal();
     closeGpuInstallModal();
     closeFontAddModal();
     closeWatermarkPositionModal();
@@ -2017,6 +2147,12 @@ function updateActionButtons() {
   if (subtitleEmpty) subtitleEmpty.hidden = hasCues;
   if (resultsMeta) resultsMeta.hidden = !hasCues;
   syncWordAlignButtonState();
+  if (btnFindReplace) {
+    btnFindReplace.disabled = !hasCues;
+    btnFindReplace.title = hasCues
+      ? "자막 편집 영역에서 찾기·바꾸기 (Ctrl+F)"
+      : "자막이 있을 때 사용할 수 있습니다";
+  }
 }
 
 function setWordAlignLoading(active, { title, step, message, progress } = {}) {
@@ -2024,6 +2160,7 @@ function setWordAlignLoading(active, { title, step, message, progress } = {}) {
   const wasActive = wordAlignLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
+    hidePreviewMediaLoadingModal();
     closeGpuInstallModal();
     closeFontAddModal();
     closeWatermarkPositionModal();
@@ -2130,6 +2267,7 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
   const wasActive = exportLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
+    hidePreviewMediaLoadingModal();
     closeGpuInstallModal();
     closeFontAddModal();
     closeWatermarkPositionModal();
@@ -2258,6 +2396,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       renderCuesTable(lastCues);
     },
     onSplitSubtitleAtWord: (index, wordIndex) => {
+      if (subtitleList) captureTextareaForCue(subtitleList, lastCues, index);
       prepareRowCaretAfterCueSplit(index);
       splitSubtitleAtWord(subtitleHub, index, wordIndex);
       finalizeRowCaretAfterCueSplit(index, lastCues);
@@ -2284,50 +2423,66 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
     },
     onBackspaceWordAt: (cardIndex, wordIndex) => {
+      if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
       backspaceWordAt(subtitleHub, cardIndex, wordIndex);
       renderCuesTable(lastCues);
       if (subtitleList) {
+        const focusIdx =
+          cardIndex < lastCues.length && lastCues[cardIndex]
+            ? cardIndex
+            : Math.max(0, Math.min(cardIndex, lastCues.length - 1));
+        const words = lastCues[focusIdx]?.words ?? [];
         const wi = Math.max(0, wordIndex - 1);
         requestFocusCaretDeferred(
           subtitleList,
           lastCues,
           buildSubtitleCardOpts(lastCues),
-          cardIndex,
-          wi,
+          focusIdx,
+          nearestValidStorageCaret(words, wi),
           { seek: false },
         );
       }
     },
     onDeleteWordAt: (cardIndex, caretIndex) => {
+      if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
       deleteWordAt(subtitleHub, cardIndex, caretIndex);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      if (subtitleList) {
-        const words = lastCues[cardIndex]?.words ?? [];
+      if (subtitleList && lastCues.length) {
+        const focusIdx =
+          cardIndex < lastCues.length && lastCues[cardIndex]
+            ? cardIndex
+            : Math.max(0, Math.min(cardIndex, lastCues.length - 1));
+        const words = lastCues[focusIdx]?.words ?? [];
         requestFocusCaretDeferred(
           subtitleList,
           lastCues,
           buildSubtitleCardOpts(lastCues),
-          cardIndex,
+          focusIdx,
           nearestValidStorageCaret(words, caretIndex),
           { seek: false },
         );
       }
     },
     onDeleteWordRangeAt: (cardIndex, from, to) => {
+      if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
       deleteWordRangeAt(subtitleHub, cardIndex, from, to);
       renderCuesTable(lastCues);
       commitPlayheadUi();
-      if (subtitleList) {
-        const words = lastCues[cardIndex]?.words ?? [];
+      if (subtitleList && lastCues.length) {
+        const focusIdx =
+          cardIndex < lastCues.length && lastCues[cardIndex]
+            ? cardIndex
+            : Math.max(0, Math.min(cardIndex, lastCues.length - 1));
+        const words = lastCues[focusIdx]?.words ?? [];
         requestFocusCaretDeferred(
           subtitleList,
           lastCues,
           buildSubtitleCardOpts(lastCues),
-          cardIndex,
+          focusIdx,
           nearestValidStorageCaret(words, from),
           { seek: false },
         );
@@ -2355,6 +2510,9 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         lastCues[cueIndex].text = text;
         updatePreviewOverlay();
       }
+    },
+    onFindReplaceTextInput: () => {
+      if (subtitleFindReplace.isOpen()) subtitleFindReplace.refreshHighlights();
     },
     onSubtitleTextCommit: (cueIndex, text) => {
       subtitleHub.applySubtitleChange((cues) => {
@@ -3497,6 +3655,7 @@ function updatePreview(videoPath) {
   releasePreviewMediaBlob();
 
   if (!p || !agentConnected) {
+    setPreviewMediaLoading(false);
     previewVideo.removeAttribute("src");
     if (previewAudio) {
       previewAudio.removeAttribute("src");
@@ -3524,10 +3683,26 @@ function updatePreview(videoPath) {
     previewEmpty.textContent = "미디어 불러오는 중…";
   }
 
+  setPreviewMediaLoading(true, {
+    title: "미리보기 불러오기",
+    message:
+      "잠시만 기다려 주세요.\n용량이 큰 영상은 시간이 더 걸릴 수 있습니다.\n편집 화면은 불러오기가 끝날 때까지 잠시 멈춥니다.",
+  });
+
   previewMediaLoadAbort = new AbortController();
   const { signal } = previewMediaLoadAbort;
 
-  void resolveAgentMediaObjectUrl(directUrl, { signal })
+  void resolveAgentMediaObjectUrl(directUrl, {
+    signal,
+    onAttempt(attempt) {
+      if (attempt > 1) {
+        setPreviewMediaLoading(true, {
+          title: "미리보기 다시 불러오기",
+          message: "연결이 끊겨 다시 시도합니다.\n잠시만 기다려 주세요…",
+        });
+      }
+    },
+  })
     .then((url) => {
       if (loadGen !== previewMediaLoadGen) return;
       previewMediaResolvedUrl = url;
@@ -3540,6 +3715,7 @@ function updatePreview(videoPath) {
       if (previewEmpty) previewEmpty.hidden = true;
       previewVideo.onloadedmetadata = () => {
         if (loadGen !== previewMediaLoadGen) return;
+        setPreviewMediaLoading(false);
         if (previewVideo.duration > 0) sessionMediaDurationSec = previewVideo.duration;
         layoutPreviewMediaFrame();
         updatePreviewOverlay();
@@ -3558,10 +3734,22 @@ function updatePreview(videoPath) {
         }
         rebuildPlaybackSync();
       };
+      previewVideo.onerror = () => {
+        if (loadGen !== previewMediaLoadGen) return;
+        setPreviewMediaLoading(true, {
+          title: "미리보기 불러오기 실패",
+          message:
+            "영상 파일을 재생할 수 없습니다.\n보내기·인코딩이 끝났는지 확인한 뒤, 영상 경로를 다시 선택해 주세요.",
+          showOk: true,
+        });
+      };
     })
     .catch((err) => {
       if (loadGen !== previewMediaLoadGen) return;
-      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setPreviewMediaLoading(false);
+        return;
+      }
       console.warn("[auto-subtitle] preview media load", err);
       previewVideo.removeAttribute("src");
       if (previewAudio) {
@@ -3572,12 +3760,23 @@ function updatePreview(videoPath) {
           /* ignore */
         }
       }
+      const errText = String(err?.message || err || "");
+      const lenMismatch = /CONTENT_LENGTH_MISMATCH|length mismatch|미디어 파일이 비어/i.test(
+        errText,
+      );
       if (previewEmpty) {
         previewEmpty.hidden = false;
-        previewEmpty.textContent =
-          formatAgentConnectionError(err) ||
-          "미디어를 불러올 수 없습니다. Chrome 사이트 설정에서 「로컬 네트워크」를 허용해 주세요.";
+        previewEmpty.textContent = lenMismatch
+          ? "미디어 파일이 손상되었거나 아직 생성 중입니다."
+          : "미디어를 불러올 수 없습니다.";
       }
+      setPreviewMediaLoading(true, {
+        title: "미리보기 불러오기 실패",
+        message: lenMismatch
+          ? "미디어 파일이 손상되었거나 아직 생성 중입니다.\nFFmpeg 보내기가 끝난 뒤 다시 열거나, 원본 영상 경로를 다시 선택해 주세요."
+          : `${formatAgentConnectionError(err) || "미디어를 불러올 수 없습니다."}\nChrome 사이트 설정에서 「로컬 네트워크」를 허용했는지 확인해 주세요.`,
+        showOk: true,
+      });
       layoutPreviewMediaFrame();
       updatePreviewOverlay();
       updatePreviewTransportUi();
@@ -3804,6 +4003,10 @@ btnFontAddOk?.addEventListener("click", () => {
   closeFontAddModal();
 });
 
+btnPreviewMediaLoadingOk?.addEventListener("click", () => {
+  setPreviewMediaLoading(false);
+});
+
 btnUndo?.addEventListener("click", () => {
   if (subtitleHub.undo()) renderCuesTable(lastCues);
 });
@@ -3825,6 +4028,7 @@ btnGpuInstallRun?.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && subtitleFindReplace.handleEscape()) return;
   if (e.key !== "Escape") return;
   if (fontAddModal && !fontAddModal.hidden) {
     if (fontAddTrack && !fontAddTrack.hidden) return;
@@ -3857,6 +4061,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (subtitleFindReplace.handleKeydown(e)) return;
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const tag = e.target instanceof Element ? e.target.tagName : "";
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
@@ -3867,6 +4072,10 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (subtitleHub.redo()) renderCuesTable(lastCues);
   }
+});
+
+btnFindReplace?.addEventListener("click", () => {
+  subtitleFindReplace.open();
 });
 
 btnWordAutoAlign?.addEventListener("click", () => {
@@ -4064,6 +4273,57 @@ previewVideo?.addEventListener("loadeddata", () => {
 
 void showAdSense("editorBelowExport", "#editor-ad-preview-pane");
 void showAdSense("editorAboveWorkspace", "#editor-ad-subtitle-pane");
+
+const subtitleFindReplace = initSubtitleFindReplace({
+  getCues: () => lastCues,
+  hasCues: () => lastCues.length > 0,
+  getListContainer: () => subtitleList,
+  captureEdits: () => {
+    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  },
+  applyChange: (updater) => {
+    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+    subtitleHub.applySubtitleChange(updater);
+    renderCuesTable(lastCues);
+    updatePreviewOverlay();
+  },
+  focusMatch: (match) => {
+    const cueIndex = match.cueIndex;
+    const cue = lastCues[cueIndex];
+    selectCueLine(cueIndex, { scroll: false, seek: false, rerender: false });
+    if (subtitleList) {
+      scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), cueIndex, {
+        behavior: "smooth",
+      });
+      const card = subtitleList.querySelector(`.subtitle-card[data-cue-index="${cueIndex}"]`);
+      const ta = card?.querySelector(".subtitle-card-textarea");
+      if (ta instanceof HTMLTextAreaElement) {
+        ta.focus();
+        const end = match.pos + match.len;
+        ta.setSelectionRange(match.pos, end);
+        const lineH = parseInt(getComputedStyle(ta).lineHeight, 10) || 20;
+        const before = ta.value.slice(0, match.pos);
+        const lines = before.split("\n").length - 1;
+        ta.scrollTop = Math.max(0, lines * lineH - ta.clientHeight * 0.3);
+        const layer = card.querySelector(".subtitle-find-text-layer");
+        if (layer instanceof HTMLElement) {
+          syncFindHighlightLayerToTextarea(layer, ta);
+        }
+      }
+    }
+    if (cue && previewVideo && Number.isFinite(cue.start)) {
+      const orch = getPlaybackOrchestrator();
+      const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
+      orch.seekMediaSec(media);
+      playheadSec = orch.mapMediaToEditSec(media);
+    }
+    commitPlayheadUi();
+    if (subtitleList) {
+      patchSelectedCueHighlight(subtitleList, selectedCueIndex, cueIndex);
+    }
+    selectedCueIndex = cueIndex;
+  },
+});
 
 document.addEventListener(
   "pointerdown",

@@ -247,12 +247,16 @@ def _pick_frame_buffer(
     blank: bytes,
     frame_bytes: int,
 ) -> bytes:
+    """구간 끝 프레임 포함(<= end). 겹치면 마지막 cue 우선 — 짧은 무자막 프레임 깜박임 방지."""
+    hit: _TimeCue | None = None
     for c in sorted_cues:
-        if t >= c.start and t < c.end - 1e-9:
-            if c.buf is not None:
-                return c.buf
-            if c.path is not None:
-                return _read_frame_bytes(c.path, frame_bytes)
+        if t >= c.start and t <= c.end + 1e-7:
+            hit = c
+    if hit is not None:
+        if hit.buf is not None:
+            return hit.buf
+        if hit.path is not None:
+            return _read_frame_bytes(hit.path, frame_bytes)
     return blank
 
 
