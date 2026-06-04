@@ -11,7 +11,7 @@
  */
 
 import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl } from "./agent-endpoints.js";
-import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna17";
+import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna18";
 import {
   ensureSiteModalStyles,
   hideModalShell,

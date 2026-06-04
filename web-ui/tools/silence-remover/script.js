@@ -11,7 +11,7 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
 import { showAdSense } from "../common/adsense.js";
-import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna17";
+import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna18";
 import {
   STORAGE_CLIP_NAME,
   STORAGE_DURATION,
