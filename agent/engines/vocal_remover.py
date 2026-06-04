@@ -38,6 +38,14 @@ from common.bin_manager import (
     get_ffprobe_executable,
     prepend_ffmpeg_bin_to_env,
 )
+from common.runtime_site_packages import (
+    engine_python_c_prefix,
+    pip_install_cmd,
+    prepend_runtime_pythonpath,
+    purge_runtime_site_entries,
+    use_runtime_site_packages,
+    verify_importable,
+)
 from common.subprocess_util import no_window_creationflags, run_hidden
 from runtime_paths import agent_package_root, demucs_runner_script, is_frozen
 
@@ -188,6 +196,7 @@ def _run_demucs_with_progress(
     if data:
         env["ITMATZIP_AGENT_DATA"] = data
     prepend_ffmpeg_bin_to_env(env)
+    prepend_runtime_pythonpath(env)
     existing_py_path = env.get("PYTHONPATH", "").strip()
     if existing_py_path:
         if agent_root_str not in existing_py_path.split(os.pathsep):
@@ -470,7 +479,8 @@ def _invalidate_torch_import_cache() -> None:
 def _probe_torch_subprocess(timeout: float = 90.0) -> dict[str, object]:
     """새 Python 프로세스에서 torch 빌드/CUDA를 확인 (에이전트가 CPU torch를 캐시한 경우 방지)."""
     script = (
-        "import json\n"
+        engine_python_c_prefix()
+        + "import json\n"
         "d = {'version': '', 'variant': None, 'cuda_available': False, 'error': None}\n"
         "try:\n"
         "    import torch\n"
@@ -826,17 +836,16 @@ def _pip_uninstall_torch_stack() -> None:
         text=True,
         timeout=600,
     )
+    if use_runtime_site_packages():
+        purge_runtime_site_entries("torch", "torchaudio", "torchcodec", "functorch")
     _invalidate_torch_import_cache()
 
 
 def _pip_install_torch_runtime_deps() -> subprocess.CompletedProcess:
     """torch wheel 의존성은 PyPI에서 설치 (torch 패키지 자체는 제외)."""
-    return run_hidden(
-        [sys.executable, "-m", "pip", "install", *TORCH_PIP_RUNTIME_DEPS],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    cmd = pip_install_cmd()
+    cmd.extend(TORCH_PIP_RUNTIME_DEPS)
+    return run_hidden(cmd, capture_output=True, text=True, timeout=600)
 
 
 def _pip_install_torch_stack_from_wheels(
@@ -851,15 +860,8 @@ def _pip_install_torch_stack_from_wheels(
     deps_proc = _pip_install_torch_runtime_deps()
     if deps_proc.returncode != 0:
         return deps_proc
-    cmd = [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--no-deps",
-        *[str(path) for path in wheel_paths],
-    ]
+    cmd = pip_install_cmd(force_reinstall=True)
+    cmd.extend(["--no-deps", *[str(path) for path in wheel_paths]])
     proc = run_hidden(cmd, capture_output=True, text=True, timeout=3600)
     _invalidate_torch_import_cache()
     return proc
@@ -940,8 +942,8 @@ def _bundle_sdist_artifacts(wheel_dir: Path) -> tuple[Path, Path]:
 
 
 def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
-    """GitHub wheel 번들의 demucs/diffq는 tar.gz(sdist) — engine site-packages에 Cython·numpy 선설치."""
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade"]
+    """GitHub wheel 번들의 demucs/diffq는 tar.gz(sdist) — Cython·numpy 선설치."""
+    cmd = pip_install_cmd(upgrade=True)
     numpy_wheels = sorted(
         p
         for p in wheel_dir.glob("numpy-*.whl")
@@ -958,18 +960,7 @@ def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
             "demucs/diffq 빌드 준비(Cython·numpy) 실패: "
             + (proc.stderr or proc.stdout or "unknown")
         )
-    # 빌드에 Cython import 가능한지 확인 (서비스 계정 user-site 꼬임 방지)
-    verify = run_hidden(
-        [sys.executable, "-c", "import Cython; import numpy"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    if verify.returncode != 0:
-        raise RuntimeError(
-            "Cython/numpy 설치 후 import 실패 (engine Python 경로 확인): "
-            + (verify.stderr or verify.stdout or "unknown")
-        )
+    verify_importable("Cython", "numpy")
 
 
 def _pip_install_demucs_diffq_from_bundle(
@@ -988,10 +979,8 @@ def _pip_install_demucs_diffq_from_bundle(
         for p in wheel_dir.glob("lameenc-*.whl")
         if p.is_file() and _wheel_filename_matches_runtime(p.name)
     )
-    cmd = [sys.executable, "-m", "pip", "install"]
-    if force_reinstall:
-        cmd.append("--force-reinstall")
-    cmd.extend(["--upgrade", *_pip_find_links_args(wheel_dir), "--prefer-binary", "--no-build-isolation"])
+    cmd = pip_install_cmd(force_reinstall=force_reinstall, upgrade=True)
+    cmd.extend([*_pip_find_links_args(wheel_dir), "--prefer-binary", "--no-build-isolation"])
     if lameenc:
         cmd.append(str(lameenc[-1]))
     cmd.extend([str(diffq_pkg), str(demucs_tgz)])
@@ -1007,10 +996,8 @@ def _pip_install_other_packages_from_wheel_dir(
     """demucs·diffq — 번들 tar.gz 직접 설치; 그 외 패키지는 find-links + PyPI."""
     if set(packages) <= {"demucs", "diffq"} and packages:
         return _pip_install_demucs_diffq_from_bundle(wheel_dir, force_reinstall=force_reinstall)
-    cmd = [sys.executable, "-m", "pip", "install"]
-    if force_reinstall:
-        cmd.append("--force-reinstall")
-    cmd.extend(["--upgrade", *_pip_find_links_args(wheel_dir), "--prefer-binary", *packages])
+    cmd = pip_install_cmd(force_reinstall=force_reinstall, upgrade=True)
+    cmd.extend([*_pip_find_links_args(wheel_dir), "--prefer-binary", *packages])
     return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
 
 
@@ -1145,10 +1132,19 @@ def _install_wheels_bundle(
         if not isinstance(proc, subprocess.CompletedProcess):
             raise RuntimeError("pip wheel 설치가 비정상 종료되었습니다.")
         if proc.returncode != 0:
+            detail = proc.stderr or proc.stdout or "unknown"
+            if "WinError 5" in detail or "액세스가 거부" in detail:
+                detail += (
+                    " (Program Files engine 에 쓸 수 없습니다. "
+                    "에이전트 agent/ 소스를 최신으로 반영한 뒤 트레이를 재시작하세요.)"
+                )
             raise RuntimeError(
-                "번들 wheel 설치에 실패했습니다. pip 출력: "
-                + (proc.stderr or proc.stdout or "unknown")
+                "번들 wheel 설치에 실패했습니다. pip 출력: " + detail
             )
+        from common.runtime_site_packages import activate_runtime_site_packages, verify_importable
+
+        activate_runtime_site_packages()
+        verify_importable("demucs", "diffq", "torch")
 
 
 def reinstall_cuda_torch_wheels(on_progress: PrepareProgressCallback | None = None) -> None:

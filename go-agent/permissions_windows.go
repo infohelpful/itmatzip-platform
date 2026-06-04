@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 func ensureDataFolderWritable() {
@@ -17,30 +18,47 @@ func ensureDataFolderWritable() {
 	if err == nil {
 		f.Close()
 		os.Remove(testFile)
-		return
-	}
-
-	cmd := exec.Command("icacls", settingsRootPath, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/Q")
-	hideExec(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("warning: icacls grant on %s failed: %v (%s)", settingsRootPath, err, string(out))
 	} else {
-		log.Printf("granted Users write access to %s", settingsRootPath)
+		cmd := exec.Command("icacls", settingsRootPath, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/Q")
+		hideExec(cmd)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("warning: icacls grant on %s failed: %v (%s)", settingsRootPath, err, string(out))
+		} else {
+			log.Printf("granted Users write access to %s", settingsRootPath)
+		}
 	}
 
-	ensureVenvSitePackagesWritable()
+	ensureRuntimeSitePackagesDir()
+	ensureEngineSitePackagesWritable()
 }
 
-func ensureVenvSitePackagesWritable() {
-	agentDir, ok := resolveAgentDir()
-	if !ok {
+func ensureRuntimeSitePackagesDir() {
+	appData := os.Getenv("APPDATA")
+	if appData == "" {
 		return
 	}
-	venvDir := agentDir + `\.venv-build`
-	if _, err := os.Stat(venvDir); err != nil {
+	siteDir := filepath.Join(appData, "ItMatZip", "engine-runtime", "Lib", "site-packages")
+	if err := os.MkdirAll(siteDir, 0755); err != nil {
+		log.Printf("warning: create runtime site-packages %s: %v", siteDir, err)
 		return
 	}
-	testFile := venvDir + `\Lib\site-packages\.write_test`
+	testFile := filepath.Join(siteDir, ".write_test")
+	if err := os.WriteFile(testFile, []byte("1"), 0644); err != nil {
+		log.Printf("warning: runtime site-packages not writable: %s (%v)", siteDir, err)
+		return
+	}
+	os.Remove(testFile)
+}
+
+func ensureEngineSitePackagesWritable() {
+	if installRootPath == "" {
+		return
+	}
+	siteDir := filepath.Join(installRootPath, "engine", "Lib", "site-packages")
+	if _, err := os.Stat(siteDir); err != nil {
+		return
+	}
+	testFile := filepath.Join(siteDir, ".write_test")
 	f, err := os.Create(testFile)
 	if err == nil {
 		f.Close()
@@ -48,11 +66,14 @@ func ensureVenvSitePackagesWritable() {
 		return
 	}
 
-	cmd := exec.Command("icacls", venvDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/Q")
+	cmd := exec.Command("icacls", siteDir, "/grant", "*S-1-5-32-545:(OI)(CI)M", "/T", "/Q")
 	hideExec(cmd)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("warning: icacls grant on %s failed: %v (%s)", venvDir, err, string(out))
+	if out, icaclsErr := cmd.CombinedOutput(); icaclsErr != nil {
+		log.Printf(
+			"engine site-packages not writable (%s); runtime pip uses %%APPDATA%%\\ItMatZip\\engine-runtime: %v (%s)",
+			siteDir, icaclsErr, string(out),
+		)
 	} else {
-		log.Printf("granted Users write access to %s", venvDir)
+		log.Printf("granted Users write access to %s (legacy pip fallback)", siteDir)
 	}
 }

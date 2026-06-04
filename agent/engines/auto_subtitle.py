@@ -432,7 +432,11 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "Python 패키지",
         f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
     )
-    cmd = [sys.executable, "-m", "pip", "install", "--upgrade", *missing]
+    from common.runtime_site_packages import pip_install_cmd
+    from common.subprocess_util import agent_subprocess_env
+
+    cmd = pip_install_cmd(upgrade=True)
+    cmd.extend(missing)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -441,6 +445,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         encoding="utf-8",
         errors="replace",
         creationflags=no_window_creationflags(),
+        env=agent_subprocess_env(),
     )
     lines_seen = 0
     last_line = ""
@@ -461,6 +466,22 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
     proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"pip install 실패 (exit {proc.returncode}): {last_line}")
+    from common.runtime_site_packages import activate_runtime_site_packages, verify_importable
+
+    activate_runtime_site_packages()
+    verify_names: list[str] = []
+    for spec in missing:
+        base = spec.split(">=")[0].split("==")[0].strip()
+        if base.startswith("faster-whisper"):
+            verify_names.append("faster_whisper")
+        elif base.startswith("huggingface"):
+            verify_names.append("huggingface_hub")
+        elif base == "tqdm":
+            verify_names.append("tqdm")
+        elif base == "numpy":
+            verify_names.append("numpy")
+    if verify_names:
+        verify_importable(*verify_names)
     prepend_cuda_runtime_dll_dirs()
     _emit_prepare_progress(on_progress, 18.0, "Python 패키지", "설치 완료")
 

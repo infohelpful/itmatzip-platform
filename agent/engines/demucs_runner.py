@@ -7,6 +7,26 @@ import wave
 from pathlib import Path
 
 
+def _bootstrap_import_paths() -> None:
+    """MSI embeddable Python 은 PYTHONPATH 를 무시 — agent·runtime 경로를 직접 삽입."""
+    agent = os.environ.get("ITMATZIP_AGENT_DIR", "").strip()
+    if not agent:
+        install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+        if install:
+            agent = str(Path(install) / "agent")
+    if agent and agent not in sys.path:
+        sys.path.insert(0, agent)
+    try:
+        from common.runtime_site_packages import activate_runtime_site_packages
+
+        activate_runtime_site_packages()
+    except Exception as exc:
+        print(f"warning: runtime site-packages bootstrap failed: {exc}", file=sys.stderr)
+
+
+_bootstrap_import_paths()
+
+
 def _bootstrap_ffmpeg_dll_path() -> None:
     """torchcodec이 FFmpeg DLL을 찾도록 Demucs import 전에 PATH를 맞춥니다."""
     try:

@@ -16,9 +16,12 @@ def no_window_creationflags(extra: int = 0) -> int:
 
 def agent_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     """MSI embeddable + Windows 서비스: user site-packages 분리 (Cython/torch 경로 꼬임 방지)."""
+    from common.runtime_site_packages import prepend_runtime_pythonpath
+
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
     env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
+    prepend_runtime_pythonpath(env)
     if extra:
         env.update(extra)
     return env
