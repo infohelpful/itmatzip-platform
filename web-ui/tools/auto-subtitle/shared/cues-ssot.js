@@ -14,9 +14,10 @@ import {
   parseSubtitleLines,
   pruneInvalidSubtitleWords,
   scaleSubtitleLinesTimes,
+  repairCueLinesWordTimelines,
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
-} from "./subtitles.js?v=25";
+} from "./subtitles.js?v=26";
 
 /** 추출 직후 gap-fill 기본값 (Electron gapFillWhenBuildingVrew 기본 false) */
 export const DEFAULT_GAP_FILL_ON_EXTRACT = false;
@@ -73,7 +74,8 @@ export function postProcessCuesAfterTranscribe(lines, opts = {}) {
     }
     return syncSubtitleLineFromWords(next);
   });
-  return commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(out));
+  const repaired = repairCueLinesWordTimelines(out);
+  return commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(repaired));
 }
 
 /**
@@ -93,7 +95,8 @@ export function applyLeadingSilenceSplitOnly(lines, peaksMetrics) {
     });
     return syncSubtitleLineFromWords(merged);
   });
-  return commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(working));
+  const repaired = repairCueLinesWordTimelines(working);
+  return commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(repaired));
 }
 
 /**
@@ -118,3 +121,5 @@ export function shouldApplyGapFillForLines(gapFillWhenBuildingVrew, lines) {
     linesContainDeletedWords(lines),
   );
 }
+
+export { repairCueLinesWordTimelines } from "./subtitles.js?v=26";

@@ -6,7 +6,7 @@ import { mediaSecondsToPeakPixelRange } from "../peaks-metrics.js";
 import {
   displayTextFromSubtitleWords,
   mergeConsecutiveSilenceWordsInLine,
-} from "./subtitles.js?v=25";
+} from "./subtitles.js?v=26";
 import { DEFAULT_GAP_THRESHOLD_SEC, SILENCE_PLACEHOLDER_TEXT } from "./word-contract.js";
 
 const DBFS_GATE_DEFAULT = -40;
@@ -137,38 +137,6 @@ function assignSpeechWordTextsByAnchor(segments, w, data, pixelCount, durationSe
   });
 }
 
-/**
- * Whisper ? ??? ??? ?? ? ?? ??(?: ?.)? ??? trailing `--` ??.
- *
- * @param {Array<Record<string, unknown>>} segments
- * @param {number} minLead
- */
-function dropTrailingIntraWordSilence(segments, minLead) {
-  if (segments.length < 2) return segments;
-  const last = segments[segments.length - 1];
-  const prev = segments[segments.length - 2];
-  if (last.is_silence !== true && last.isSilence !== true) return segments;
-  if (prev.is_silence === true || prev.isSilence === true) return segments;
-
-  const ps = Math.min(prev.start, prev.end);
-  let pe = Math.max(prev.start, prev.end);
-  const ss = Math.min(last.start, last.end);
-  const se = Math.max(last.start, last.end);
-  const overlap = pe - ss;
-  const silDur = se - ss;
-
-  if (overlap > EPS) {
-    pe = Math.max(ps + EPS, ss);
-  } else if (silDur < minLead - EPS) {
-    return segments.slice(0, -1);
-  }
-
-  if (overlap > EPS || silDur < minLead - EPS) {
-    return [...segments.slice(0, -2), { ...prev, end: pe }];
-  }
-  return segments;
-}
-
 function wordsSplitSignature(words) {
   return words
     .map((w) => {
@@ -239,7 +207,8 @@ function splitSingleWordByPeakSilenceRuns(
   const out = [];
   let speechChunkIndex = 0;
 
-  for (const run of runs) {
+  for (let ri = 0; ri < runs.length; ri += 1) {
+    const run = runs[ri];
     let t0 = timeLeftEdgeOfPixel(run.p0, pixelCount, durationSec);
     let t1 = timeLeftEdgeOfPixel(run.p1, pixelCount, durationSec);
     t0 = Math.max(ws, Math.min(we, t0));
@@ -247,6 +216,15 @@ function splitSingleWordByPeakSilenceRuns(
     if (!(t1 > t0 + EPS)) continue;
 
     if (run.silent) {
+      if (ri === runs.length - 1) {
+        const prev = out[out.length - 1];
+        if (prev && !(prev.is_silence || prev.isSilence)) {
+          const ps = Math.min(prev.start, prev.end);
+          const pe = Math.max(prev.start, prev.end);
+          prev.end = Math.max(ps + EPS, Math.min(pe, t0));
+        }
+        continue;
+      }
       out.push({
         start: t0,
         end: t1,
@@ -321,7 +299,7 @@ function splitSingleWordByPeakSilenceRuns(
     return null;
   }
 
-  let outAnchored = assignSpeechWordTextsByAnchor(
+  const outAnchored = assignSpeechWordTextsByAnchor(
     out,
     w,
     data,
@@ -329,7 +307,6 @@ function splitSingleWordByPeakSilenceRuns(
     durationSec,
     wordAnchorDbfs,
   );
-  outAnchored = dropTrailingIntraWordSilence(outAnchored, minLead);
 
   if (
     outAnchored.length === 1 &&

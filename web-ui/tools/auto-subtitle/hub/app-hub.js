@@ -13,7 +13,8 @@ import {
   postProcessCuesAfterTranscribe,
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
-} from "../shared/cues-ssot.js?v=33";
+  repairCueLinesWordTimelines,
+} from "../shared/cues-ssot.js?v=34";
 import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=3";
 import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
@@ -252,9 +253,11 @@ export class SubtitleAppHub {
     this.gapFillWhenBuildingVrew = false;
     this._undoStack = [];
     this._redoStack = [];
-    const lines = commitSubtitleLinesThroughTimeline(
-      syncAllSubtitleLinesFromWords(
-        reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
+    const lines = repairCueLinesWordTimelines(
+      commitSubtitleLinesThroughTimeline(
+        syncAllSubtitleLinesFromWords(
+          reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
+        ),
       ),
     );
     this.setCues(lines, { cutRanges: opts.cutRanges, recordHistory: false });

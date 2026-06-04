@@ -250,38 +250,46 @@ export function resolveAdjacentWordTimelineOverlaps(words) {
 }
 
 /**
- * 줄 끝 피크 분할 잔여 `--` 제거: 직전 말소리와 겹치거나 너무 짧은 trailing silence.
+ * 한 줄 맨 끝 `--` 제거 (피크 분할이 말끝 음절 꼬리를 무음 칩으로 붙이는 현상).
  *
- * @param {readonly SubtitleWord[]} words
- * @param {number} [minKeepSilenceSec]
+ * @param {SubtitleLine} line
  */
-export function suppressTrailingOverlapSilence(
-  words,
-  minKeepSilenceSec = EXTRACT_TEMPORAL_GAP_SILENCE_SEC,
-) {
-  let w = resolveAdjacentWordTimelineOverlaps(words);
-  if (w.length < 2) return w;
-  const last = w[w.length - 1];
-  const prev = w[w.length - 2];
-  if (wordIsDeleted(last) || wordIsDeleted(prev)) return w;
-  if (!wordIsSilence(last) || wordIsSilence(prev)) return w;
+export function stripLineEndTrailingSilenceWords(line) {
+  if (!line?.words?.length || line.is_silence || line.isSilence) return line;
 
-  const ps = Math.min(prev.start, prev.end);
-  let pe = Math.max(prev.start, prev.end);
-  const ss = Math.min(last.start, last.end);
-  const se = Math.max(last.start, last.end);
-  const overlap = pe - ss;
-  const silDur = se - ss;
+  let words = [...line.words].sort((a, b) => a.start - b.start || a.end - b.end);
+  let changed = false;
 
-  if (overlap > FLOAT_EPS) {
-    pe = Math.max(ps + FLOAT_EPS, ss);
-    prev.end = pe;
+  while (words.length > 0) {
+    const last = words[words.length - 1];
+    if (wordIsDeleted(last) || !wordIsSilence(last)) break;
+    if (words.length >= 2) {
+      const prev = words[words.length - 2];
+      if (!wordIsDeleted(prev) && !wordIsSilence(prev)) {
+        const ss = Math.min(last.start, last.end);
+        const ps = Math.min(prev.start, prev.end);
+        const pe = Math.max(prev.start, prev.end);
+        const nextEnd = Math.min(pe, Math.max(ps + FLOAT_EPS, ss));
+        if (nextEnd !== pe) {
+          words = [...words.slice(0, -2), { ...prev, end: nextEnd }];
+          changed = true;
+        }
+      }
+    }
+    words = words.slice(0, -1);
+    changed = true;
   }
 
-  if (silDur < minKeepSilenceSec - FLOAT_EPS || overlap > FLOAT_EPS) {
-    return w.slice(0, -1);
-  }
-  return w;
+  if (!changed) return line;
+  return mergeConsecutiveSilenceWordsInLine({ ...line, words });
+}
+
+/** @param {readonly SubtitleLine[]} lines */
+export function repairCueLinesWordTimelines(lines) {
+  return (lines || []).map((line) => {
+    if (line.is_silence || line.isSilence) return line;
+    return syncSubtitleLineFromWords(stripLineEndTrailingSilenceWords(line));
+  });
 }
 
 /** @param {readonly SubtitleWord[]} words */
@@ -290,7 +298,6 @@ export function normalizeSilenceWordsForLineWords(words) {
   w = collapseGapLikeRunsInWords(w);
   w = mergeConsecutiveSilenceWords(w);
   w = resolveAdjacentWordTimelineOverlaps(w);
-  w = suppressTrailingOverlapSilence(w);
   w = mergeConsecutiveSilenceWords(w);
   return w;
 }
