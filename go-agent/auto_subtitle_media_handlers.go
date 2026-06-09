@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 func mountAutoSubtitleMediaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/tools/auto-subtitle/media/probe", handleAutoSubtitleMediaProbe)
 	mux.HandleFunc("/api/tools/auto-subtitle/media/prepare-for-whisper", handleAutoSubtitlePrepareForWhisper)
-	mux.HandleFunc("/api/tools/auto-subtitle/export/plain-burn-in", handleAutoSubtitlePlainBurnIn)
+	mux.HandleFunc("/api/tools/auto-subtitle/export/plain-burn-in", handleAutoSubtitlePlainBurnIn) // deprecated: use Python V41 export
 }
 
 type mediaPathBody struct {
@@ -133,6 +134,7 @@ func handleAutoSubtitlePrepareForWhisper(w http.ResponseWriter, r *http.Request)
 }
 
 func handleAutoSubtitlePlainBurnIn(w http.ResponseWriter, r *http.Request) {
+	log.Printf("[deprecated] plain-burn-in: migrate to Python V41 /export pipeline")
 	var body plainBurnInBody
 	if !readJSONBody(w, r, &body) {
 		return

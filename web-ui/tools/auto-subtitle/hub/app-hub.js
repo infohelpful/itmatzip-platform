@@ -16,7 +16,8 @@ import {
   applyLeadingSilenceSplitOnly,
   repairCueLinesWordTimelines,
 } from "../shared/cues-ssot.js?v=39";
-import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=3";
+import { anchorSourceTimesIfMissing } from "../shared/dual-axis.js?v=1";
+import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=4";
 import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
 
@@ -255,10 +256,12 @@ export class SubtitleAppHub {
     this.gapFillWhenBuildingVrew = false;
     this._undoStack = [];
     this._redoStack = [];
-    const lines = repairCueLinesWordTimelines(
-      commitSubtitleLinesThroughTimeline(
-        syncAllSubtitleLinesFromWords(
-          reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
+    const lines = anchorSourceTimesIfMissing(
+      repairCueLinesWordTimelines(
+        commitSubtitleLinesThroughTimeline(
+          syncAllSubtitleLinesFromWords(
+            reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(raw)),
+          ),
         ),
       ),
     );

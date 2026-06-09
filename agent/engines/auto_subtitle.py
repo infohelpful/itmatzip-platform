@@ -530,6 +530,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "tokenizers",
         "ctranslate2",
         "av",
+        "kiwipiepy",
     )
     prepend_cuda_runtime_dll_dirs()
     _emit_prepare_progress(on_progress, 18.0, "Python 패키지", "설치 완료")

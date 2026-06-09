@@ -117,10 +117,23 @@ class CutRangeModel(BaseModel):
     end: float = Field(..., gt=0.0)
 
 
+class VirtualAudioSegmentModel(BaseModel):
+    cueIndex: int
+    sourceStart: float = Field(..., ge=0.0)
+    sourceEnd: float = Field(..., gt=0.0)
+    editStart: float = Field(..., ge=0.0)
+    editEnd: float = Field(..., gt=0.0)
+    isSilence: bool = False
+
+
 class AutoSubtitleExportBody(BaseModel):
     format: str = Field(..., description="srt | vtt | ass | txt | video | mp3 | wav")
     cues: list[dict[str, Any]] = Field(default_factory=list)
-    video_path: str | None = Field(None, description="video/mp3/wav 보내기 시 원본 미디어")
+    video_path: str | None = Field(None, description="video/mp3/wav 보내기 시 미디어 (legacy)")
+    preview_media_path: str | None = Field(None, description="V41 CFR preview media-cfr.mp4")
+    virtual_audio_map: list[dict[str, Any]] = Field(default_factory=list)
+    requires_concat: bool | None = Field(None, description="concat demuxer slow-path")
+    export_time_axis: str | None = Field(None, description="stitched_program | media")
     cut_ranges: list[CutRangeModel] = Field(default_factory=list)
     style: dict[str, Any] | None = Field(None, description="ASS/SRT/VTT 스타일 (선택)")
 
@@ -132,6 +145,9 @@ class AutoSubtitleExportStatus(BaseModel):
     error: str | None = None
     result_path: str | None = None
     format: str | None = None
+    burnin_media_path: str | None = None
+    export_time_axis: str | None = None
+    actual_duration: float | None = None
 
 
 class AutoSubtitleExportFileResponse(BaseModel):
@@ -761,6 +777,9 @@ def _export_status_payload(job: auto_subtitle_export.ExportJobStatus) -> AutoSub
         error=job.error,
         result_path=job.result_path,
         format=job.format,
+        burnin_media_path=job.burnin_media_path,
+        export_time_axis=job.export_time_axis,
+        actual_duration=job.actual_duration,
     )
 
 
@@ -780,12 +799,28 @@ def post_export(
         raise HTTPException(status_code=400, detail=f"지원하지 않는 형식: {body.format}")
 
     media: Path | None = None
+    preview_media: Path | None = None
     if fmt in {"video", "mp3", "wav"}:
-        if not body.video_path or not body.video_path.strip():
+        raw_preview = (body.preview_media_path or "").strip()
+        raw_video = (body.video_path or "").strip()
+        if fmt == "video":
+            if not raw_preview and not raw_video:
+                raise HTTPException(
+                    status_code=400,
+                    detail="CFR 미디어 재생성 필요: preview_media_path가 필요합니다.",
+                )
+            if raw_preview:
+                preview_media = _validate_media_path(raw_preview)
+                media = preview_media
+            elif raw_video:
+                media = _validate_media_path(raw_video)
+        elif not raw_video:
             raise HTTPException(status_code=400, detail="video_path가 필요합니다.")
-        media = _validate_media_path(body.video_path)
+        else:
+            media = _validate_media_path(raw_video)
 
     cuts = _cut_ranges_payload(body.cut_ranges)
+    vmap = list(body.virtual_audio_map or [])
     try:
         job = auto_subtitle_export.start_export_job(
             fmt,
@@ -793,6 +828,9 @@ def post_export(
             media_path=media,
             cut_ranges=cuts,
             style=body.style,
+            preview_media_path=preview_media,
+            virtual_audio_map=vmap if vmap else None,
+            requires_concat=body.requires_concat,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1038,6 +1076,9 @@ async def post_export_video_burn_in_prepare(
         sess = await run_sync(auto_subtitle_burn_in_session.create_session, media)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if auto_subtitle_export.is_video_export_hold_active():
+        auto_subtitle_burn_in_session.register_hold_linked_session(sess.job_id)
+    auto_subtitle_export.touch_video_export_idle_activity()
     return {
         "ok": True,
         "job_id": sess.job_id,
@@ -1076,8 +1117,10 @@ def post_export_video_burn_in_finish(
     _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleExportStatus:
     """업로드 완료 후 FFmpeg 단일 패스 번인 시작 (export/status 폴링)."""
-    if auto_subtitle_runtime.is_job_busy():
+    # V47a — allow finish while export Lock is held (continuous PNG burn-in transaction).
+    if auto_subtitle_runtime.is_job_busy() and auto_subtitle_runtime.get_active_job() != "export":
         raise HTTPException(status_code=409, detail="다른 작업이 진행 중입니다.")
+    auto_subtitle_export.touch_video_export_idle_activity()
     try:
         auto_subtitle_burn_in_session.finish_and_start_export(
             body.job_id,
@@ -1087,8 +1130,12 @@ def post_export_video_burn_in_finish(
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
+        if auto_subtitle_export.is_video_export_hold_active():
+            auto_subtitle_export.fail_video_export_hold_and_release_lock(str(exc))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        if auto_subtitle_export.is_video_export_hold_active():
+            auto_subtitle_export.fail_video_export_hold_and_release_lock(str(exc))
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _export_status_payload(auto_subtitle_export.get_export_job_status())
 

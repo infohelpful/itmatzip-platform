@@ -3,11 +3,20 @@
  */
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
-import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=3";
-import { buildMappedSubtitles } from "./export-timeline.js?v=2";
-import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=4";
+import { buildOverlayCaptureSchedule } from "../shared/overlay-capture-schedule.js?v=1";
+import { bindExportStyleVideoNative } from "../shared/export-render-scale.js?v=1";
+import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=5";
 
 const TRANSIENT_HTTP = new Set([502, 503, 504]);
+
+/** 번인 디버그 — 브라우저 DevTools 콘솔 전용 */
+export function burnInConsoleLog(event, detail = {}) {
+  try {
+    console.info("[burn-in]", event, detail);
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * @param {string} url
@@ -39,7 +48,6 @@ export async function isVideoBurnInApiAvailable(toolPrefix) {
     cache: "no-store",
   });
   if (res.status === 404) return false;
-  // 400/422 등은 라우트는 존재한다는 뜻
   return res.status !== 404;
 }
 
@@ -133,6 +141,9 @@ async function finishBurnIn(toolPrefix, jobId, cutRanges, watermark) {
  * @param {readonly object[]} lastCues
  * @param {readonly object[]} cutRanges
  * @param {object} style
+ * @param {boolean} [opts.requiresConcat]
+ * @param {"stitched_program" | "media"} [opts.exportTimeAxis]
+ * @param {number} [opts.actualDuration]
  * @param {{ path?: string, position?: string } | null | undefined} [opts.watermark]
  * @param {(patch: { progress?: number, step?: string, message?: string }) => void} [opts.onUiProgress]
  */
@@ -142,26 +153,50 @@ export async function runVideoBurnInExport({
   lastCues,
   cutRanges,
   style,
+  requiresConcat,
+  exportTimeAxis,
+  actualDuration,
   watermark,
   onUiProgress,
 }) {
-  const exportCues = buildExportCueLines(lastCues);
-  const mapped = buildMappedSubtitles(exportCues, cutRanges);
-  if (!mapped.length) throw new Error("보낼 자막이 없습니다.");
+  const stitched =
+    requiresConcat === true || exportTimeAxis === "stitched_program";
+  const schedule = buildOverlayCaptureSchedule(lastCues, {
+    requiresConcat: stitched,
+    cutRanges: stitched ? [] : cutRanges,
+    actualDuration: stitched ? actualDuration : undefined,
+  });
+  if (!schedule.length) throw new Error("보낼 자막이 없습니다.");
+
+  burnInConsoleLog("export_start", {
+    videoPath,
+    stitched,
+    scheduleSegments: schedule.length,
+    actualDuration: stitched ? actualDuration : undefined,
+    scheduleEnd: schedule.length ? schedule[schedule.length - 1].end : 0,
+  });
 
   onUiProgress?.({ progress: 2, step: "영상 · 준비", message: "FFmpeg·해상도 확인…" });
   const prep = await prepareBurnIn(toolPrefix, videoPath);
+  burnInConsoleLog("prepare_done", {
+    jobId: prep.job_id,
+    durationSec: prep.duration_sec,
+    renderW: prep.render_width,
+    renderH: prep.render_height,
+    fullW: prep.full_width,
+    fullH: prep.full_height,
+  });
   const renderW = prep.render_width;
   const renderH = prep.render_height;
-  const exportStyle = {
-    ...style,
-    videoWidth: prep.full_width || style.videoWidth,
-    videoHeight: prep.full_height || style.videoHeight,
-  };
+  const exportStyle = bindExportStyleVideoNative(
+    style,
+    prep.full_width || style.videoWidth,
+    prep.full_height || style.videoHeight,
+  );
 
   onUiProgress?.({ progress: 8, step: "영상 · 캡처", message: "자막 프레임 생성…" });
   const frames = await captureSubtitleFrameSequence(
-    mapped,
+    schedule,
     exportStyle,
     renderW,
     renderH,
@@ -174,6 +209,7 @@ export async function runVideoBurnInExport({
       });
     },
   );
+  burnInConsoleLog("capture_done", { frameCount: frames.length });
 
   onUiProgress?.({ progress: 32, step: "영상 · 업로드", message: "프레임 전송…" });
   for (let i = 0; i < frames.length; i += 1) {
@@ -186,7 +222,17 @@ export async function runVideoBurnInExport({
     });
   }
 
+  burnInConsoleLog("upload_done", { jobId: prep.job_id, frameCount: frames.length });
+
+  const finishCuts = stitched ? [] : cutRanges || [];
   onUiProgress?.({ progress: 40, step: "영상 · 인코딩", message: "FFmpeg 번인 시작…" });
-  await finishBurnIn(toolPrefix, prep.job_id, cutRanges, watermark);
+  burnInConsoleLog("finish_request", { jobId: prep.job_id, cutCount: finishCuts.length });
+  const finishStatus = await finishBurnIn(toolPrefix, prep.job_id, finishCuts, watermark);
+  burnInConsoleLog("finish_accepted", {
+    jobId: prep.job_id,
+    phase: finishStatus?.phase,
+    progress: finishStatus?.progress,
+    message: finishStatus?.message,
+  });
   return prep;
 }

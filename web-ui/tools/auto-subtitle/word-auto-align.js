@@ -2,7 +2,7 @@
  * 단어 자동정렬 — Kiwi(kiwipiepy) API + cue 분할 적용
  */
 
-import { requestAgent } from "../common/bridge.js?v=lna15";
+import { requestAgent } from "../common/bridge.js?v=lna16";
 import { visibleSubtitleWords } from "./shared/subtitles.js?v=24";
 import { explodeCueByWordBreaks } from "./shared/subtitle-edit-actions.js";
 import { markCaretListStructuralMutation } from "./subtitle-list/word-caret-ui.js?v=54";

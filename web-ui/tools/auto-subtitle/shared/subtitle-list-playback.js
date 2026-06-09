@@ -2,8 +2,10 @@
  * 자막 목록(표시 IDX) 기준 재생 — 하이라이트·부드러운 stitched 프리뷰 타임라인.
  */
 
-import { listableCueIndices } from "./subtitle-list-indices.js?v=5";
+import { listableCueIndices } from "./subtitle-list-indices.js?v=6";
 import { pickActiveWordIndex } from "../playback.js?v=31";
+import { getCueSourceEnd, getCueSourceStart, getWordSourceEnd } from "./dual-axis.js?v=1";
+import { buildVirtualAudioMap } from "./virtual-audio-map.js?v=2";
 import { getCueWords } from "../subtitle-words.js?v=18";
 import { wordVisibleInWordChipRail } from "./subtitles.js?v=28";
 import {
@@ -19,24 +21,26 @@ const CLIP_END_TAIL_PAD_SEC = 0.2;
  * @param {object | null} [nextCue]
  * @returns {number}
  */
-function clipMediaEndForCue(cue, nextCue = null) {
-  const mediaStart = Number(cue.start) || 0;
-  let mediaEnd = Number(cue.end) || mediaStart;
+export function clipMediaEndForCue(cue, nextCue = null) {
+  let mediaEnd = getCueSourceEnd(cue);
   const words = getCueWords(cue);
   for (let i = words.length - 1; i >= 0; i -= 1) {
     const w = words[i];
     if (!wordVisibleInWordChipRail(w)) continue;
-    const e = Number(w.end);
+    const e = getWordSourceEnd(w, cue);
     if (Number.isFinite(e)) {
       mediaEnd = Math.max(mediaEnd, e + CLIP_END_TAIL_PAD_SEC);
       break;
     }
   }
-  /** 꼬리·무음 — 다음 줄 시작까지 재생 (seek 로 gap 건너뛰지 않음) */
   if (nextCue) {
-    const nextStart = Number(nextCue.start);
-    if (Number.isFinite(nextStart) && nextStart > mediaEnd + 1e-5) {
-      mediaEnd = nextStart;
+    const nextVirtualStart = Number(nextCue.start) || 0;
+    if (nextVirtualStart <= mediaEnd + 1e-5) {
+      return mediaEnd;
+    }
+    const nextSourceStart = getCueSourceStart(nextCue);
+    if (Number.isFinite(nextSourceStart) && nextSourceStart > mediaEnd + 1e-5) {
+      mediaEnd = nextSourceStart;
     }
   }
   return mediaEnd;
@@ -75,36 +79,24 @@ export function getListableCueIndicesCached(cues) {
  * @param {readonly object[]} cues
  * @returns {import("./timeline-mapping.js").TimelineClip[]}
  */
-export function buildListOrderTimelineClips(cues) {
-  const indices = getListableCueIndicesCached(cues);
+export function buildListOrderTimelineClips(cues, opts = {}) {
+  const map = buildVirtualAudioMap(cues, { cutRanges: opts.cutRanges });
   /** @type {import("./timeline-mapping.js").TimelineClip[]} */
   const clips = [];
-  let editCursor = 0;
   let id = 1;
-  for (let i = 0; i < indices.length; i += 1) {
-    const idx = indices[i];
-    const cue = cues[idx];
-    if (!cue) continue;
-    const nextIdx = i + 1 < indices.length ? indices[i + 1] : -1;
-    const nextCue = nextIdx >= 0 ? cues[nextIdx] : null;
-    const mediaStart = Number(cue.start) || 0;
-    const mediaEnd = clipMediaEndForCue(cue, nextCue);
-    if (mediaEnd <= mediaStart + 1e-5) continue;
-    const dur = mediaEnd - mediaStart;
-    const editStart = editCursor;
-    const editEnd = editCursor + dur;
+  for (const seg of map) {
     clips.push({
       id: id++,
-      editStart,
-      editEnd,
-      mediaIn: mediaStart,
-      mediaOut: mediaEnd,
-      timelineStart: editStart,
-      timelineEnd: editEnd,
-      mediaStart,
-      mediaEnd,
+      editStart: seg.editStart,
+      editEnd: seg.editEnd,
+      mediaIn: seg.sourceStart,
+      mediaOut: seg.sourceEnd,
+      timelineStart: seg.editStart,
+      timelineEnd: seg.editEnd,
+      mediaStart: seg.sourceStart,
+      mediaEnd: seg.sourceEnd,
+      cueIndex: seg.cueIndex,
     });
-    editCursor = editEnd;
   }
   return clips;
 }
@@ -156,9 +148,13 @@ export function listPlayableClipCuePairs(cues) {
  * @param {readonly object[]} cues
  * @param {number} listPos
  */
-export function clipIndexForListPos(_clips, cues, listPos) {
+export function clipIndexForListPos(clips, cues, listPos) {
   const ci = cueIndexAtListPos(cues, listPos);
   if (ci < 0) return 0;
+  if (clips?.length) {
+    const clipIdx = clips.findIndex((c) => c.cueIndex === ci);
+    if (clipIdx >= 0) return clipIdx;
+  }
   const pairs = listPlayableClipCuePairs(cues);
   const idx = pairs.findIndex((p) => p.cueIndex === ci);
   return idx >= 0 ? idx : 0;
@@ -170,9 +166,11 @@ export function clipIndexForListPos(_clips, cues, listPos) {
  * @param {number} clipIndex
  */
 export function cueIndexForClipIndex(clips, cues, clipIndex) {
+  if (clipIndex < 0) return -1;
+  const clip = clips?.[clipIndex];
+  if (clip && Number.isInteger(clip.cueIndex)) return clip.cueIndex;
   const pairs = listPlayableClipCuePairs(cues);
-  if (clipIndex < 0 || clipIndex >= pairs.length) return -1;
-  if (clipIndex >= clips.length) return pairs[clipIndex]?.cueIndex ?? -1;
+  if (clipIndex >= pairs.length) return -1;
   return pairs[clipIndex].cueIndex;
 }
 

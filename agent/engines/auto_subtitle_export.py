@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import platform
+import shutil
 import subprocess
 import sys
 import threading
@@ -12,6 +14,11 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+_log = logging.getLogger(__name__)
+
+# V47a — awaiting_frames Idle Abandon guard (seconds)
+AWAITING_FRAMES_IDLE_SEC = 1800.0
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable, prepend_ffmpeg_bin_to_env
 from common.subprocess_util import no_window_creationflags, run_hidden
@@ -38,9 +45,16 @@ class ExportJobStatus:
     result_path: str | None = None
     format: str | None = None
     error: str | None = None
+    burnin_media_path: str | None = None
+    export_time_axis: str | None = None
+    actual_duration: float | None = None
 
 
 _export_job = ExportJobStatus(phase="idle", progress=0.0)
+
+_idle_guard_lock = threading.RLock()
+_idle_guard_timer: threading.Timer | None = None
+_awaiting_hold_job_dir: Path | None = None
 
 
 def get_export_job_status() -> ExportJobStatus:
@@ -52,7 +66,145 @@ def get_export_job_status() -> ExportJobStatus:
             result_path=_export_job.result_path,
             format=_export_job.format,
             error=_export_job.error,
+            burnin_media_path=_export_job.burnin_media_path,
+            export_time_axis=_export_job.export_time_axis,
+            actual_duration=_export_job.actual_duration,
         )
+
+
+def is_video_export_hold_active() -> bool:
+    """True when video export awaits PNG frames (Lock must stay held)."""
+    with _export_lock:
+        return _export_job.format == "video" and _export_job.phase == "awaiting_frames"
+
+
+def _cancel_awaiting_idle_guard() -> None:
+    global _idle_guard_timer
+    with _idle_guard_lock:
+        if _idle_guard_timer is not None:
+            _idle_guard_timer.cancel()
+            _idle_guard_timer = None
+
+
+def _cleanup_awaiting_hold_resources() -> None:
+    global _awaiting_hold_job_dir
+    from engines import auto_subtitle_burn_in_session
+
+    job_dir = _awaiting_hold_job_dir
+    _awaiting_hold_job_dir = None
+    auto_subtitle_burn_in_session.cleanup_hold_linked_sessions()
+    if job_dir is not None and job_dir.is_dir():
+        try:
+            shutil.rmtree(job_dir, ignore_errors=True)
+        except OSError as exc:
+            _log.warning("awaiting_hold_cleanup_failed path=%s err=%s", job_dir, exc)
+
+
+def _on_awaiting_idle_timeout() -> None:
+    from engines import auto_subtitle_runtime
+
+    _log.warning("video export awaiting_frames idle timeout (%.0fs)", AWAITING_FRAMES_IDLE_SEC)
+    with _export_lock:
+        if _export_job.phase != "awaiting_frames":
+            return
+        _export_job.phase = "failed"
+        _export_job.progress = 0.0
+        _export_job.message = "프레임 업로드 대기 시간이 초과되었습니다."
+        _export_job.error = _export_job.message
+        _export_job.burnin_media_path = None
+        _export_job.export_time_axis = None
+        _export_job.actual_duration = None
+    _cancel_awaiting_idle_guard()
+    _cleanup_awaiting_hold_resources()
+    if auto_subtitle_runtime.get_active_job() == "export":
+        auto_subtitle_runtime.end_job()
+
+
+def _schedule_awaiting_idle_guard() -> None:
+    global _idle_guard_timer
+
+    def _fire() -> None:
+        _on_awaiting_idle_timeout()
+
+    _cancel_awaiting_idle_guard()
+    with _idle_guard_lock:
+        _idle_guard_timer = threading.Timer(AWAITING_FRAMES_IDLE_SEC, _fire)
+        _idle_guard_timer.daemon = True
+        _idle_guard_timer.start()
+
+
+def touch_video_export_idle_activity() -> None:
+    """Reset Idle Abandon timer on prepare / frame / finish activity."""
+    if not is_video_export_hold_active():
+        return
+    _schedule_awaiting_idle_guard()
+
+
+def enter_video_export_awaiting_hold(
+    burnin_media_path: str,
+    export_time_axis: str,
+    *,
+    job_dir: Path | None = None,
+    progress: float = 45.0,
+    message: str | None = None,
+    actual_duration: float | None = None,
+) -> None:
+    """V47b+ — transition to awaiting_frames while retaining export Lock."""
+    global _awaiting_hold_job_dir
+    axis = export_time_axis.strip() or "media"
+    if axis not in {"stitched_program", "media"}:
+        axis = "media"
+    with _export_lock:
+        _export_job.phase = "awaiting_frames"
+        _export_job.progress = progress
+        _export_job.message = message or "자막 프레임 업로드 대기…"
+        _export_job.format = "video"
+        _export_job.error = None
+        _export_job.burnin_media_path = burnin_media_path
+        _export_job.export_time_axis = axis
+        if actual_duration is not None and actual_duration > 0:
+            _export_job.actual_duration = float(actual_duration)
+        else:
+            _export_job.actual_duration = None
+    _awaiting_hold_job_dir = job_dir.resolve() if job_dir is not None else None
+    _schedule_awaiting_idle_guard()
+
+
+def fail_video_export_hold_and_release_lock(
+    error: str,
+    *,
+    message: str | None = None,
+) -> None:
+    """Mark export failed and release global Lock (pre-awaiting failure or finish validation)."""
+    from engines import auto_subtitle_runtime
+
+    _cancel_awaiting_idle_guard()
+    with _export_lock:
+        _export_job.phase = "failed"
+        _export_job.progress = 0.0
+        _export_job.message = message or error
+        _export_job.error = error
+        _export_job.burnin_media_path = None
+        _export_job.export_time_axis = None
+        _export_job.actual_duration = None
+    _cleanup_awaiting_hold_resources()
+    if auto_subtitle_runtime.get_active_job() == "export":
+        auto_subtitle_runtime.end_job()
+
+
+def complete_video_export_hold_cleanup() -> None:
+    """Clear awaiting hold metadata after successful burn-in (Lock released separately)."""
+    _cancel_awaiting_idle_guard()
+    with _export_lock:
+        _export_job.burnin_media_path = None
+        _export_job.export_time_axis = None
+        _export_job.actual_duration = None
+    _cleanup_awaiting_hold_resources()
+
+
+def export_worker_should_retain_lock() -> bool:
+    """Non-video formats always release; video retains only during awaiting_frames Hold."""
+    return is_video_export_hold_active()
 
 
 def _set_export_job(
@@ -63,8 +215,12 @@ def _set_export_job(
     result_path: str | None = None,
     fmt: str | None = None,
     error: str | None = None,
+    burnin_media_path: str | None = None,
+    export_time_axis: str | None = None,
+    clear_hold_fields: bool = False,
 ) -> None:
     with _export_lock:
+        prev_phase = _export_job.phase
         _export_job.phase = phase
         _export_job.progress = progress
         _export_job.message = message
@@ -73,6 +229,17 @@ def _set_export_job(
         if fmt is not None:
             _export_job.format = fmt
         _export_job.error = error if phase == "failed" else None
+        if burnin_media_path is not None:
+            _export_job.burnin_media_path = burnin_media_path
+        if export_time_axis is not None:
+            _export_job.export_time_axis = export_time_axis
+        if clear_hold_fields or phase in {"idle", "failed", "completed"}:
+            if phase != "awaiting_frames":
+                _export_job.burnin_media_path = None
+                _export_job.export_time_axis = None
+                _export_job.actual_duration = None
+        if prev_phase == "awaiting_frames" and phase != "awaiting_frames":
+            _cancel_awaiting_idle_guard()
 
 
 def probe_video_dimensions(path: Path, *, timeout_sec: float = 30.0) -> tuple[int, int, float]:
@@ -252,6 +419,7 @@ def export_video_with_ass(
     style: dict[str, Any] | None = None,
     on_progress: ExportProgressCallback | None = None,
     timeout_sec: float = 7200.0,
+    apply_cut_ranges: bool = True,
 ) -> Path:
     ensure_workspace()
     job_dir = WORKSPACE_ROOT / f"video-{uuid.uuid4().hex[:10]}"
@@ -261,7 +429,8 @@ def export_video_with_ass(
     st_dict = dict(style or {})
     st_dict.setdefault("videoWidth", w)
     st_dict.setdefault("videoHeight", h)
-    mapped = cues_to_mapped(cues, cut_ranges=cut_ranges)
+    cuts = cut_ranges if apply_cut_ranges else None
+    mapped = cues_to_mapped(cues, cut_ranges=cuts)
     ass_text = build_ass_text(mapped, SubtitleStyle.from_dict(st_dict))
     ass_path = job_dir / "burnin.ass"
     ass_path.write_text(ass_text, encoding="utf-8-sig")
@@ -340,6 +509,83 @@ def export_audio(
     return out_path.resolve()
 
 
+def export_video_stitched_pipeline(
+    preview_media_path: Path,
+    *,
+    virtual_audio_map: list[dict[str, Any]] | None = None,
+    requires_concat: bool = True,
+    on_progress: ExportProgressCallback | None = None,
+    timeout_sec: float = 7200.0,
+) -> None:
+    """V47b — V41 concat master (optional) then Hold for PNG/DOM burn-in (no ASS)."""
+    from engines.auto_subtitle_export_concat import build_concat_master
+
+    ensure_workspace()
+    job_dir = WORKSPACE_ROOT / f"video-{uuid.uuid4().hex[:10]}"
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    if not preview_media_path.is_file():
+        raise FileNotFoundError(f"preview_media_path를 찾을 수 없습니다: {preview_media_path}")
+
+    use_concat = bool(requires_concat)
+    burn_input = preview_media_path.resolve()
+    hold_job_dir: Path | None = job_dir
+    actual_duration: float | None = None
+
+    if use_concat:
+        if not virtual_audio_map:
+            raise ValueError("requires_concat=true 인데 virtual_audio_map이 없습니다.")
+        _set_export_job("concat_copy", 8.0, "목록 순 미디어 합성…", fmt="video")
+        if on_progress:
+            on_progress(8.0, "목록 순 미디어 합성…")
+        burn_input, concat_phase, metrics = build_concat_master(
+            preview_media_path,
+            virtual_audio_map,
+            job_dir,
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+        )
+        _log_export_metrics(concat_phase, metrics)
+        probed = float(metrics.get("probed_duration") or 0)
+        if probed > 0:
+            actual_duration = probed
+        _set_export_job(
+            concat_phase,
+            42.0,
+            f"미디어 합성 완료 ({concat_phase})",
+            fmt="video",
+        )
+        export_time_axis = "stitched_program"
+    else:
+        if on_progress:
+            on_progress(12.0, "Fast-Path 미디어 준비…")
+        hold_job_dir = None
+        export_time_axis = "media"
+
+    enter_video_export_awaiting_hold(
+        str(burn_input),
+        export_time_axis,
+        job_dir=hold_job_dir,
+        progress=45.0,
+        message="자막 프레임 업로드 대기…",
+        actual_duration=actual_duration,
+    )
+    # on_progress(report)는 phase=running 으로 덮어써 awaiting_frames 진입을 깨뜨리므로 호출하지 않음.
+
+
+def _log_export_metrics(phase: str, metrics: dict[str, Any]) -> None:
+    import logging
+
+    logging.getLogger(__name__).info(
+        "export_phase=%s expected=%s actual=%s av_delta=%s program_delta=%s",
+        phase,
+        metrics.get("expected_program_end"),
+        metrics.get("probed_duration"),
+        metrics.get("av_delta"),
+        metrics.get("program_delta"),
+    )
+
+
 def _export_worker(
     export_kind: str,
     media_path: Path | None,
@@ -348,6 +594,9 @@ def _export_worker(
     cut_ranges: list[dict[str, Any]] | None,
     style: dict[str, Any] | None,
     text_format: str | None,
+    preview_media_path: Path | None = None,
+    virtual_audio_map: list[dict[str, Any]] | None = None,
+    requires_concat: bool | None = None,
 ) -> None:
     try:
         def report(pct: float, msg: str) -> None:
@@ -365,17 +614,21 @@ def _export_worker(
             return
 
         if export_kind == "video":
-            if media_path is None:
-                raise ValueError("video_path가 필요합니다.")
+            preview = preview_media_path or media_path
+            if preview is None:
+                raise ValueError("preview_media_path(CFR)가 필요합니다.")
+            if not preview.is_file():
+                raise FileNotFoundError(
+                    "CFR 미디어 재생성 필요: preview_media_path 파일을 찾을 수 없습니다."
+                )
             _set_export_job("running", 5.0, "영상 자막 번인…", fmt="video")
-            out = export_video_with_ass(
-                media_path,
-                cues,
-                cut_ranges=cut_ranges,
-                style=style,
+            use_concat = bool(requires_concat)
+            export_video_stitched_pipeline(
+                preview.resolve(),
+                virtual_audio_map=virtual_audio_map,
+                requires_concat=use_concat,
                 on_progress=report,
             )
-            _set_export_job("completed", 100.0, "영상보내기 완료", result_path=str(out), fmt="video")
             return
 
         if export_kind in {"mp3", "wav"}:
@@ -403,6 +656,9 @@ def start_export_job(
     media_path: Path | None = None,
     cut_ranges: list[dict[str, Any]] | None = None,
     style: dict[str, Any] | None = None,
+    preview_media_path: Path | None = None,
+    virtual_audio_map: list[dict[str, Any]] | None = None,
+    requires_concat: bool | None = None,
 ) -> ExportJobStatus:
     global _export_thread
     from engines import auto_subtitle_runtime
@@ -412,8 +668,10 @@ def start_export_job(
     if kind not in valid:
         raise ValueError(f"지원하지 않는 형식: {export_kind}")
 
-    if kind in {"video", "mp3", "wav"} and media_path is None:
-        raise ValueError("영상/오디오보내기에는 media_path가 필요합니다.")
+    if kind == "video" and preview_media_path is None and media_path is None:
+        raise ValueError("영상보내기에는 preview_media_path(CFR)가 필요합니다.")
+    if kind in {"mp3", "wav"} and media_path is None:
+        raise ValueError("오디오보내기에는 media_path가 필요합니다.")
     if not cues and kind not in {"mp3", "wav"}:
         raise ValueError("cues가 비어 있습니다.")
 
@@ -435,9 +693,14 @@ def start_export_job(
                     cut_ranges=cut_ranges,
                     style=style,
                     text_format=kind,
+                    preview_media_path=preview_media_path,
+                    virtual_audio_map=virtual_audio_map,
+                    requires_concat=requires_concat,
                 )
             finally:
-                auto_subtitle_runtime.end_job()
+                # V47a — video Hold (awaiting_frames) retains Lock until burn-in completes.
+                if not export_worker_should_retain_lock():
+                    auto_subtitle_runtime.end_job()
 
         _export_thread = threading.Thread(target=_target, daemon=True)
         _export_thread.start()

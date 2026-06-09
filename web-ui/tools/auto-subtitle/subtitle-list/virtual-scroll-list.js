@@ -11,8 +11,9 @@ import {
 import {
   pickActiveCueIndex,
   pickActiveWordIndex,
+  pickActiveWordIndexForHighlight,
   WORD_ONSET_LEAD_SEC,
-} from "../playback.js?v=31";
+} from "../playback.js?v=32";
 import { syncFindHighlightLayerToTextarea } from "../subtitle-find-replace-highlight.js?v=2";
 import { LineWaveformPanel } from "../line-waveform-panel.js?v=8";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
@@ -36,7 +37,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=56";
+} from "./word-caret-ui.js?v=60";
 import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=5";
 import { wireSubtitleListLineDrag } from "./subtitle-line-drag-ui.js?v=3";
 
@@ -246,7 +247,15 @@ function renderAllCards(container, cues, opts) {
     const tracks = document.createElement("div");
     tracks.className = "subtitle-word-row-tracks subtitle-word-row-tracks--compact";
 
-    const activeWord = playing && activeCue === i ? pickActiveWordIndex(cue, playhead) : -1;
+    const activeWord =
+      playing && activeCue === i
+        ? typeof opts.activeWordIndex === "number" && opts.activeWordIndex >= 0
+          ? opts.activeWordIndex
+          : pickActiveWordIndexForHighlight(
+              cue,
+              Number(opts.highlightLookupT ?? playhead) || 0,
+            )
+        : -1;
 
     buildWordChipsAndCarets(tracks, inner, i, words, visibleWords, visibleStorageIndices, {
       rail,
@@ -400,7 +409,14 @@ export function resetPlaybackHighlightCache() {
 
 export function updatePlaybackHighlights(container, cues, opts) {
   if (!container) return;
-  const t = Number(opts.playheadMediaSec ?? opts.playheadSec) || 0;
+  /** 재생 하이라이트 SSOT — script.js playbackTick에서 전달한 lookupT */
+  const t =
+    Number(
+      opts.lookupT ??
+        (opts.isPlaying ? opts.playheadSec : null) ??
+        opts.playheadMediaSec ??
+        opts.playheadSec,
+    ) || 0;
   const playing = Boolean(opts.isPlaying);
   const selectedIdx =
     typeof opts.selectedCueIndex === "number" ? opts.selectedCueIndex : -1;

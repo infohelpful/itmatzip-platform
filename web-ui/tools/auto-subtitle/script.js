@@ -43,7 +43,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=75";
+} from "./cue-cards.js?v=76";
 import {
   handleGlobalArrowKey,
   isWordCaretKeyboardFocus,
@@ -56,7 +56,7 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=54";
+} from "./subtitle-list/word-caret-ui.js?v=60";
 import {
   nearestValidStorageCaret,
   visibleWordStorageIndices,
@@ -76,18 +76,24 @@ import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
   pickActiveWordIndex,
-  pickActiveWordIndexWithHint,
+  pickActiveWordIndexForHighlight,
+  pickActiveWordIndexWithHintForHighlight,
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=31";
+} from "./playback.js?v=32";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=25";
-import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video-burn-in-client.js?v=10";
+} from "./export/export-client.js?v=26";
+import { isRelocated, sourceSecToVirtualSec } from "./shared/dual-axis.js?v=1";
+import {
+  burnInConsoleLog,
+  isVideoBurnInNotFoundError,
+  runVideoBurnInExport,
+} from "./export/video-burn-in-client.js?v=12";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -105,7 +111,7 @@ import {
   resolveWordTimelineClockSec,
   setSessionMediaTiming,
   setSessionPreviewMediaPath,
-} from "./shared/media-timing-ssot.js?v=3";
+} from "./shared/media-timing-ssot.js?v=4";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
@@ -118,7 +124,7 @@ import {
   isKoreanLanguageSelected,
   collectWordAlignTargetIndices,
   KIWI_LGPL_URL,
-} from "./word-auto-align.js?v=1";
+} from "./word-auto-align.js?v=2";
 import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=8";
 import {
   applyPlaybackSkipToPreviewMedia,
@@ -151,7 +157,7 @@ import {
   getListableCueIndicesCached,
   listPosForCueIndex,
   resolveListClipIndexFromMedia,
-} from "./shared/subtitle-list-playback.js?v=9";
+} from "./shared/subtitle-list-playback.js?v=11";
 import {
   clearListOrderPreviewTimeline,
   getListOrderPreviewClipPos,
@@ -167,6 +173,24 @@ import {
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";
+import {
+  caretPlayDiagLog,
+  caretPlayDiagLogTick,
+  caretPlayDiagSetEnabled,
+  caretPlayDiagIsEnabled,
+} from "./shared/caret-play-diagnostics.js?v=1";
+import {
+  mediaTimingDiagLog,
+  mediaTimingDiagWarn,
+  mediaTimingDiagSetEnabled,
+  mediaTimingDiagIsEnabled,
+} from "./shared/media-timing-diagnostics.js?v=1";
+import {
+  diagLogBufferPush,
+  diagLogBufferClear,
+  diagLogBufferLength,
+  downloadDiagLogsJson,
+} from "./shared/diag-log-export.js?v=1";
 
 configureBridge({ healthPath: "/health" });
 
@@ -422,10 +446,17 @@ function readPreviewMediaClockSec() {
 /** 일시정지 직전 — html-audio 마스터가 살아 있을 때 오디오 시계 우선 */
 function capturePlayheadFromPreviewMedia() {
   const orch = getPlaybackOrchestrator();
+  const before = playheadSec;
   if (isSourceVideoPtsTimeline()) {
     const v = getPv();
     if (v && Number.isFinite(v.currentTime)) {
       playheadSec = orch.mapMediaToEditSec(v.currentTime);
+      caretPlayDiagLog("capturePlayheadFromPreviewMedia", caretPlayDiagSnapshot({
+        playheadBefore: before,
+        playheadAfter: playheadSec,
+        capturedMediaSec: v.currentTime,
+        videoPtsTimeline: true,
+      }));
       return;
     }
   }
@@ -437,6 +468,11 @@ function capturePlayheadFromPreviewMedia() {
   }
   if (media == null) return;
   playheadSec = orch.mapMediaToEditSec(media);
+  caretPlayDiagLog("capturePlayheadFromPreviewMedia", caretPlayDiagSnapshot({
+    playheadBefore: before,
+    playheadAfter: playheadSec,
+    capturedMediaSec: media,
+  }));
 }
 
 /** Electron syncPausedMasterToEdit — 정지 시 word(audio) 축 기준으로 A/V seek */
@@ -464,12 +500,18 @@ function syncPausedPreviewMediaToPlayhead() {
   getPa()?.pause();
   getPv().pause();
   playheadSec = orch.mapMediaToEditSec(wordMedia);
+  caretPlayDiagLog("syncPausedPreviewMediaToPlayhead", caretPlayDiagSnapshot({
+    wordMedia,
+    videoMedia,
+    playheadEditSec: playheadSec,
+  }));
 }
 
 /** @param {number} startMediaSec */
 async function beginPreviewSyncedPlayback(startMediaSec) {
   const url = getPreviewMediaPlaybackUrl();
   if (!url || !getPv() || !getPa()) return false;
+  caretPlayDiagLog("beginPreviewSyncedPlayback", caretPlayDiagSnapshot({ startMediaSec }));
   masterMediaUrl = url;
   await previewBridge.unlockAudioOutput();
   await startSyncedPlayback(url, getPv(), getPa(), {
@@ -946,6 +988,9 @@ function exportPhaseStepLabel(phase, fmt) {
   const label = exportFormatLabel(fmt || "srt");
   if (phase === "queued") return `${label} · 대기`;
   if (phase === "running") return `${label} · 처리 중`;
+  if (phase === "concat_copy") return `${label} · 미디어 합성`;
+  if (phase === "concat_reencode") return `${label} · 미디어 재인코딩`;
+  if (phase === "awaiting_frames") return `${label} · 프레임 캡처`;
   if (phase === "completed") return `${label} · 완료`;
   if (phase === "failed") return `${label} · 실패`;
   return label;
@@ -1121,7 +1166,7 @@ function logMediaTimingAvSnapshot(tag, mt, extra = {}) {
   if (!Number.isFinite(avDelta) && Number.isFinite(videoSec) && Number.isFinite(audioSec)) {
     avDelta = videoSec - audioSec;
   }
-  console.log(`[media-timing] ${tag}`, {
+  mediaTimingDiagLog(tag, {
     video_sec: Number.isFinite(videoSec) && videoSec > 0 ? videoSec : null,
     audio_sec: Number.isFinite(audioSec) && audioSec > 0 ? audioSec : null,
     av_delta_sec: Number.isFinite(avDelta) ? avDelta : null,
@@ -1153,11 +1198,11 @@ async function prepareMediaForWhisper(videoPath) {
         word_timeline_sec: contract.word_timeline_duration_sec ?? vdur,
       });
     } else {
-      console.warn("[media-timing] prepare-for-whisper failed", contract?.error);
+      mediaTimingDiagWarn("prepare-for-whisper failed", contract?.error);
     }
     return contract;
   } catch (err) {
-    console.warn("[media-timing] prepare-for-whisper request failed", err);
+    mediaTimingDiagWarn("prepare-for-whisper request failed", err);
     return null;
   }
 }
@@ -1181,7 +1226,7 @@ async function ensureAgentFfmpegReady() {
         }).then(() => true);
       })
       .catch((err) => {
-        console.warn("[media-timing] FFmpeg prepare failed", err);
+        mediaTimingDiagWarn("FFmpeg prepare failed", err);
         agentFfmpegEnsurePromise = null;
         return false;
       });
@@ -1206,11 +1251,11 @@ async function refreshSessionMediaTimingFromAgent(filePath) {
       if (audioDur) sessionMediaDurationSec = audioDur;
       logMediaTimingAvSnapshot("probe", data);
     } else {
-      console.warn("[media-timing] probe failed", data?.error || data);
+      mediaTimingDiagWarn("probe failed", data?.error || data);
     }
     return data;
   } catch (err) {
-    console.warn("[media-timing] probe request failed", err);
+    mediaTimingDiagWarn("probe request failed", err);
     return null;
   }
 }
@@ -1351,6 +1396,7 @@ function seekEditSecAndPlay(editSec) {
   if (selectedCueIndex >= 0) setListPlaybackListPosFromCueIndex(selectedCueIndex);
   const orch = getPlaybackOrchestrator();
   const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+  caretPlayDiagLog("seekEditSecAndPlay", caretPlayDiagSnapshot({ editSec, mediaSec: media }));
   orch.seekMediaSec(media);
   playheadSec = orch.mapMediaToEditSec(media);
   commitPlayheadUi();
@@ -1435,6 +1481,10 @@ function seekPreviewToEditSec(editSec, opts = {}) {
   if (!getPv() || !Number.isFinite(editSec)) return;
   const dur = getPreviewEditDurationSec();
   const clamped = dur > 0 ? Math.max(0, Math.min(dur, editSec)) : Math.max(0, editSec);
+  caretPlayDiagLog(
+    "seekPreviewToEditSec",
+    caretPlayDiagSnapshot({ editSec, clampedEditSec: clamped, resumePlayback: Boolean(opts.resumePlayback) }),
+  );
   playheadSec = clamped;
   syncPausedPreviewMediaToPlayhead();
   commitPlayheadUi();
@@ -1446,6 +1496,10 @@ function applyPreviewSeekFromControl() {
   if (!(dur > 0) || !previewSeek) return;
   const pct = Number(previewSeek.value) / 1000;
   playheadSec = pct * dur;
+  caretPlayDiagLog(
+    "scrubberSeek",
+    caretPlayDiagSnapshot({ seekPct: pct, durationSec: dur, dragging: previewSeekDragging }),
+  );
   syncPausedPreviewMediaToPlayhead();
   updatePreviewTransportUi();
   updatePreviewOverlay();
@@ -1502,6 +1556,39 @@ function setListPlaybackListPosFromCueIndex(cueIndex) {
   listPlaybackListPos = pos >= 0 ? pos : -1;
 }
 
+/** 재생·캐럿 진단 스냅샷 */
+function caretPlayDiagSnapshot(extra = {}) {
+  let mediaClock = null;
+  try {
+    if (getPv() || getPa()) mediaClock = readPreviewMediaClockSec();
+  } catch {
+    mediaClock = null;
+  }
+  return {
+    playheadEditSec: Number.isFinite(playheadSec) ? +playheadSec.toFixed(4) : null,
+    audioSec: getPa()?.currentTime ?? null,
+    videoSec: getPv()?.currentTime ?? null,
+    mediaClock,
+    isVideoPlaying,
+    selectedCueIndex,
+    lastPlaybackCueIndex,
+    lastPlaybackWordIndex,
+    listPlaybackListPos,
+    listPlaybackClipPos,
+    listOrder: useListIndexPlayback(),
+    ...extra,
+  };
+}
+
+/** 재생 단어칩 하이라이트 진단 — 콘솔 `[PLAY-HL]` 필터 */
+let highlightDiagEnabled = false;
+
+function logPlaybackHighlight(event, payload) {
+  if (!highlightDiagEnabled) return;
+  console.log("[PLAY-HL]", event, payload);
+  diagLogBufferPush("PLAY-HL", "log", event, payload);
+}
+
 /** 단어 칩 하이라이트 — 재생 중 audible SSOT(readPreviewMediaClockSec)와 동일 축 */
 function getPreviewWordClockSec() {
   if (isPreviewMediaPlaying()) {
@@ -1522,17 +1609,112 @@ function getPreviewWordClockSec() {
   return mapVideoTimeToWordTimeline(fromEdit);
 }
 
-function resolveActiveWordIndexForCue(cue) {
+/** wordVisibleInWordChipRail 기준 첫 storage 인덱스 */
+function firstVisibleWordStorageIndex(cue) {
   if (!cue) return -1;
-  const t = getPreviewWordClockSec();
-  return pickActiveWordIndexWithHint(cue, t, lastPlaybackWordIndex);
+  const words = getCueWords(cue);
+  for (let wi = 0; wi < words.length; wi += 1) {
+    if (wordVisibleInWordChipRail(words[wi])) return wi;
+  }
+  return -1;
 }
 
-function syncPlaybackWordHighlights(activeCueIndex, activeWordIndex) {
+/**
+ * 재생 하이라이트 SSOT — playbackTick에서 한 번 계산해 하위로 전달.
+ *
+ * @param {object | null} cue
+ * @param {{ playheadSec: number, mediaSec: number, listOrder: boolean }} ctx
+ */
+function computeHighlightLookupT(cue, ctx) {
+  if (ctx.listOrder && cue) {
+    const mediaT = Number(ctx.mediaSec);
+    const lookupT = isRelocated(cue)
+      ? sourceSecToVirtualSec(cue, mediaT)
+      : mediaT;
+    return { lookupT, lookupAxis: "listMediaVirtual" };
+  }
+  return { lookupT: Number(ctx.playheadSec) || 0, lookupAxis: "cueClock" };
+}
+
+/**
+ * @param {object} cue
+ * @param {number} cueIndex
+ * @param {{
+ *   lookupT: number,
+ *   lookupAxis: string,
+ *   listOrder?: boolean,
+ *   cueJustChanged?: boolean,
+ *   mediaSec?: number,
+ * }} opts
+ */
+function resolveActiveWordIndexForCue(cue, cueIndex, opts) {
+  if (!cue || !opts || !Number.isFinite(opts.lookupT)) return -1;
+  const ci =
+    typeof cueIndex === "number" && cueIndex >= 0
+      ? cueIndex
+      : lastCues.indexOf(cue);
+  const lookupT = opts.lookupT;
+  const lookupAxis = opts.lookupAxis ?? "cueClock";
+  const hintWi = ci === lastPlaybackCueIndex ? lastPlaybackWordIndex : -1;
+  const exactWi = pickActiveWordIndexForHighlight(cue, lookupT);
+  let wi = pickActiveWordIndexWithHintForHighlight(cue, lookupT, hintWi);
+
+  let clampedToFirstVisible = false;
+  const firstVisibleWi = firstVisibleWordStorageIndex(cue);
+  if (
+    opts.cueJustChanged &&
+    firstVisibleWi >= 0 &&
+    (wi < 0 || wi > firstVisibleWi)
+  ) {
+    wi = firstVisibleWi;
+    clampedToFirstVisible = true;
+  }
+
+  if (highlightDiagEnabled) {
+    const words = getCueWords(cue);
+    const resolved = wi >= 0 ? words[wi] : null;
+    const rs = resolved ? Number(resolved.start) : NaN;
+    const re = resolved ? Number(resolved.end) : NaN;
+    const spanMismatch =
+      resolved &&
+      Number.isFinite(rs) &&
+      Number.isFinite(re) &&
+      (lookupT < rs - 0.12 || lookupT > re + 0.15);
+    const hintFallback = hintWi >= 0 && wi === hintWi && exactWi < 0;
+    if (spanMismatch || hintFallback || wi !== exactWi || clampedToFirstVisible) {
+      logPlaybackHighlight("wordResolve", {
+        cueIndex: ci,
+        mediaSec: Number.isFinite(opts.mediaSec)
+          ? +Number(opts.mediaSec).toFixed(4)
+          : null,
+        lookupT: +lookupT.toFixed(4),
+        lookupAxis,
+        cueJustChanged: Boolean(opts.cueJustChanged),
+        clampedToFirstVisible,
+        relocated: isRelocated(cue),
+        hintWi,
+        lastCue: lastPlaybackCueIndex,
+        lastWi: lastPlaybackWordIndex,
+        exactWi,
+        resolvedWi: wi,
+        word: resolved?.word ?? resolved?.text ?? "",
+        span: Number.isFinite(rs) ? [rs, re] : null,
+        spanMismatch,
+        hintFallback,
+      });
+    }
+  }
+  return wi;
+}
+
+function syncPlaybackWordHighlights(activeCueIndex, activeWordIndex, highlightCtx = {}) {
   if (!subtitleList || activeCueIndex < 0) return;
+  const lookupT = Number(highlightCtx.lookupT);
   updatePlaybackHighlights(subtitleList, lastCues, {
-    playheadSec: getPreviewWordClockSec(),
-    playheadMediaSec: getPreviewWordClockSec(),
+    lookupT: Number.isFinite(lookupT) ? lookupT : playheadSec,
+    lookupAxis: highlightCtx.lookupAxis ?? "cueClock",
+    playheadSec: Number.isFinite(lookupT) ? lookupT : playheadSec,
+    playheadMediaSec: Number.isFinite(lookupT) ? lookupT : playheadSec,
     isPlaying: true,
     selectedCueIndex,
     activeCueIndex,
@@ -1579,52 +1761,68 @@ function syncListPlaybackPosFromMedia(t) {
   listPlaybackListPos = clipPos;
 }
 
-function resolvePlaybackIndices(t) {
-  const wordClock = isPreviewMediaPlaying() ? getPreviewWordClockSec() : t;
-  if (useListIndexPlayback() && listPreviewBundle?.clips?.length) {
+/**
+ * @param {number} t playheadSec (편집 축)
+ * @param {{ mediaSec?: number }} [ctx]
+ */
+function resolvePlaybackIndices(t, ctx = {}) {
+  const mediaSec =
+    ctx.mediaSec ??
+    (isPreviewMediaPlaying() ? getPreviewWordClockSec() : t);
+  const listOrder = Boolean(
+    useListIndexPlayback() && listPreviewBundle?.clips?.length,
+  );
+
+  let ai = -1;
+  if (listOrder) {
     syncListPlaybackPosFromStack();
     const clips = listPreviewBundle.clips;
     const clipPos =
       listPlaybackClipPos >= 0
         ? listPlaybackClipPos
         : getListOrderPreviewClipPos();
-    const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
-    if (ci < 0) return { ai: -1, wi: -1 };
-    const cue = lastCues[ci];
-    const wc = wordClock;
-    const cueEnd = Number(cue?.end) || 0;
-    if (clipPos + 1 < clips.length) {
-      const nextCi = cueIndexForClipIndex(clips, lastCues, clipPos + 1);
-      const nextCue = nextCi >= 0 ? lastCues[nextCi] : null;
-      const nextStart = Number(nextCue?.start);
-      if (
-        nextCue &&
-        Number.isFinite(nextStart) &&
-        wc >= cueEnd - 0.02 &&
-        wc < nextStart - 0.01
-      ) {
-        let tailWi = resolveActiveWordIndexForCue(cue);
-        if (tailWi < 0 && cue) {
-          const words = getCueWords(cue);
-          for (let i = words.length - 1; i >= 0; i -= 1) {
-            if (wordVisibleInWordChipRail(words[i])) {
-              tailWi = i;
-              break;
-            }
-          }
-        }
-        return { ai: ci, wi: tailWi };
-      }
-    }
+    ai = cueIndexForClipIndex(clips, lastCues, clipPos);
+  } else {
+    const cueClock = isPreviewMediaPlaying() ? t : mediaSec;
+    ai = pickActiveCueIndexWithHint(lastCues, cueClock, lastPlaybackCueIndex);
+  }
+
+  if (ai < 0) {
     return {
-      ai: ci,
-      wi: resolveActiveWordIndexForCue(cue),
+      ai: -1,
+      wi: -1,
+      lookupT: Number(t) || 0,
+      lookupAxis: listOrder ? "listMediaVirtual" : "cueClock",
     };
   }
-  const ai = pickActiveCueIndexWithHint(lastCues, wordClock, lastPlaybackCueIndex);
-  const cue = ai >= 0 ? lastCues[ai] : null;
-  const wi = resolveActiveWordIndexForCue(cue);
-  return { ai, wi };
+
+  const cue = lastCues[ai];
+  const cueJustChanged = ai !== lastPlaybackCueIndex;
+  const { lookupT, lookupAxis } = computeHighlightLookupT(cue, {
+    playheadSec: t,
+    mediaSec,
+    listOrder,
+  });
+  const wi = resolveActiveWordIndexForCue(cue, ai, {
+    lookupT,
+    lookupAxis,
+    listOrder,
+    cueJustChanged,
+    mediaSec,
+  });
+  if (cueJustChanged) {
+    caretPlayDiagLog("resolvePlaybackIndices", {
+      cueIndex: ai,
+      wordIndex: wi,
+      lookupT: +lookupT.toFixed(4),
+      lookupAxis,
+      cueJustChanged,
+      listOrder,
+      playheadEditSec: +t.toFixed(4),
+      mediaSec: +mediaSec.toFixed(4),
+    });
+  }
+  return { ai, wi, lookupT, lookupAxis };
 }
 
 function commitPlayheadUi({
@@ -1632,24 +1830,46 @@ function commitPlayheadUi({
   activeCueIndex,
   activeWordIndex,
   skipWordHighlight = false,
+  highlightLookupT,
+  highlightLookupAxis,
 } = {}) {
   const t = playheadSec;
   const mediaPlaying = isPreviewMediaPlaying();
-  const ai =
-    typeof activeCueIndex === "number"
-      ? activeCueIndex
-      : mediaPlaying
-        ? resolvePlaybackIndices(t).ai
-        : selectedCueIndex;
+  const mediaSec = getPreviewWordClockSec();
+  const listOrder = Boolean(
+    useListIndexPlayback() && listPreviewBundle?.clips?.length,
+  );
+  let resolved = null;
+  let ai;
+  if (typeof activeCueIndex === "number") {
+    ai = activeCueIndex;
+  } else if (mediaPlaying) {
+    resolved = resolvePlaybackIndices(t, { mediaSec });
+    ai = resolved.ai;
+  } else {
+    ai = selectedCueIndex;
+  }
   const cue = ai >= 0 ? lastCues[ai] : null;
+  const cueJustChanged = ai >= 0 && ai !== lastPlaybackCueIndex;
   const wi =
     typeof activeWordIndex === "number"
       ? activeWordIndex
       : cue && mediaPlaying
-        ? resolveActiveWordIndexForCue(cue)
+        ? (() => {
+            const hl =
+              resolved ??
+              resolvePlaybackIndices(t, { mediaSec });
+            return resolveActiveWordIndexForCue(cue, ai, {
+              lookupT: hl.lookupT,
+              lookupAxis: hl.lookupAxis,
+              listOrder,
+              cueJustChanged,
+              mediaSec,
+            });
+          })()
         : -1;
 
-  const cueChanged = ai !== lastPlaybackCueIndex;
+  const cueChanged = cueJustChanged;
   const wordChanged = wi !== lastPlaybackWordIndex;
   const selectionChanged = selectedCueIndex !== lastHighlightSelectedCue;
   const playStateChanged = mediaPlaying !== lastCommitMediaPlaying;
@@ -1671,11 +1891,43 @@ function commitPlayheadUi({
   const highlightNeedsUpdate =
     cueChanged || wordChanged || selectionChanged || playStateChanged;
 
+  if (
+    cueChanged ||
+    wordChanged ||
+    selectionChanged ||
+    playStateChanged ||
+    scrollActiveCard
+  ) {
+    caretPlayDiagLog("commitPlayheadUi", caretPlayDiagSnapshot({
+      activeCueIndex: ai,
+      activeWordIndex: wi,
+      cueChanged,
+      wordChanged,
+      selectionChanged,
+      playStateChanged,
+      mediaPlaying,
+      skipWordHighlight,
+    }));
+  }
+
   if (mediaPlaying) {
     if (highlightNeedsUpdate && !skipWordHighlight) {
+      const hl =
+        typeof highlightLookupT === "number"
+          ? {
+              lookupT: highlightLookupT,
+              lookupAxis: highlightLookupAxis ?? "cueClock",
+            }
+          : computeHighlightLookupT(cue, {
+              playheadSec: t,
+              mediaSec,
+              listOrder,
+            });
       updatePlaybackHighlights(subtitleList, lastCues, {
-        playheadSec: getPreviewWordClockSec(),
-        playheadMediaSec: getPreviewWordClockSec(),
+        lookupT: hl.lookupT,
+        lookupAxis: hl.lookupAxis,
+        playheadSec: hl.lookupT,
+        playheadMediaSec: hl.lookupT,
         isPlaying: true,
         selectedCueIndex,
         activeCueIndex: ai,
@@ -1774,9 +2026,47 @@ function playbackTick() {
   const media = readPreviewMediaClockSec();
   playheadSec = orch.mapMediaToEditSec(media);
 
-  const { ai, wi } = resolvePlaybackIndices(playheadSec);
+  const playbackResolved = resolvePlaybackIndices(playheadSec, { mediaSec: media });
+  const { ai, wi, lookupT, lookupAxis } = playbackResolved;
   const cueChanged = ai !== lastPlaybackCueIndex;
   const wordChanged = wi !== lastPlaybackWordIndex;
+  const wordClock = media;
+
+  caretPlayDiagLogTick(
+    "playbackTick",
+    caretPlayDiagSnapshot({
+      cueIndex: ai,
+      wordIndex: wi,
+      lookupT: +lookupT.toFixed(4),
+      lookupAxis,
+      cueChanged,
+      wordChanged,
+    }),
+    cueChanged || wordChanged,
+  );
+
+  if (highlightDiagEnabled && isVideoPlaying && (cueChanged || wordChanged)) {
+    const cue = ai >= 0 ? lastCues[ai] : null;
+    const words = cue ? getCueWords(cue) : [];
+    const w = wi >= 0 ? words[wi] : null;
+    logPlaybackHighlight(cueChanged ? "cueChange" : "wordChange", {
+      prevCue: lastPlaybackCueIndex,
+      prevWi: lastPlaybackWordIndex,
+      cueIndex: ai,
+      wordIndex: wi,
+      word: w?.word ?? w?.text ?? "",
+      span: w ? [Number(w.start), Number(w.end)] : null,
+      mediaSec: +wordClock.toFixed(4),
+      editSec: +playheadSec.toFixed(4),
+      lookupT: +lookupT.toFixed(4),
+      lookupAxis,
+      cueJustChanged: cueChanged,
+      listOrder: useListIndexPlayback(),
+      clipPos: listPlaybackClipPos,
+      audioSec: getPa()?.currentTime,
+      videoSec: getPv()?.currentTime,
+    });
+  }
 
   if (isVideoPlaying) {
     const cue = ai >= 0 ? lastCues[ai] : null;
@@ -1784,7 +2074,6 @@ function playbackTick() {
     const w = wi >= 0 && Array.isArray(words) ? words[wi] : null;
     const audioEl = getPa();
     const videoEl = getPv();
-    const wordClock = getPreviewWordClockSec();
     syncDiagSample({
       audioSec: audioEl?.currentTime,
       videoSec: videoEl?.currentTime,
@@ -1803,7 +2092,7 @@ function playbackTick() {
   }
 
   if (isVideoPlaying && subtitleList && ai >= 0) {
-    syncPlaybackWordHighlights(ai, wi);
+    syncPlaybackWordHighlights(ai, wi, { lookupT, lookupAxis });
     lastPlaybackWordIndex = wi;
     lastPlaybackCueIndex = ai;
   }
@@ -1822,7 +2111,12 @@ function playbackTick() {
       getPa()?.pause();
       getPv()?.pause();
       stopPlaybackLoop();
-      commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+      commitPlayheadUi({
+        activeCueIndex: ai,
+        activeWordIndex: wi,
+        highlightLookupT: lookupT,
+        highlightLookupAxis: lookupAxis,
+      });
       return;
     }
   }
@@ -1834,7 +2128,12 @@ function playbackTick() {
     getPa()?.pause();
     getPv().pause();
     stopPlaybackLoop({ waveformRangeNaturalEnd: true });
-    commitPlayheadUi({ activeCueIndex: ai, activeWordIndex: wi });
+    commitPlayheadUi({
+      activeCueIndex: ai,
+      activeWordIndex: wi,
+      highlightLookupT: lookupT,
+      highlightLookupAxis: lookupAxis,
+    });
     return;
   }
 
@@ -1859,6 +2158,8 @@ function playbackTick() {
       activeCueIndex: ai,
       activeWordIndex: wi,
       skipWordHighlight: true,
+      highlightLookupT: lookupT,
+      highlightLookupAxis: lookupAxis,
     });
   }
 
@@ -1936,6 +2237,13 @@ function startPlaybackLoop(opts = {}) {
   }
   playheadSec = orch.mapMediaToEditSec(media);
 
+  caretPlayDiagLog("startPlaybackLoop", caretPlayDiagSnapshot({
+    mediaSec: media,
+    fromWaveformRange: Boolean(opts.fromWaveformRange),
+    preservePlayhead: Boolean(opts.preservePlayhead),
+    loopGeneration: playbackLoopGeneration,
+  }));
+
   void beginPreviewSyncedPlayback(media).then(() => {
     playbackTick._stallLogged = null;
     playbackTick();
@@ -1971,6 +2279,16 @@ function syncPauseCaretAtPlayhead(pausedAtCue, pausedAtWord, resolvedPause, wasW
   }
 
   const detail = pauseWi >= 0 ? { forceStorageWordIndex: pauseWi } : {};
+  caretPlayDiagLog("syncPauseCaretAtPlayhead", caretPlayDiagSnapshot({
+    pauseAi,
+    pauseWi,
+    pausedAtCue,
+    pausedAtWord,
+    resolvedPauseAi: resolvedPause.ai,
+    resolvedPauseWi: resolvedPause.wi,
+    caretEditSec,
+    wasWaveformRange,
+  }));
   syncCaretOnPlaybackPause(
     subtitleList,
     lastCues,
@@ -1984,6 +2302,11 @@ function syncPauseCaretAtPlayhead(pausedAtCue, pausedAtWord, resolvedPause, wasW
 function stopPlaybackLoop(opts = {}) {
   const wasMediaPlaying = isVideoPlaying || playbackRafId || isPreviewMediaPlaying();
   if (!wasMediaPlaying) return;
+  caretPlayDiagLog("stopPlaybackLoop", caretPlayDiagSnapshot({
+    pausedAtCue: lastPlaybackCueIndex,
+    pausedAtWord: lastPlaybackWordIndex,
+    waveformRangeNaturalEnd: opts.waveformRangeNaturalEnd === true,
+  }));
   // console.trace("[PLAY-DBG] stopPlaybackLoop called");
   const wasWaveformRange = waveformPlayRangeEndEdit != null;
   const shouldSyncPauseCaret =
@@ -2035,6 +2358,7 @@ async function togglePreviewPlayback(opts = {}) {
   if (!getPv()) return;
   const playing = isPreviewMediaPlaying() || isVideoPlaying;
   if (playing) {
+    caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({ action: "pause" }));
     // console.log("[PLAY-DBG] toggle → PAUSE");
     // console.trace("[PLAY-DBG] PAUSE call stack");
     userRequestedPreviewPause = true;
@@ -2043,6 +2367,7 @@ async function togglePreviewPlayback(opts = {}) {
     return;
   }
   await previewBridge.unlockAudioOutput();
+  caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({ action: "play", selectedCueIndex }));
   // console.log("[PLAY-DBG] toggle → PLAY (selectedCue=%d)", selectedCueIndex);
   resetSpaceSeekIntent();
   /** @type {{ preservePlayhead?: boolean }} */
@@ -2080,7 +2405,12 @@ function playAtSubtitleCaret(cardIndex, storageCaret) {
   if (!cue) { /* console.log("[PLAY-DBG] playAtCaret: no cue at %d", cardIndex); */ return; }
   const editSec = editSecForStorageWord(cue, storageCaret);
   if (!Number.isFinite(editSec)) { /* console.log("[PLAY-DBG] playAtCaret: bad editSec for card=%d", cardIndex); */ return; }
-  // console.log("[PLAY-DBG] playAtCaret: card=%d, editSec=%.2f, text=%s", cardIndex, editSec, getPreviewCueText(cue)?.slice(0, 20));
+  caretPlayDiagLog("playAtSubtitleCaret", caretPlayDiagSnapshot({
+    cardIndex,
+    storageCaret,
+    editSec,
+    cueText: getPreviewCueText(cue)?.slice(0, 40) ?? "",
+  }));
   selectCueLine(cardIndex, { seek: false, scroll: false, rerender: false });
   setListPlaybackListPosFromCueIndex(cardIndex);
   seekEditSecAndPlay(editSec);
@@ -2476,6 +2806,9 @@ let preparePollTimer = null;
 let _lastPrepareProgress = -1;
 let transcribePollTimer = null;
 let exportPollTimer = null;
+/** @type {{ phase: string, progress: number, at: number, lastLogAt: number } | null} */
+let burnInPollDiag = null;
+let exportAwaitingFramesInFlight = false;
 let gpuInstallPollTimer = null;
 
 function installDialogOpts() {
@@ -2780,6 +3113,19 @@ function setWordAlignLoading(active, { title, step, message, progress } = {}) {
   syncWordAlignButtonState();
 }
 
+function wordAlignFriendlyError(err) {
+  const msg = formatAgentConnectionError(err);
+  if (/kiwipiepy|Kiwi|_kiwipiepy|Prepare|DLL load failed|Permission denied|액세스가 거부/i.test(msg)) {
+    return msg;
+  }
+  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY;
+  if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) return MSG_SUBTITLE_NEED_APP;
+  if (/연결.*차단|일시적으로 연결/i.test(msg)) {
+    return "에이전트 통신이 일시적으로 제한되었습니다. 잠시 후 다시 시도하거나 에이전트를 재시작해 주세요.";
+  }
+  return msg || "단어 자동정렬에 실패했습니다.";
+}
+
 async function onWordAutoAlignClick() {
   if (!isKoreanLanguageSelected(languageSelect?.value)) return;
   if (!agentConnected) {
@@ -2821,7 +3167,7 @@ async function onWordAutoAlignClick() {
   } catch (err) {
     setWordAlignLoading(true, {
       title: "단어 자동정렬 실패",
-      message: friendlyAgentError(err),
+      message: wordAlignFriendlyError(err),
       progress: 0,
     });
     await new Promise((r) => setTimeout(r, 2800));
@@ -2927,9 +3273,12 @@ function peaksLoadOpts(extra = {}) {
 
 function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
   const mediaPlaying = isPreviewMediaPlaying();
-  const activeCue = mediaPlaying
-    ? resolvePlaybackIndices(playheadSec).ai
-    : selectedCueIndex;
+  const mediaSec = mediaPlaying ? readPreviewMediaClockSec() : playheadSec;
+  const playbackResolved = mediaPlaying
+    ? resolvePlaybackIndices(playheadSec, { mediaSec })
+    : null;
+  const activeCue = mediaPlaying ? playbackResolved.ai : selectedCueIndex;
+  const activeWordIndex = mediaPlaying ? playbackResolved.wi : -1;
   const mediaDurationSec = getMediaDurationSecHint();
   return {
     formatTime,
@@ -2942,7 +3291,15 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     isPlaying: mediaPlaying,
     getIsPlaying: () => isPreviewMediaPlaying(),
     getPlayheadSec: () => playheadSec,
+    getActiveCueIndex: () =>
+      isPreviewMediaPlaying() && lastPlaybackCueIndex >= 0
+        ? lastPlaybackCueIndex
+        : selectedCueIndex,
+    getActiveWordIndex: () => (isPreviewMediaPlaying() ? lastPlaybackWordIndex : -1),
     activeCueIndex: activeCue,
+    activeWordIndex,
+    highlightLookupT: playbackResolved?.lookupT,
+    highlightLookupAxis: playbackResolved?.lookupAxis,
     scrollActiveCard: scrollActive,
     peaksData: peaksPayload,
     getPeaksData: () => peaksPayload,
@@ -3089,7 +3446,22 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       const wasExpanded = expandedCueIndex === movedCueIndex;
       let newListPos = insertBeforePos;
       if (fromListPos < insertBeforePos) newListPos = insertBeforePos - 1;
-      reorderSubtitleLinesByListInsert(subtitleHub, fromListPos, insertBeforePos);
+      const reorderResult = reorderSubtitleLinesByListInsert(
+        subtitleHub,
+        fromListPos,
+        insertBeforePos,
+      );
+      if (reorderResult && reorderResult.ok === false) {
+        subtitleLineDragActive = false;
+        alert(
+          reorderResult.reason === "duration_overflow"
+            ? "이 위치로 옮기면 자막 길이가 허용 구간을 초과합니다."
+            : "자막 순서를 변경할 수 없습니다.",
+        );
+        renderCuesTable(lastCues);
+        return;
+      }
+      bumpListableCueIndicesCache();
       const after = listableCueIndices(lastCues);
       const newCueIndex = after[newListPos] ?? movedCueIndex;
       selectedCueIndex = newCueIndex;
@@ -3142,6 +3514,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (getPv() && Number.isFinite(sec)) {
         const orch = getPlaybackOrchestrator();
         const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
+        caretPlayDiagLog("onSeekMedia", caretPlayDiagSnapshot({ mediaSec: sec, mappedMedia: media }));
         orch.seekMediaSec(media);
         playheadSec = orch.mapMediaToEditSec(media);
         commitPlayheadUi();
@@ -3153,6 +3526,12 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (!Number.isFinite(editSec)) return;
       const orch = getPlaybackOrchestrator();
       const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+      caretPlayDiagLog("onSeekWord", caretPlayDiagSnapshot({
+        storageWordIndex,
+        editSec,
+        mediaSec: media,
+        cueIndex: lastCues.indexOf(cue),
+      }));
       orch.seekMediaSec(media);
       playheadSec = orch.mapMediaToEditSec(media);
       commitPlayheadUi();
@@ -3796,7 +4175,7 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
         setSessionPreviewMediaPath(previewPath);
       }
       if (isSourceVideoPtsTimeline()) {
-        console.log("[media-timing] source_video_pts — preview SSOT", {
+        mediaTimingDiagLog("source_video_pts — preview SSOT", {
           video_sec: mt.video_duration_sec,
           skew_sec: mt.av_start_skew_sec,
           preview: previewPath || null,
@@ -3804,7 +4183,7 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
         });
       } else {
         const avDelta = Math.abs(Number(mt.av_duration_delta_sec) || 0);
-        console.log("[media-timing] transcribe", {
+        mediaTimingDiagLog("transcribe", {
           av_delta_sec: mt.av_duration_delta_sec,
           audio_sec: mt.audio_duration_sec,
           video_sec: mt.video_duration_sec,
@@ -3814,14 +4193,14 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
           preview: transcribeMeta.preview_media_path,
         });
         if (avDelta >= 0.05 || mt.vfr_suspected) {
-          console.warn(
-            "[media-timing] A/V 또는 VFR 보정 적용됨 — audio SSOT 재생·word time 기준",
+          mediaTimingDiagWarn(
+            "A/V 또는 VFR 보정 적용됨 — audio SSOT 재생·word time 기준",
           );
         }
       }
     } else {
-      console.warn(
-        "[media-timing] API 응답에 media_timing 없음 — 에이전트가 구버전(MSI)이거나 소스 미반영. sync-agent-source.ps1 후 재시작하세요.",
+      mediaTimingDiagWarn(
+        "API 응답에 media_timing 없음 — 에이전트가 구버전(MSI)이거나 소스 미반영. sync-agent-source.ps1 후 재시작하세요.",
       );
     }
     const dur =
@@ -4040,7 +4419,10 @@ function buildExportPayload(fmt) {
     lastCutRanges,
     readSubtitleStyleFromDom(),
     fmt,
-    videoPathInput?.value?.trim() || null,
+    {
+      previewMediaPath: getSessionPreviewMediaPath() || null,
+      videoPath: videoPathInput?.value?.trim() || null,
+    },
   );
 }
 
@@ -4120,9 +4502,133 @@ function animateSmoothProgress(setFn) {
   smoothProgressRafId = requestAnimationFrame(step);
 }
 
-async function pollExportStatus(fmt) {
+async function runAwaitingFramesPngBurnIn(statusData) {
+  const burnPath = String(statusData?.burnin_media_path || "").trim();
+  if (!burnPath) {
+    throw new Error("burnin_media_path가 없습니다. export를 다시 시도해 주세요.");
+  }
+  const label = exportFormatLabel("video");
+  const pngPayload = buildExportPayload("video");
+  const exportTimeAxis = statusData?.export_time_axis === "stitched_program"
+    ? "stitched_program"
+    : "media";
+  const stitched = exportTimeAxis === "stitched_program";
+  const cutRanges = stitched ? [] : pngPayload.cut_ranges || [];
+  const rawActualDuration = statusData?.actual_duration;
+  const actualDuration =
+    stitched && typeof rawActualDuration === "number" && rawActualDuration > 0
+      ? rawActualDuration
+      : undefined;
+  burnInConsoleLog("awaiting_frames_burn_in_start", {
+    burnPath,
+    stitched,
+    actualDuration,
+    exportTimeAxis,
+  });
+  await runVideoBurnInExport({
+    toolPrefix: TOOL_PREFIX,
+    videoPath: burnPath,
+    lastCues: lastCues,
+    cutRanges,
+    exportTimeAxis,
+    requiresConcat: stitched,
+    actualDuration,
+    style: readSubtitleStyleFromDom(),
+    watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
+    onUiProgress: ({ progress, step, message }) => {
+      setExportLoading(true, {
+        title: "보내기",
+        step: step || `${label} · PNG 번인`,
+        message: message || "처리 중…",
+        progress,
+      });
+    },
+  });
+}
+
+function startExportStatusPolling(fmt, resolve) {
+  stopExportPoll();
+  if (fmt === "video") {
+    burnInPollDiag = { phase: "", progress: -1, at: Date.now(), lastLogAt: 0 };
+    burnInConsoleLog("poll_start", { fmt });
+  }
+  exportPollTimer = setInterval(async () => {
+    try {
+      const done = await pollExportStatus(fmt, resolve);
+      if (done === true) {
+        openDownload(lastExportPath);
+        resolve(true);
+      }
+      if (done === false) resolve(false);
+    } catch (err) {
+      if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) return;
+      stopExportPoll();
+      showExportError(friendlyAgentError(err));
+      resolve(false);
+    }
+  }, 1000);
+}
+
+function isExportAwaitingFramesStatus(data) {
+  const phase = String(data?.phase || "");
+  if (phase === "awaiting_frames") return true;
+  const progress = typeof data?.progress === "number" ? data.progress : -1;
+  const msg = String(data?.message || "");
+  // 구버전/버그: enter_video_export_awaiting_hold 직후 phase=running 으로 덮인 경우
+  return (
+    phase === "running" &&
+    progress >= 44 &&
+    progress <= 46 &&
+    /프레임 업로드 대기/.test(msg)
+  );
+}
+
+function logBurnInExportPoll(fmt, data) {
+  const exportFmt = data?.format || fmt;
+  if (exportFmt !== "video") return;
+  const phase = String(data?.phase || "");
+  const progress = typeof data?.progress === "number" ? data.progress : null;
+  const now = Date.now();
+  const diag = burnInPollDiag || { phase: "", progress: -1, at: now, lastLogAt: 0 };
+  const phaseChanged = phase !== diag.phase;
+  const progressChanged = progress != null && progress !== diag.progress;
+  const stalledMs = now - diag.at;
+  const heartbeatDue = now - diag.lastLogAt >= 30_000;
+
+  if (phaseChanged || progressChanged) {
+    burnInConsoleLog("poll", {
+      phase,
+      progress,
+      message: data?.message || "",
+      error: data?.error || undefined,
+      actualDuration: data?.actual_duration,
+      exportTimeAxis: data?.export_time_axis,
+    });
+    diag.phase = phase;
+    if (progress != null) diag.progress = progress;
+    diag.at = now;
+    diag.lastLogAt = now;
+  } else if (heartbeatDue) {
+    burnInConsoleLog("heartbeat", {
+      phase,
+      progress,
+      message: data?.message || "",
+      stalledSec: Math.round(stalledMs / 1000),
+      uiSmoothedProgress: smoothedProgress,
+      hint:
+        progress != null && progress >= 98
+          ? "FFmpeg 번인 99% 고정 — 백엔드 인코더/mux 대기 중일 수 있음"
+          : "상태 변화 없음 — 에이전트 응답 정체 여부 확인",
+    });
+    diag.lastLogAt = now;
+  }
+  burnInPollDiag = diag;
+}
+
+async function pollExportStatus(fmt, resolvePromise) {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/export/status` });
   const phase = data?.phase || "";
+  logBurnInExportPoll(fmt, data);
 
   const rawProgress = typeof data?.progress === "number" ? data.progress : undefined;
   if (rawProgress != null && rawProgress > smoothProgressTarget) {
@@ -4150,6 +4656,8 @@ async function pollExportStatus(fmt) {
   }
 
   if (phase === "completed") {
+    burnInConsoleLog("completed", { resultPath: data?.result_path });
+    burnInPollDiag = null;
     stopExportPoll();
     smoothProgressTarget = 100;
     smoothedProgress = 100;
@@ -4174,7 +4682,43 @@ async function pollExportStatus(fmt) {
     updateActionButtons();
     return true;
   }
+  if (isExportAwaitingFramesStatus(data)) {
+    burnInConsoleLog("awaiting_frames", {
+      phase,
+      burninMediaPath: data?.burnin_media_path,
+      actualDuration: data?.actual_duration,
+      exportTimeAxis: data?.export_time_axis,
+    });
+    if (exportAwaitingFramesInFlight) {
+      burnInConsoleLog("awaiting_frames_skipped", { reason: "in_flight" });
+      return null;
+    }
+    exportAwaitingFramesInFlight = true;
+    stopExportPoll();
+    setExportLoading(true, {
+      title: "보내기",
+      step: exportPhaseStepLabel(phase, data?.format || fmt),
+      message: data?.message || "자막 프레임 캡처…",
+      progress: typeof data?.progress === "number" ? data.progress : undefined,
+    });
+    try {
+      await runAwaitingFramesPngBurnIn(data);
+    } catch (err) {
+      exportAwaitingFramesInFlight = false;
+      showExportError(friendlyAgentError(err));
+      return false;
+    }
+    exportAwaitingFramesInFlight = false;
+    if (typeof resolvePromise === "function") {
+      smoothedProgress = Math.max(smoothedProgress, 40);
+      smoothProgressTarget = 40;
+      startExportStatusPolling(fmt, resolvePromise);
+    }
+    return null;
+  }
   if (phase === "failed") {
+    burnInConsoleLog("failed", { error: data?.error, message: data?.message });
+    burnInPollDiag = null;
     stopExportPoll();
     resetSmoothProgress();
     const raw = data?.error || data?.message || "보내기에 실패했습니다.";
@@ -4251,55 +4795,57 @@ async function runExport() {
   }
 
   if (fmt === "video") {
+    const previewPath = getSessionPreviewMediaPath();
+    if (!previewPath) {
+      showExportError("CFR 미디어 재생성 필요. 전사를 다시 실행하거나 미디어를 준비해 주세요.");
+      return;
+    }
+    const payload = buildExportPayload(fmt);
     try {
+      exportAwaitingFramesInFlight = false;
+      await requestAgent({ path: `${TOOL_PREFIX}/export`, method: "POST", json: payload });
+      return new Promise((resolve) => {
+        resetSmoothProgress();
+        smoothedProgress = 5;
+        smoothProgressTarget = 5;
+        startExportStatusPolling(fmt, resolve);
+      });
+    } catch (err) {
+      const msg = friendlyAgentError(err);
+      if (!/404|Not Found|video-burn-in/i.test(msg)) {
+        showExportError(msg);
+        return;
+      }
+      console.warn("[export] Python V41 pipeline unavailable; deprecated PNG burn-in fallback");
+    }
+    try {
+      const pngPayload = buildExportPayload("video");
       await runVideoBurnInExport({
         toolPrefix: TOOL_PREFIX,
-        videoPath,
+        videoPath: previewPath,
         lastCues,
-        cutRanges: lastCutRanges,
+        cutRanges: pngPayload.cut_ranges || [],
+        requiresConcat: pngPayload.requires_concat,
+        exportTimeAxis: pngPayload.export_time_axis,
         style: readSubtitleStyleFromDom(),
         watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
         onUiProgress: ({ progress, step, message }) => {
           setExportLoading(true, {
             title: "보내기",
-            step: step || `${label} · 처리 중`,
+            step: step || `${label} · 처리 중 (deprecated)`,
             message: message || "처리 중…",
             progress,
           });
         },
       });
-
       return new Promise((resolve) => {
-        stopExportPoll();
         smoothedProgress = 40;
         smoothProgressTarget = 40;
-        exportPollTimer = setInterval(async () => {
-          try {
-            const done = await pollExportStatus(fmt);
-            if (done === true) {
-              openDownload(lastExportPath);
-              resolve(true);
-            }
-            if (done === false) resolve(false);
-          } catch (err) {
-            if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) return;
-            stopExportPoll();
-            showExportError(friendlyAgentError(err));
-            resolve(false);
-          }
-        }, 1000);
+        startExportStatusPolling(fmt, resolve);
       });
-    } catch (err) {
-      if (!isVideoBurnInNotFoundError(err)) {
-        showExportError(friendlyAgentError(err));
-        return;
-      }
-      setExportLoading(true, {
-        title: "보내기",
-        step: `${label} · ASS 번인`,
-        message: "에이전트 업데이트 필요 — ASS 방식으로 보냅니다…",
-        progress: 10,
-      });
+    } catch (pngErr) {
+      showExportError(friendlyAgentError(pngErr));
+      return;
     }
   }
 
@@ -4312,25 +4858,10 @@ async function runExport() {
   }
 
   return new Promise((resolve) => {
-    stopExportPoll();
     resetSmoothProgress();
     smoothedProgress = 5;
     smoothProgressTarget = 5;
-    exportPollTimer = setInterval(async () => {
-      try {
-        const done = await pollExportStatus(fmt);
-        if (done === true) {
-          openDownload(lastExportPath);
-          resolve(true);
-        }
-        if (done === false) resolve(false);
-      } catch (err) {
-        if (/503|502|504|timeout|fetch|unavailable|준비/i.test(String(err))) return;
-        stopExportPoll();
-        showExportError(friendlyAgentError(err));
-        resolve(false);
-      }
-    }, 1000);
+    startExportStatusPolling(fmt, resolve);
   });
 }
 
@@ -5091,4 +5622,82 @@ window.autoSubtitleSyncDiag = {
     return r;
   },
   clear: syncDiagClear,
+};
+
+window.autoSubtitleHighlightDiag = {
+  get enabled() {
+    return highlightDiagEnabled;
+  },
+  enable(on = true) {
+    highlightDiagEnabled = Boolean(on);
+    console.log(
+      "[PLAY-HL]",
+      highlightDiagEnabled
+        ? "logging ON — 재생 시 cueChange/wordChange/이상 wordResolve 출력"
+        : "logging OFF",
+    );
+  },
+};
+
+window.autoSubtitleCaretPlayDiag = {
+  get enabled() {
+    return caretPlayDiagIsEnabled();
+  },
+  enable(on = true) {
+    caretPlayDiagSetEnabled(on);
+    console.log(
+      "[CARET-PLAY]",
+      on
+        ? "logging ON — 재생·캐럿·seek 경로 출력 (필터: CARET-PLAY)"
+        : "logging OFF",
+    );
+  },
+};
+
+window.autoSubtitleMediaTimingDiag = {
+  get enabled() {
+    return mediaTimingDiagIsEnabled();
+  },
+  enable(on = true) {
+    mediaTimingDiagSetEnabled(on);
+    console.log(
+      "[media-timing]",
+      on
+        ? "logging ON — probe·transcribe·A/V 스냅샷 출력 (필터: media-timing)"
+        : "logging OFF",
+    );
+  },
+};
+
+/**
+ * 진단 로그 JSON 다운로드 — 켜진 채널(PLAY-HL / CARET-PLAY / media-timing)만 버퍼에 쌓임.
+ * @param {string} [filename]
+ * @param {{ includeSyncDiag?: boolean }} [opts]
+ */
+function autoSubtitleDownloadDiagLogs(filename, opts = {}) {
+  const extra = {};
+  if (opts.includeSyncDiag !== false) {
+    try {
+      extra.syncDiag = syncDiagReport();
+    } catch {
+      extra.syncDiag = null;
+    }
+  }
+  const name =
+    filename ||
+    `auto-subtitle-diag-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  return downloadDiagLogsJson(name, extra);
+}
+
+window.autoSubtitleDownloadDiagLogs = autoSubtitleDownloadDiagLogs;
+window.autoSubtitleDiagDownload = autoSubtitleDownloadDiagLogs;
+window.autoSubtitleDiagExport = {
+  download: autoSubtitleDownloadDiagLogs,
+  clear() {
+    diagLogBufferClear();
+    console.log("[diag-export] buffer cleared");
+  },
+  get count() {
+    return diagLogBufferLength();
+  },
 };

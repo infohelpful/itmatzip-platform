@@ -3,7 +3,13 @@
  */
 
 import { buildTextExport, TEXT_EXPORT_FORMATS } from "../shared/export-subtitle-formats.js";
-import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=3";
+import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=4";
+import { anyCueRelocated } from "../shared/dual-axis.js?v=1";
+import {
+  buildStitchedProgramExportCues,
+  buildVirtualAudioMap,
+  isSourceStartMonotonic,
+} from "../shared/virtual-audio-map.js?v=2";
 
 export const EXPORT_FORMATS = ["video", "srt", "vtt", "ass", "txt", "mp3", "wav"];
 
@@ -36,20 +42,54 @@ export function exportFormatLabel(fmt) {
 /**
  * @param {readonly object[]} lastCues
  * @param {readonly { start: number, end: number }[]} cutRanges
+ */
+export function computeRequiresConcatExport(lastCues, cutRanges) {
+  const map = buildVirtualAudioMap(lastCues, { cutRanges });
+  const cuts = cutRanges || [];
+  return !(
+    !anyCueRelocated(lastCues) &&
+    cuts.length === 0 &&
+    isSourceStartMonotonic(map)
+  );
+}
+
+/**
+ * @param {readonly object[]} lastCues
+ * @param {readonly { start: number, end: number }[]} cutRanges
+ * @param {boolean} requiresConcat
+ */
+export function buildExportCuesForPayload(lastCues, cutRanges, requiresConcat) {
+  if (requiresConcat) {
+    return buildStitchedProgramExportCues(lastCues, { cutRanges });
+  }
+  return buildExportCueLines(lastCues);
+}
+
+/**
+ * @param {readonly object[]} lastCues
+ * @param {readonly { start: number, end: number }[]} cutRanges
  * @param {object} style
  * @param {string} format
- * @param {string | null} videoPath
+ * @param {{ previewMediaPath?: string | null, videoPath?: string | null }} [media]
  */
-export function buildExportRequestPayload(lastCues, cutRanges, style, format, videoPath = null) {
+export function buildExportRequestPayload(lastCues, cutRanges, style, format, media = {}) {
   const fmt = normalizeExportFormat(format);
   const needsMedia = ["video", "mp3", "wav"].includes(fmt);
-  const textFormats = TEXT_EXPORT_FORMATS;
-  const exportCues = buildExportCueLines(lastCues);
+  const previewMediaPath = media.previewMediaPath ?? null;
+  const videoPath = media.videoPath ?? null;
+  const requiresConcat = computeRequiresConcatExport(lastCues, cutRanges);
+  const virtualAudioMap = buildVirtualAudioMap(lastCues, { cutRanges });
+  const exportCues = buildExportCuesForPayload(lastCues, cutRanges, requiresConcat);
+
   return {
     format: fmt,
     cues: exportCues,
-    video_path: needsMedia ? videoPath : null,
-    cut_ranges: cutRanges || [],
+    video_path: needsMedia ? previewMediaPath || videoPath : null,
+    preview_media_path: needsMedia ? previewMediaPath : null,
+    virtual_audio_map: virtualAudioMap,
+    requires_concat: requiresConcat,
+    export_time_axis: requiresConcat ? "stitched_program" : "media",
+    cut_ranges: requiresConcat ? [] : cutRanges || [],
     style: style || {},
   };
 }
@@ -58,7 +98,6 @@ export function buildExportRequestPayload(lastCues, cutRanges, style, format, vi
 export const EXPORT_TEXT_FORMATS = TEXT_EXPORT_FORMATS;
 
 /**
- * 브라우저에서 즉시 텍스트 파일 다운로드 (에이전트 없이 미리보기용).
  * @param {string} fmt
  * @param {readonly object[]} cues
  * @param {readonly { start: number, end: number }[]} cutRanges
@@ -69,7 +108,14 @@ export function downloadTextExportLocally(fmt, cues, cutRanges, style) {
   if (!TEXT_EXPORT_FORMATS.includes(key)) {
     throw new Error("로컬 다운로드는 srt/vtt/ass/txt만 지원합니다.");
   }
-  const content = buildTextExport(key, cues, cutRanges, style);
+  const requiresConcat = computeRequiresConcatExport(cues, cutRanges);
+  const exportCues = buildExportCuesForPayload(cues, cutRanges, requiresConcat);
+  const content = buildTextExport(
+    key,
+    exportCues,
+    requiresConcat ? [] : cutRanges,
+    style,
+  );
   const ext = { srt: ".srt", vtt: ".vtt", ass: ".ass", txt: ".txt" }[key];
   const mime =
     key === "vtt"

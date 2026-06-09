@@ -274,3 +274,95 @@ export function pickActiveWordIndexWithHint(cue, t, hintWi = -1) {
   if (hintWi >= 0) return hintWi;
   return -1;
 }
+
+/**
+ * 재생 하이라이트 전용 — 겹침 구간에서 앞쪽(작은 인덱스) 단어 우선.
+ * 캐럿·트림 UI는 pickActiveWordIndex(Last-match)를 그대로 사용.
+ *
+ * @param {object} cue
+ * @param {number} t
+ * @returns {number}
+ */
+export function pickActiveWordIndexForHighlight(cue, t) {
+  if (!cue) return -1;
+  const words = getCueWords(cue);
+  let lastVis = -1;
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const s = Number(w.start);
+    const e = Number(w.end);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    lastVis = wi;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < e + TIME_EPS) return wi;
+  }
+  if (!timeInCueSpan(cue, t)) return -1;
+  if (lastVis >= 0) {
+    const le = Number(words[lastVis].end);
+    if (Number.isFinite(le) && t >= le - TIME_EPS) return lastVis;
+  }
+  return -1;
+}
+
+/**
+ * 하이라이트 전용 hint 탐색 — first-match + 동일 큐 내 gap hold.
+ *
+ * @param {object} cue
+ * @param {number} t
+ * @param {number} hintWi
+ */
+export function pickActiveWordIndexWithHintForHighlight(cue, t, hintWi = -1) {
+  const exact = pickActiveWordIndexForHighlight(cue, t);
+  if (exact >= 0) return exact;
+  if (!cue || !timeInCueSpan(cue, t)) return -1;
+
+  const words = getCueWords(cue);
+
+  if (hintWi >= 0 && hintWi < words.length) {
+    const hw = words[hintWi];
+    if (wordVisibleInWordChipRail(hw)) {
+      const hs = Number(hw.start);
+      const he = Number(hw.end);
+      if (
+        Number.isFinite(hs) &&
+        Number.isFinite(he) &&
+        t >= hs - WORD_ONSET_LEAD_SEC &&
+        t <= he + INTER_WORD_GAP_HOLD_SEC
+      ) {
+        return hintWi;
+      }
+    }
+  }
+
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const s = Number(w.start);
+    const e = Number(w.end);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < e + TIME_EPS) return wi;
+  }
+
+  let lastStarted = -1;
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const s = Number(w.start);
+    if (!Number.isFinite(s)) continue;
+    if (t >= s - WORD_ONSET_LEAD_SEC) lastStarted = wi;
+  }
+
+  if (lastStarted >= 0) {
+    if (hintWi >= 0 && lastStarted > hintWi) {
+      const ns = Number(words[lastStarted]?.start);
+      if (Number.isFinite(ns) && t < ns - WORD_ONSET_LEAD_SEC) return hintWi;
+    }
+    if (hintWi >= 0 && lastStarted < hintWi) {
+      const he = Number(words[hintWi]?.end);
+      if (Number.isFinite(he) && t <= he + INTER_WORD_GAP_HOLD_SEC) return hintWi;
+    }
+    return lastStarted;
+  }
+  if (hintWi >= 0) return hintWi;
+  return -1;
+}

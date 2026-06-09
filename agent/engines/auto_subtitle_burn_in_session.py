@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -14,7 +15,7 @@ from engines.auto_subtitle_burn_in import (
     estimate_overlay_duration_sec,
     get_subtitle_render_dimensions,
     run_single_pass_subtitle_burn_in,
-    select_h264_encoder,
+    select_burn_in_h264_encoder,
 )
 from engines.auto_subtitle_export import (
     _set_export_job,
@@ -23,8 +24,11 @@ from engines.auto_subtitle_export import (
 from engines.auto_subtitle_formats import normalize_cut_ranges
 from engines.auto_subtitle_media_probe import parse_ntsc_fps_fraction, probe_media_timing
 
+_log = logging.getLogger(__name__)
+
 _session_lock = threading.RLock()
 _sessions: dict[str, "BurnInSession"] = {}
+_hold_linked_session_ids: set[str] = set()
 
 
 @dataclass
@@ -74,6 +78,31 @@ def create_session(video_path: Path) -> BurnInSession:
     return sess
 
 
+def register_hold_linked_session(job_id: str) -> None:
+    """Track burn-in session created during video export awaiting_frames Hold."""
+    with _session_lock:
+        _hold_linked_session_ids.add(job_id)
+
+
+def cleanup_hold_linked_sessions() -> None:
+    """Remove burn-in sessions registered under export Hold (Abandon / failure)."""
+    with _session_lock:
+        ids = list(_hold_linked_session_ids)
+        _hold_linked_session_ids.clear()
+    for job_id in ids:
+        with _session_lock:
+            sess = _sessions.pop(job_id, None)
+        if sess is None:
+            continue
+        try:
+            if sess.job_dir.is_dir():
+                import shutil
+
+                shutil.rmtree(sess.job_dir, ignore_errors=True)
+        except OSError:
+            pass
+
+
 def get_session(job_id: str) -> BurnInSession:
     with _session_lock:
         sess = _sessions.get(job_id)
@@ -115,6 +144,9 @@ def save_frame(job_id: str, index: int, start: float, end: float, payload: bytes
     )
     with _session_lock:
         sess.frame_meta[index] = meta
+    from engines.auto_subtitle_export import touch_video_export_idle_activity
+
+    touch_video_export_idle_activity()
 
 
 def _ordered_frame_paths_and_timing(sess: BurnInSession) -> tuple[list[Path], list[dict[str, float]]]:
@@ -149,8 +181,23 @@ def _burn_in_worker(
         mapped_end = max((t["end"] for t in timing), default=1.0)
         cuts = normalize_cut_ranges(cut_ranges)
         overlay_dur = estimate_overlay_duration_sec(sess.duration_sec, cuts, mapped_end)
-        encoder = select_h264_encoder()
+        encoder = select_burn_in_h264_encoder()
 
+        _log.info(
+            "[BURN_IN] worker_start job_id=%s media=%s input_dur=%.3f overlay_dur=%.3f "
+            "mapped_end=%.3f frames=%s encoder=%s render=%dx%d full=%dx%d",
+            sess.job_id,
+            sess.media_path.name,
+            float(sess.duration_sec or 0),
+            overlay_dur,
+            mapped_end,
+            len(frame_paths),
+            encoder,
+            sess.render_w,
+            sess.render_h,
+            sess.full_w,
+            sess.full_h,
+        )
         report(28.0, "FFmpeg 자막 번인 준비…")
         run_single_pass_subtitle_burn_in(
             ffmpeg_path=None,
@@ -169,6 +216,11 @@ def _burn_in_worker(
             export_fps=sess.export_fps,
             on_progress=report,
         )
+        _log.info(
+            "[BURN_IN] worker_done job_id=%s output=%s",
+            sess.job_id,
+            sess.output_path,
+        )
         _set_export_job(
             "completed",
             100.0,
@@ -177,10 +229,23 @@ def _burn_in_worker(
             fmt="video",
         )
     except Exception as exc:
+        _log.error(
+            "[BURN_IN] worker_failed job_id=%s error=%s",
+            sess.job_id,
+            exc,
+            exc_info=True,
+        )
         _set_export_job("failed", 0.0, str(exc), error=str(exc), fmt="video")
     finally:
+        from engines import auto_subtitle_runtime
+        from engines.auto_subtitle_export import complete_video_export_hold_cleanup
+
         with _session_lock:
             _sessions.pop(sess.job_id, None)
+            _hold_linked_session_ids.discard(sess.job_id)
+        complete_video_export_hold_cleanup()
+        if auto_subtitle_runtime.get_active_job() == "export":
+            auto_subtitle_runtime.end_job()
 
 
 def finish_and_start_export(
@@ -209,19 +274,18 @@ def finish_and_start_export(
             wm_path = resolved
             wm_position = str(watermark.get("position") or "top-right")
 
-    auto_subtitle_runtime.try_begin_job("export")
+    # V47a — continuous export transaction: skip re-acquire when Lock already held.
+    if auto_subtitle_runtime.get_active_job() != "export":
+        auto_subtitle_runtime.try_begin_job("export")
     _set_export_job("queued", 0.0, "영상 번인 대기…", fmt="video")
 
     def _target() -> None:
-        try:
-            _burn_in_worker(
-                sess,
-                cut_ranges=cut_ranges,
-                watermark_path=wm_path,
-                watermark_position=wm_position,
-            )
-        finally:
-            auto_subtitle_runtime.end_job()
+        _burn_in_worker(
+            sess,
+            cut_ranges=cut_ranges,
+            watermark_path=wm_path,
+            watermark_position=wm_position,
+        )
 
     import threading
 

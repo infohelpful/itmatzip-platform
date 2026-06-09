@@ -5,7 +5,7 @@
 
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { seekWithNudge } from "./html-audio-master-playback.js?v=3";
-import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=3";
+import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=4";
 
 const HAVE_FUTURE = HTMLMediaElement.HAVE_FUTURE_DATA;
 const PREFETCH_LEAD_MIN_SEC = 0.28;

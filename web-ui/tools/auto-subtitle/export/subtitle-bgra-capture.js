@@ -11,6 +11,7 @@ import {
   PREVIEW_SUBTITLE_SIDE_MARGIN_PCT,
   subtitlePreviewTextAlign,
 } from "../shared/subtitle-box-chrome.js?v=25";
+import { computeExportOverlayScale } from "../shared/export-render-scale.js?v=1";
 
 const CAPTURE_SCALE = 2;
 
@@ -49,7 +50,7 @@ function hexWithAlpha(hex, alpha255) {
  */
 function buildExportSubtitleInnerStyle(style, renderW, renderH) {
   const fullH = style.videoHeight || renderH;
-  const scale = fullH > 0 ? renderH / fullH : 1;
+  const scale = computeExportOverlayScale(renderH, fullH);
   const { fontSize, strokeWidth, chrome, position } = buildSubtitleOverlayInnerStyle(style, scale);
   return {
     fontSize,
@@ -376,22 +377,23 @@ export async function captureSubtitleFramePng(text, style, renderW, renderH) {
 }
 
 /**
- * @param {readonly { start: number, end: number, text: string }[]} mappedCues
+ * @param {readonly { start: number, end: number, text: string }[]} schedule
  * @param {object} style
  * @param {number} renderW
  * @param {number} renderH
  * @param {(done: number, total: number) => void} [onProgress]
  */
-export async function captureSubtitleFrameSequence(mappedCues, style, renderW, renderH, onProgress) {
+export async function captureSubtitleFrameSequence(schedule, style, renderW, renderH, onProgress) {
   const frames = [];
-  const total = mappedCues.length;
+  const total = schedule.length;
+  if (!total) return frames;
   for (let i = 0; i < total; i += 1) {
-    const cue = mappedCues[i];
-    const png = await captureSubtitleFramePng(String(cue.text || ""), style, renderW, renderH);
+    const seg = schedule[i];
+    const png = await captureSubtitleFramePng(String(seg.text || ""), style, renderW, renderH);
     frames.push({
       index: i,
-      start: cue.start,
-      end: cue.end,
+      start: seg.start,
+      end: seg.end,
       png,
     });
     onProgress?.(i + 1, total);

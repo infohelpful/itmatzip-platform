@@ -19,7 +19,7 @@ import {
   syncListOrderPreviewPlayback,
 } from "./list-order-preview-sync.js?v=7";
 import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=10";
-import { mapWordTimelineToVideoTime, isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=3";
+import { mapWordTimelineToVideoTime, isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=4";
 
 /** @type {WebAudioMasterPlayback | null} */
 let waEngine = null;

@@ -5,7 +5,8 @@
 import { fillGapsInSubtitleWords } from "./word-contract.js";
 import { NO_AUTO_GAP_FILL_AFTER_EDIT, shouldFillGapsWhenBuildingVrewRows } from "./phase5-edit-policy.js";
 import { splitLeadingSilenceInSubtitleLines } from "./leading-silence-split-after-extract.js";
-import { commitSubtitleLinesThroughTimeline } from "./sentence-token-timeline-adapter.js?v=3";
+import { anchorSourceTimesIfMissing } from "./dual-axis.js?v=1";
+import { commitSubtitleLinesThroughTimeline } from "./sentence-token-timeline-adapter.js?v=4";
 import {
   insertMissingTemporalSilenceGapsInLine,
   linesContainDeletedWords,
@@ -82,7 +83,8 @@ export function postProcessCuesAfterTranscribe(lines, opts = {}) {
     return syncSubtitleLineFromWords(next);
   });
   const repaired = repairCueLinesWordTimelines(out, opts.peaksMetrics ?? null);
-  return commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(repaired));
+  const synced = commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(repaired));
+  return anchorSourceTimesIfMissing(synced);
 }
 
 /**

@@ -204,6 +204,84 @@ def select_h264_encoder(ffmpeg_exe: str | None = None) -> str:
     return "libx264"
 
 
+def select_burn_in_h264_encoder(ffmpeg_exe: str | None = None) -> str:
+    """rawvideo overlay filter_complex — libx264가 GPU+필터 조합보다 안정·빠름."""
+    _ = ffmpeg_exe
+    return "libx264"
+
+
+def _fps_filter_expr(fps: float) -> str:
+    if abs(fps - 30000 / 1001) < 0.02:
+        return "30000/1001"
+    if abs(fps - 24000 / 1001) < 0.02:
+        return "24000/1001"
+    if abs(fps - 60000 / 1001) < 0.02:
+        return "60000/1001"
+    rounded = round(fps)
+    if abs(fps - rounded) < 0.001:
+        return str(int(rounded))
+    return f"{fps:.6g}"
+
+
+def _escape_ffmpeg_movie_path(path: Path) -> str:
+    p = str(path.resolve()).replace("\\", "/")
+    return p.replace(":", "\\:").replace("'", "'\\''")
+
+
+def _ensure_cue_png(rgba_path: Path, rw: int, rh: int) -> Path:
+    png_path = rgba_path.with_suffix(".png")
+    if png_path.is_file():
+        try:
+            if png_path.stat().st_mtime >= rgba_path.stat().st_mtime:
+                return png_path
+        except OSError:
+            pass
+    from PIL import Image
+
+    raw = rgba_path.read_bytes()
+    img = Image.frombytes("RGBA", (rw, rh), raw)
+    png_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(png_path, format="PNG", compress_level=1)
+    return png_path
+
+
+def build_cue_overlay_filter_script(
+    cue_pngs: list[tuple[Path, float, float]],
+    *,
+    fps_expr: str,
+    full_w: int,
+    full_h: int,
+    render_w: int,
+    render_h: int,
+    wm_path: Path | None = None,
+    wm_x: int = 0,
+    wm_y: int = 0,
+) -> str:
+    """업로드 cue PNG를 movie+enable 오버레이로 합성 — stdin 전체 프레임 전송 불필요."""
+    w, h = max(1, int(full_w)), max(1, int(full_h))
+    rw, rh = max(1, int(render_w)), max(1, int(render_h))
+    parts = [f"[0:v]fps=fps={fps_expr},setpts=PTS-STARTPTS,setsar=1[vmain]"]
+    current = "[vmain]"
+    n = len(cue_pngs)
+    for i, (png_path, start, end) in enumerate(cue_pngs):
+        esc = _escape_ffmpeg_movie_path(png_path)
+        en = f"between(t\\,{start:.6f}\\,{end:.6f})"
+        out = "[vout]" if i == n - 1 and wm_path is None else f"[ov{i}]"
+        parts.append(
+            f"movie=filename='{esc}':s={rw}x{rh}:format=rgba[sub{i}];"
+            f"[sub{i}]scale={w}:{h}:flags=bilinear[sub{i}s];"
+            f"{current}[sub{i}s]overlay=0:0:enable='{en}'{out}"
+        )
+        current = out
+    if wm_path is not None:
+        esc_wm = _escape_ffmpeg_movie_path(wm_path)
+        parts.append(
+            f"movie=filename='{esc_wm}':format=rgba[wm];"
+            f"{current}[wm]overlay={wm_x}:{wm_y}[vout]"
+        )
+    return ";".join(parts)
+
+
 def build_h264_video_encode_args(encoder: str) -> list[str]:
     e = (encoder or "libx264").strip().lower()
     if e == "h264_nvenc":
@@ -212,7 +290,7 @@ def build_h264_video_encode_args(encoder: str) -> list[str]:
         return ["-c:v", "h264_qsv", "-preset", "veryfast", "-global_quality", "23"]
     if e == "h264_amf":
         return ["-c:v", "h264_amf", "-quality", "speed"]
-    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-threads", "0"]
 
 
 @dataclass
@@ -287,6 +365,230 @@ def _iter_rawvideo_chunks(
             yield chunk_parts[0], chunk_frame_count
         else:
             yield b"".join(chunk_parts), chunk_frame_count
+
+
+def _wait_ffmpeg_burn_in(
+    proc: subprocess.Popen,
+    *,
+    overlay_dur: float,
+    on_progress: ExportProgressCallback | None,
+    timeout_sec: float,
+    log_label: str,
+) -> None:
+    assert proc.stderr is not None
+    write_err: list[BaseException] = []
+    stderr_tail: list[str] = []
+    progress_lock = threading.Lock()
+    diag_lock = threading.Lock()
+    last_pct = 32.0
+    expected_ms = max(1, int(overlay_dur * 1000))
+    last_out_time_ms = 0
+    last_out_time_at = time.perf_counter()
+    stderr_finished = False
+    wait_started = time.perf_counter()
+    last_heartbeat_at = wait_started
+    capped_at_99_logged = False
+
+    def _report(pct: float, msg: str) -> None:
+        nonlocal last_pct, capped_at_99_logged
+        if not on_progress:
+            return
+        with progress_lock:
+            mapped = max(32.0, min(99.0, float(pct)))
+            if mapped > last_pct + 0.05 or mapped >= 99.0:
+                if mapped >= 99.0 and not capped_at_99_logged:
+                    capped_at_99_logged = True
+                    _log.info(
+                        "[BURN_IN] ui_progress_capped_99 mode=%s raw_pct=%.2f expected_ms=%s last_out_time_ms=%s",
+                        log_label,
+                        pct,
+                        expected_ms,
+                        last_out_time_ms,
+                    )
+                last_pct = mapped
+                on_progress(mapped, msg)
+
+    def _read_stderr() -> None:
+        nonlocal last_out_time_ms, last_out_time_at, stderr_finished
+        buf = b""
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    raw_line, buf = buf.split(b"\n", 1)
+                    line = raw_line.decode("utf-8", errors="replace")
+                    stderr_tail.append(line)
+                    if len(stderr_tail) > 200:
+                        stderr_tail.pop(0)
+                    stripped = line.strip()
+                    if stripped.startswith("out_time_ms="):
+                        try:
+                            raw = int(stripped.split("=", 1)[1])
+                            with diag_lock:
+                                last_out_time_ms = raw
+                                last_out_time_at = time.perf_counter()
+                            pct = max(0, min(99, int((raw / expected_ms) * 100)))
+                            _report(32.0 + pct * 0.67, "FFmpeg 인코딩 중…")
+                        except (ValueError, IndexError):
+                            pass
+                    elif stripped in {"progress=end", "progress=done"}:
+                        _log.info("[BURN_IN] ffmpeg_progress_signal %s", stripped)
+        except Exception as exc:
+            write_err.append(exc)
+        finally:
+            stderr_finished = True
+
+    stderr_thread = threading.Thread(target=_read_stderr, name="burn-in-stderr", daemon=True)
+    stderr_thread.start()
+
+    deadline = time.perf_counter() + timeout_sec
+    while proc.poll() is None:
+        now = time.perf_counter()
+        if now > deadline:
+            proc.kill()
+            raise TimeoutError("FFmpeg보내기 시간 초과")
+        if now - last_heartbeat_at >= 30.0:
+            last_heartbeat_at = now
+            stall_ms = (now - last_out_time_at) * 1000.0 if last_out_time_ms > 0 else -1.0
+            _log.info(
+                "[BURN_IN] heartbeat mode=%s elapsed=%.1fs ui_pct=%.1f stderr_done=%s "
+                "last_out_time_ms=%s out_time_stall_ms=%.0f",
+                log_label,
+                now - wait_started,
+                last_pct,
+                stderr_finished,
+                last_out_time_ms,
+                stall_ms,
+            )
+        time.sleep(0.1)
+
+    stderr_thread.join(timeout=5.0)
+    rest = proc.stderr.read()
+    if rest:
+        stderr_tail.append(rest.decode("utf-8", errors="replace"))
+    ffmpeg_err = "\n".join(stderr_tail)[-4000:]
+    if proc.returncode != 0 or write_err:
+        _log.error("[BURN_IN] ffmpeg_stderr_tail mode=%s\n%s", log_label, ffmpeg_err[-1500:])
+    if write_err:
+        raise write_err[0]
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg 실패 (exit {proc.returncode}): {ffmpeg_err or 'unknown'}")
+
+
+def _run_cue_file_burn_in(
+    *,
+    ffmpeg: str,
+    input_video_path: Path,
+    output_path: Path,
+    pairs: list[_TimeCue],
+    overlay_dur: float,
+    fps_expr: str,
+    rw: int,
+    rh: int,
+    w: int,
+    h: int,
+    wm_path: Path | None,
+    wm_x: int,
+    wm_y: int,
+    enc_args: list[str],
+    chosen_encoder: str,
+    on_progress: ExportProgressCallback | None,
+    timeout_sec: float,
+) -> None:
+    cue_pngs: list[tuple[Path, float, float]] = []
+    for c in pairs:
+        if c.path is None:
+            raise ValueError("cue overlay 경로에 frame path가 없습니다.")
+        cue_pngs.append((_ensure_cue_png(c.path, rw, rh), c.start, c.end))
+
+    script_body = build_cue_overlay_filter_script(
+        cue_pngs,
+        fps_expr=fps_expr,
+        full_w=w,
+        full_h=h,
+        render_w=rw,
+        render_h=rh,
+        wm_path=wm_path,
+        wm_x=wm_x,
+        wm_y=wm_y,
+    )
+    script_path = output_path.parent / "_burn_filter.txt"
+    script_path.write_text(script_body, encoding="utf-8")
+
+    if on_progress:
+        on_progress(32.0, "FFmpeg 자막 합성·인코딩…")
+
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-dn",
+        "-sn",
+        "-fflags",
+        "+genpts",
+        "-i",
+        str(input_video_path),
+        "-filter_complex_script",
+        str(script_path),
+        "-map",
+        "[vout]",
+        "-map",
+        "0:a?",
+        "-map",
+        "-0:s",
+        *enc_args,
+        "-c:a",
+        "copy",
+        "-t",
+        f"{overlay_dur:.6f}",
+        "-progress",
+        "pipe:2",
+        "-nostats",
+        str(output_path),
+    ]
+    _log.info(
+        "[BURN_IN] ffmpeg_start mode=cue_overlay input=%s output=%s encoder=%s "
+        "overlay_dur=%.3f cues=%s render=%dx%d full=%dx%d fps=%s",
+        input_video_path.name,
+        output_path.name,
+        chosen_encoder,
+        overlay_dur,
+        len(cue_pngs),
+        rw,
+        rh,
+        w,
+        h,
+        fps_expr,
+    )
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=no_window_creationflags(),
+    )
+    _log.info("[BURN_IN] ffmpeg_pid=%s mode=cue_overlay", proc.pid)
+    _wait_ffmpeg_burn_in(
+        proc,
+        overlay_dur=overlay_dur,
+        on_progress=on_progress,
+        timeout_sec=timeout_sec,
+        log_label="cue_overlay",
+    )
+    try:
+        script_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    _log.info(
+        "[BURN_IN] ffmpeg_success mode=cue_overlay output=%s size_bytes=%s",
+        output_path.name,
+        output_path.stat().st_size if output_path.is_file() else 0,
+    )
+    if on_progress:
+        on_progress(100.0, "완료")
 
 
 def run_single_pass_subtitle_burn_in(
@@ -393,18 +695,49 @@ def run_single_pass_subtitle_burn_in(
                 h,
             )
 
+    fps_expr = _fps_filter_expr(fps)
+    chosen_encoder = (h264_encoder or "libx264").strip().lower()
+    if chosen_encoder != "libx264" and not _probe_encoder(ffmpeg, chosen_encoder):
+        _log.warning("인코더 %s 사용 불가 → libx264 fallback", chosen_encoder)
+        chosen_encoder = "libx264"
+    enc_args = build_h264_video_encode_args(chosen_encoder)
+
+    if frame_paths is not None:
+        _run_cue_file_burn_in(
+            ffmpeg=ffmpeg,
+            input_video_path=input_video_path,
+            output_path=output_path,
+            pairs=pairs,
+            overlay_dur=overlay_dur,
+            fps_expr=fps_expr,
+            rw=rw,
+            rh=rh,
+            w=w,
+            h=h,
+            wm_path=wm_path,
+            wm_x=wm_x,
+            wm_y=wm_y,
+            enc_args=enc_args,
+            chosen_encoder=chosen_encoder,
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+        )
+        return
+
+    # concat copy 등 VFR/깨진 PTS 입력은 setpts만으로는 1프레임으로 끝남 → fps로 CFR 정규화
+    vmain_chain = f"[0:v]fps=fps={fps_expr},setpts=PTS-STARTPTS,setsar=1[vmain]"
     if wm_path is not None:
         filter_complex = (
-            f"[0:v]setpts=PTS-STARTPTS[vmain];"
-            f"[1:v]format=rgba,scale={w}:{h}:flags=lanczos[sub];"
-            f"[vmain][sub]overlay=0:0:shortest=1[vsub];"
+            f"{vmain_chain};"
+            f"[1:v]format=rgba,scale={w}:{h}:flags=bilinear[sub];"
+            f"[vmain][sub]overlay=0:0[vsub];"
             f"[vsub][2:v]overlay={wm_x}:{wm_y}[vout]"
         )
     else:
         filter_complex = (
-            f"[0:v]setpts=PTS-STARTPTS[vmain];"
-            f"[1:v]format=rgba,scale={w}:{h}:flags=lanczos[sub];"
-            f"[vmain][sub]overlay=0:0:shortest=1[vout]"
+            f"{vmain_chain};"
+            f"[1:v]format=rgba,scale={w}:{h}:flags=bilinear[sub];"
+            f"[vmain][sub]overlay=0:0[vout]"
         )
 
     if on_progress:
@@ -417,8 +750,14 @@ def run_single_pass_subtitle_burn_in(
             "-hide_banner",
             "-dn",
             "-sn",
+            "-thread_queue_size",
+            "512",
+            "-fflags",
+            "+genpts",
             "-i",
             str(input_video_path),
+            "-thread_queue_size",
+            "512",
             "-f",
             "rawvideo",
             "-pixel_format",
@@ -426,7 +765,7 @@ def run_single_pass_subtitle_burn_in(
             "-video_size",
             f"{rw}x{rh}",
             "-framerate",
-            str(fps),
+            fps_expr,
             "-i",
             "-",
         ]
@@ -444,9 +783,8 @@ def run_single_pass_subtitle_burn_in(
             *enc_args,
             "-c:a",
             "copy",
-            "-movflags",
-            "+faststart",
-            "-shortest",
+            "-t",
+            f"{overlay_dur:.6f}",
             "-progress",
             "pipe:2",
             "-nostats",
@@ -460,33 +798,66 @@ def run_single_pass_subtitle_burn_in(
             creationflags=no_window_creationflags(),
         )
 
-    chosen_encoder = (h264_encoder or "libx264").strip().lower()
-    if chosen_encoder != "libx264" and not _probe_encoder(ffmpeg, chosen_encoder):
-        _log.warning("인코더 %s 사용 불가 → libx264 fallback", chosen_encoder)
-        chosen_encoder = "libx264"
-
-    enc_args = build_h264_video_encode_args(chosen_encoder)
+    timing_end_max = max((c.end for c in pairs), default=0.0)
+    timing_start_min = min((c.start for c in pairs), default=0.0)
+    _log.info(
+        "[BURN_IN] ffmpeg_start mode=stdin_rawvideo input=%s output=%s encoder=%s overlay_dur=%.3f "
+        "expected_ms=%s total_raw_frames=%s cue_frames=%s timing=[%.3f,%.3f] render=%dx%d full=%dx%d fps=%s",
+        input_video_path.name,
+        output_path.name,
+        chosen_encoder,
+        overlay_dur,
+        max(1, int(overlay_dur * 1000)),
+        total_frames,
+        len(pairs),
+        timing_start_min,
+        timing_end_max,
+        rw,
+        rh,
+        w,
+        h,
+        fps,
+    )
     proc = _try_start_ffmpeg(enc_args)
     assert proc.stdin is not None
     assert proc.stderr is not None
+    _log.info("[BURN_IN] ffmpeg_pid=%s", proc.pid)
 
     write_err: list[BaseException] = []
     stderr_tail: list[str] = []
     progress_lock = threading.Lock()
+    diag_lock = threading.Lock()
     last_pct = 32.0
     expected_ms = max(1, int(overlay_dur * 1000))
+    last_out_time_ms = 0
+    last_out_time_at = time.perf_counter()
+    stdin_frames_sent = 0
+    stdin_finished = False
+    stderr_finished = False
+    wait_started = time.perf_counter()
+    last_heartbeat_at = wait_started
+    capped_at_99_logged = False
 
     def _report(pct: float, msg: str) -> None:
-        nonlocal last_pct
+        nonlocal last_pct, capped_at_99_logged
         if not on_progress:
             return
         with progress_lock:
             mapped = max(32.0, min(99.0, float(pct)))
             if mapped > last_pct + 0.05 or mapped >= 99.0:
+                if mapped >= 99.0 and not capped_at_99_logged:
+                    capped_at_99_logged = True
+                    _log.info(
+                        "[BURN_IN] ui_progress_capped_99 raw_pct=%.2f expected_ms=%s last_out_time_ms=%s",
+                        pct,
+                        expected_ms,
+                        last_out_time_ms,
+                    )
                 last_pct = mapped
                 on_progress(mapped, msg)
 
     def _read_stderr() -> None:
+        nonlocal last_out_time_ms, last_out_time_at, stderr_finished
         buf = b""
         try:
             while True:
@@ -504,59 +875,146 @@ def run_single_pass_subtitle_burn_in(
                     if stripped.startswith("out_time_ms="):
                         try:
                             raw = int(stripped.split("=", 1)[1])
+                            with diag_lock:
+                                last_out_time_ms = raw
+                                last_out_time_at = time.perf_counter()
                             pct = max(0, min(99, int((raw / expected_ms) * 100)))
                             _report(40.0 + pct * 0.59, "FFmpeg 인코딩 중…")
                         except (ValueError, IndexError):
                             pass
+                    elif stripped in {"progress=end", "progress=done"}:
+                        _log.info("[BURN_IN] ffmpeg_progress_signal %s", stripped)
         except Exception as exc:
             write_err.append(exc)
+        finally:
+            stderr_finished = True
+            _log.info(
+                "[BURN_IN] stderr_reader_done last_out_time_ms=%s tail_lines=%s",
+                last_out_time_ms,
+                len(stderr_tail),
+            )
 
     def _write_stdin() -> None:
+        nonlocal stdin_frames_sent, stdin_finished
         frames_sent = 0
+        t0 = time.perf_counter()
         try:
             for chunk, n_frames in _iter_rawvideo_chunks(
                 rw, rh, overlay_dur, fps, pairs, blank
             ):
                 proc.stdin.write(chunk)
                 frames_sent += n_frames
+                with diag_lock:
+                    stdin_frames_sent = frames_sent
                 if total_frames > 0:
                     send_pct = frames_sent / total_frames
                     _report(32.0 + send_pct * 8.0, "자막 레이어 전송…")
             proc.stdin.close()
+            _log.info(
+                "[BURN_IN] stdin_write_done frames_sent=%s/%s elapsed=%.2fs",
+                frames_sent,
+                total_frames,
+                time.perf_counter() - t0,
+            )
         except (BrokenPipeError, OSError) as exc:
             # -shortest로 인해 FFmpeg가 영상 끝에서 stdin을 닫는 것은 정상 동작
             try:
                 proc.stdin.close()
             except OSError:
                 pass
-            _log.info("stdin closed by FFmpeg (expected with -shortest): %s", exc)
+            _log.info(
+                "[BURN_IN] stdin_closed_by_ffmpeg frames_sent=%s/%s err=%s",
+                frames_sent,
+                total_frames,
+                exc,
+            )
         except Exception as exc:
             write_err.append(exc)
+            _log.error(
+                "[BURN_IN] stdin_write_failed frames_sent=%s/%s err=%s",
+                frames_sent,
+                total_frames,
+                exc,
+                exc_info=True,
+            )
             try:
                 proc.kill()
             except OSError:
                 pass
+        finally:
+            with diag_lock:
+                stdin_frames_sent = frames_sent
+            stdin_finished = True
 
-    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
-    writer = threading.Thread(target=_write_stdin, daemon=True)
+    stderr_thread = threading.Thread(target=_read_stderr, name="burn-in-stderr", daemon=True)
+    writer = threading.Thread(target=_write_stdin, name="burn-in-stdin", daemon=True)
     stderr_thread.start()
     writer.start()
 
     deadline = time.perf_counter() + timeout_sec
     while proc.poll() is None:
-        if time.perf_counter() > deadline:
+        now = time.perf_counter()
+        if now > deadline:
+            _log.error(
+                "[BURN_IN] ffmpeg_timeout elapsed=%.1fs stdin_done=%s stderr_done=%s "
+                "frames_sent=%s/%s last_out_time_ms=%s",
+                now - wait_started,
+                stdin_finished,
+                stderr_finished,
+                stdin_frames_sent,
+                total_frames,
+                last_out_time_ms,
+            )
             proc.kill()
             raise TimeoutError("FFmpeg보내기 시간 초과")
+        if now - last_heartbeat_at >= 30.0:
+            last_heartbeat_at = now
+            stall_ms = (now - last_out_time_at) * 1000.0 if last_out_time_ms > 0 else -1.0
+            _log.info(
+                "[BURN_IN] heartbeat elapsed=%.1fs ui_pct=%.1f stdin_done=%s stderr_done=%s "
+                "writer_alive=%s stderr_alive=%s frames_sent=%s/%s last_out_time_ms=%s "
+                "out_time_stall_ms=%.0f",
+                now - wait_started,
+                last_pct,
+                stdin_finished,
+                stderr_finished,
+                writer.is_alive(),
+                stderr_thread.is_alive(),
+                stdin_frames_sent,
+                total_frames,
+                last_out_time_ms,
+                stall_ms,
+            )
         time.sleep(0.1)
 
+    elapsed = time.perf_counter() - wait_started
     writer.join(timeout=10.0)
     stderr_thread.join(timeout=5.0)
+    _log.info(
+        "[BURN_IN] ffmpeg_exited pid=%s returncode=%s elapsed=%.2fs stdin_done=%s "
+        "stderr_done=%s writer_joined=%s stderr_joined=%s frames_sent=%s/%s last_out_time_ms=%s",
+        proc.pid,
+        proc.returncode,
+        elapsed,
+        stdin_finished,
+        stderr_finished,
+        not writer.is_alive(),
+        not stderr_thread.is_alive(),
+        stdin_frames_sent,
+        total_frames,
+        last_out_time_ms,
+    )
 
     rest = proc.stderr.read()
     if rest:
         stderr_tail.append(rest.decode("utf-8", errors="replace"))
 
     ffmpeg_err = "\n".join(stderr_tail)[-4000:]
+    if proc.returncode != 0 or write_err:
+        _log.error(
+            "[BURN_IN] ffmpeg_stderr_tail\n%s",
+            ffmpeg_err[-1500:],
+        )
 
     if write_err:
         first_err = write_err[0]
@@ -573,5 +1031,10 @@ def run_single_pass_subtitle_burn_in(
     if proc.returncode != 0:
         err = ffmpeg_err
         raise RuntimeError(f"FFmpeg 실패 (exit {proc.returncode}): {err or 'unknown'}")
+    _log.info(
+        "[BURN_IN] ffmpeg_success output=%s size_bytes=%s",
+        output_path.name,
+        output_path.stat().st_size if output_path.is_file() else 0,
+    )
     if on_progress:
         on_progress(100.0, "완료")

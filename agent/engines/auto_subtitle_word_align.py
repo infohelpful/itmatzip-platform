@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
 
-from common.runtime_site_packages import TOOL_AUTO_SUBTITLE, tool_has_module
+from common.runtime_site_packages import (
+    TOOL_AUTO_SUBTITLE,
+    activate_runtime_site_packages,
+    ensure_runtime_tree_acl,
+    runtime_site_packages_dir,
+    tool_has_module,
+)
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_MIN_CHARS = 14
 DEFAULT_MAX_CHARS = 22
+
+_WIN_USERS_RX = "*S-1-5-32-545:(RX)"
+_WIN_USERS_TREE_RX = "*S-1-5-32-545:(OI)(CI)(RX)"
 
 # 조사·어미 계열 — 문장 경계에서 줄 나눔 후보
 _MORPH_BREAK_TAGS = frozenset(
@@ -29,6 +44,73 @@ _MORPH_BREAK_TAGS = frozenset(
 )
 
 _kiwi_instance: Any | None = None
+_kiwi_dll_dirs_added: set[str] = set()
+
+
+def _run_icacls_grant(args: list[str]) -> None:
+    if os.name != "nt":
+        return
+    try:
+        from common.subprocess_util import no_window_creationflags
+
+        subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            creationflags=no_window_creationflags(),
+        )
+    except Exception as exc:
+        _log.debug("kiwipiepy icacls skipped: %s", exc)
+
+
+def _repair_kiwipiepy_native_acl(site: Path) -> None:
+    """SYSTEM/관리자 pip 후 _kiwipiepy.pyd 실행 권한이 빠진 경우 복구."""
+    if os.name != "nt":
+        return
+    pyd = site / "_kiwipiepy.pyd"
+    kiwi_dir = site / "kiwipiepy"
+    if pyd.is_file():
+        _run_icacls_grant(["icacls", str(pyd), "/grant", _WIN_USERS_RX, "/Q"])
+    if kiwi_dir.is_dir():
+        _run_icacls_grant(["icacls", str(kiwi_dir), "/grant", _WIN_USERS_TREE_RX, "/T", "/Q"])
+
+
+def _prepend_kiwi_dll_search_path(site: Path) -> None:
+    if not hasattr(os, "add_dll_directory"):
+        return
+    for directory in (site / "kiwipiepy", site):
+        if not directory.is_dir():
+            continue
+        key = str(directory.resolve())
+        if key in _kiwi_dll_dirs_added:
+            continue
+        try:
+            os.add_dll_directory(key)
+            _kiwi_dll_dirs_added.add(key)
+        except OSError:
+            pass
+
+
+def _kiwi_native_readable(site: Path) -> bool:
+    pyd = site / "_kiwipiepy.pyd"
+    if not pyd.is_file():
+        return True
+    try:
+        with open(pyd, "rb") as fh:
+            fh.read(1)
+        return True
+    except OSError:
+        return False
+
+
+def _prepare_kiwi_runtime() -> Path:
+    activate_runtime_site_packages(TOOL_AUTO_SUBTITLE)
+    ensure_runtime_tree_acl(TOOL_AUTO_SUBTITLE)
+    site = runtime_site_packages_dir(TOOL_AUTO_SUBTITLE)
+    _repair_kiwipiepy_native_acl(site)
+    _prepend_kiwi_dll_search_path(site)
+    return site
 
 
 def _ensure_kiwipiepy() -> None:
@@ -42,9 +124,30 @@ def _get_kiwi() -> Any:
     global _kiwi_instance
     _ensure_kiwipiepy()
     if _kiwi_instance is None:
-        from kiwipiepy import Kiwi
+        site = _prepare_kiwi_runtime()
+        if not _kiwi_native_readable(site):
+            raise RuntimeError(
+                "kiwipiepy 네이티브 모듈(_kiwipiepy.pyd)에 접근할 수 없습니다. "
+                "관리자 권한으로 설치된 패키지 권한 문제일 수 있습니다. "
+                "환경 준비(Prepare)를 다시 실행하거나 에이전트를 재시작해 주세요."
+            )
+        try:
+            from kiwipiepy import Kiwi
 
-        _kiwi_instance = Kiwi()
+            _kiwi_instance = Kiwi()
+        except (ImportError, OSError) as exc:
+            _repair_kiwipiepy_native_acl(site)
+            _prepend_kiwi_dll_search_path(site)
+            try:
+                from kiwipiepy import Kiwi
+
+                _kiwi_instance = Kiwi()
+            except (ImportError, OSError) as retry_exc:
+                raise RuntimeError(
+                    "Kiwi(kiwipiepy) 엔진을 불러올 수 없습니다. "
+                    "환경 준비(Prepare)를 다시 실행한 뒤 에이전트를 재시작해 주세요. "
+                    f"({retry_exc or exc})"
+                ) from retry_exc
     return _kiwi_instance
 
 

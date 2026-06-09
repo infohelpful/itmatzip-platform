@@ -3,6 +3,8 @@
  * A/V duration mismatch 시 video clock → word timeline 보정.
  */
 
+import { mediaTimingDiagLog, mediaTimingDiagWarn } from "./media-timing-diagnostics.js?v=1";
+
 /** @typedef {object} MediaTimingProbe
  * @property {boolean} [ok]
  * @property {number | null} [audio_duration_sec]
@@ -102,13 +104,13 @@ export function inferMediaTimingFromBrowserMedia(video, audio, opts = {}) {
 
   setSessionMediaTiming(probe);
   if (avDelta != null && avDelta >= AV_DURATION_SCALE_MIN_DELTA_SEC) {
-    console.warn("[media-timing] browser A/V mismatch", {
+    mediaTimingDiagWarn("browser A/V mismatch", {
       av_delta_sec: avDelta,
       audio_sec: audioDur,
       video_sec: videoDur,
     });
   } else {
-    console.log("[media-timing] browser probe", {
+    mediaTimingDiagLog("browser probe", {
       audio_sec: audioDur,
       video_sec: videoDur,
     });

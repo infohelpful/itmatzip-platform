@@ -12,8 +12,8 @@ import {
   visibleSubtitleWords,
 } from "./subtitles.js?v=24";
 
-/** @typedef {{ id: string, text: string, start_original: number, end_original: number, is_deleted?: boolean, isSilence?: boolean, splitChain?: string }} TimelineToken */
-/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean, editedDisplayText?: string, lineTextUserEdited?: boolean, line_text_user_edited?: boolean }} TimelineSentence */
+/** @typedef {{ id: string, text: string, start_original: number, end_original: number, source_start_original?: number, source_end_original?: number, is_deleted?: boolean, isSilence?: boolean, splitChain?: string }} TimelineToken */
+/** @typedef {{ id: string, tokens: TimelineToken[], is_deleted?: boolean, editedDisplayText?: string, lineTextUserEdited?: boolean, line_text_user_edited?: boolean, source_start_original?: number, source_end_original?: number }} TimelineSentence */
 /** @typedef {TimelineSentence[]} SentenceTokenTimeline */
 
 /** @type {WeakMap<object, TimelineSentence>} */
@@ -44,6 +44,10 @@ function buildSentenceFromLine(line, li) {
         start_original: w.start,
         end_original: w.end,
       };
+      const wss = Number(w.sourceStart ?? w.source_start);
+      const wse = Number(w.sourceEnd ?? w.source_end);
+      if (Number.isFinite(wss)) t.source_start_original = wss;
+      if (Number.isFinite(wse)) t.source_end_original = wse;
       if (w.is_deleted || w.isDeleted) t.is_deleted = true;
       if (w.is_silence || w.isSilence) t.isSilence = true;
       if (w.split_chain || w.splitChain) t.splitChain = w.split_chain || w.splitChain;
@@ -62,6 +66,10 @@ function buildSentenceFromLine(line, li) {
       sentence.lineTextUserEdited = true;
       sentence.line_text_user_edited = true;
     }
+    const lss = Number(line.sourceStart ?? line.source_start);
+    const lse = Number(line.sourceEnd ?? line.source_end);
+    if (Number.isFinite(lss)) sentence.source_start_original = lss;
+    if (Number.isFinite(lse)) sentence.source_end_original = lse;
     return sentence;
   }
   return {
@@ -92,6 +100,14 @@ function buildLineFromSentence(sentence) {
       end: t.end_original,
       word: t.text,
     };
+    if (Number.isFinite(t.source_start_original)) {
+      w.sourceStart = t.source_start_original;
+      w.source_start = t.source_start_original;
+    }
+    if (Number.isFinite(t.source_end_original)) {
+      w.sourceEnd = t.source_end_original;
+      w.source_end = t.source_end_original;
+    }
     if (t.is_deleted) {
       w.is_deleted = true;
       w.isDeleted = true;
@@ -129,6 +145,14 @@ function buildLineFromSentence(sentence) {
   if (sentence.lineTextUserEdited || sentence.line_text_user_edited) {
     line.lineTextUserEdited = true;
     line.line_text_user_edited = true;
+  }
+  if (Number.isFinite(sentence.source_start_original)) {
+    line.sourceStart = sentence.source_start_original;
+    line.source_start = sentence.source_start_original;
+  }
+  if (Number.isFinite(sentence.source_end_original)) {
+    line.sourceEnd = sentence.source_end_original;
+    line.source_end = sentence.source_end_original;
   }
   return line;
 }

@@ -15,8 +15,8 @@ import { intervalHasAudibleSpeechInPeaks } from "./peak-interval-speech.js";
 export const MAX_ABSORB_TRAILING_TAIL_SEC = 0.55;
 
 /**
- * @typedef {{ start: number, end: number, word: string, is_silence?: boolean, is_deleted?: boolean, isSilence?: boolean, isDeleted?: boolean, merged_by_edge_trim?: boolean, mergedByEdgeTrim?: boolean, split_chain?: string, splitChain?: string }} SubtitleWord
- * @typedef {{ start: number, end: number, text?: string, words?: SubtitleWord[], is_silence?: boolean, isSilence?: boolean, is_deleted?: boolean, isDeleted?: boolean }} SubtitleLine
+ * @typedef {{ start: number, end: number, word: string, sourceStart?: number, sourceEnd?: number, source_start?: number, source_end?: number, is_silence?: boolean, is_deleted?: boolean, isSilence?: boolean, isDeleted?: boolean, merged_by_edge_trim?: boolean, mergedByEdgeTrim?: boolean, split_chain?: string, splitChain?: string }} SubtitleWord
+ * @typedef {{ start: number, end: number, sourceStart?: number, sourceEnd?: number, source_start?: number, source_end?: number, text?: string, words?: SubtitleWord[], is_silence?: boolean, isSilence?: boolean, is_deleted?: boolean, isDeleted?: boolean }} SubtitleLine
  * @typedef {{ start: number, end: number, text: string }} SubtitleCueLineForExport
  */
 
@@ -578,6 +578,16 @@ export function parseSubtitleLines(raw) {
       }
       if (typeof w.splitChain === "string") entry.split_chain = w.splitChain;
       if (typeof w.split_chain === "string") entry.split_chain = w.split_chain;
+      const wss = Number(w.sourceStart ?? w.source_start);
+      const wse = Number(w.sourceEnd ?? w.source_end);
+      if (Number.isFinite(wss)) {
+        entry.sourceStart = wss;
+        entry.source_start = wss;
+      }
+      if (Number.isFinite(wse)) {
+        entry.sourceEnd = wse;
+        entry.source_end = wse;
+      }
       words.push(entry);
     }
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
@@ -588,14 +598,26 @@ export function parseSubtitleLines(raw) {
         : text.trim();
     const locked =
       item.lineTextUserEdited === true || item.line_text_user_edited === true;
-    out.push({
+    /** @type {SubtitleLine} */
+    const line = {
       start,
       end,
       text: lineText,
       words: mergedWords,
       is_silence: item.is_silence === true || item.isSilence === true,
       ...(locked ? { lineTextUserEdited: true, line_text_user_edited: true } : {}),
-    });
+    };
+    const lss = Number(item.sourceStart ?? item.source_start);
+    const lse = Number(item.sourceEnd ?? item.source_end);
+    if (Number.isFinite(lss)) {
+      line.sourceStart = lss;
+      line.source_start = lss;
+    }
+    if (Number.isFinite(lse)) {
+      line.sourceEnd = lse;
+      line.source_end = lse;
+    }
+    out.push(line);
   }
   return out;
 }

@@ -20,7 +20,9 @@ import { timelineEditLog } from "./timeline-edit-log.js";
 import {
   reorderCuesByListInsert,
   reorderCuesByListPosition,
-} from "./subtitle-list-indices.js?v=5";
+} from "./subtitle-list-indices.js?v=6";
+import { reorderCuesWithRelocate } from "./subtitle-reorder-relocate.js?v=1";
+import { bumpListableCueIndicesCache } from "./subtitle-list-playback.js?v=11";
 
 function textFromWords(line, words, fallback) {
   const t = displayTextFromSubtitleWords(words);
@@ -159,9 +161,11 @@ export function reorderSubtitleLinesByListPosition(hub, fromListPos, toListPos) 
  */
 export function reorderSubtitleLinesByListInsert(hub, fromListPos, insertBeforePos) {
   timelineEditLog("reorder-line-insert", { fromListPos, insertBeforePos });
-  hub.applySubtitleChange((prev) =>
-    reorderCuesByListInsert(prev, fromListPos, insertBeforePos),
-  );
+  const result = reorderCuesWithRelocate(hub.cues, fromListPos, insertBeforePos);
+  if (!result.ok) return result;
+  hub.applySubtitleChange(() => result.cues);
+  bumpListableCueIndicesCache();
+  return result;
 }
 
 /**

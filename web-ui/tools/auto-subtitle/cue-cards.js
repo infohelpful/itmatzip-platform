@@ -16,7 +16,7 @@ export {
   resetPlaybackHighlightCache,
   patchSelectedCueHighlight,
   requestFocusCaret,
-} from "./subtitle-list/virtual-scroll-list.js?v=69";
+} from "./subtitle-list/virtual-scroll-list.js?v=70";
 export {
   requestFocusCaretDeferred,
   syncPlaybackCaretVisibility,
@@ -24,4 +24,4 @@ export {
   prepareRowCaretAfterCueSplit,
   finalizeRowCaretAfterCueSplit,
   hintActiveCaretCardIndex,
-} from "./subtitle-list/word-caret-ui.js?v=56";
+} from "./subtitle-list/word-caret-ui.js?v=60";
