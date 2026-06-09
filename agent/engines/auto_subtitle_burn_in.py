@@ -305,6 +305,7 @@ def run_single_pass_subtitle_burn_in(
     frame_paths: list[Path] | None = None,
     watermark_path: Path | None = None,
     watermark_position: str | None = None,
+    export_fps: float | None = None,
     on_progress: ExportProgressCallback | None = None,
     timeout_sec: float = 7200.0,
 ) -> None:
@@ -314,6 +315,7 @@ def run_single_pass_subtitle_burn_in(
         raise ValueError("raw_frame_buffers 와 frame_paths 는 동시에 지정할 수 없습니다.")
 
     ffmpeg = str(ffmpeg_path or get_ffmpeg_executable())
+    fps = float(export_fps) if export_fps and export_fps > 0 else float(EXPORT_FPS)
     rw = max(1, int(render_width))
     rh = max(1, int(render_height))
     frame_bytes = rw * rh * 4
@@ -361,7 +363,7 @@ def run_single_pass_subtitle_burn_in(
     _FRAME_BYTES_CACHE.clear()
     pairs.sort(key=lambda c: (c.start, c.end))
     blank = bytes(frame_bytes)
-    total_frames = max(1, math.ceil(overlay_dur * EXPORT_FPS - 1e-9))
+    total_frames = max(1, math.ceil(overlay_dur * fps - 1e-9))
 
     w = max(1, round(full_video_width))
     h = max(1, round(full_video_height))
@@ -424,7 +426,7 @@ def run_single_pass_subtitle_burn_in(
             "-video_size",
             f"{rw}x{rh}",
             "-framerate",
-            str(EXPORT_FPS),
+            str(fps),
             "-i",
             "-",
         ]
@@ -513,7 +515,7 @@ def run_single_pass_subtitle_burn_in(
         frames_sent = 0
         try:
             for chunk, n_frames in _iter_rawvideo_chunks(
-                rw, rh, overlay_dur, EXPORT_FPS, pairs, blank
+                rw, rh, overlay_dur, fps, pairs, blank
             ):
                 proc.stdin.write(chunk)
                 frames_sent += n_frames

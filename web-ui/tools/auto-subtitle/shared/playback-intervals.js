@@ -1,5 +1,5 @@
 /**
- * AutoSubtitle playbackIntervals.ts ???�생 구간(??��·무음 ?�외).
+ * AutoSubtitle playbackIntervals.ts ???�생 구간(??��·무음 ?�외).
  */
 
 import { wordIsDeleted, wordIsSilence } from "./subtitles.js?v=20";

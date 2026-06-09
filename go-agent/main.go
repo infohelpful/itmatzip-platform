@@ -232,6 +232,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 	mux.HandleFunc("/api/agent/read-local-image", handleReadLocalImage)
 	mountBundledToolsWeb(mux)
+	mountAutoSubtitleMediaRoutes(mux)
 
 	if sidecar != nil {
 		apiProxy := sidecar.ProxyHandler()

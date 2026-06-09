@@ -9,6 +9,11 @@ import { getCueWords, visibleWords } from "./subtitle-words.js?v=18";
 import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
 
 const TIME_EPS = 1e-4;
+/** 재생 칩 하이라이트 — word.start가 audible onset보다 늦을 때만 적용 */
+export const WORD_ONSET_LEAD_SEC = 0.07;
+/** 단어·큐 사이 무음 — 다음 블록으로 성급히 점프 방지 */
+const INTER_WORD_GAP_HOLD_SEC = 0.12;
+const INTER_CUE_GAP_HOLD_SEC = 0.15;
 
 export const SKIP_CUT_TAIL_SEC = 0.02;
 
@@ -167,6 +172,12 @@ export function pickActiveCueIndexWithHint(cues, t, hint = -1) {
     const h = list[hint];
     if (timeInCueSpan(h, t)) return hint;
 
+    if (cueIsPlayableListRow(h)) {
+      const hs = Number(h.start) || 0;
+      const he = Number(h.end) || hs;
+      if (t >= hs - TIME_EPS && t <= he + INTER_CUE_GAP_HOLD_SEC) return hint;
+    }
+
     let found = -1;
     const lo = Math.max(0, hint - 4);
     const hi = Math.min(n - 1, hint + 8);
@@ -190,7 +201,6 @@ export function pickActiveWordIndex(cue, t) {
   if (!cue) return -1;
   const words = getCueWords(cue);
   let found = -1;
-  let firstVis = -1;
   let lastVis = -1;
   for (let wi = 0; wi < words.length; wi += 1) {
     const w = words[wi];
@@ -198,21 +208,16 @@ export function pickActiveWordIndex(cue, t) {
     const s = Number(w.start);
     const e = Number(w.end);
     if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
-    if (firstVis < 0) firstVis = wi;
     lastVis = wi;
-    if (t >= s - TIME_EPS && t < e + TIME_EPS) found = wi;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < e + TIME_EPS) found = wi;
   }
   if (found >= 0) return found;
   if (!timeInCueSpan(cue, t)) return -1;
-  if (firstVis >= 0) {
-    const fs = Number(words[firstVis].start);
-    if (Number.isFinite(fs) && t < fs + TIME_EPS) return firstVis;
-  }
   if (lastVis >= 0) {
     const le = Number(words[lastVis].end);
     if (Number.isFinite(le) && t >= le - TIME_EPS) return lastVis;
   }
-  return firstVis >= 0 ? firstVis : -1;
+  return -1;
 }
 
 /**
@@ -227,26 +232,45 @@ export function pickActiveWordIndexWithHint(cue, t, hintWi = -1) {
   if (!cue || !timeInCueSpan(cue, t)) return -1;
 
   const words = getCueWords(cue);
+
+  if (hintWi >= 0 && hintWi < words.length) {
+    const hw = words[hintWi];
+    if (wordVisibleInWordChipRail(hw)) {
+      const hs = Number(hw.start);
+      const he = Number(hw.end);
+      if (
+        Number.isFinite(hs) &&
+        Number.isFinite(he) &&
+        t >= hs - WORD_ONSET_LEAD_SEC &&
+        t <= he + INTER_WORD_GAP_HOLD_SEC
+      ) {
+        return hintWi;
+      }
+    }
+  }
+
   let lastStarted = -1;
-  let firstVis = -1;
   for (let wi = 0; wi < words.length; wi += 1) {
     const w = words[wi];
     if (!wordVisibleInWordChipRail(w)) continue;
     const s = Number(w.start);
     const e = Number(w.end);
     if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
-    if (firstVis < 0) firstVis = wi;
-    if (t >= s - TIME_EPS) lastStarted = wi;
-    if (t >= s - TIME_EPS && t < e + TIME_EPS) return wi;
+    if (t >= s - WORD_ONSET_LEAD_SEC) lastStarted = wi;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < e + TIME_EPS) return wi;
   }
 
   if (lastStarted >= 0) {
+    if (hintWi >= 0 && lastStarted > hintWi) {
+      const ns = Number(words[lastStarted]?.start);
+      if (Number.isFinite(ns) && t < ns - WORD_ONSET_LEAD_SEC) return hintWi;
+    }
     if (hintWi >= 0 && lastStarted < hintWi) {
       const he = Number(words[hintWi]?.end);
-      if (Number.isFinite(he) && t <= he + 0.08) return hintWi;
+      if (Number.isFinite(he) && t <= he + INTER_WORD_GAP_HOLD_SEC) return hintWi;
     }
     return lastStarted;
   }
   if (hintWi >= 0) return hintWi;
-  return firstVis >= 0 ? firstVis : -1;
+  return -1;
 }

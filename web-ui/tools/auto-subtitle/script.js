@@ -69,7 +69,9 @@ import {
   markLineTextUserEdited,
   lineTextIsUserLocked,
   MIN_WORD_SPAN_SEC,
+  getCueWords,
 } from "./subtitle-words.js?v=24";
+import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
@@ -78,7 +80,7 @@ import {
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=29";
+} from "./playback.js?v=31";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
@@ -89,7 +91,21 @@ import { isVideoBurnInNotFoundError, runVideoBurnInExport } from "./export/video
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
-} from "./shared/cues-ssot.js?v=34";
+} from "./shared/cues-ssot.js?v=39";
+import {
+  clearSessionMediaTiming,
+  getAudioTimelineDurationSec,
+  getSessionMediaTiming,
+  getVideoToWordTimelineScale,
+  getSessionPreviewMediaPath,
+  inferMediaTimingFromBrowserMedia,
+  isSourceVideoPtsTimeline,
+  mapVideoTimeToWordTimeline,
+  mapWordTimelineToVideoTime,
+  resolveWordTimelineClockSec,
+  setSessionMediaTiming,
+  setSessionPreviewMediaPath,
+} from "./shared/media-timing-ssot.js?v=3";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
@@ -103,7 +119,7 @@ import {
   collectWordAlignTargetIndices,
   KIWI_LGPL_URL,
 } from "./word-auto-align.js?v=1";
-import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=6";
+import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=8";
 import {
   applyPlaybackSkipToPreviewMedia,
   applyThrottledVideoSkipCut,
@@ -113,7 +129,7 @@ import {
   startSyncedPlayback,
   stopSyncedPlayback,
   syncVideoFromHtmlAudioMaster,
-} from "./hub/synced-playback.js?v=37";
+} from "./hub/synced-playback.js?v=40";
 import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=2";
 import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=24";
 import {
@@ -135,7 +151,7 @@ import {
   getListableCueIndicesCached,
   listPosForCueIndex,
   resolveListClipIndexFromMedia,
-} from "./shared/subtitle-list-playback.js?v=6";
+} from "./shared/subtitle-list-playback.js?v=9";
 import {
   clearListOrderPreviewTimeline,
   getListOrderPreviewClipPos,
@@ -147,9 +163,10 @@ import {
 import {
   getPreviewMediaBridge,
   initPreviewMediaBridgeFromDom,
-} from "./hub/seamless-preview-stack.js?v=7";
+} from "./hub/seamless-preview-stack.js?v=10";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
+import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";
 
 configureBridge({ healthPath: "/health" });
 
@@ -378,7 +395,7 @@ function isPreviewMediaPlaying() {
   return Boolean(getPv() && !getPv().paused);
 }
 
-/** 재생 클럭 — Whisper/RMS·피크·단어 블록과 동일한 오디오 축 (Electron masterAudio) */
+/** 재생 클럭 — transport·edit 축 (audible SSOT) */
 function readPreviewMediaClockSec() {
   const skip = getPlaybackSkipRanges();
   if (getPa() && isHtmlAudioMasterActive()) {
@@ -387,52 +404,66 @@ function readPreviewMediaClockSec() {
     });
     if (mediaSec != null) return mediaSec;
     if (active && getPv() && Number.isFinite(getPv().currentTime)) {
-      return getPv().currentTime;
+      return resolveWordTimelineClockSec({
+        audio: getPa(),
+        video: getPv(),
+        preferAudio: false,
+      });
     }
   }
-  if (getPv() && Number.isFinite(getPv().currentTime)) {
-    return getPv().currentTime;
-  }
-  return 0;
+  return resolveWordTimelineClockSec({
+    audio: getPa(),
+    video: getPv(),
+    fallbackSec: 0,
+    preferAudio: true,
+  });
 }
 
 /** 일시정지 직전 — html-audio 마스터가 살아 있을 때 오디오 시계 우선 */
 function capturePlayheadFromPreviewMedia() {
   const orch = getPlaybackOrchestrator();
+  if (isSourceVideoPtsTimeline()) {
+    const v = getPv();
+    if (v && Number.isFinite(v.currentTime)) {
+      playheadSec = orch.mapMediaToEditSec(v.currentTime);
+      return;
+    }
+  }
   let media = null;
-  if (
-    isHtmlAudioMasterActive() &&
-    getPa() &&
-    Number.isFinite(getPa().currentTime)
-  ) {
+  if (getPa() && Number.isFinite(getPa().currentTime)) {
     media = getPa().currentTime;
   } else if (getPv() && Number.isFinite(getPv().currentTime)) {
-    media = getPv().currentTime;
-  } else if (getPa() && Number.isFinite(getPa().currentTime)) {
-    media = getPa().currentTime;
+    media = mapVideoTimeToWordTimeline(getPv().currentTime);
   }
   if (media == null) return;
   playheadSec = orch.mapMediaToEditSec(media);
 }
 
-/** Electron syncPausedMasterToEdit — 정지 시 미디어 시계를 playheadSec 에 맞춤 */
+/** Electron syncPausedMasterToEdit — 정지 시 word(audio) 축 기준으로 A/V seek */
 function syncPausedPreviewMediaToPlayhead() {
   if (!getPv() || !Number.isFinite(playheadSec)) return;
   const orch = getPlaybackOrchestrator();
   const skip = getPlaybackSkipRanges();
-  let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
-  if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
-    media = Math.min(media, Math.max(0, getPv().duration - 0.001));
+  let wordMedia = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  const audioDur = getAudioTimelineDurationSec();
+  if (audioDur && audioDur > 0) {
+    wordMedia = Math.min(wordMedia, Math.max(0, audioDur - 0.001));
   }
+  const videoMedia = mapWordTimelineToVideoTime(wordMedia);
   if (getPa()?.src) {
-    assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+    assignMasterAudioTimelineSecIfNeeded(getPa(), wordMedia);
   }
-  if (Math.abs(getPv().currentTime - media) > 0.002) {
-    getPv().currentTime = media;
+  if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+    const vSeek = Math.min(videoMedia, Math.max(0, getPv().duration - 0.001));
+    if (Math.abs(getPv().currentTime - vSeek) > 0.002) {
+      getPv().currentTime = vSeek;
+    }
+  } else if (Math.abs(getPv().currentTime - videoMedia) > 0.002) {
+    getPv().currentTime = videoMedia;
   }
   getPa()?.pause();
   getPv().pause();
-  playheadSec = orch.mapMediaToEditSec(media);
+  playheadSec = orch.mapMediaToEditSec(wordMedia);
 }
 
 /** @param {number} startMediaSec */
@@ -581,6 +612,7 @@ function clearSubtitleWorkspace() {
   peaksPayload = null;
   sessionMediaDurationSec = null;
   sessionWhisperDurationSec = null;
+  clearSessionMediaTiming();
   try {
     sessionStorage.removeItem(STORAGE_CUES);
     sessionStorage.removeItem(STORAGE_CUTS);
@@ -1064,11 +1096,123 @@ function getPlaybackSkipRanges() {
 }
 
 function getMediaStreamUrl() {
-  const p = videoPathInput?.value?.trim() || sessionVideoPath;
+  const mt = getSessionMediaTiming();
+  const sourceFromContract =
+    isSourceVideoPtsTimeline() && mt?.source_media_path
+      ? String(mt.source_media_path).trim()
+      : "";
+  const p =
+    sourceFromContract ||
+    getSessionPreviewMediaPath() ||
+    videoPathInput?.value?.trim() ||
+    sessionVideoPath;
   if (!p || !agentConnected) return null;
   return buildAgentResourceUrl(
     `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
   );
+}
+
+/** @param {string} tag @param {object | null | undefined} mt @param {Record<string, unknown>} [extra] */
+function logMediaTimingAvSnapshot(tag, mt, extra = {}) {
+  if (!mt || typeof mt !== "object") return;
+  const videoSec = Number(mt.video_duration_sec);
+  const audioSec = Number(mt.audio_duration_sec);
+  let avDelta = Number(mt.av_duration_delta_sec);
+  if (!Number.isFinite(avDelta) && Number.isFinite(videoSec) && Number.isFinite(audioSec)) {
+    avDelta = videoSec - audioSec;
+  }
+  console.log(`[media-timing] ${tag}`, {
+    video_sec: Number.isFinite(videoSec) && videoSec > 0 ? videoSec : null,
+    audio_sec: Number.isFinite(audioSec) && audioSec > 0 ? audioSec : null,
+    av_delta_sec: Number.isFinite(avDelta) ? avDelta : null,
+    vfr: Boolean(mt.vfr_suspected),
+    timeline_axis: mt.timeline_axis ?? null,
+    skew_sec: mt.av_start_skew_sec ?? null,
+    actions: mt.preprocess_actions ?? mt.normalize_actions ?? null,
+    ...extra,
+  });
+}
+
+/** Go SSOT — video-axis whisper audio preprocess (AutoSubtitle 2.0). */
+async function prepareMediaForWhisper(videoPath) {
+  const p = String(videoPath || "").trim();
+  if (!p || !agentConnected) return null;
+  await ensureAgentFfmpegReady();
+  try {
+    const contract = await requestAgent({
+      path: `${TOOL_PREFIX}/media/prepare-for-whisper`,
+      method: "POST",
+      json: { video_path: p },
+    });
+    if (contract?.ok) {
+      setSessionMediaTiming(contract);
+      const vdur = Number(contract.video_duration_sec);
+      if (Number.isFinite(vdur) && vdur > 0) sessionMediaDurationSec = vdur;
+      logMediaTimingAvSnapshot("preprocess complete", contract, {
+        whisper_audio_path: contract.whisper_audio_path ?? null,
+        word_timeline_sec: contract.word_timeline_duration_sec ?? vdur,
+      });
+    } else {
+      console.warn("[media-timing] prepare-for-whisper failed", contract?.error);
+    }
+    return contract;
+  } catch (err) {
+    console.warn("[media-timing] prepare-for-whisper request failed", err);
+    return null;
+  }
+}
+
+/** FFmpeg/ffprobe — probe 전에만 준비 (Whisper 패키지 설치 안 함). */
+let agentFfmpegEnsurePromise = null;
+
+async function ensureAgentFfmpegReady() {
+  if (!agentConnected) return false;
+  if (!agentFfmpegEnsurePromise) {
+    agentFfmpegEnsurePromise = requestAgent({
+      path: "/api/tools/silence-remover/readiness",
+      method: "GET",
+    })
+      .then((data) => {
+        const bins = data?.binaries;
+        if (bins?.ffmpeg && bins?.ffprobe) return true;
+        return requestAgent({
+          path: "/api/tools/silence-remover/prepare",
+          method: "POST",
+        }).then(() => true);
+      })
+      .catch((err) => {
+        console.warn("[media-timing] FFmpeg prepare failed", err);
+        agentFfmpegEnsurePromise = null;
+        return false;
+      });
+  }
+  return agentFfmpegEnsurePromise;
+}
+
+/** @param {string} filePath */
+async function refreshSessionMediaTimingFromAgent(filePath) {
+  const p = String(filePath || "").trim();
+  if (!p || !agentConnected) return null;
+  await ensureAgentFfmpegReady();
+  try {
+    const data = await requestAgent({
+      path: `${TOOL_PREFIX}/media/probe`,
+      method: "POST",
+      json: { video_path: p },
+    });
+    if (data?.ok) {
+      setSessionMediaTiming(data);
+      const audioDur = getAudioTimelineDurationSec();
+      if (audioDur) sessionMediaDurationSec = audioDur;
+      logMediaTimingAvSnapshot("probe", data);
+    } else {
+      console.warn("[media-timing] probe failed", data?.error || data);
+    }
+    return data;
+  } catch (err) {
+    console.warn("[media-timing] probe request failed", err);
+    return null;
+  }
 }
 
 function getPreviewMediaPlaybackUrl() {
@@ -1210,7 +1354,7 @@ function seekEditSecAndPlay(editSec) {
   orch.seekMediaSec(media);
   playheadSec = orch.mapMediaToEditSec(media);
   commitPlayheadUi();
-  startPlaybackLoop();
+  startPlaybackLoop({ preservePlayhead: true });
   // console.log("[PLAY-DBG] seekEditSecAndPlay done: isVideoPlaying=%s, rafId=%s", isVideoPlaying, playbackRafId);
   return true;
 }
@@ -1358,13 +1502,24 @@ function setListPlaybackListPosFromCueIndex(cueIndex) {
   listPlaybackListPos = pos >= 0 ? pos : -1;
 }
 
-/** 단어 칩 하이라이트 — 오디오 마스터 재생 시 미디어 시계 SSOT */
+/** 단어 칩 하이라이트 — 재생 중 audible SSOT(readPreviewMediaClockSec)와 동일 축 */
 function getPreviewWordClockSec() {
-  if (isPreviewMediaPlaying() && isHtmlAudioMasterActive()) {
+  if (isPreviewMediaPlaying()) {
     const media = readPreviewMediaClockSec();
     if (Number.isFinite(media)) return media;
   }
-  return playheadSec;
+  const clock = resolveWordTimelineClockSec({
+    audio: getPa(),
+    video: getPv(),
+    fallbackSec: NaN,
+    preferAudio: !isSourceVideoPtsTimeline(),
+  });
+  if (Number.isFinite(clock)) return clock;
+  const orch = getPlaybackOrchestrator();
+  const fromEdit = orch?.mapping
+    ? orch.mapEditToMediaSec(playheadSec)
+    : playheadSec;
+  return mapVideoTimeToWordTimeline(fromEdit);
 }
 
 function resolveActiveWordIndexForCue(cue) {
@@ -1425,21 +1580,48 @@ function syncListPlaybackPosFromMedia(t) {
 }
 
 function resolvePlaybackIndices(t) {
+  const wordClock = isPreviewMediaPlaying() ? getPreviewWordClockSec() : t;
   if (useListIndexPlayback() && listPreviewBundle?.clips?.length) {
     syncListPlaybackPosFromStack();
+    const clips = listPreviewBundle.clips;
     const clipPos =
       listPlaybackClipPos >= 0
         ? listPlaybackClipPos
         : getListOrderPreviewClipPos();
-    const ci = cueIndexForClipIndex(listPreviewBundle.clips, lastCues, clipPos);
+    const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
     if (ci < 0) return { ai: -1, wi: -1 };
     const cue = lastCues[ci];
+    const wc = wordClock;
+    const cueEnd = Number(cue?.end) || 0;
+    if (clipPos + 1 < clips.length) {
+      const nextCi = cueIndexForClipIndex(clips, lastCues, clipPos + 1);
+      const nextCue = nextCi >= 0 ? lastCues[nextCi] : null;
+      const nextStart = Number(nextCue?.start);
+      if (
+        nextCue &&
+        Number.isFinite(nextStart) &&
+        wc >= cueEnd - 0.02 &&
+        wc < nextStart - 0.01
+      ) {
+        let tailWi = resolveActiveWordIndexForCue(cue);
+        if (tailWi < 0 && cue) {
+          const words = getCueWords(cue);
+          for (let i = words.length - 1; i >= 0; i -= 1) {
+            if (wordVisibleInWordChipRail(words[i])) {
+              tailWi = i;
+              break;
+            }
+          }
+        }
+        return { ai: ci, wi: tailWi };
+      }
+    }
     return {
       ai: ci,
       wi: resolveActiveWordIndexForCue(cue),
     };
   }
-  const ai = pickActiveCueIndexWithHint(lastCues, t, lastPlaybackCueIndex);
+  const ai = pickActiveCueIndexWithHint(lastCues, wordClock, lastPlaybackCueIndex);
   const cue = ai >= 0 ? lastCues[ai] : null;
   const wi = resolveActiveWordIndexForCue(cue);
   return { ai, wi };
@@ -1595,6 +1777,31 @@ function playbackTick() {
   const { ai, wi } = resolvePlaybackIndices(playheadSec);
   const cueChanged = ai !== lastPlaybackCueIndex;
   const wordChanged = wi !== lastPlaybackWordIndex;
+
+  if (isVideoPlaying) {
+    const cue = ai >= 0 ? lastCues[ai] : null;
+    const words = cue?.words;
+    const w = wi >= 0 && Array.isArray(words) ? words[wi] : null;
+    const audioEl = getPa();
+    const videoEl = getPv();
+    const wordClock = getPreviewWordClockSec();
+    syncDiagSample({
+      audioSec: audioEl?.currentTime,
+      videoSec: videoEl?.currentTime,
+      wordClockSec: wordClock,
+      playheadEditSec: playheadSec,
+      cueIndex: ai,
+      wordIndex: wi,
+      wordText: w?.word ?? w?.text ?? "",
+      wordStart: w?.start,
+      wordEnd: w?.end,
+      stackClock: usesSeamlessAudioClock(),
+      htmlAudioMaster: isHtmlAudioMasterActive(),
+      avScale: getVideoToWordTimelineScale(),
+      previewPath: getSessionPreviewMediaPath(),
+    });
+  }
+
   if (isVideoPlaying && subtitleList && ai >= 0) {
     syncPlaybackWordHighlights(ai, wi);
     lastPlaybackWordIndex = wi;
@@ -1701,7 +1908,7 @@ function startPlaybackLoop(opts = {}) {
   const skip = getPlaybackSkipRanges();
   let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
 
-  if (!opts.fromWaveformRange && listPlaybackListPos >= 0) {
+  if (!opts.fromWaveformRange && !opts.preservePlayhead && listPlaybackListPos >= 0) {
     activateListOrderPreviewPlayback();
     const clips = listPreviewBundle?.clips ?? [];
     const clipPos = clipIndexForListPos(clips, lastCues, listPlaybackListPos);
@@ -1714,7 +1921,7 @@ function startPlaybackLoop(opts = {}) {
       media = skipCutRangeAt(cueStart, skip);
       playheadSec = orch.mapMediaToEditSec(media);
     }
-  } else if (!opts.fromWaveformRange) {
+  } else if (!opts.fromWaveformRange && !opts.preservePlayhead) {
     deactivateListOrderPreviewPlayback();
   }
 
@@ -1838,14 +2045,24 @@ async function togglePreviewPlayback(opts = {}) {
   await previewBridge.unlockAudioOutput();
   // console.log("[PLAY-DBG] toggle → PLAY (selectedCue=%d)", selectedCueIndex);
   resetSpaceSeekIntent();
+  /** @type {{ preservePlayhead?: boolean }} */
+  let loopOpts = {};
   if (selectedCueIndex >= 0 && lastCues[selectedCueIndex]) {
     setListPlaybackListPosFromCueIndex(selectedCueIndex);
     const cue = lastCues[selectedCueIndex];
-    const start = Number(cue.start);
-    if (Number.isFinite(start)) {
-      lastPlaybackCueIndex = selectedCueIndex;
+    const cueStart = Number(cue.start);
+    const cueEnd = Number(cue.end);
+    const withinCue =
+      Number.isFinite(cueStart) &&
+      Number.isFinite(cueEnd) &&
+      playheadSec >= cueStart - 0.02 &&
+      playheadSec < cueEnd + 0.02;
+    lastPlaybackCueIndex = selectedCueIndex;
+    if (withinCue) {
+      loopOpts = { preservePlayhead: true };
+    } else if (Number.isFinite(cueStart)) {
       const orch = getPlaybackOrchestrator();
-      const media = skipCutRangeAt(orch.mapEditToMediaSec(start), getPlaybackSkipRanges());
+      const media = skipCutRangeAt(orch.mapEditToMediaSec(cueStart), getPlaybackSkipRanges());
       orch.seekMediaSec(media);
       playheadSec = orch.mapMediaToEditSec(media);
     }
@@ -1853,7 +2070,7 @@ async function togglePreviewPlayback(opts = {}) {
     listPlaybackListPos = -1;
     deactivateListOrderPreviewPlayback();
   }
-  if (!isVideoPlaying) startPlaybackLoop();
+  if (!isVideoPlaying) startPlaybackLoop(loopOpts);
 }
 
 /** @param {number} cardIndex @param {number} storageCaret */
@@ -2687,7 +2904,12 @@ function persistCuts() {
 }
 
 function getMediaDurationSecHint() {
+  const audioSsot = getAudioTimelineDurationSec();
+  if (audioSsot != null && audioSsot > 0) return audioSsot;
   if (sessionMediaDurationSec != null && sessionMediaDurationSec > 0) return sessionMediaDurationSec;
+  if (getPa()?.duration && Number.isFinite(getPa().duration) && getPa().duration > 0) {
+    return getPa().duration;
+  }
   if (getPv()?.duration && Number.isFinite(getPv().duration) && getPv().duration > 0) {
     return getPv().duration;
   }
@@ -3090,7 +3312,8 @@ function renderCuesTable(cues, { scrollActive = false, capturePendingEdits = fal
 }
 
 async function loadWaveformPeaks() {
-  const videoPath = videoPathInput?.value?.trim();
+  const videoPath =
+    getSessionPreviewMediaPath() || videoPathInput?.value?.trim();
   if (!videoPath || !agentConnected || waveformLoading) return false;
   waveformLoading = true;
   try {
@@ -3106,6 +3329,7 @@ async function loadWaveformPeaks() {
       subtitleHub.reapplyExtractPostProcessWithPeaks(metrics);
     }
     renderCuesTable(lastCues);
+    await refreshSessionMediaTimingFromAgent(videoPath);
     return true;
   } catch (err) {
     peaksPayload = null;
@@ -3228,7 +3452,6 @@ function applyReadiness(data) {
   if (btnAddWatermark) btnAddWatermark.disabled = !agentConnected;
   if (btnAddFont) btnAddFont.disabled = !agentConnected;
   setComputeCapabilityBadge(data);
-  maybeShowGpuInstallDialog(data);
 }
 
 function setComputeCapabilityBadge(data) {
@@ -3530,6 +3753,8 @@ async function pollTranscribeStatus() {
     await finalizeTranscribeResults(data.cues || [], data.duration_sec, {
       waveform_peaks_json: data.waveform_peaks_json,
       waveform_peaks: data.waveform_peaks,
+      media_timing: data.media_timing,
+      preview_media_path: data.preview_media_path,
     });
     return true;
   }
@@ -3550,22 +3775,60 @@ async function pollTranscribeStatus() {
  *
  * @param {unknown[]} rawCues
  * @param {number} [durationSecHint]
- * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null }} [transcribeMeta]
+ * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null }} [transcribeMeta]
  */
 async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}) {
   subtitleHub.gapFillWhenBuildingVrew = false;
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
     step: "후처리",
-    message: "파형·무음 블록 정리 중…",
+    message: "타임라인 정리 중…",
     progress: 95,
   });
 
   try {
+    if (transcribeMeta.media_timing) {
+      setSessionMediaTiming(transcribeMeta.media_timing);
+      const mt = transcribeMeta.media_timing;
+      const previewPath =
+        transcribeMeta.preview_media_path || mt.preview_media_path || "";
+      if (previewPath) {
+        setSessionPreviewMediaPath(previewPath);
+      }
+      if (isSourceVideoPtsTimeline()) {
+        console.log("[media-timing] source_video_pts — preview SSOT", {
+          video_sec: mt.video_duration_sec,
+          skew_sec: mt.av_start_skew_sec,
+          preview: previewPath || null,
+          actions: mt.preprocess_actions ?? mt.normalize_actions,
+        });
+      } else {
+        const avDelta = Math.abs(Number(mt.av_duration_delta_sec) || 0);
+        console.log("[media-timing] transcribe", {
+          av_delta_sec: mt.av_duration_delta_sec,
+          audio_sec: mt.audio_duration_sec,
+          video_sec: mt.video_duration_sec,
+          vfr: mt.vfr_suspected,
+          normalized: mt.normalized ?? Boolean(mt.normalize_actions?.length),
+          actions: mt.normalize_actions,
+          preview: transcribeMeta.preview_media_path,
+        });
+        if (avDelta >= 0.05 || mt.vfr_suspected) {
+          console.warn(
+            "[media-timing] A/V 또는 VFR 보정 적용됨 — audio SSOT 재생·word time 기준",
+          );
+        }
+      }
+    } else {
+      console.warn(
+        "[media-timing] API 응답에 media_timing 없음 — 에이전트가 구버전(MSI)이거나 소스 미반영. sync-agent-source.ps1 후 재시작하세요.",
+      );
+    }
     const dur =
-      Number(durationSecHint) > 0
+      getAudioTimelineDurationSec() ??
+      (Number(durationSecHint) > 0
         ? Number(durationSecHint)
-        : getMediaDurationSecHint();
+        : getMediaDurationSecHint());
 
     if (dur != null && dur > 0) sessionWhisperDurationSec = dur;
 
@@ -3573,7 +3836,11 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
     if (inlinePeaks && resolvePeaksTimelineMetrics(inlinePeaks, dur ?? undefined)) {
       peaksPayload = inlinePeaks;
     } else {
-      const videoPath = videoPathInput?.value?.trim();
+      const videoPath =
+        getSessionPreviewMediaPath() ||
+        transcribeMeta.preview_media_path ||
+        transcribeMeta.media_timing?.preview_media_path ||
+        videoPathInput?.value?.trim();
       if (videoPath && agentConnected) {
         try {
           const result = await loadWaveformPeaksForMedia(
@@ -3594,21 +3861,72 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
     const peaksMetrics = peaksPayload
       ? resolvePeaksTimelineMetrics(peaksPayload, dur ?? undefined)
       : null;
+    const audioDur = getAudioTimelineDurationSec();
+    if (peaksPayload) {
+      const nativeDur = Number(peaksPayload.timeline_sec ?? peaksPayload.duration_sec);
+      const hasNative = Number.isFinite(nativeDur) && nativeDur > 0;
+      if (!hasNative && audioDur) {
+        peaksPayload.duration_sec = audioDur;
+        peaksPayload.timeline_sec = audioDur;
+        if (peaksMetrics) {
+          peaksMetrics.durationSec = audioDur;
+        }
+      }
+    }
     if (peaksMetrics?.durationSec > 0) {
-      sessionMediaDurationSec = peaksMetrics.durationSec;
+      sessionMediaDurationSec = getAudioTimelineDurationSec() ?? peaksMetrics.durationSec;
     } else if (dur != null && dur > 0) {
       sessionMediaDurationSec = dur;
     }
+    const pb =
+      transcribeMeta.media_timing?.playback_duration_sec ??
+      transcribeMeta.media_timing?.word_timeline_duration_sec ??
+      transcribeMeta.media_timing?.video_duration_sec;
+    const whisperDurForScale =
+      Number(pb) > 0
+        ? Number(pb)
+        : Number(durationSecHint) > 0
+          ? Number(durationSecHint)
+          : Number(dur);
+    const peaksDurForScale = peaksMetrics?.durationSec;
+    const scaleRatio =
+      peaksDurForScale > 0 && whisperDurForScale > 0
+        ? peaksDurForScale / whisperDurForScale
+        : null;
     subtitleHub.ingestFromTranscribe(rawCues, {
       gapFill: false,
       peaksMetrics,
-      whisperDurationSec: dur ?? null,
+      whisperDurationSec: whisperDurForScale > 0 ? whisperDurForScale : null,
+      mediaTiming: transcribeMeta.media_timing ?? null,
+    });
+    logMediaTimingAvSnapshot("post-ingest", transcribeMeta.media_timing, {
+      peaks_sec: peaksDurForScale > 0 ? peaksDurForScale : null,
+      whisper_sec: whisperDurForScale > 0 ? whisperDurForScale : null,
+      peaks_whisper_ratio: scaleRatio,
+      scale_applied: scaleRatio != null && Math.abs(scaleRatio - 1) > 0.004,
+      cue_count: Array.isArray(rawCues) ? rawCues.length : 0,
     });
     try {
       sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
       if (lastExportPath) sessionStorage.setItem(STORAGE_EXPORT_PATH, lastExportPath);
     } catch {
       /* ignore */
+    }
+    const previewPath =
+      transcribeMeta.preview_media_path || getSessionPreviewMediaPath();
+    const exportPath = videoPathInput?.value?.trim();
+    if (previewPath && exportPath && previewPath !== exportPath) {
+      if (transcribeMeta.preview_media_path) {
+        setSessionPreviewMediaPath(transcribeMeta.preview_media_path);
+      }
+      await updatePreview(previewPath);
+      await refreshSessionMediaTimingFromAgent(previewPath);
+      logMediaTimingAvSnapshot("preview playback", getSessionMediaTiming(), {
+        path: previewPath,
+        normalized: transcribeMeta.media_timing?.normalized ?? null,
+      });
+    } else if (exportPath) {
+      await refreshSessionMediaTimingFromAgent(exportPath);
     }
     renderCuesTable(lastCues);
     if (resultsMeta) {
@@ -3649,9 +3967,29 @@ async function runTranscribe() {
 
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
+    step: "전처리",
+    message: "비디오 축 오디오 추출 중…",
+    progress: 0,
+  });
+
+  const mediaContract = await prepareMediaForWhisper(videoPath);
+  if (!mediaContract?.ok) {
+    stopTranscribePoll();
+    setTranscribeLoading(false);
+    alert(
+      friendlyAgentError(
+        mediaContract?.error ||
+          "Go 미디어 전처리 실패 — FFmpeg 준비 후 다시 시도하세요.",
+      ),
+    );
+    return false;
+  }
+
+  setTranscribeLoading(true, {
+    title: TRANSCRIBE_LOADING_TITLE,
     step: "",
     message: TRANSCRIBE_LOADING_START_MSG,
-    progress: 0,
+    progress: 1,
   });
 
   const lang = languageSelect?.value?.trim() || null;
@@ -3665,6 +4003,8 @@ async function runTranscribe() {
         beam_size: 5,
         vad_filter: true,
         rms_vad_align: true,
+        whisper_audio_path: mediaContract.whisper_audio_path,
+        media_timing_contract: mediaContract,
       },
     });
   } catch (err) {
@@ -4033,7 +4373,7 @@ function detachPreviewMasterAudio() {
 }
 
 function updatePreview(videoPath) {
-  if (!getPv() || !previewSection) return;
+  if (!getPv() || !previewSection) return Promise.resolve();
   stopPlaybackLoop();
   setPreviewPlaybackUiActive(false);
   detachPreviewMasterAudio();
@@ -4052,8 +4392,10 @@ function updatePreview(videoPath) {
     updatePreviewOverlay();
     updatePreviewWatermark();
     updatePreviewTransportUi();
-    return;
+    return Promise.resolve();
   }
+
+  void refreshSessionMediaTimingFromAgent(getSessionPreviewMediaPath() || p);
 
   const directUrl = buildAgentResourceUrl(
     `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
@@ -4073,7 +4415,7 @@ function updatePreview(videoPath) {
   previewMediaLoadAbort = new AbortController();
   const { signal } = previewMediaLoadAbort;
 
-  void resolveAgentMediaObjectUrl(directUrl, {
+  return resolveAgentMediaObjectUrl(directUrl, {
     signal,
     onAttempt(attempt) {
       if (attempt > 1) {
@@ -4093,7 +4435,8 @@ function updatePreview(videoPath) {
       previewVideoEl.onloadedmetadata = () => {
         if (loadGen !== previewMediaLoadGen) return;
         setPreviewMediaLoading(false);
-        const dur = previewVideoEl.duration;
+        inferMediaTimingFromBrowserMedia(previewVideoEl, getPa());
+        const dur = getAudioTimelineDurationSec() ?? previewVideoEl.duration;
         if (dur > 0) sessionMediaDurationSec = dur;
         layoutPreviewMediaFrame();
         updatePreviewOverlay();
@@ -4736,3 +5079,16 @@ document.addEventListener(
 );
 
 requestAgent({ path: "/health" }).catch(() => {});
+
+window.autoSubtitleSyncDiag = {
+  enable(on = true) {
+    syncDiagSetEnabled(on);
+    console.log("[sync-diag]", on ? "recording ON — 재생 후 report()" : "recording OFF");
+  },
+  report() {
+    const r = syncDiagReport();
+    console.log("[sync-diag] classification", r.classification);
+    return r;
+  },
+  clear: syncDiagClear,
+};

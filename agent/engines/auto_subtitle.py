@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import os
 import re
 import shutil
@@ -27,6 +28,8 @@ from common.runtime_site_packages import (
 )
 from common.subprocess_util import no_window_creationflags, run_hidden
 from runtime_paths import is_frozen
+
+logger = logging.getLogger(__name__)
 
 RUNTIME_TOOL_ID = TOOL_AUTO_SUBTITLE
 
@@ -76,12 +79,22 @@ def _agent_data_root() -> Path:
     return Path.home() / ".itmatzip"
 
 
+def _user_config_root() -> Path:
+    """트레이 사용자 쓰기 가능 — active_model_dir 등 소형 상태 파일."""
+    appdata = os.environ.get("APPDATA", "").strip()
+    if appdata:
+        return Path(appdata) / "ItMatZip"
+    return Path.home() / ".itmatzip"
+
+
 AUTO_SUBTITLE_ROOT = _agent_data_root() / "auto-subtitle"
 MODEL_ROOT = AUTO_SUBTITLE_ROOT / "models"
 WORKSPACE_ROOT = AUTO_SUBTITLE_ROOT / "workspace"
 LOCAL_MODEL_DIR = MODEL_ROOT / LOCAL_MODEL_NAME
 _STAGING_MODEL_DIR = MODEL_ROOT / f".{LOCAL_MODEL_NAME}.staging"
-_ACTIVE_MODEL_MARKER = MODEL_ROOT / "active_model_dir.txt"
+_USER_AUTO_SUBTITLE_CONFIG = _user_config_root() / "auto-subtitle"
+_ACTIVE_MODEL_MARKER = _USER_AUTO_SUBTITLE_CONFIG / "active_model_dir.txt"
+_LEGACY_ACTIVE_MODEL_MARKER = MODEL_ROOT / "active_model_dir.txt"
 _MODEL_DOWNLOAD_LOCK = MODEL_ROOT / ".model_download.lock"
 _HF_HUB_CACHE_DIR = MODEL_ROOT / ".hf-cache"
 _STALE_MODEL_LOCK_SEC = 600.0
@@ -103,8 +116,11 @@ _transcribe_job = TranscribeJobStatus(phase="idle", progress=0.0, message=None)
 
 
 def ensure_workspace() -> Path:
+    from common.runtime_site_packages import ensure_data_tree_acl
+
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
     MODEL_ROOT.mkdir(parents=True, exist_ok=True)
+    ensure_data_tree_acl(AUTO_SUBTITLE_ROOT)
     return WORKSPACE_ROOT
 
 
@@ -151,19 +167,30 @@ def is_huggingface_hub_installed() -> bool:
     return tool_has_module(RUNTIME_TOOL_ID, "huggingface_hub")
 
 
+def is_stable_ts_installed() -> bool:
+    return tool_has_module(RUNTIME_TOOL_ID, "stable_whisper")
+
+
+def get_whisper_model() -> Any | None:
+    """전사에 로드된 faster-whisper 인스턴스 (stable-ts align 공유용)."""
+    return _whisper_model
+
+
 def _runtime_module_installed(module_name: str) -> bool:
     return tool_has_module(RUNTIME_TOOL_ID, module_name)
 
 
 def resolve_model_dir() -> Path:
     """다운로드·승격 실패(WinError 32) 시 스테이징 경로를 포함해 실제 모델 폴더를 반환."""
-    if _ACTIVE_MODEL_MARKER.is_file():
+    for marker in (_ACTIVE_MODEL_MARKER, _LEGACY_ACTIVE_MODEL_MARKER):
+        if not marker.is_file():
+            continue
         try:
-            marked = Path(_ACTIVE_MODEL_MARKER.read_text(encoding="utf-8").strip())
+            marked = Path(marker.read_text(encoding="utf-8").strip())
             if _is_ct2_model_dir(marked):
                 return marked
         except OSError:
-            pass
+            continue
     if _is_ct2_model_dir(LOCAL_MODEL_DIR):
         return LOCAL_MODEL_DIR
     if _is_ct2_model_dir(_STAGING_MODEL_DIR):
@@ -172,7 +199,7 @@ def resolve_model_dir() -> Path:
 
 
 def _set_active_model_dir(path: Path) -> None:
-    MODEL_ROOT.mkdir(parents=True, exist_ok=True)
+    _USER_AUTO_SUBTITLE_CONFIG.mkdir(parents=True, exist_ok=True)
     _ACTIVE_MODEL_MARKER.write_text(str(path.resolve()), encoding="utf-8")
 
 
@@ -418,6 +445,11 @@ def _repo_download_bytes_total() -> int | None:
 
 def install_python_dependencies(on_progress: PrepareProgressCallback | None = None) -> None:
     """faster-whisper 등 pip 패키지 (웹에서 prepare 시 1회)."""
+    from common.runtime_site_packages import ensure_runtime_tree_acl, finalize_runtime_pip
+
+    activate_runtime_site_packages(RUNTIME_TOOL_ID)
+    ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
+
     if is_frozen():
         if is_faster_whisper_installed() and is_huggingface_hub_installed():
             return
@@ -453,7 +485,6 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "Python 패키지",
         f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
     )
-    from common.runtime_site_packages import ensure_runtime_tree_acl, finalize_runtime_pip
     from common.subprocess_util import agent_subprocess_env
 
     ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
@@ -737,13 +768,19 @@ def _collect_transcribe_segments(
     def _invoke():
         if _whisper_model is None:
             raise RuntimeError("Whisper 모델이 로드되지 않았습니다.")
-        return _whisper_model.transcribe(
-            audio_path,
-            beam_size=beam_size,
-            language=language,
-            vad_filter=vad_filter,
-            word_timestamps=True,
-        )
+        transcribe_kwargs: dict[str, Any] = {
+            "beam_size": beam_size,
+            "language": language,
+            "vad_filter": vad_filter,
+            "word_timestamps": True,
+            "condition_on_previous_text": False,
+        }
+        if vad_filter:
+            transcribe_kwargs["vad_parameters"] = {
+                "min_silence_duration_ms": 500,
+                "speech_pad_ms": 150,
+            }
+        return _whisper_model.transcribe(audio_path, **transcribe_kwargs)
 
     for attempt in range(2):
         try:
@@ -757,9 +794,150 @@ def _collect_transcribe_segments(
             raise
 
 
+_BOUNDARY_PUNCT_STRIP = ".,!?…"
+_BOUNDARY_WORD_GAP_SEC = 0.2
+_BOUNDARY_CUE_GAP_SEC = 0.35
+
+
+def _cue_is_silence_row(cue: dict[str, Any]) -> bool:
+    return bool(cue.get("is_silence") or cue.get("isSilence"))
+
+
+def _norm_boundary_word_text(word: str) -> str:
+    return str(word or "").strip().rstrip(_BOUNDARY_PUNCT_STRIP)
+
+
+def _nonempty_cue_words(cue: dict[str, Any]) -> list[dict[str, Any]]:
+    words = cue.get("words")
+    if not isinstance(words, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for w in words:
+        if not isinstance(w, dict):
+            continue
+        if str(w.get("word", "") or "").strip():
+            out.append(w)
+    return out
+
+
+def _sync_cue_times_and_text_from_words(cue: dict[str, Any]) -> None:
+    words = _nonempty_cue_words(cue)
+    if not words:
+        return
+    starts: list[float] = []
+    ends: list[float] = []
+    texts: list[str] = []
+    for w in words:
+        try:
+            starts.append(float(w.get("start", 0)))
+            ends.append(float(w.get("end", 0)))
+        except (TypeError, ValueError):
+            continue
+        t = str(w.get("word", "") or "").strip()
+        if t:
+            texts.append(t)
+    if starts and ends:
+        cue["start"] = min(starts)
+        cue["end"] = max(ends)
+    if texts:
+        cue["text"] = " ".join(texts)
+
+
+def _dedup_echo_in_next_word(_prev_word: dict[str, Any], next_word: dict[str, Any]) -> None:
+    next_word["word"] = ""
+
+
+def _prune_empty_words(cue: dict[str, Any]) -> None:
+    words = cue.get("words")
+    if not isinstance(words, list):
+        return
+    cue["words"] = [
+        w
+        for w in words
+        if isinstance(w, dict) and str(w.get("word", "") or "").strip()
+    ]
+
+
+def smooth_boundaries(subtitles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """VAD 세그먼트 경계 — word time overlap 분리 + 텍스트 echo 제거."""
+    if len(subtitles) < 2:
+        return subtitles
+
+    for i in range(len(subtitles) - 1):
+        prev_cue = subtitles[i]
+        next_cue = subtitles[i + 1]
+        if _cue_is_silence_row(prev_cue) or _cue_is_silence_row(next_cue):
+            continue
+
+        prev_words = _nonempty_cue_words(prev_cue)
+        next_words = _nonempty_cue_words(next_cue)
+        if not prev_words or not next_words:
+            continue
+
+        prev_word = prev_words[-1]
+        next_word = next_words[0]
+
+        try:
+            pw_end = float(prev_word.get("end", 0))
+            nw_start = float(next_word.get("start", 0))
+            prev_cue_end = float(prev_cue.get("end", 0))
+            next_cue_start = float(next_cue.get("start", 0))
+        except (TypeError, ValueError):
+            continue
+
+        word_overlap = pw_end > nw_start
+        if word_overlap:
+            mid = round((pw_end + nw_start) / 2.0, 3)
+            prev_word["end"] = mid
+            next_word["start"] = mid
+            pw_end = mid
+            nw_start = mid
+
+        pt = _norm_boundary_word_text(str(prev_word.get("word", "") or ""))
+        nt = _norm_boundary_word_text(str(next_word.get("word", "") or ""))
+        if not pt or not nt:
+            _sync_cue_times_and_text_from_words(prev_cue)
+            _sync_cue_times_and_text_from_words(next_cue)
+            continue
+
+        time_ok = (
+            (nw_start - pw_end) < _BOUNDARY_WORD_GAP_SEC
+            or (next_cue_start - prev_cue_end) < _BOUNDARY_CUE_GAP_SEC
+            or word_overlap
+        )
+        should_dedup = False
+
+        if pt.endswith(nt):
+            if len(nt) <= 3:
+                should_dedup = True
+            elif time_ok:
+                should_dedup = True
+        elif (
+            len(pt) <= 2
+            and len(nt) == len(pt) + 1
+            and nt.endswith(pt)
+        ):
+            if nt[0] == "이" or (nt[0] == "으" and pt in ("로", "면")):
+                should_dedup = True
+        elif len(nt) == 1 and pt[-1] == nt[0]:
+            should_dedup = True
+
+        if should_dedup:
+            _dedup_echo_in_next_word(prev_word, next_word)
+            _prune_empty_words(next_cue)
+
+        _sync_cue_times_and_text_from_words(prev_cue)
+        _sync_cue_times_and_text_from_words(next_cue)
+
+    return subtitles
+
+
 _GAP_THRESHOLD_SEC = 0.1
 # 말끝 짧은 간격(예: 0.3s)을 별도 `--` cue 로 두지 않고 이전 cue end 연장
 _MERGE_SHORT_GAP_SEC = 0.45
+# VFR/CFR 정규화 소스 — Whisper segment gap 은 `--` 삽입 완화
+_GAP_THRESHOLD_NORMALIZED_SEC = 0.35
+_MERGE_SHORT_GAP_NORMALIZED_SEC = 0.55
 _SILENCE_GAP_TEXT = "--"
 _UNKNOWN_WORD_LABEL = "???"
 
@@ -829,8 +1007,26 @@ def _normalize_cue_words_and_empty_text(c: dict[str, Any]) -> dict[str, Any] | N
     return {"start": s, "end": e, "text": text, "words": words_out}
 
 
-def _fill_unvoiced_gaps(raw_cues: list[dict[str, Any]], total_dur: float) -> list[dict[str, Any]]:
-    """AutoSubtitle main.py — 0.1s 이상 무음은 `--` cue, 미만은 이전 cue end 연장."""
+def _gap_fill_thresholds(media_timing: dict[str, Any] | None) -> tuple[float, float]:
+    """(gap_threshold, merge_short_gap) — normalized/VFR 소스는 `--` cue 덜 삽입."""
+    mt = media_timing or {}
+    source = mt.get("source_probe") if isinstance(mt.get("source_probe"), dict) else {}
+    normalized = bool(mt.get("normalized"))
+    vfr = bool(mt.get("vfr_suspected")) or bool(source.get("vfr_suspected"))
+    actions = mt.get("normalize_actions")
+    if normalized or vfr or (isinstance(actions, list) and len(actions) > 0):
+        return _GAP_THRESHOLD_NORMALIZED_SEC, _MERGE_SHORT_GAP_NORMALIZED_SEC
+    return _GAP_THRESHOLD_SEC, _MERGE_SHORT_GAP_SEC
+
+
+def _fill_unvoiced_gaps(
+    raw_cues: list[dict[str, Any]],
+    total_dur: float,
+    *,
+    media_timing: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Whisper segment 사이 무음 — gap 이상이면 `--` cue, 미만은 이전 cue end 연장."""
+    gap_threshold, merge_short_gap = _gap_fill_thresholds(media_timing)
     td = max(0.0, float(total_dur or 0))
     normalized: list[dict[str, Any]] = []
     for c in raw_cues:
@@ -864,8 +1060,8 @@ def _fill_unvoiced_gaps(raw_cues: list[dict[str, Any]], total_dur: float) -> lis
 
         gap = s - prev_end
         if gap > 1e-9:
-            if gap >= _GAP_THRESHOLD_SEC:
-                if out and gap < _MERGE_SHORT_GAP_SEC:
+            if gap >= gap_threshold:
+                if out and gap < merge_short_gap:
                     _extend_last_cue_end(out, s)
                 else:
                     out.append(_silence_gap_cue(prev_end, s))
@@ -884,8 +1080,8 @@ def _fill_unvoiced_gaps(raw_cues: list[dict[str, Any]], total_dur: float) -> lis
 
     if td > 0:
         gap_tail = td - prev_end
-        if gap_tail >= _GAP_THRESHOLD_SEC:
-            if out and gap_tail < _MERGE_SHORT_GAP_SEC:
+        if gap_tail >= gap_threshold:
+            if out and gap_tail < merge_short_gap:
                 _extend_last_cue_end(out, td)
             else:
                 out.append(_silence_gap_cue(prev_end, td))
@@ -923,6 +1119,85 @@ def get_transcribe_job_status() -> TranscribeJobStatus:
         )
 
 
+def _contract_is_source_video_pts(contract: dict[str, Any] | None) -> bool:
+    if not isinstance(contract, dict):
+        return False
+    axis = str(contract.get("timeline_axis") or "").strip()
+    return axis == "source_video_pts" and bool(contract.get("ok", True))
+
+
+def _media_timing_from_contract(
+    contract: dict[str, Any],
+    *,
+    source_media_path: Path,
+    whisper_audio_path: Path,
+) -> dict[str, Any]:
+    """Go MediaTimingContract → API pass-through (no word time scale)."""
+    out = dict(contract)
+    out.setdefault("contract_version", "1.0")
+    out.setdefault("timeline_axis", "source_video_pts")
+    out["source_media_path"] = str(source_media_path.resolve())
+    out["source_path"] = str(source_media_path.resolve())
+    out["whisper_audio_path"] = str(whisper_audio_path.resolve())
+    out["preview_media_path"] = str(source_media_path.resolve())
+    out["transcribe_media_path"] = str(whisper_audio_path.resolve())
+    out["normalized"] = False
+    vdur = contract.get("video_duration_sec")
+    if isinstance(vdur, (int, float)) and float(vdur) > 0:
+        vd = float(vdur)
+        out["word_timeline_duration_sec"] = vd
+        out["playback_duration_sec"] = vd
+    if contract.get("preprocess_actions") and not out.get("normalize_actions"):
+        out["normalize_actions"] = list(contract.get("preprocess_actions") or [])
+    return out
+
+
+def _apply_preview_probe_to_media_timing(
+    media_timing: dict[str, Any],
+    preview_probe: dict[str, Any],
+    *,
+    preview_path: Path,
+    prep_actions: list[str],
+) -> dict[str, Any]:
+    """정규화된 preview ffprobe — A/V 길이·재생 SSOT 갱신."""
+    out = {**media_timing, **preview_probe}
+    out["preview_media_path"] = str(preview_path.resolve())
+    out["normalized"] = True
+    actions: list[str] = []
+    for src in (media_timing.get("normalize_actions"), prep_actions):
+        if isinstance(src, list):
+            actions.extend(str(a) for a in src if a)
+    if media_timing.get("preprocess_actions"):
+        actions.extend(str(a) for a in media_timing["preprocess_actions"] if a)
+    out["normalize_actions"] = list(dict.fromkeys(actions))
+    playback = preview_probe.get("playback_duration_sec")
+    if not (isinstance(playback, (int, float)) and float(playback) > 0):
+        playback = preview_probe.get("video_duration_sec") or preview_probe.get(
+            "audio_duration_sec"
+        )
+    if isinstance(playback, (int, float)) and float(playback) > 0:
+        pb = float(playback)
+        out["word_timeline_duration_sec"] = pb
+        out["playback_duration_sec"] = pb
+    return out
+
+
+def _preview_video_duration_sec(
+    preview_probe: dict[str, Any], media_timing: dict[str, Any]
+) -> float:
+    for key in (
+        "video_duration_sec",
+        "playback_duration_sec",
+        "word_timeline_duration_sec",
+        "audio_duration_sec",
+    ):
+        for src in (preview_probe, media_timing):
+            v = src.get(key)
+            if isinstance(v, (int, float)) and float(v) > 0:
+                return float(v)
+    return 0.0
+
+
 def _run_transcribe(
     media_path: Path,
     *,
@@ -931,6 +1206,8 @@ def _run_transcribe(
     vad_filter: bool,
     rms_vad_align: bool,
     job_dir: Path,
+    whisper_audio_path: Path | None = None,
+    media_timing_contract: dict[str, Any] | None = None,
 ) -> None:
     global _whisper_model, _model_device
 
@@ -938,10 +1215,96 @@ def _run_transcribe(
         _set_transcribe_job("failed", 0.0, error="Whisper 모델이 로드되지 않았습니다. /prepare를 먼저 실행하세요.")
         return
 
-    _set_transcribe_job("running", 2.0, "자막 추출을 시작합니다.")
+    _set_transcribe_job("running", 1.0, "미디어 타임라인 분석…")
     prepend_ffmpeg_bin_to_env(os.environ)
     t0 = time.perf_counter()
-    audio_path = str(media_path)
+
+    use_contract = (
+        whisper_audio_path is not None
+        and whisper_audio_path.is_file()
+        and _contract_is_source_video_pts(media_timing_contract)
+    )
+
+    from engines.auto_subtitle_media_normalize import (
+        WHISPER_FROM_PREVIEW_WAV,
+        extract_whisper_wav_from_preview,
+        prepare_transcribe_media,
+    )
+    from engines.auto_subtitle_media_probe import probe_media_timing
+
+    _set_transcribe_job("running", 1.5, "재생용 미디어 A/V 정규화…")
+    source_probe = probe_media_timing(media_path)
+
+    def _norm_progress(pct: float, step: str, detail: str = "") -> None:
+        _set_transcribe_job(
+            "running",
+            max(1.0, min(4.5, 1.5 + pct * 0.03)),
+            detail or step,
+        )
+
+    prep = prepare_transcribe_media(
+        media_path,
+        job_dir,
+        source_probe,
+        on_progress=_norm_progress,
+    )
+    prep_preview = prep.preview_path
+
+    _set_transcribe_job("running", 2.0, "프리뷰 SSOT 타임라인…")
+    preview_probe = probe_media_timing(prep_preview, unify_ssot=True)
+
+    if use_contract:
+        assert media_timing_contract is not None
+        base_timing = _media_timing_from_contract(
+            media_timing_contract,
+            source_media_path=media_path,
+            whisper_audio_path=prep_preview,
+        )
+        base_timing["source_probe"] = source_probe
+    else:
+        base_timing = {
+            **source_probe,
+            "source_media_path": str(media_path.resolve()),
+            "source_probe": source_probe,
+        }
+
+    media_timing = _apply_preview_probe_to_media_timing(
+        base_timing,
+        preview_probe,
+        preview_path=prep_preview,
+        prep_actions=prep.actions,
+    )
+    logger.info(
+        "preview A/V sync: video=%.3fs audio=%.3fs delta=%.3fs vfr=%s actions=%s",
+        float(media_timing.get("video_duration_sec") or 0),
+        float(media_timing.get("audio_duration_sec") or 0),
+        float(media_timing.get("av_duration_delta_sec") or 0),
+        media_timing.get("vfr_suspected"),
+        media_timing.get("normalize_actions"),
+    )
+
+    preview_dur = _preview_video_duration_sec(preview_probe, media_timing)
+    whisper_wav = job_dir / WHISPER_FROM_PREVIEW_WAV
+    _set_transcribe_job("running", 2.5, "프리뷰 미디어에서 Whisper 입력 추출…")
+    extract_whisper_wav_from_preview(
+        prep_preview,
+        whisper_wav,
+        duration_sec=preview_dur if preview_dur > 0 else None,
+    )
+    audio_path = str(whisper_wav.resolve())
+    transcribe_media = whisper_wav
+    media_timing = {
+        **media_timing,
+        "whisper_audio_path": audio_path,
+        "transcribe_media_path": audio_path,
+        "preview_media_path": str(prep_preview.resolve()),
+        "normalize_actions": prep.actions,
+        "normalized": prep.normalized,
+    }
+    if whisper_audio_path is not None and whisper_audio_path.is_file():
+        media_timing["go_whisper_audio_path"] = str(whisper_audio_path.resolve())
+
+    _set_transcribe_job("running", 3.0, "자막 추출을 시작합니다.")
 
     try:
         segments, info, did_fallback = _collect_transcribe_segments(
@@ -962,6 +1325,26 @@ def _run_transcribe(
         )
 
     total_dur = float(getattr(info, "duration", 0) or 0)
+    whisper_dur = total_dur
+    pb = media_timing.get("playback_duration_sec") or media_timing.get(
+        "word_timeline_duration_sec"
+    )
+    if isinstance(pb, (int, float)) and float(pb) > 0:
+        total_dur = float(pb)
+    elif total_dur <= 0:
+        vdur = media_timing.get("video_duration_sec")
+        if isinstance(vdur, (int, float)) and float(vdur) > 0:
+            total_dur = float(vdur)
+    media_timing = {
+        **media_timing,
+        "whisper_duration_sec": whisper_dur if whisper_dur > 0 else total_dur,
+        "word_timeline_duration_sec": total_dur
+        if total_dur > 0
+        else media_timing.get("word_timeline_duration_sec"),
+        "playback_duration_sec": total_dur
+        if total_dur > 0
+        else media_timing.get("playback_duration_sec"),
+    }
     subtitles: list[dict[str, Any]] = []
     for i, seg in enumerate(segments):
         subtitles.append(
@@ -985,8 +1368,10 @@ def _run_transcribe(
             pct = min(99.0, 2.0 + float(i + 1) * 3.0)
         _set_transcribe_job("running", pct, f"자막 추출 중… ({int(pct)}%)")
 
+    subtitles = smooth_boundaries(subtitles)
+
     if rms_vad_align:
-        _set_transcribe_job("running", 94.0, "단어 타임스탬프 정렬 (RMS/VAD)…")
+        _set_transcribe_job("running", 92.0, "단어 타임스탬프 정렬 (RMS/VAD)…")
         try:
             from engines.auto_subtitle_rms_vad import apply_rms_vad_word_align
 
@@ -996,12 +1381,10 @@ def _run_transcribe(
                 str(get_ffmpeg_executable()),
                 total_duration=total_dur,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error("RMS/VAD align failed: %s", e, exc_info=True)
 
-    _set_transcribe_job("running", 96.0, "자막 추출 중… (무음 구간 보정)")
-    subtitles = _fill_unvoiced_gaps(subtitles, total_dur)
-
+    _set_transcribe_job("running", 96.0, "자막 추출 마무리…")
     _set_transcribe_job("running", 97.0, "파형 피크 생성…")
     waveform_peaks: dict[str, Any] = {"ok": False, "path": None}
     waveform_peaks_json: dict[str, Any] | None = None
@@ -1016,7 +1399,8 @@ def _run_transcribe(
                 "reason": "audiowaveform binary not found",
             }
         else:
-            wf_result = auto_subtitle_audiowaveform.waveform_peaks_impl(media_path, peaks_path)
+            peaks_media = prep_preview.resolve()
+            wf_result = auto_subtitle_audiowaveform.waveform_peaks_impl(peaks_media, peaks_path)
             waveform_peaks = {
                 "ok": bool(wf_result.get("ok")),
                 "path": wf_result.get("path"),
@@ -1042,13 +1426,15 @@ def _run_transcribe(
     result = {
         "cues": subtitles,
         "language": getattr(info, "language", None),
-        "duration_sec": total_dur,
+        "duration_sec": total_dur if total_dur > 0 else whisper_dur,
         "device": _model_device,
         "fallback_to_cpu": did_fallback,
         "transcribe_ms": elapsed_ms,
         "cues_json_path": str(cues_path.resolve()),
         "srt_path": str(srt_path.resolve()),
         "media_path": str(media_path.resolve()),
+        "preview_media_path": str(prep_preview.resolve()),
+        "media_timing": media_timing,
         "waveform_peaks": waveform_peaks,
         "waveform_peaks_json": waveform_peaks_json,
     }
@@ -1061,7 +1447,9 @@ def start_transcribe_job(
     language: str | None = None,
     beam_size: int = 5,
     vad_filter: bool = True,
-    rms_vad_align: bool = True,
+    rms_vad_align: bool = False,
+    whisper_audio_path: Path | None = None,
+    media_timing_contract: dict[str, Any] | None = None,
 ) -> TranscribeJobStatus:
     global _transcribe_thread
 
@@ -1092,6 +1480,8 @@ def start_transcribe_job(
                     vad_filter=vad_filter,
                     rms_vad_align=rms_vad_align,
                     job_dir=job_dir,
+                    whisper_audio_path=whisper_audio_path,
+                    media_timing_contract=media_timing_contract,
                 )
             except Exception as exc:
                 _set_transcribe_job("failed", 0.0, error=str(exc))

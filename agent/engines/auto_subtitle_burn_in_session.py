@@ -21,6 +21,7 @@ from engines.auto_subtitle_export import (
     probe_video_dimensions,
 )
 from engines.auto_subtitle_formats import normalize_cut_ranges
+from engines.auto_subtitle_media_probe import parse_ntsc_fps_fraction, probe_media_timing
 
 _session_lock = threading.RLock()
 _sessions: dict[str, "BurnInSession"] = {}
@@ -37,6 +38,7 @@ class BurnInSession:
     render_w: int
     render_h: int
     duration_sec: float
+    export_fps: float = 30.0
     frame_meta: dict[int, dict[str, float]] = field(default_factory=dict)
 
 
@@ -47,6 +49,10 @@ def create_session(video_path: Path) -> BurnInSession:
         raise FileNotFoundError(f"영상 파일을 찾을 수 없습니다: {media}")
     full_w, full_h, dur = probe_video_dimensions(media)
     render_w, render_h = get_subtitle_render_dimensions(full_w, full_h)
+    probe = probe_media_timing(media)
+    export_fps = parse_ntsc_fps_fraction(
+        str(probe.get("target_ntsc_fps") or "") if probe.get("ok") else None
+    )
     job_id = uuid.uuid4().hex[:12]
     job_dir = auto_subtitle.WORKSPACE_ROOT / f"burn-{job_id}"
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -61,6 +67,7 @@ def create_session(video_path: Path) -> BurnInSession:
         render_w=render_w,
         render_h=render_h,
         duration_sec=dur,
+        export_fps=export_fps,
     )
     with _session_lock:
         _sessions[job_id] = sess
@@ -159,6 +166,7 @@ def _burn_in_worker(
             h264_encoder=encoder,
             watermark_path=watermark_path,
             watermark_position=watermark_position,
+            export_fps=sess.export_fps,
             on_progress=report,
         )
         _set_export_job(

@@ -65,6 +65,7 @@ func ensureRuntimeSitePackagesDir() {
 	}
 
 	if settingsRootPath != "" {
+		grantUsersModifyRecursive(filepath.Join(settingsRootPath, "auto-subtitle"))
 		createMusicRoot := filepath.Join(settingsRootPath, "create-music")
 		ensureDirWritable(createMusicRoot)
 		ensureDirWritable(filepath.Join(createMusicRoot, ".venv-acestep"))

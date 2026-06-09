@@ -5,6 +5,7 @@
 
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { seekWithNudge } from "./html-audio-master-playback.js?v=3";
+import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=3";
 
 const HAVE_FUTURE = HTMLMediaElement.HAVE_FUTURE_DATA;
 const PREFETCH_LEAD_MIN_SEC = 0.28;
@@ -12,6 +13,7 @@ const PREFETCH_LEAD_MAX_SEC = 1.6;
 const PREFETCH_LEAD_RATIO = 0.2;
 const CROSSFADE_SEC = 0.055;
 const LIST_TAIL_SEC = 0.02;
+const LIST_CLIP_END_EPS_SEC = 0.001;
 const AUDIO_SKIP_MIN_MS = 90;
 
 /** Web Audio MediaElementSource — crossOrigin 없으면 CORS 제한으로 무음(zeroes) */
@@ -559,9 +561,15 @@ export class SeamlessPreviewStack {
       void this.prefetchIdleLayer(skipCutRangeAt(next.mediaStart, skip), nextPos);
     }
 
-    if (mediaSec >= cur.mediaEnd - LIST_TAIL_SEC && nextPos < this.clips.length) {
+    if (mediaSec >= cur.mediaEnd - LIST_CLIP_END_EPS_SEC && nextPos < this.clips.length) {
       const next = this.clips[nextPos];
       const gap = next.mediaStart - mediaSec;
+
+      /** inter-cue gap — seek 없이 자연 재생 (꼬리·무음 포함) */
+      if (mediaSec < next.mediaStart - 0.012) {
+        return { ok: true, clipPos: this.clipPos, gapPlayback: true };
+      }
+
       if (gap >= -0.015 && gap < 0.1) {
         this.clipPos = nextPos;
         this.prefetchClipPos = -1;
@@ -578,16 +586,21 @@ export class SeamlessPreviewStack {
         void this.crossfadeToIdleLayer(to);
         return { ok: true, clipPos: this.clipPos, crossfade: true };
       }
+      /** 재정렬·역행 점프만 hard seek */
       if (hadPrefetch || gap < -0.02 || next.mediaStart - cur.mediaEnd < -0.02) {
         void this.hardSwitchToIdleLayer(to);
         return { ok: true, clipPos: this.clipPos, hardSwitch: true };
       }
-      void this.seekLayerPair(this.activeVideo, this.audibleAudio, to);
-      return { ok: true, clipPos: this.clipPos, fallbackSeek: true };
+      this.clipPos = nextPos;
+      return { ok: true, clipPos: this.clipPos, soft: true };
     }
 
     const wall = performance.now();
-    if (wall - this.lastAudioSkipWallMs >= AUDIO_SKIP_MIN_MS) {
+    if (
+      !isSourceVideoPtsTimeline() &&
+      skip.length &&
+      wall - this.lastAudioSkipWallMs >= AUDIO_SKIP_MIN_MS
+    ) {
       const skipped = skipCutRangeAt(mediaSec, skip);
       if (Math.abs(skipped - mediaSec) > 0.025) {
         audio.currentTime = skipped;

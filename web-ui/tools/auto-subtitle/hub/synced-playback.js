@@ -18,7 +18,8 @@ import {
   isListOrderSeamlessPlaybackActive,
   syncListOrderPreviewPlayback,
 } from "./list-order-preview-sync.js?v=7";
-import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=7";
+import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=10";
+import { mapWordTimelineToVideoTime, isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=3";
 
 /** @type {WebAudioMasterPlayback | null} */
 let waEngine = null;
@@ -195,13 +196,30 @@ export function stopSyncedPlayback(video, audio) {
  */
 export function applySkipCutToHtmlAudioIfNeeded(audio, skipRanges) {
   if (!audio || audio.paused || audio.seeking) return false;
+  const skip = skipRanges || [];
+  if (!skip.length) return false;
   const from = audio.currentTime;
-  let t = skipCutRangeAt(from, skipRanges || []);
+  let t = skipCutRangeAt(from, skip);
   if (Number.isFinite(audio.duration) && audio.duration > 0) {
     t = Math.min(t, Math.max(0, audio.duration - 0.001));
   }
   if (Math.abs(t - from) <= 0.001) return false;
   return assignMasterAudioTimelineSecIfNeeded(audio, t);
+}
+
+/**
+ * source_video_pts — audible은 audio SSOT. video는 하이라이트·UI 시계만.
+ * 재생 중 audio pause/seek 하지 않음 (버퍼·VFR 보정 시 무음 구간 발생).
+ */
+function syncAudioFromVideoMaster(video, audio, _opts) {
+  if (!video || !audio || video.paused) return false;
+  if (audio.paused && !video.paused && !video.seeking) {
+    void audio.play().catch(() => undefined);
+  }
+  if (video.paused && !audio.paused) {
+    void video.play().catch(() => undefined);
+  }
+  return true;
 }
 
 /**
@@ -220,16 +238,37 @@ export function syncVideoFromHtmlAudioMaster(video, audio, opts) {
   if (useStackSync && bridge.stack && stackAudible) {
     if (stackAudible.paused) return false;
     if (isListOrderSeamlessPlaybackActive()) {
-      return syncListOrderPreviewPlayback(
-        bridge.video ?? video,
-        stackAudible,
-        opts,
-      );
+      syncListOrderPreviewPlayback(bridge.video ?? video, stackAudible, opts);
+      if (isSourceVideoPtsTimeline()) {
+        syncAudioFromVideoMaster(bridge.video ?? video, stackAudible, opts);
+      }
+      return true;
     }
     audio = stackAudible;
     video = bridge.video ?? video;
   } else if (audio.paused) {
     return false;
+  }
+
+  if (isSourceVideoPtsTimeline()) {
+    if (video.seeking || audio.seeking) return true;
+    if (audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (!video.paused) video.pause();
+      return true;
+    }
+    if (video.paused && !audio.paused) {
+      void video.play().catch(() => undefined);
+    }
+    applySkipCutToHtmlAudioIfNeeded(audio, opts.skipRanges || []);
+    const mediaSec = audio.currentTime;
+    const wall = performance.now();
+    if (wall - lastVideoSyncWallMs < VIDEO_SYNC_MIN_INTERVAL_MS) return true;
+    if (Math.abs(video.currentTime - mediaSec) > VIDEO_SYNC_EPS_SEC) {
+      video.currentTime = mediaSec;
+      lastVideoSyncWallMs = wall;
+    }
+    syncAudioFromVideoMaster(video, audio, opts);
+    return true;
   }
 
   if (video.seeking || audio.seeking) return true;
@@ -244,8 +283,11 @@ export function syncVideoFromHtmlAudioMaster(video, audio, opts) {
   applySkipCutToHtmlAudioIfNeeded(audio, opts.skipRanges || []);
 
   let mediaSec = audio.currentTime;
+  const videoTargetSec = mapWordTimelineToVideoTime(mediaSec);
   if (Number.isFinite(video.duration) && video.duration > 0) {
-    mediaSec = Math.min(mediaSec, Math.max(0, video.duration - 0.001));
+    mediaSec = Math.min(videoTargetSec, Math.max(0, video.duration - 0.001));
+  } else {
+    mediaSec = videoTargetSec;
   }
 
   const wall = performance.now();
@@ -273,12 +315,32 @@ export function readHtmlAudioMasterPlayhead(audio, opts) {
 
   if (useStackClock && bridge.stack) {
     const audible = bridge.audio;
-    const mediaSec = bridge.getMasterPlayheadSec();
+    let mediaSec = bridge.getMasterPlayheadSec();
+    if (mediaSec == null && isSourceVideoPtsTimeline() && bridge.video) {
+      mediaSec = bridge.video.currentTime;
+    }
     const active = Boolean(
       (audible && !audible.paused) ||
         (bridge.video && !bridge.video.paused),
     );
     return { active, mediaSec };
+  }
+
+  if (isSourceVideoPtsTimeline()) {
+    if (
+      !audio.paused &&
+      audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+      let t = audio.currentTime;
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        t = Math.min(t, Math.max(0, audio.duration - 0.001));
+      }
+      return { active: true, mediaSec: t };
+    }
+    const video = getPreviewMediaBridge().video;
+    if (video && !video.paused && Number.isFinite(video.currentTime)) {
+      return { active: true, mediaSec: video.currentTime };
+    }
   }
 
   if (audio.paused) {

@@ -5,7 +5,6 @@
 import { WaveformContextEditor } from "./waveform-context-editor.js";
 import {
   computeWordContextForCue,
-  computeWordContextWindow,
   waveformContextWordEntries,
 } from "./line-zoom-window.js";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js";
@@ -35,6 +34,9 @@ const MIN_SPLIT_SEC = 0.02;
 const MIN_TRIM_SPAN_SEC = 0.038;
 const CUT_EPS = 1e-4;
 const CUT_SNAP_MS = 220;
+/** 재생 직후 Space 일시정지 무시 (캐럿 Space 가드와 동일) */
+const WAVEFORM_PLAY_START_GUARD_MS = 600;
+let lastWaveformPlayStartMs = 0;
 
 /** @type {Map<string, number>} activeWordId → 사용자가 잡은 cutSec */
 const cutSecByWordId = new Map();
@@ -286,7 +288,7 @@ export class LineWaveformPanel {
     }
 
     const dur = metrics.durationSec;
-    const ctxWin = computeWordContextForCue(cue, this.focusWordIndex, dur);
+    const ctxWin = computeWordContextForCue(cues, this.cueIndex, this.focusWordIndex, dur);
     if (!ctxWin) {
       this.root.innerHTML = `<p class="subwave-meta">줌 구간을 계산할 수 없습니다.</p>`;
       return;
@@ -384,10 +386,7 @@ export class LineWaveformPanel {
         if (!this.deps.isWaveformPanelActive?.()) return;
         if (shouldDeferWaveformSpaceToCaret()) return;
         e.preventDefault();
-        if (this.deps.isPlaying?.()) {
-          this.deps.onPausePlayback?.();
-          return;
-        }
+        if (this._pauseWaveformPlaybackIfAllowed()) return;
         this._togglePlayFromCut();
       }
     });
@@ -587,18 +586,13 @@ export class LineWaveformPanel {
       this._stage1WordId = activeWordId;
     }
 
-    const { visible, storageIdx } = waveformContextWordEntries(cue);
-    const visIdx = storageIdx.indexOf(this.focusWordIndex);
-    if (visIdx < 0) return false;
-
     const durHint = this.deps.getMediaDurationSec?.() ?? null;
     const metrics = peaksMetricsForPanel(peaks, durHint);
     const dur = metrics?.durationSec ?? durHint ?? 0;
     if (!(dur > 0)) return false;
 
-    const ctxWin = computeWordContextWindow(visible, visIdx, 0, 0, {
-      mediaDurationSec: dur,
-    });
+    const cues = this.deps.getCues?.() ?? [];
+    const ctxWin = computeWordContextForCue(cues, this.cueIndex, this.focusWordIndex, dur);
     if (!ctxWin) return false;
 
     const skips = this.deps.getPlaybackSkipRanges?.() || [];
@@ -955,10 +949,18 @@ export class LineWaveformPanel {
     this._togglePlayFromCut();
   }
 
+  _pauseWaveformPlaybackIfAllowed() {
+    if (!this.deps.isPlaying?.()) return false;
+    const elapsed = performance.now() - lastWaveformPlayStartMs;
+    if (elapsed < WAVEFORM_PLAY_START_GUARD_MS) return true;
+    this.deps.onPausePlayback?.();
+    return true;
+  }
+
   _togglePlayFromCut() {
     if (!this.editRange || this.cutSec == null) return;
     if (this.deps.isPlaying?.()) {
-      this.deps.onPausePlayback?.();
+      this._pauseWaveformPlaybackIfAllowed();
       return;
     }
     const s = Math.min(this.editRange.start, this.editRange.end);
@@ -979,6 +981,7 @@ export class LineWaveformPanel {
     }
     if (startT >= e - 0.05) startT = s;
     const clamped = Math.min(e - CUT_EPS, Math.max(s + CUT_EPS, startT));
+    lastWaveformPlayStartMs = performance.now();
     this.beginRangePlay(clamped);
     this.deps.onPlayEditRange?.(clamped, e);
   }
@@ -1039,10 +1042,7 @@ export class LineWaveformPanel {
       }
       e.preventDefault();
       e.stopPropagation();
-      if (this.deps.isPlaying?.()) {
-        this.deps.onPausePlayback?.();
-        return;
-      }
+      if (this._pauseWaveformPlaybackIfAllowed()) return;
       this._togglePlayFromCut();
     };
     document.addEventListener("keydown", this._boundKeydown, { capture: true });

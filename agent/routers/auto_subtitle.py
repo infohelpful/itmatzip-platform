@@ -82,8 +82,16 @@ class AutoSubtitleTranscribeBody(BaseModel):
     beam_size: int = Field(5, ge=1, le=20)
     vad_filter: bool = True
     rms_vad_align: bool = Field(
-        True,
-        description="전사 후 PCM RMS/VAD 단어 타임스탬프 정렬 (AutoSubtitle 기본)",
+        False,
+        description="전사 후 PCM RMS/VAD 단어 타임스탬프 정렬 (기본 off — Whisper word SSOT)",
+    )
+    whisper_audio_path: str | None = Field(
+        None,
+        description="Go PreprocessAudioForWhisper 출력 WAV (MediaTimingContract 2.0)",
+    )
+    media_timing_contract: dict[str, Any] | None = Field(
+        None,
+        description="Go MediaTimingContract — word time scale/offset 금지, pass-through",
     )
 
 
@@ -100,6 +108,8 @@ class AutoSubtitleTranscribeStatus(BaseModel):
     cues_json_path: str | None = None
     waveform_peaks: dict[str, Any] | None = None
     waveform_peaks_json: dict[str, Any] | None = None
+    media_timing: dict[str, Any] | None = None
+    preview_media_path: str | None = None
 
 
 class CutRangeModel(BaseModel):
@@ -174,6 +184,10 @@ class AutoSubtitleWaveformPeaksBody(BaseModel):
     timeout_sec: float = Field(900.0, ge=10.0, le=3600.0)
     pixels_per_second: float = Field(80.0, ge=1.0, le=800.0)
     max_waveform_width: int = Field(34000, ge=400, le=40000)
+
+
+class AutoSubtitleMediaProbeBody(BaseModel):
+    video_path: str = Field(..., description="로컬 미디어 절대 경로")
 
 
 class AutoSubtitleProjectSaveBody(BaseModel):
@@ -442,6 +456,8 @@ def _transcribe_status_payload(job: auto_subtitle.TranscribeJobStatus) -> AutoSu
         cues_json_path=result.get("cues_json_path"),
         waveform_peaks=result.get("waveform_peaks") if job.phase == "completed" else None,
         waveform_peaks_json=result.get("waveform_peaks_json") if job.phase == "completed" else None,
+        media_timing=result.get("media_timing") if job.phase == "completed" else None,
+        preview_media_path=result.get("preview_media_path") if job.phase == "completed" else None,
     )
 
 
@@ -702,6 +718,14 @@ def post_transcribe(
 
     media = _validate_media_path(body.video_path)
     lang = body.language.strip() if body.language and body.language.strip() else None
+    whisper_audio: Path | None = None
+    if body.whisper_audio_path and str(body.whisper_audio_path).strip():
+        whisper_audio = _validate_media_path(body.whisper_audio_path)
+    contract = body.media_timing_contract if isinstance(body.media_timing_contract, dict) else None
+    if contract and whisper_audio is None:
+        raw_wav = str(contract.get("whisper_audio_path") or "").strip()
+        if raw_wav:
+            whisper_audio = _validate_media_path(raw_wav)
 
     try:
         job = auto_subtitle.start_transcribe_job(
@@ -710,6 +734,8 @@ def post_transcribe(
             beam_size=body.beam_size,
             vad_filter=body.vad_filter,
             rms_vad_align=body.rms_vad_align,
+            whisper_audio_path=whisper_audio,
+            media_timing_contract=contract,
         )
     except RuntimeError as exc:
         msg = str(exc)
@@ -868,6 +894,26 @@ async def post_export_srt_legacy(
         format="srt",
         download_hint=f"/api/tools/auto-subtitle/download?file_path={out}",
     )
+
+
+@router.post("/media/probe")
+async def post_media_probe(
+    body: AutoSubtitleMediaProbeBody,
+    _: AutoSubtitleFfmpeg,
+) -> dict[str, Any]:
+    """ffprobe A/V duration·fps — 재생 word clock 보정용."""
+    media = _validate_media_path(body.video_path)
+    from engines.auto_subtitle_media_probe import probe_media_timing
+
+    try:
+        return await run_sync(lambda: probe_media_timing(media, unify_ssot=True))
+    except Exception as exc:
+        logger.exception("media/probe failed for %s", media)
+        return {
+            "ok": False,
+            "source_path": str(media),
+            "error": str(exc),
+        }
 
 
 @router.get("/media/stream")

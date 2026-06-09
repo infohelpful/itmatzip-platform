@@ -3,7 +3,7 @@
  */
 
 import { getCueWords } from "./subtitle-words.js";
-import { wordIsDeleted } from "./shared/subtitles.js";
+import { lineIsSilenceOnlyCue, wordIsDeleted } from "./shared/subtitles.js";
 
 /**
  * 파형 컨텍스트용 가시 단어 — 삭제만 제외, 무음(`--`) 포함 (Electron `activeWords` 와 동일).
@@ -23,6 +23,38 @@ export function waveformContextWordEntries(cue) {
     storageIdx.push(i);
   }
   return { visible, storageIdx };
+}
+
+/**
+ * @param {readonly object[]} cues
+ * @param {number} cueIndex
+ * @returns {number}
+ */
+function prevNonSilenceCueIndex(cues, cueIndex) {
+  if (!Array.isArray(cues) || cueIndex <= 0) return -1;
+  for (let i = cueIndex - 1; i >= 0; i -= 1) {
+    const c = cues[i];
+    if (!c || lineIsSilenceOnlyCue(c)) continue;
+    const { visible } = waveformContextWordEntries(c);
+    if (visible.length) return i;
+  }
+  return -1;
+}
+
+/**
+ * @param {readonly object[]} cues
+ * @param {number} cueIndex
+ * @returns {number}
+ */
+function nextNonSilenceCueIndex(cues, cueIndex) {
+  if (!Array.isArray(cues) || cueIndex < 0 || cueIndex >= cues.length - 1) return -1;
+  for (let i = cueIndex + 1; i < cues.length; i += 1) {
+    const c = cues[i];
+    if (!c || lineIsSilenceOnlyCue(c)) continue;
+    const { visible } = waveformContextWordEntries(c);
+    if (visible.length) return i;
+  }
+  return -1;
 }
 
 /**
@@ -84,7 +116,7 @@ export function wordChipSlotStyle(win, wordStart, wordEnd) {
  * @param {number} activeWordIndex visible words 배열 기준
  * @param {number} [expandLeft]
  * @param {number} [expandRight]
- * @param {{ mediaDurationSec?: number | null }} [options]
+ * @param {{ mediaDurationSec?: number | null, crossLineBounds?: { prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } } | null }} [options]
  */
 export function computeWordContextWindow(
   words,
@@ -101,8 +133,16 @@ export function computeWordContextWindow(
   const lo = Math.max(0, activeWordIndex - 1 - expL);
   const hi = Math.min(words.length - 1, activeWordIndex + 1 + expR);
 
-  const lineStart = words[lo].start;
-  const lineEnd = words[hi].end;
+  let lineStart = words[lo].start;
+  let lineEnd = words[hi].end;
+
+  const cross = options.crossLineBounds;
+  if (cross?.prevWord && activeWordIndex === 0) {
+    lineStart = Math.min(lineStart, Math.min(cross.prevWord.start, cross.prevWord.end));
+  }
+  if (cross?.nextWord && activeWordIndex === words.length - 1) {
+    lineEnd = Math.max(lineEnd, Math.max(cross.nextWord.start, cross.nextWord.end));
+  }
 
   const dur =
     options.mediaDurationSec != null &&
@@ -129,16 +169,43 @@ export function computeWordContextWindow(
 }
 
 /**
- * @param {import("./subtitle-words.js").SubtitleCue} cue
+ * @param {readonly object[]} cues
+ * @param {number} cueIndex
  * @param {number} storageWordIndex
  * @param {number} [mediaDurationSec]
  */
-export function computeWordContextForCue(cue, storageWordIndex, mediaDurationSec) {
+export function computeWordContextForCue(cues, cueIndex, storageWordIndex, mediaDurationSec) {
+  const cue = Array.isArray(cues) ? cues[cueIndex] : null;
+  if (!cue) return null;
   const { visible, storageIdx } = waveformContextWordEntries(cue);
   const visIdx = storageIdx.indexOf(storageWordIndex);
   if (visIdx < 0) return null;
+
+  /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } } | null} */
+  let crossLineBounds = null;
+  if (Array.isArray(cues) && cues.length > 0 && Number.isFinite(cueIndex)) {
+    /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } }} */
+    const bounds = {};
+    if (visIdx === 0) {
+      const pi = prevNonSilenceCueIndex(cues, cueIndex);
+      if (pi >= 0) {
+        const prevVisible = waveformContextWordEntries(cues[pi]).visible;
+        if (prevVisible.length) bounds.prevWord = prevVisible[prevVisible.length - 1];
+      }
+    }
+    if (visIdx === visible.length - 1) {
+      const ni = nextNonSilenceCueIndex(cues, cueIndex);
+      if (ni >= 0) {
+        const nextVisible = waveformContextWordEntries(cues[ni]).visible;
+        if (nextVisible.length) bounds.nextWord = nextVisible[0];
+      }
+    }
+    if (bounds.prevWord || bounds.nextWord) crossLineBounds = bounds;
+  }
+
   return computeWordContextWindow(visible, visIdx, 0, 0, {
     mediaDurationSec: mediaDurationSec ?? undefined,
+    crossLineBounds,
   });
 }
 

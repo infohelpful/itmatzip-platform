@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import logging
 import os
@@ -181,6 +182,29 @@ def ensure_runtime_tree_acl(tool_id: str) -> None:
             _run_icacls([str(target), "/grant", grant, "/T", "/Q"])
 
 
+def ensure_data_tree_acl(root: Path) -> None:
+    """ProgramData\\itmatzip-agent\\auto-subtitle 등 — SYSTEM/관리자 생성 파일 쓰기 허용."""
+    if os.name != "nt":
+        return
+    try:
+        resolved = root.resolve()
+    except OSError:
+        return
+    if not resolved.exists():
+        return
+
+    grants = [f"{_WIN_USERS_SID}:(OI)(CI)M"]
+    account = _console_account_for_acl()
+    if account:
+        grants.append(f"{account}:(OI)(CI)F")
+
+    if _is_windows_admin() and account:
+        _run_icacls([str(resolved), "/setowner", account, "/T", "/Q"])
+
+    for grant in grants:
+        _run_icacls([str(resolved), "/grant", grant, "/T", "/Q"])
+
+
 def runtime_site_packages_readable(tool_id: str) -> bool:
     """다른 계정/관리자 pip 로 깨진 ACL 조기 감지."""
     if not use_runtime_site_packages():
@@ -289,6 +313,7 @@ def tool_has_module(tool_id: str, module_name: str) -> bool:
     """해당 툴 runtime 에만 설치된 모듈인지 확인 (다른 툴·engine 과 혼동 방지)."""
     if not use_runtime_site_packages():
         return importlib.util.find_spec(module_name) is not None
+    activate_runtime_site_packages(tool_id)
     site = runtime_site_packages_dir(tool_id).resolve()
     spec = importlib.util.find_spec(module_name)
     if spec is None or not spec.origin or spec.origin == "namespace":
@@ -316,7 +341,17 @@ def engine_python_c_prefix(tool_id: str) -> str:
 def verify_importable(tool_id: str, *module_names: str) -> None:
     """pip --target 설치 직후, 해당 툴 runtime 에서 import 가능한지 확인."""
     activate_runtime_site_packages(tool_id)
-    missing = [name for name in module_names if not tool_has_module(tool_id, name)]
+    if not runtime_site_packages_readable(tool_id):
+        ensure_runtime_tree_acl(tool_id)
+    missing: list[str] = []
+    for name in module_names:
+        if not tool_has_module(tool_id, name):
+            missing.append(name)
+            continue
+        try:
+            importlib.import_module(name)
+        except Exception:
+            missing.append(name)
     if missing:
         raise RuntimeError(
             f"{', '.join(missing)} import 실패 — runtime site-packages: "

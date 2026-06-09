@@ -2,7 +2,7 @@
  * 목록 순서 seamless 프리뷰 — 클립 메타 + 스택 tick.
  */
 
-import { getPreviewMediaBridge } from "./seamless-preview-stack.js?v=7";
+import { getPreviewMediaBridge } from "./seamless-preview-stack.js?v=10";
 
 /** @type {import("../shared/timeline-mapping.js").TimelineClip[]} */
 let activeClips = [];

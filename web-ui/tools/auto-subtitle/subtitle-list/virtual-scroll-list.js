@@ -8,9 +8,13 @@ import {
   markLineTextUserEdited,
   reconcileCueWordsToLineText,
 } from "../subtitle-words.js?v=24";
-import { pickActiveCueIndex, pickActiveWordIndex, timeInCueSpan } from "../playback.js?v=28";
+import {
+  pickActiveCueIndex,
+  pickActiveWordIndex,
+  WORD_ONSET_LEAD_SEC,
+} from "../playback.js?v=31";
 import { syncFindHighlightLayerToTextarea } from "../subtitle-find-replace-highlight.js?v=2";
-import { LineWaveformPanel } from "../line-waveform-panel.js?v=6";
+import { LineWaveformPanel } from "../line-waveform-panel.js?v=8";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
   applySubwavePanelLeftPx,
@@ -459,16 +463,9 @@ export function updatePlaybackHighlights(container, cues, opts) {
   let nextChip = null;
   const timeEps = 1e-4;
   for (const c of wordChipCache.chips) {
-    if (t >= c.s - timeEps && t < c.e + timeEps) {
+    if (t >= c.s - WORD_ONSET_LEAD_SEC && t < c.e + timeEps) {
       nextChip = c.el;
       break;
-    }
-  }
-  if (!nextChip && wordChipCache.chips.length > 0 && playingIdx >= 0) {
-    const cue = cues[playingIdx];
-    const first = wordChipCache.chips[0];
-    if (cue && timeInCueSpan(cue, t) && t < first.s + timeEps) {
-      nextChip = first.el;
     }
   }
 

@@ -15,7 +15,7 @@ import {
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
   repairCueLinesWordTimelines,
-} from "../shared/cues-ssot.js?v=34";
+} from "../shared/cues-ssot.js?v=39";
 import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=3";
 import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
@@ -213,7 +213,6 @@ export class SubtitleAppHub {
    * 피크 로드 후 추출 2단계(leading split) 재적용.
    *
    * @param {import("../peaks-metrics.js").PeaksTimelineMetrics} peaksMetrics
-   * @param {{ gapFill?: boolean }} [opts]
    */
   reapplyExtractPostProcessWithPeaks(peaksMetrics) {
     const lines = applyLeadingSilenceSplitOnly(this.cues, peaksMetrics);
@@ -222,7 +221,7 @@ export class SubtitleAppHub {
 
   /**
    * @param {unknown} raw
-   * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null }} [opts]
+   * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null }} [opts]
    */
   ingestFromTranscribe(raw, opts = {}) {
     this.cutRanges = [];
@@ -240,6 +239,7 @@ export class SubtitleAppHub {
       gapFill,
       peaksMetrics: opts.peaksMetrics ?? null,
       whisperDurationSec: whisperDur,
+      mediaTiming: opts.mediaTiming ?? null,
     });
     this.setCues(lines, { recordHistory: false });
   }

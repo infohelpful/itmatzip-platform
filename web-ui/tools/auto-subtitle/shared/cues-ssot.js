@@ -32,17 +32,24 @@ export function normalizeCuesFromAgent(raw) {
 }
 
 /**
- * Whisper 추출 완료 직후 — 피크 무음 분할 → 타임스탬프 구멍 `--` → 정규화 → 타임라인 SSOT.
+ * Whisper 추출 완료 직후 — peaks/Whisper 길이 비율 보정 → 피크 무음 분할 → `--` gap → 타임라인 SSOT.
  *
  * @param {import("./subtitles.js").SubtitleLine[]} lines
- * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null }} [opts]
+ * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null }} [opts]
  */
 export function postProcessCuesAfterTranscribe(lines, opts = {}) {
   const gapFill = opts.gapFill === true;
   let working = pruneInvalidSubtitleWords(lines || []);
 
   const peaksDur = opts.peaksMetrics?.durationSec;
-  const whisperDur = Number(opts.whisperDurationSec);
+  const mt = opts.mediaTiming;
+  const mtDur =
+    mt?.playback_duration_sec ?? mt?.word_timeline_duration_sec ?? mt?.video_duration_sec;
+  const whisperDur = (() => {
+    const fromMt = Number(mtDur);
+    if (Number.isFinite(fromMt) && fromMt > 0) return fromMt;
+    return Number(opts.whisperDurationSec);
+  })();
   if (peaksDur > 0 && whisperDur > 0) {
     const ratio = peaksDur / whisperDur;
     if (Math.abs(ratio - 1) > 0.004) {

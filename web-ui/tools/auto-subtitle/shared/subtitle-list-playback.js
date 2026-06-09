@@ -3,12 +3,44 @@
  */
 
 import { listableCueIndices } from "./subtitle-list-indices.js?v=5";
-import { pickActiveWordIndex } from "../playback.js?v=28";
+import { pickActiveWordIndex } from "../playback.js?v=31";
+import { getCueWords } from "../subtitle-words.js?v=18";
+import { wordVisibleInWordChipRail } from "./subtitles.js?v=28";
 import {
   mapMediaToProgramSec,
   mapProgramToMediaSec,
   programDurationSec,
 } from "./timeline-mapping.js";
+
+const CLIP_END_TAIL_PAD_SEC = 0.2;
+
+/**
+ * @param {object} cue
+ * @param {object | null} [nextCue]
+ * @returns {number}
+ */
+function clipMediaEndForCue(cue, nextCue = null) {
+  const mediaStart = Number(cue.start) || 0;
+  let mediaEnd = Number(cue.end) || mediaStart;
+  const words = getCueWords(cue);
+  for (let i = words.length - 1; i >= 0; i -= 1) {
+    const w = words[i];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const e = Number(w.end);
+    if (Number.isFinite(e)) {
+      mediaEnd = Math.max(mediaEnd, e + CLIP_END_TAIL_PAD_SEC);
+      break;
+    }
+  }
+  /** 꼬리·무음 — 다음 줄 시작까지 재생 (seek 로 gap 건너뛰지 않음) */
+  if (nextCue) {
+    const nextStart = Number(nextCue.start);
+    if (Number.isFinite(nextStart) && nextStart > mediaEnd + 1e-5) {
+      mediaEnd = nextStart;
+    }
+  }
+  return mediaEnd;
+}
 
 let cacheVersion = 0;
 let cacheBuiltForVersion = -1;
@@ -49,11 +81,14 @@ export function buildListOrderTimelineClips(cues) {
   const clips = [];
   let editCursor = 0;
   let id = 1;
-  for (const idx of indices) {
+  for (let i = 0; i < indices.length; i += 1) {
+    const idx = indices[i];
     const cue = cues[idx];
     if (!cue) continue;
+    const nextIdx = i + 1 < indices.length ? indices[i + 1] : -1;
+    const nextCue = nextIdx >= 0 ? cues[nextIdx] : null;
     const mediaStart = Number(cue.start) || 0;
-    const mediaEnd = Number(cue.end) || mediaStart;
+    const mediaEnd = clipMediaEndForCue(cue, nextCue);
     if (mediaEnd <= mediaStart + 1e-5) continue;
     const dur = mediaEnd - mediaStart;
     const editStart = editCursor;
@@ -166,9 +201,8 @@ export function resolveListClipIndexFromMedia(
     const cur = clips[prefer];
     if (cur && inClip(cur)) return prefer;
     if (prefer + 1 < clips.length && inClip(clips[prefer + 1])) return prefer + 1;
-    if (cur && t >= cur.mediaEnd - 0.04 && prefer + 1 < clips.length) {
-      return prefer + 1;
-    }
+    const next = prefer + 1 < clips.length ? clips[prefer + 1] : null;
+    if (cur && next && t >= next.mediaStart - 0.012) return prefer + 1;
     return prefer;
   }
 
