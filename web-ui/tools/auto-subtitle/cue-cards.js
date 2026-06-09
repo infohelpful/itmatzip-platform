@@ -16,7 +16,7 @@ export {
   resetPlaybackHighlightCache,
   patchSelectedCueHighlight,
   requestFocusCaret,
-} from "./subtitle-list/virtual-scroll-list.js?v=70";
+} from "./subtitle-list/virtual-scroll-list.js?v=71";
 export {
   requestFocusCaretDeferred,
   syncPlaybackCaretVisibility,

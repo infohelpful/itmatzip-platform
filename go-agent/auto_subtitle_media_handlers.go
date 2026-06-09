@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,6 +17,7 @@ import (
 func mountAutoSubtitleMediaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/tools/auto-subtitle/media/probe", handleAutoSubtitleMediaProbe)
 	mux.HandleFunc("/api/tools/auto-subtitle/media/prepare-for-whisper", handleAutoSubtitlePrepareForWhisper)
+	mux.HandleFunc("/api/tools/auto-subtitle/media/prepare-preview", handleAutoSubtitlePreparePreview)
 	mux.HandleFunc("/api/tools/auto-subtitle/export/plain-burn-in", handleAutoSubtitlePlainBurnIn) // deprecated: use Python V41 export
 }
 
@@ -131,6 +135,96 @@ func handleAutoSubtitlePrepareForWhisper(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, contract)
+}
+
+func handleAutoSubtitlePreparePreview(w http.ResponseWriter, r *http.Request) {
+	var body mediaPathBody
+	if !readJSONBody(w, r, &body) {
+		return
+	}
+	mediaPath, err := validateReadableMediaPath(body.VideoPath)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    false,
+			"error": "file not found: " + strings.TrimSpace(body.VideoPath),
+		})
+		return
+	}
+
+	agentDir, ok := resolveAgentDir()
+	if !ok {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"ok":    false,
+			"error": "agent directory not found",
+		})
+		return
+	}
+
+	pythonPath := resolveFastAPIPython(agentDir)
+	pathJSON, _ := json.Marshal(mediaPath)
+	agentJSON, _ := json.Marshal(agentDir)
+	script := fmt.Sprintf(
+		"import json, sys; sys.path.insert(0, %s); from pathlib import Path; from engines.auto_subtitle import build_preview_media_ssot; print(json.dumps(build_preview_media_ssot(Path(%s)), ensure_ascii=False))",
+		string(agentJSON),
+		string(pathJSON),
+	)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, pythonPath, "-c", script)
+	cmd.Dir = agentDir
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("ITMATZIP_AGENT_DIR=%s", agentDir),
+		fmt.Sprintf("PYTHONPATH=%s", prependPathEnv(os.Getenv("PYTHONPATH"), agentDir)),
+		"PYTHONNOUSERSITE=1",
+	)
+	hideExec(cmd)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		tail := strings.TrimSpace(stderr.String())
+		if tail == "" {
+			tail = strings.TrimSpace(string(out))
+		}
+		if len(tail) > 2000 {
+			tail = tail[len(tail)-2000:]
+		}
+		log.Printf("prepare-preview python failed: %v: %s", err, tail)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":          false,
+			"error":       tail,
+			"source_path": mediaPath,
+		})
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var payload map[string]any
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		if json.Unmarshal([]byte(line), &payload) == nil {
+			break
+		}
+	}
+	if payload == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":    false,
+			"error": "invalid python response",
+			"raw":   string(out),
+		})
+		return
+	}
+
+	status := http.StatusOK
+	if okVal, _ := payload["ok"].(bool); !okVal {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, payload)
 }
 
 func handleAutoSubtitlePlainBurnIn(w http.ResponseWriter, r *http.Request) {

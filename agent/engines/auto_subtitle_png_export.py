@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.bin_manager import get_ffmpeg_executable
+from common.ffmpeg_filter import filter_complex_argv
 from common.subprocess_util import no_window_creationflags
 
 ExportProgressCallback = Callable[[float, str], None]
@@ -213,7 +214,7 @@ def _phase1_transparent_subtitle_video(
         ]
         for pp in png_paths:
             argv_head.extend(["-loop", "1", "-i", pp])
-        argv_mid = ["-filter_complex_script", script_path, "-map", "[vout]", "-an"]
+        argv_mid = [*filter_complex_argv(ffmpeg_exe, script_body, script_path=Path(script_path)), "-map", "[vout]", "-an"]
 
         # 1) prores_ks (힌트 False면 스킵, 그 외에는 힌트·인코더 목록에 따라 시도)
         if _encoder_attempt_allowed(hint_prores, enc_out, "prores_ks"):
@@ -274,8 +275,7 @@ def _phase1_transparent_subtitle_video(
         pattern = os.path.join(seq_dir, "sub_%06d.png")
         argv_png = [
             *argv_head,
-            "-filter_complex_script",
-            script_path,
+            *filter_complex_argv(ffmpeg_exe, script_fps, script_path=Path(script_path)),
             "-map",
             "[vfps]",
             "-an",

@@ -3,7 +3,7 @@
  */
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
-import { buildOverlayCaptureSchedule } from "../shared/overlay-capture-schedule.js?v=1";
+import { buildOverlayCaptureSchedule } from "../shared/overlay-capture-schedule.js?v=2";
 import { bindExportStyleVideoNative } from "../shared/export-render-scale.js?v=1";
 import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=5";
 
@@ -146,6 +146,8 @@ async function finishBurnIn(toolPrefix, jobId, cutRanges, watermark) {
  * @param {number} [opts.actualDuration]
  * @param {{ path?: string, position?: string } | null | undefined} [opts.watermark]
  * @param {(patch: { progress?: number, step?: string, message?: string }) => void} [opts.onUiProgress]
+ * @param {readonly object[]} [opts.blocks]
+ * @param {readonly object[]} [opts.virtualIndex]
  */
 export async function runVideoBurnInExport({
   toolPrefix,
@@ -158,6 +160,8 @@ export async function runVideoBurnInExport({
   actualDuration,
   watermark,
   onUiProgress,
+  blocks,
+  virtualIndex,
 }) {
   const stitched =
     requiresConcat === true || exportTimeAxis === "stitched_program";
@@ -165,6 +169,8 @@ export async function runVideoBurnInExport({
     requiresConcat: stitched,
     cutRanges: stitched ? [] : cutRanges,
     actualDuration: stitched ? actualDuration : undefined,
+    blocks,
+    virtualIndex,
   });
   if (!schedule.length) throw new Error("보낼 자막이 없습니다.");
 

@@ -12,6 +12,7 @@ import {
   wordMergedByEdgeTrim,
 } from "./subtitles.js?v=28";
 import { mergeCutRanges, snapTimelineSec } from "./timeline-collapse.js";
+import { USE_BLOCK_DURATION_SHRINK } from "../timeline/playback-policy.js";
 
 const DELETE_RANGE_MIN_SEC = 1e-5;
 
@@ -136,6 +137,7 @@ export function cutRangesFromDeletedBlocks(blocks) {
  */
 export function tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts) {
   void mergedCuts;
+  if (USE_BLOCK_DURATION_SHRINK) return [];
   /** @type {VirtualTimelineBlock[]} */
   const blocks = [];
   for (let li = 0; li < (lines || []).length; li += 1) {
@@ -175,9 +177,9 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts) {
  * @param {readonly VirtualTimelineBlock[]} deletedMediaBlocks
  */
 export function mergeWaveformPeaksStitchCutRanges(mergedCuts, lines, deletedMediaBlocks) {
-  const fromWords = cutRangesFromDeletedBlocks(
-    tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts),
-  );
+  const fromWords = USE_BLOCK_DURATION_SHRINK
+    ? collectDeletedWordSkipRangesFromLines(lines)
+    : cutRangesFromDeletedBlocks(tombstoneBlocksFromSoftDeletedSubtitleWords(lines, mergedCuts));
   const fromVirtual = cutRangesFromDeletedBlocks(
     (deletedMediaBlocks || []).filter((b) => b.isDeleted),
   );

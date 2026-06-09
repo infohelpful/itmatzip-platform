@@ -43,7 +43,7 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=76";
+} from "./cue-cards.js?v=77";
 import {
   handleGlobalArrowKey,
   isWordCaretKeyboardFocus,
@@ -75,25 +75,28 @@ import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
 import {
   pickActiveCueIndex,
   pickActiveCueIndexWithHint,
+  pickActiveCueIndexWithBlockVirtual,
   pickActiveWordIndex,
   pickActiveWordIndexForHighlight,
   pickActiveWordIndexWithHintForHighlight,
+  resolveBlockVirtualSecFromMedia,
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=32";
+} from "./playback.js?v=34";
+import { USE_BLOCK_VIRTUAL_HIGHLIGHT } from "./timeline/playback-policy.js";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=26";
+} from "./export/export-client.js?v=27";
 import { isRelocated, sourceSecToVirtualSec } from "./shared/dual-axis.js?v=1";
 import {
   burnInConsoleLog,
   isVideoBurnInNotFoundError,
   runVideoBurnInExport,
-} from "./export/video-burn-in-client.js?v=12";
+} from "./export/video-burn-in-client.js?v=13";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -108,17 +111,18 @@ import {
   isSourceVideoPtsTimeline,
   mapVideoTimeToWordTimeline,
   mapWordTimelineToVideoTime,
+  restoreSessionPreviewMediaPathFromStorage,
   resolveWordTimelineClockSec,
   setSessionMediaTiming,
   setSessionPreviewMediaPath,
-} from "./shared/media-timing-ssot.js?v=4";
+} from "./shared/media-timing-ssot.js?v=5";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
   buildSubtitleOverlayInnerStyle,
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
-import { SubtitleAppHub } from "./hub/app-hub.js?v=25";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=32";
 import {
   runWordAutoAlign,
   isKoreanLanguageSelected,
@@ -147,7 +151,7 @@ import {
   deleteWordRangeAt,
   deleteSubtitleLinesAt,
   reorderSubtitleLinesByListInsert,
-} from "./shared/subtitle-edit-actions.js?v=27";
+} from "./shared/subtitle-edit-actions.js?v=30";
 import { listableCueIndices } from "./shared/subtitle-list-indices.js?v=5";
 import {
   bumpListableCueIndicesCache,
@@ -611,7 +615,15 @@ function syncHubFromState() {
   updateUndoRedoButtons();
   updateActionButtons();
   rebuildPlaybackSync();
+  refreshListOrderPreviewIfActive();
   if (subtitleList) refreshExpandedPanelSkipRanges(subtitleList);
+}
+
+function refreshListOrderPreviewIfActive() {
+  if (!listPreviewBundle?.clips?.length) return;
+  const hint = getMediaDurationSecHint() ?? 0;
+  listPreviewBundle = createListOrderPreviewMapping(lastCues, hint);
+  setListOrderPreviewTimeline(listPreviewBundle);
 }
 
 function rebuildPlaybackSync() {
@@ -1234,6 +1246,70 @@ async function ensureAgentFfmpegReady() {
   return agentFfmpegEnsurePromise;
 }
 
+/** CFR preview media — prepare-preview API (VFR→CFR·A/V remux, 캐시 재사용). */
+async function ensureSessionPreviewMediaPath(opts = {}) {
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+  let preview = getSessionPreviewMediaPath();
+  if (preview) return preview;
+
+  const videoPath = videoPathInput?.value?.trim() || sessionVideoPath || "";
+  if (!videoPath) return null;
+
+  if (!agentConnected) {
+    setSessionPreviewMediaPath(videoPath);
+    return videoPath;
+  }
+
+  await ensureAgentFfmpegReady();
+  onProgress?.({
+    step: "CFR 미디어 준비",
+    message: "A/V 정규화·CFR 변환… (캐시 있으면 즉시 완료)",
+    progress: 5,
+  });
+
+    try {
+      const data = await requestAgent({
+        path: `${TOOL_PREFIX}/media/prepare-preview`,
+        method: "POST",
+        json: { video_path: videoPath },
+      });
+      if (data?.ok && data.preview_media_path) {
+        setSessionPreviewMediaPath(data.preview_media_path);
+        if (data.media_timing) {
+          setSessionMediaTiming(data.media_timing);
+          const audioDur = getAudioTimelineDurationSec();
+          if (audioDur) sessionMediaDurationSec = audioDur;
+        }
+        logMediaTimingAvSnapshot("prepare-preview", data.media_timing || data, {
+          normalized: data.normalized,
+          actions: data.actions,
+        });
+        return String(data.preview_media_path).trim();
+      }
+      mediaTimingDiagWarn("prepare-preview failed", data?.error || data);
+    } catch (err) {
+      const msg = String(err instanceof Error ? err.message : err || "");
+      if (/404|not found/i.test(msg)) {
+        mediaTimingDiagWarn(
+          "prepare-preview 404 — go-agent 재빌드·재시작 또는 ITMATZIP_AGENT_DIR 확인",
+          msg,
+        );
+      } else {
+        mediaTimingDiagWarn("prepare-preview request failed", err);
+      }
+    }
+
+  const probe = await refreshSessionMediaTimingFromAgent(videoPath);
+  preview = getSessionPreviewMediaPath();
+  if (preview) return preview;
+  if (probe?.ok && !probe.needs_vfr_normalize && !probe.vfr_suspected) {
+    preview = String(probe.source_path || videoPath).trim() || videoPath;
+    setSessionPreviewMediaPath(preview);
+    return preview;
+  }
+  return null;
+}
+
 /** @param {string} filePath */
 async function refreshSessionMediaTimingFromAgent(filePath) {
   const p = String(filePath || "").trim();
@@ -1249,6 +1325,14 @@ async function refreshSessionMediaTimingFromAgent(filePath) {
       setSessionMediaTiming(data);
       const audioDur = getAudioTimelineDurationSec();
       if (audioDur) sessionMediaDurationSec = audioDur;
+      if (!getSessionPreviewMediaPath()) {
+        const fromProbe = String(data.preview_media_path || "").trim();
+        if (fromProbe) {
+          setSessionPreviewMediaPath(fromProbe);
+        } else if (!data.needs_vfr_normalize && !data.vfr_suspected) {
+          setSessionPreviewMediaPath(String(data.source_path || p).trim() || p);
+        }
+      }
       logMediaTimingAvSnapshot("probe", data);
     } else {
       mediaTimingDiagWarn("probe failed", data?.error || data);
@@ -1633,6 +1717,13 @@ function computeHighlightLookupT(cue, ctx) {
       : mediaT;
     return { lookupT, lookupAxis: "listMediaVirtual" };
   }
+  if (ctx.blockVirtualHighlight) {
+    const mediaT = Number(ctx.mediaSec);
+    return {
+      lookupT: Number.isFinite(mediaT) ? mediaT : Number(ctx.playheadSec) || 0,
+      lookupAxis: "mediaClock",
+    };
+  }
   return { lookupT: Number(ctx.playheadSec) || 0, lookupAxis: "cueClock" };
 }
 
@@ -1772,6 +1863,10 @@ function resolvePlaybackIndices(t, ctx = {}) {
   const listOrder = Boolean(
     useListIndexPlayback() && listPreviewBundle?.clips?.length,
   );
+  const blockVirtualHighlight =
+    USE_BLOCK_VIRTUAL_HIGHLIGHT &&
+    !listOrder &&
+    subtitleHub._virtualIndex?.length > 0;
 
   let ai = -1;
   if (listOrder) {
@@ -1782,6 +1877,21 @@ function resolvePlaybackIndices(t, ctx = {}) {
         ? listPlaybackClipPos
         : getListOrderPreviewClipPos();
     ai = cueIndexForClipIndex(clips, lastCues, clipPos);
+  } else if (blockVirtualHighlight) {
+    const skipRanges = subtitleHub.getPlaybackSkipRanges();
+    const virtualSec = resolveBlockVirtualSecFromMedia(
+      mediaSec,
+      subtitleHub.blocks,
+      subtitleHub._virtualIndex,
+      skipRanges,
+    );
+    ai = pickActiveCueIndexWithBlockVirtual(
+      lastCues,
+      subtitleHub.blocks,
+      subtitleHub._virtualIndex,
+      virtualSec,
+      lastPlaybackCueIndex,
+    );
   } else {
     const cueClock = isPreviewMediaPlaying() ? t : mediaSec;
     ai = pickActiveCueIndexWithHint(lastCues, cueClock, lastPlaybackCueIndex);
@@ -1792,7 +1902,11 @@ function resolvePlaybackIndices(t, ctx = {}) {
       ai: -1,
       wi: -1,
       lookupT: Number(t) || 0,
-      lookupAxis: listOrder ? "listMediaVirtual" : "cueClock",
+      lookupAxis: listOrder
+        ? "listMediaVirtual"
+        : blockVirtualHighlight
+          ? "mediaClock"
+          : "cueClock",
     };
   }
 
@@ -1802,6 +1916,7 @@ function resolvePlaybackIndices(t, ctx = {}) {
     playheadSec: t,
     mediaSec,
     listOrder,
+    blockVirtualHighlight,
   });
   const wi = resolveActiveWordIndexForCue(cue, ai, {
     lookupT,
@@ -2909,10 +3024,6 @@ function hidePreviewMediaLoadingModal() {
   if (previewMediaLoadingTrack) previewMediaLoadingTrack.hidden = false;
 }
 
-/**
- * @param {boolean} active
- * @param {{ title?: string, step?: string, message?: string, showOk?: boolean }} [opts]
- */
 function setPreviewMediaLoading(active, { title, step, message, showOk = false } = {}) {
   if (!previewMediaLoading) return;
   if (!active) {
@@ -2935,6 +3046,22 @@ function setPreviewMediaLoading(active, { title, step, message, showOk = false }
     }
     syncInAppBusyShell();
   }
+}
+
+/** 모달 DOM 반영 후 무거운 동기 작업 실행 (프로젝트 불러오기 등). */
+function yieldToUiPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
+
+async function beginProjectLoadUi(step, message) {
+  setPreviewMediaLoading(true, {
+    title: "프로젝트 불러오기",
+    step: step || "불러오기",
+    message: message || "처리 중…",
+  });
+  await yieldToUiPaint();
 }
 
 function setSetupLoading(active, { title, step, message, progress } = {}) {
@@ -3309,6 +3436,8 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     getCues: () => lastCues,
     getPlaybackSkipRanges: () => subtitleHub.getPlaybackSkipRanges(),
     formatTimeFull: formatTime,
+    getVirtualIndexForCue: (cueIndex) => subtitleHub.getVirtualIndexForBlock(cueIndex),
+    getBlockDurationForCue: (cueIndex) => subtitleHub.blocks[cueIndex]?.duration,
     ensurePeaksLoad: () => loadWaveformPeaks(),
     onCardNavigate: (sec) => {
       if (getPv() && Number.isFinite(sec)) {
@@ -3453,11 +3582,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       );
       if (reorderResult && reorderResult.ok === false) {
         subtitleLineDragActive = false;
-        alert(
-          reorderResult.reason === "duration_overflow"
-            ? "이 위치로 옮기면 자막 길이가 허용 구간을 초과합니다."
-            : "자막 순서를 변경할 수 없습니다.",
-        );
+        alert("자막 순서를 변경할 수 없습니다.");
         renderCuesTable(lastCues);
         return;
       }
@@ -3720,9 +3845,16 @@ async function loadWaveformPeaks() {
 }
 
 async function applyLoadedProject(res) {
+  const videoPath = res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "";
+  const hasVideo = !!String(videoPath || "").trim();
+
+  await beginProjectLoadUi(
+    hasVideo ? "프로젝트 적용" : "불러오기",
+    hasVideo ? "자막·타임라인 복원 중…" : "프로젝트 데이터 적용 중…",
+  );
+
   resetEditorSessionForProjectLoad();
 
-  const videoPath = res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "";
   const project = res?.project;
   const cues =
     (Array.isArray(project?.subtitles) && project.subtitles) ||
@@ -3747,11 +3879,35 @@ async function applyLoadedProject(res) {
     } catch {
       /* ignore */
     }
-    updatePreview(videoPath);
   }
-  subtitleHub.ingestFromProject(Array.isArray(cues) ? cues : [], {
-    cutRanges: Array.isArray(cuts) ? cuts : [],
-  });
+  const projectPayload =
+    project && typeof project === "object"
+      ? {
+          ...project,
+          version: project.version ?? res?.normalized?.version,
+          blocks:
+            (Array.isArray(project.blocks) && project.blocks.length
+              ? project.blocks
+              : null) ??
+            (Array.isArray(res?.normalized?.blocks) ? res.normalized.blocks : undefined),
+          hardDeletedMediaSkips:
+            project.hardDeletedMediaSkips ??
+            res?.normalized?.hard_deleted_media_skips ??
+            [],
+        }
+      : null;
+  if (
+    projectPayload &&
+    (Number(projectPayload.version) >= 2 || Array.isArray(projectPayload.blocks))
+  ) {
+    subtitleHub.ingestFromProject(projectPayload, {
+      cutRanges: Array.isArray(cuts) ? cuts : [],
+    });
+  } else {
+    subtitleHub.ingestFromProject(Array.isArray(cues) ? cues : [], {
+      cutRanges: Array.isArray(cuts) ? cuts : [],
+    });
+  }
   applySubtitleStyleFromProject(style);
   applyWatermarkFromProject(project?.watermark ?? res?.watermark ?? res?.normalized?.watermark);
   scheduleSaveUserPreferences();
@@ -3783,25 +3939,103 @@ async function applyLoadedProject(res) {
     resultsMeta.textContent = `${lastCues.length} cues · 프로젝트 불러옴`;
   }
 
-  if (videoPath) {
-    await loadWaveformPeaks();
+  if (hasVideo) {
+    try {
+      setPreviewMediaLoading(true, {
+        title: "프로젝트 불러오기",
+        step: "CFR 미디어",
+        message: "A/V 정규화·CFR 변환…\n(캐시 있으면 즉시 완료)",
+      });
+      await yieldToUiPaint();
+
+      const previewPath = await ensureSessionPreviewMediaPath({
+        onProgress: ({ step, message, progress }) => {
+          setPreviewMediaLoading(true, {
+            title: "프로젝트 불러오기",
+            step: step || "CFR 미디어",
+            message: message || "처리 중…",
+            progress: progress ?? 8,
+          });
+        },
+      });
+      if (!previewPath) {
+        alert(
+          "CFR 미디어 준비에 실패했습니다.\n\n" +
+            "• itmatzip-agent를 재시작하세요 (go-agent 재빌드 후)\n" +
+            "• VFR 영상이면 자막 추출을 다시 실행하세요",
+        );
+      }
+      await updatePreview(previewPath || videoPath);
+      await loadWaveformPeaks();
+    } finally {
+      setPreviewMediaLoading(false);
+    }
+  } else {
+    setPreviewMediaLoading(false);
   }
 }
 
-async function onLoadProject() {
+async function loadProjectViaFilePicker() {
+  const [handle] = await window.showOpenFilePicker({
+    types: [{
+      description: "AutoSubtitle 프로젝트",
+      accept: {
+        "application/json": [".json", ".autosub"],
+      },
+    }],
+    multiple: false,
+  });
+  const file = await handle.getFile();
+  await beginProjectLoadUi("파일 읽기", "프로젝트 JSON 파싱 중…");
+  let project;
+  try {
+    project = JSON.parse(await file.text());
+  } catch {
+    setPreviewMediaLoading(false);
+    alert("프로젝트 JSON을 읽을 수 없습니다.");
+    return;
+  }
+  if (!project || typeof project !== "object" || project.format !== "autosubtitle-project") {
+    setPreviewMediaLoading(false);
+    alert("AutoSubtitle 프로젝트 파일이 아닙니다.");
+    return;
+  }
+  await applyLoadedProject({
+    project,
+    video_path: project.videoPath || project.video_path || null,
+    cut_ranges: project.cutRanges || project.cut_ranges || [],
+  });
+}
+
+async function onLoadProjectViaAgent() {
   if (!agentConnected) {
     alert(MSG_SUBTITLE_NEED_APP);
     return;
   }
+  await beginProjectLoadUi("파일 선택", "프로젝트 파일 선택 중…");
   let pick;
   try {
     pick = await requestAgent({ path: "/api/agent/pick-local-project-file", method: "POST" });
   } catch (err) {
-    if (/취소|cancel/i.test(String(err))) return;
+    if (/취소|cancel/i.test(String(err))) {
+      setPreviewMediaLoading(false);
+      return;
+    }
+    setPreviewMediaLoading(false);
     throw err;
   }
   const projectPath = pick?.project_path || pick?.path || "";
-  if (!projectPath) return;
+  if (!projectPath) {
+    setPreviewMediaLoading(false);
+    return;
+  }
+
+  setPreviewMediaLoading(true, {
+    title: "프로젝트 불러오기",
+    step: "서버 로드",
+    message: "에이전트에서 프로젝트 읽는 중…",
+  });
+  await yieldToUiPaint();
 
   const res = await requestAgent({
     path: `${TOOL_PREFIX}/project/load`,
@@ -3809,6 +4043,20 @@ async function onLoadProject() {
     json: { project_path: projectPath },
   });
   await applyLoadedProject(res);
+}
+
+async function onLoadProject() {
+  if (typeof window.showOpenFilePicker === "function") {
+    try {
+      await loadProjectViaFilePicker();
+      return;
+    } catch (err) {
+      const name = String(err?.name || err || "");
+      if (/aborted|cancel/i.test(name)) return;
+      console.warn("project file picker failed, falling back to agent load", err);
+    }
+  }
+  await onLoadProjectViaAgent();
 }
 
 function applyReadiness(data) {
@@ -4423,15 +4671,21 @@ function buildExportPayload(fmt) {
       previewMediaPath: getSessionPreviewMediaPath() || null,
       videoPath: videoPathInput?.value?.trim() || null,
     },
+    {
+      blocks: subtitleHub.blocks,
+      virtualIndex: subtitleHub._virtualIndex,
+    },
   );
 }
 
 function buildProjectJson() {
   return JSON.stringify({
     format: "autosubtitle-project",
-    version: 1,
+    version: 2,
     videoPath: videoPathInput?.value?.trim() || null,
     cutRanges: lastCutRanges,
+    hardDeletedMediaSkips: subtitleHub.hardDeletedMediaSkips || [],
+    blocks: subtitleHub.blocks,
     subtitleStyle: readSubtitleStyleFromDom(),
     watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     subtitles: lastCues,
@@ -4533,6 +4787,8 @@ async function runAwaitingFramesPngBurnIn(statusData) {
     exportTimeAxis,
     requiresConcat: stitched,
     actualDuration,
+    blocks: subtitleHub.blocks,
+    virtualIndex: subtitleHub._virtualIndex,
     style: readSubtitleStyleFromDom(),
     watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     onUiProgress: ({ progress, step, message }) => {
@@ -4795,9 +5051,18 @@ async function runExport() {
   }
 
   if (fmt === "video") {
-    const previewPath = getSessionPreviewMediaPath();
+    setExportLoading(true, {
+      title: "보내기",
+      step: `${label} · 준비`,
+      message: "CFR 미디어 확인…",
+      progress: 2,
+    });
+    const previewPath = await ensureSessionPreviewMediaPath();
     if (!previewPath) {
-      showExportError("CFR 미디어 재생성 필요. 전사를 다시 실행하거나 미디어를 준비해 주세요.");
+      setExportLoading(false);
+      showExportError(
+        "CFR 미디어 재생성 필요. VFR 영상은 자막 추출을 다시 실행하거나, 에이전트가 연결된 상태에서 미디어를 준비해 주세요.",
+      );
       return;
     }
     const payload = buildExportPayload(fmt);
@@ -4827,6 +5092,8 @@ async function runExport() {
         cutRanges: pngPayload.cut_ranges || [],
         requiresConcat: pngPayload.requires_concat,
         exportTimeAxis: pngPayload.export_time_axis,
+        blocks: subtitleHub.blocks,
+        virtualIndex: subtitleHub._virtualIndex,
         style: readSubtitleStyleFromDom(),
         watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
         onUiProgress: ({ progress, step, message }) => {
@@ -5144,6 +5411,7 @@ async function onPickLocalFile() {
 const STORAGE_RETURN_FROM_DL = "auto-subtitle:return-from-download";
 
 function restoreSession() {
+  restoreSessionPreviewMediaPathFromStorage();
   const returningFromDownload = sessionStorage.getItem(STORAGE_RETURN_FROM_DL) === "1";
   if (returningFromDownload) {
     sessionStorage.removeItem(STORAGE_RETURN_FROM_DL);
@@ -5186,6 +5454,7 @@ btnLoadProject?.addEventListener("click", async () => {
   try {
     await onLoadProject();
   } catch (err) {
+    if (err?.name === "AbortError") return;
     alert(friendlyAgentError(err));
   }
 });

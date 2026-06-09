@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import subprocess
@@ -836,3 +837,38 @@ def prepare_transcribe_media(
         actions=actions,
         normalized=normalized,
     )
+
+
+def preview_cache_job_dir(src: Path) -> Path:
+    """원본 fingerprint 기준 CFR 캐시 job_dir — 프로젝트 불러오기·export 재사용."""
+    from engines.auto_subtitle import ensure_workspace
+
+    sp, sz, mt = _source_fingerprint(src.resolve())
+    key = hashlib.sha256(f"{sp}|{sz}|{mt}|{PIPELINE_VERSION}".encode("utf-8")).hexdigest()[:20]
+    job_dir = ensure_workspace() / f"preview-{key}"
+    job_dir.mkdir(parents=True, exist_ok=True)
+    return job_dir
+
+
+def prepare_preview_media_bundle(
+    src: Path,
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> tuple[TranscribeMediaPrepareResult, dict[str, Any], dict[str, Any]]:
+    """probe → prepare_transcribe_media → preview probe (transcribe 없이 CFR SSOT)."""
+    from engines.auto_subtitle_media_probe import probe_media_timing
+
+    src = src.resolve()
+    if not src.is_file():
+        raise FileNotFoundError(f"미디어 파일을 찾을 수 없습니다: {src}")
+
+    source_probe = probe_media_timing(src)
+    if not source_probe.get("ok"):
+        raise RuntimeError(str(source_probe.get("error") or "media probe failed"))
+
+    job_dir = preview_cache_job_dir(src)
+    prep = prepare_transcribe_media(src, job_dir, source_probe, on_progress=on_progress)
+    preview_probe = probe_media_timing(prep.preview_path, unify_ssot=True)
+    if not preview_probe.get("ok"):
+        raise RuntimeError(str(preview_probe.get("error") or "preview probe failed"))
+    return prep, source_probe, preview_probe

@@ -40,8 +40,26 @@ import {
 } from "./word-caret-ui.js?v=60";
 import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=5";
 import { wireSubtitleListLineDrag } from "./subtitle-line-drag-ui.js?v=3";
+import { formatVrewBlockTimecode } from "../shared/block-timeline-adapter.js?v=2";
 
 export { listableCueIndices };
+
+/**
+ * @param {object} cue
+ * @param {number} cueIndex
+ * @param {object} opts
+ * @param {(sec: number) => string} formatFull
+ */
+function buildCardTimeLabel(cue, cueIndex, opts, formatFull) {
+  const entry =
+    typeof opts.getVirtualIndexForCue === "function" ? opts.getVirtualIndexForCue(cueIndex) : null;
+  const duration =
+    typeof opts.getBlockDurationForCue === "function" ? opts.getBlockDurationForCue(cueIndex) : null;
+  if (entry && duration != null && Number.isFinite(duration)) {
+    return formatVrewBlockTimecode(entry.virtualStart, duration);
+  }
+  return `${formatFull(cue.start)} ~ ${formatFull(cue.end)}`;
+}
 
 /** @type {Map<HTMLElement, LineWaveformPanel>} */
 const panelByCard = new WeakMap();
@@ -219,7 +237,7 @@ function renderAllCards(container, cues, opts) {
 
     const times = document.createElement("div");
     times.className = "subtitle-card-times";
-    times.textContent = `${formatFull(cue.start)} ~ ${formatFull(cue.end)}`;
+    times.textContent = buildCardTimeLabel(cue, i, opts, formatFull);
     body.appendChild(times);
 
     ensureCueWords(cue);

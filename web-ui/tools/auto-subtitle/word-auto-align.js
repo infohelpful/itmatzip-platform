@@ -4,7 +4,6 @@
 
 import { requestAgent } from "../common/bridge.js?v=lna16";
 import { visibleSubtitleWords } from "./shared/subtitles.js?v=24";
-import { explodeCueByWordBreaks } from "./shared/subtitle-edit-actions.js";
 import { markCaretListStructuralMutation } from "./subtitle-list/word-caret-ui.js?v=54";
 
 export const KIWI_LGPL_URL = "https://github.com/bab2min/kiwipiepy";
@@ -45,19 +44,17 @@ export function collectWordAlignTargetIndices(cues) {
  * @param {Array<{ break_after_storage_indices: number[] }>} results parallel to targets
  */
 function applyAlignResultsToHub(hub, targetIndices, results) {
-  hub.applySubtitleChange((prev) => {
-    let next = prev;
-    for (let t = targetIndices.length - 1; t >= 0; t -= 1) {
-      const ci = targetIndices[t];
-      if (ci < 0 || ci >= next.length) continue;
-      const breaks = results[t]?.break_after_storage_indices ?? [];
-      if (!breaks.length) continue;
-      const parts = explodeCueByWordBreaks(next[ci], breaks);
-      if (parts.length <= 1) continue;
-      next = [...next.slice(0, ci), ...parts, ...next.slice(ci + 1)];
-    }
-    return next;
-  });
+  /** @type {Array<{ blockIndex: number, breakAfterStorageIndices: number[] }>} */
+  const splits = [];
+  for (let t = 0; t < targetIndices.length; t += 1) {
+    const breaks = results[t]?.break_after_storage_indices ?? [];
+    if (!breaks.length) continue;
+    splits.push({ blockIndex: targetIndices[t], breakAfterStorageIndices: breaks });
+  }
+  if (!splits.length) return;
+
+  // Block split keeps per-word media times; cue-only explode left wrong block durations.
+  hub.applyBatchBlockByWordBreaks(splits);
 }
 
 /**

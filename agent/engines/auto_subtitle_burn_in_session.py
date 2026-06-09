@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from common.bin_manager import get_ffmpeg_executable
 from engines import auto_subtitle
 from engines.auto_subtitle_burn_in import (
     estimate_overlay_duration_sec,
@@ -181,7 +182,8 @@ def _burn_in_worker(
         mapped_end = max((t["end"] for t in timing), default=1.0)
         cuts = normalize_cut_ranges(cut_ranges)
         overlay_dur = estimate_overlay_duration_sec(sess.duration_sec, cuts, mapped_end)
-        encoder = select_burn_in_h264_encoder()
+        ffmpeg_exe = str(get_ffmpeg_executable())
+        encoder = select_burn_in_h264_encoder(ffmpeg_exe)
 
         _log.info(
             "[BURN_IN] worker_start job_id=%s media=%s input_dur=%.3f overlay_dur=%.3f "

@@ -5,6 +5,10 @@
 import { buildExportCueLines } from "./export-cue-pipeline.js?v=4";
 import { normalizePreviewSubtitleText } from "./subtitle-box-chrome.js?v=25";
 import { subtitleLineEditDisplayText } from "./subtitles.js?v=28";
+import {
+  blocksToExportSegments,
+  blocksToOverlayProgramSegments,
+} from "./blocks-to-export.js?v=1";
 import { buildVirtualAudioMap } from "./virtual-audio-map.js?v=2";
 import { buildMappedSubtitles, normalizeCutRanges } from "../export/export-timeline.js?v=2";
 
@@ -34,18 +38,28 @@ export function resolveExportCueText(cue) {
 
 /**
  * @param {readonly object[]} cues
- * @param {{ requiresConcat?: boolean, cutRanges?: readonly { start: number, end: number }[], actualDuration?: number }} opts
+ * @param {{ requiresConcat?: boolean, cutRanges?: readonly { start: number, end: number }[], actualDuration?: number, blocks?: readonly object[], virtualIndex?: readonly object[] }} opts
  * @returns {OverlayCaptureSegment[]}
  */
 export function buildOverlayCaptureSchedule(cues, opts = {}) {
   const requiresConcat = !!opts.requiresConcat;
   const cutRanges = normalizeCutRanges(opts.cutRanges || []);
+  const blockOpts = {
+    blocks: opts.blocks,
+    virtualIndex: opts.virtualIndex,
+  };
   const base = requiresConcat
-    ? buildProgramAxisBaseSegments(cues, cutRanges)
+    ? buildProgramAxisBaseSegments(cues, cutRanges, blockOpts)
     : buildMediaAxisBaseSegments(cues, cutRanges);
   const bridged = base.map((seg) => applyBridgeExtension(seg));
   const schedule = resolveOverlappedSegments(bridged);
-  return applyActualDurationAlignment(schedule, cues, { requiresConcat, cutRanges, actualDuration: opts.actualDuration });
+  return applyActualDurationAlignment(schedule, cues, {
+    requiresConcat,
+    cutRanges,
+    actualDuration: opts.actualDuration,
+    blocks: opts.blocks,
+    virtualIndex: opts.virtualIndex,
+  });
 }
 
 /**
@@ -53,7 +67,7 @@ export function buildOverlayCaptureSchedule(cues, opts = {}) {
  *
  * @param {readonly OverlayCaptureSegment[]} schedule
  * @param {readonly object[]} cues
- * @param {{ requiresConcat?: boolean, cutRanges?: readonly { start: number, end: number }[], actualDuration?: number }} opts
+ * @param {{ requiresConcat?: boolean, cutRanges?: readonly { start: number, end: number }[], actualDuration?: number, blocks?: readonly object[], virtualIndex?: readonly object[] }} opts
  * @returns {OverlayCaptureSegment[]}
  */
 function applyActualDurationAlignment(schedule, cues, opts) {
@@ -61,7 +75,15 @@ function applyActualDurationAlignment(schedule, cues, opts) {
   const actual = Number(opts.actualDuration);
   if (!Number.isFinite(actual) || actual <= 0) return schedule;
 
-  const map = buildVirtualAudioMap(cues, { cutRanges: normalizeCutRanges(opts.cutRanges || []) });
+  const cuts = normalizeCutRanges(opts.cutRanges || []);
+  const useBlocks =
+    Array.isArray(opts.blocks) &&
+    opts.blocks.length > 0 &&
+    Array.isArray(opts.virtualIndex) &&
+    opts.virtualIndex.length > 0;
+  const map = useBlocks
+    ? blocksToExportSegments(opts.blocks, opts.virtualIndex, { cutRanges: cuts })
+    : buildVirtualAudioMap(cues, { cutRanges: cuts });
   if (!map.length) return schedule;
   const expectedEnd = Number(map[map.length - 1].editEnd) || 0;
   if (expectedEnd <= 0) return schedule;
@@ -95,9 +117,55 @@ function applyActualDurationAlignment(schedule, cues, opts) {
 /**
  * @param {readonly object[]} cues
  * @param {readonly { start: number, end: number }[]} cutRanges
+ * @param {{ blocks?: readonly object[], virtualIndex?: readonly object[] }} [blockOpts]
  * @returns {OverlayCaptureSegment[]}
  */
-function buildProgramAxisBaseSegments(cues, cutRanges) {
+function buildProgramAxisBaseSegments(cues, cutRanges, blockOpts = {}) {
+  const useBlocks =
+    Array.isArray(blockOpts.blocks) &&
+    blockOpts.blocks.length > 0 &&
+    Array.isArray(blockOpts.virtualIndex) &&
+    blockOpts.virtualIndex.length > 0;
+
+  if (useBlocks) {
+    const segs = blocksToOverlayProgramSegments(blockOpts.blocks, blockOpts.virtualIndex, {
+      cutRanges,
+    });
+    /** @type {OverlayCaptureSegment[]} */
+    const out = [];
+    for (let i = 0; i < segs.length; i += 1) {
+      const seg = segs[i];
+      if (seg.isSilence) continue;
+      const cue = cues[seg.blockIndex];
+      const text = resolveExportCueText(cue);
+      if (!text) continue;
+
+      let start = seg.editStart;
+      let end = seg.editEnd;
+
+      const nextSeg = i + 1 < segs.length ? segs[i + 1] : null;
+      if (nextSeg && cue) {
+        const cueEndVirtual = seg.virtualEnd;
+        const nextStartVirtual = nextSeg.editStart;
+        if (Number.isFinite(nextStartVirtual) && nextStartVirtual > cueEndVirtual + 1e-5) {
+          const tailStart = seg.editEnd - PLAYBACK_TAIL_PRE_SEC;
+          const tailEnd = Math.min(
+            nextSeg.editStart - PLAYBACK_TAIL_LEAD_SEC,
+            seg.editEnd + PREVIEW_OVERLAY_BRIDGE_SEC,
+          );
+          if (tailEnd > tailStart + MIN_SEGMENT_SEC) {
+            end = Math.max(end, tailEnd);
+          }
+        }
+      }
+
+      if (end > start + MIN_SEGMENT_SEC) {
+        out.push({ start, end, text });
+      }
+    }
+    return out;
+  }
+
   const map = buildVirtualAudioMap(cues, { cutRanges });
   /** @type {OverlayCaptureSegment[]} */
   const out = [];

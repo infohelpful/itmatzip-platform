@@ -1,5 +1,6 @@
 /**
  * AutoSubtitle App.tsx 오케스트레이션 — 웹 SSOT·undo/redo·축 매핑·가시 줄.
+ * Phase 0: Block SSOT + SubtitleLine derived via adapter.
  */
 
 import { mergeCutRanges } from "../shared/timeline-collapse.js";
@@ -20,14 +21,53 @@ import { anchorSourceTimesIfMissing } from "../shared/dual-axis.js?v=1";
 import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=4";
 import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
+import {
+  blocksMeaningfullyChanged,
+  blocksStructurallyEqual,
+  blocksToSubtitleLines,
+  rebuildVirtualIndexFromBlocks,
+  subtitleLinesToBlocks,
+  virtualIndexEntryForBlockIndex,
+} from "../shared/block-timeline-adapter.js?v=4";
+import {
+  reorderBlocksByListInsert,
+  reorderBlocksByListPosition,
+} from "../shared/block-edit-ops.js?v=2";
+import {
+  applySoftDeleteWordRangeOnBlocks,
+  mergeBlocksAt as spliceMergeBlocksAt,
+} from "../shared/block-word-edit-ops.js?v=2";
+import {
+  mergeEmptyBlockWithPrevious,
+  spliceSplitBlockAtTextCursor,
+  spliceSplitBlockAtWordIndex,
+  spliceSplitBlockByWordBreaks,
+} from "../shared/block-split-merge-ops.js?v=1";
 
 const MAX_HISTORY = 100;
 
 /**
+ * @param {unknown} raw
+ */
+function isAutoSubtitleProjectDocument(raw) {
+  return (
+    raw != null &&
+    typeof raw === "object" &&
+    !Array.isArray(raw) &&
+    (raw.format === "autosubtitle-project" ||
+      Array.isArray(raw.blocks) ||
+      Array.isArray(raw.subtitles))
+  );
+}
+
+/**
+ * @typedef {import("../shared/block-timeline-adapter.js").Block} Block
+ * @typedef {import("../shared/block-timeline-adapter.js").VirtualIndexEntry} VirtualIndexEntry
  * @typedef {{
- *   cues: import("../shared/subtitles.js").SubtitleLine[],
+ *   blocks: Block[],
  *   cutRanges: { start: number, end: number }[],
  *   virtualTimelineDeleted: import("../shared/virtual-timeline.js").VirtualTimelineBlock[],
+ *   hardDeletedMediaSkips: { start: number, end: number }[],
  *   gapFillWhenBuildingVrew: boolean,
  * }} SubtitleHistoryEntry
  */
@@ -64,12 +104,18 @@ export class SubtitleAppHub {
    * @param {{ onStateChange?: () => void }} [opts]
    */
   constructor(opts = {}) {
-    /** @type {import("../shared/subtitles.js").SubtitleLine[]} */
-    this.cues = [];
+    /** @type {Block[]} */
+    this.blocks = [];
+    /** @type {VirtualIndexEntry[]} */
+    this._virtualIndex = [];
+    /** @type {import("../shared/subtitles.js").SubtitleLine[] | null} */
+    this._derivedCues = null;
     /** @type {{ start: number, end: number }[]} */
     this.cutRanges = [];
     /** @type {import("../shared/virtual-timeline.js").VirtualTimelineBlock[]} */
     this.virtualTimelineDeleted = [];
+    /** @type {{ start: number, end: number }[]} preview-only orphan media skips (Phase 3B) */
+    this.hardDeletedMediaSkips = [];
     this.gapFillWhenBuildingVrew = false;
     /** @type {number | null} transcribe Whisper info.duration — pcm timeline_sec 와 비교용 */
     this.transcribeWhisperDurationSec = null;
@@ -78,6 +124,54 @@ export class SubtitleAppHub {
     /** @type {SubtitleHistoryEntry[]} */
     this._redoStack = [];
     this.onStateChange = opts.onStateChange || (() => {});
+
+    Object.defineProperty(this, "cues", {
+      configurable: true,
+      enumerable: true,
+      get: () => this._getDerivedCues(),
+      set() {
+        throw new Error(
+          "SubtitleAppHub.cues is read-only; use applySubtitleChange, setCues, or applyBlockChange.",
+        );
+      },
+    });
+  }
+
+  _getDerivedCues() {
+    if (!this._derivedCues) {
+      this._derivedCues = blocksToSubtitleLines(this.blocks, this._virtualIndex);
+    }
+    return this._derivedCues;
+  }
+
+  /**
+   * @param {Block[]} nextBlocks
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  applyBlockChange(updater, opts = {}) {
+    void opts;
+    const prevBlocks = this.blocks;
+    const nextBlocks = updater(prevBlocks) ?? [];
+    if (!blocksMeaningfullyChanged(prevBlocks, nextBlocks)) return;
+
+    const structural = !blocksStructurallyEqual(prevBlocks, nextBlocks);
+    this.blocks = nextBlocks;
+    if (structural) {
+      this._rebuildVirtualIndex();
+    }
+    this._derivedCues = null;
+  }
+
+  _rebuildVirtualIndex() {
+    this._virtualIndex = rebuildVirtualIndexFromBlocks(this.blocks);
+  }
+
+  _commitBlocks(nextBlocks) {
+    this.applyBlockChange(() => nextBlocks, { recordHistory: false });
+  }
+
+  _syncVirtualTimelineDeleted() {
+    this.virtualTimelineDeleted = virtualTimelineBlocksFromCueSoftDeletes(this.cues);
   }
 
   get mergedCutRanges() {
@@ -85,10 +179,223 @@ export class SubtitleAppHub {
   }
 
   getPlaybackSkipRanges() {
-    return mergeWaveformPeaksStitchCutRanges(
+    const base = mergeWaveformPeaksStitchCutRanges(
       this.mergedCutRanges,
       this.cues,
       this.virtualTimelineDeleted,
+    );
+    if (!this.hardDeletedMediaSkips?.length) return base;
+    return mergeCutRanges([...base, ...mergeCutRanges(this.hardDeletedMediaSkips)]);
+  }
+
+  /**
+   * @param {Block | null | undefined} block
+   */
+  _appendHardDeletedMediaSkipFromBlock(block) {
+    if (!block) return;
+    const start = Number(block.sourceIn) || 0;
+    const end = Number(block.sourceOut) || 0;
+    if (end <= start + 1e-6) return;
+    this.hardDeletedMediaSkips = mergeCutRanges([
+      ...this.hardDeletedMediaSkips,
+      { start, end },
+    ]);
+  }
+
+  /**
+   * Phase 3B — hard delete (direct applyBlockChange).
+   * @param {number} blockIndex
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  deleteBlockAt(blockIndex, opts = {}) {
+    const recordHistory = opts.recordHistory !== false;
+    if (blockIndex < 0 || blockIndex >= this.blocks.length) return;
+    const prev = this._snapshot();
+    this._appendHardDeletedMediaSkipFromBlock(this.blocks[blockIndex]);
+    this.applyBlockChange((blocks) => [
+      ...blocks.slice(0, blockIndex),
+      ...blocks.slice(blockIndex + 1),
+    ]);
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory) this._pushHistory(prev);
+    this._notify();
+  }
+
+  /**
+   * @param {readonly number[]} blockIndices storage indices, any order
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  deleteBlocksAt(blockIndices, opts = {}) {
+    const recordHistory = opts.recordHistory !== false;
+    const unique = [...new Set(blockIndices)].filter((i) => i >= 0).sort((a, b) => b - a);
+    if (!unique.length) return;
+    const prev = this._snapshot();
+    for (const i of unique) {
+      if (i >= 0 && i < this.blocks.length) {
+        this._appendHardDeletedMediaSkipFromBlock(this.blocks[i]);
+      }
+    }
+    this.applyBlockChange((blocks) => {
+      let next = blocks;
+      for (const i of unique) {
+        if (i < 0 || i >= next.length) continue;
+        next = [...next.slice(0, i), ...next.slice(i + 1)];
+      }
+      return next;
+    });
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory) this._pushHistory(prev);
+    this._notify();
+  }
+
+  /**
+   * @param {number} fromListPos
+   * @param {number} insertBeforeListPos
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  reorderBlocksByListInsert(fromListPos, insertBeforeListPos, opts = {}) {
+    const recordHistory = opts.recordHistory !== false;
+    const prev = this._snapshot();
+    const cues = this.cues;
+    const next = reorderBlocksByListInsert(this.blocks, cues, fromListPos, insertBeforeListPos);
+    if (next === this.blocks) return { ok: true, changed: false };
+    this.applyBlockChange(() => next);
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory) this._pushHistory(prev);
+    this._notify();
+    return { ok: true, changed: true };
+  }
+
+  /**
+   * @param {number} fromListPos
+   * @param {number} toListPos
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  reorderBlocksByListPosition(fromListPos, toListPos, opts = {}) {
+    const recordHistory = opts.recordHistory !== false;
+    const prev = this._snapshot();
+    const cues = this.cues;
+    const next = reorderBlocksByListPosition(this.blocks, cues, fromListPos, toListPos);
+    if (next === this.blocks) return { ok: true, changed: false };
+    this.applyBlockChange(() => next);
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory) this._pushHistory(prev);
+    this._notify();
+    return { ok: true, changed: true };
+  }
+
+  /**
+   * Phase 3C — block structural edit with optional hard-delete skip capture.
+   * @param {(blocks: Block[]) => { blocks: Block[], hardDeletedBlock?: Block | null }} mutator
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  _runBlockStructuralEdit(mutator, opts = {}) {
+    const recordHistory = opts.recordHistory !== false;
+    const prev = this._snapshot();
+    const result = mutator(this.blocks);
+    const nextBlocks = result?.blocks ?? this.blocks;
+    if (!blocksMeaningfullyChanged(prev.blocks, nextBlocks)) return false;
+    if (result?.hardDeletedBlock) {
+      this._appendHardDeletedMediaSkipFromBlock(result.hardDeletedBlock);
+    }
+    this.applyBlockChange(() => nextBlocks);
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory) this._pushHistory(prev);
+    this._notify();
+    return true;
+  }
+
+  /**
+   * @param {number} blockIndex
+   * @param {number} fromWordIndex
+   * @param {number} toWordIndexExclusive
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  softDeleteWordRangeAt(blockIndex, fromWordIndex, toWordIndexExclusive, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) =>
+        applySoftDeleteWordRangeOnBlocks(blocks, blockIndex, fromWordIndex, toWordIndexExclusive),
+      opts,
+    );
+  }
+
+  /**
+   * @param {number} leftIndex
+   * @param {number} rightIndex
+   * @param {string} [mergedText]
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  mergeBlocksAt(leftIndex, rightIndex, mergedText, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) => spliceMergeBlocksAt(blocks, leftIndex, rightIndex, mergedText),
+      opts,
+    );
+  }
+
+  /**
+   * @param {number} blockIndex
+   * @param {number} cursorPos
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  splitBlockAtTextCursor(blockIndex, cursorPos, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) => spliceSplitBlockAtTextCursor(blocks, blockIndex, cursorPos),
+      opts,
+    );
+  }
+
+  /**
+   * @param {number} blockIndex
+   * @param {number} wordIndex
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  splitBlockAtWordIndex(blockIndex, wordIndex, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) => spliceSplitBlockAtWordIndex(blocks, blockIndex, wordIndex),
+      opts,
+    );
+  }
+
+  /**
+   * @param {number} blockIndex
+   * @param {readonly number[]} breakAfterStorageIndices
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  splitBlockByWordBreaks(blockIndex, breakAfterStorageIndices, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) => spliceSplitBlockByWordBreaks(blocks, blockIndex, breakAfterStorageIndices),
+      opts,
+    );
+  }
+
+  /**
+   * @param {readonly { blockIndex: number, breakAfterStorageIndices: readonly number[] }[]} splits
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  applyBatchBlockByWordBreaks(splits, opts = {}) {
+    if (!splits?.length) return false;
+    return this._runBlockStructuralEdit((blocks) => {
+      let next = blocks;
+      for (let i = splits.length - 1; i >= 0; i -= 1) {
+        const { blockIndex, breakAfterStorageIndices } = splits[i];
+        if (blockIndex < 0 || blockIndex >= next.length) continue;
+        ({ blocks: next } = spliceSplitBlockByWordBreaks(next, blockIndex, breakAfterStorageIndices));
+      }
+      return { blocks: next };
+    }, opts);
+  }
+
+  /**
+   * @param {number} blockIndex
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  mergeEmptyBlockAt(blockIndex, opts = {}) {
+    return this._runBlockStructuralEdit(
+      (blocks) => {
+        const next = mergeEmptyBlockWithPrevious(blocks, blockIndex);
+        return next ? { blocks: next } : { blocks };
+      },
+      opts,
     );
   }
 
@@ -118,6 +425,11 @@ export class SubtitleAppHub {
     return deriveVisibleSubtitleLinesForUi(this.cues);
   }
 
+  /** @param {number} blockIndex cue storage index (= blockIndex when 1:1) */
+  getVirtualIndexForBlock(blockIndex) {
+    return virtualIndexEntryForBlockIndex(this._virtualIndex, blockIndex);
+  }
+
   canUndo() {
     return this._undoStack.length > 0;
   }
@@ -135,9 +447,10 @@ export class SubtitleAppHub {
    */
   _pushHistory(snap) {
     this._undoStack.push({
-      cues: JSON.parse(JSON.stringify(snap.cues)),
+      blocks: JSON.parse(JSON.stringify(snap.blocks)),
       cutRanges: JSON.parse(JSON.stringify(snap.cutRanges)),
       virtualTimelineDeleted: JSON.parse(JSON.stringify(snap.virtualTimelineDeleted)),
+      hardDeletedMediaSkips: JSON.parse(JSON.stringify(snap.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: snap.gapFillWhenBuildingVrew,
     });
     if (this._undoStack.length > MAX_HISTORY) this._undoStack.shift();
@@ -146,45 +459,57 @@ export class SubtitleAppHub {
 
   _snapshot() {
     return {
-      cues: this.cues,
+      blocks: this.blocks,
       cutRanges: this.cutRanges,
       virtualTimelineDeleted: this.virtualTimelineDeleted,
+      hardDeletedMediaSkips: this.hardDeletedMediaSkips,
       gapFillWhenBuildingVrew: this.gapFillWhenBuildingVrew,
     };
   }
 
   /**
-   * @param {import("../shared/subtitles.js").SubtitleLine[]} cues
-   * @param {{ cutRanges?: { start: number, end: number }[], recordHistory?: boolean, gapFill?: boolean }} [opts]
+   * @param {import("../shared/subtitles.js").SubtitleLine[]} lines
    */
   _commitLines(lines) {
     return syncCuesAfterWordEdit(lines || []);
   }
 
+  /**
+   * B) Direct lines
+   * @param {import("../shared/subtitles.js").SubtitleLine[]} cues
+   * @param {{ cutRanges?: { start: number, end: number }[], recordHistory?: boolean }} [opts]
+   */
   setCues(cues, opts = {}) {
     const recordHistory = opts.recordHistory !== false;
     const prev = this._snapshot();
-    this.cues = this._commitLines(cues);
+    const nextLines = this._commitLines(cues);
+    const nextBlocks = subtitleLinesToBlocks(nextLines, { preserveIds: this.blocks });
+    this._commitBlocks(nextBlocks);
     if (opts.cutRanges) this.cutRanges = opts.cutRanges;
-    if (recordHistory && cuesMeaningfullyChanged(prev.cues, this.cues)) {
+    this._syncVirtualTimelineDeleted();
+    if (recordHistory && blocksMeaningfullyChanged(prev.blocks, this.blocks)) {
       this._pushHistory(prev);
     }
     this._notify();
   }
 
   /**
+   * A) Mutating
    * @param {(prev: import("../shared/subtitles.js").SubtitleLine[]) => import("../shared/subtitles.js").SubtitleLine[]} updater
    * @param {{ recordHistory?: boolean, afterCommit?: (hub: SubtitleAppHub) => void }} [opts]
    */
   applySubtitleChange(updater, opts = {}) {
     const recordHistory = opts.recordHistory !== false;
     const prev = this._snapshot();
-    const next = updater(this.cues);
-    if (!cuesMeaningfullyChanged(prev.cues, next)) return;
-    this.cues = this._commitLines(next);
-    opts.afterCommit?.(this);
-    this.virtualTimelineDeleted = virtualTimelineBlocksFromCueSoftDeletes(this.cues);
+    const prevLines = this.cues;
+    const next = updater(prevLines);
+    if (!cuesMeaningfullyChanged(prevLines, next)) return;
+    const nextLines = this._commitLines(next);
+    const nextBlocks = subtitleLinesToBlocks(nextLines, { preserveIds: this.blocks });
+    this._commitBlocks(nextBlocks);
+    this._syncVirtualTimelineDeleted();
     if (recordHistory) this._pushHistory(prev);
+    opts.afterCommit?.(this);
     this._notify();
   }
 
@@ -211,8 +536,6 @@ export class SubtitleAppHub {
   }
 
   /**
-   * 피크 로드 후 추출 2단계(leading split) 재적용.
-   *
    * @param {import("../peaks-metrics.js").PeaksTimelineMetrics} peaksMetrics
    */
   reapplyExtractPostProcessWithPeaks(peaksMetrics) {
@@ -227,6 +550,7 @@ export class SubtitleAppHub {
   ingestFromTranscribe(raw, opts = {}) {
     this.cutRanges = [];
     this.virtualTimelineDeleted = [];
+    this.hardDeletedMediaSkips = [];
     this.gapFillWhenBuildingVrew = false;
     this._undoStack = [];
     this._redoStack = [];
@@ -246,13 +570,64 @@ export class SubtitleAppHub {
   }
 
   /**
-   * 저장 프로젝트 — 추출 후처리 재실행 없음.
-   *
+   * @param {unknown} raw cues[] or project document
+   * @param {{ cutRanges?: { start: number, end: number }[], hardDeletedMediaSkips?: { start: number, end: number }[] }} [opts]
+   */
+  ingestFromProject(raw, opts = {}) {
+    if (isAutoSubtitleProjectDocument(raw)) {
+      this._ingestProjectDocument(raw, opts);
+      return;
+    }
+    this._ingestLegacyProjectCues(raw, opts);
+  }
+
+  /**
+   * @param {unknown} doc
+   * @param {{ cutRanges?: { start: number, end: number }[], hardDeletedMediaSkips?: { start: number, end: number }[] }} [opts]
+   */
+  _ingestProjectDocument(doc, opts = {}) {
+    this.virtualTimelineDeleted = [];
+    this.gapFillWhenBuildingVrew = false;
+    this._undoStack = [];
+    this._redoStack = [];
+
+    const version = Number(doc.version) || 1;
+    const cutRanges = doc.cutRanges ?? opts.cutRanges ?? [];
+    const hardSkips = doc.hardDeletedMediaSkips ?? opts.hardDeletedMediaSkips ?? [];
+
+    if (version >= 2 && Array.isArray(doc.blocks) && doc.blocks.length) {
+      this.blocks = JSON.parse(JSON.stringify(doc.blocks));
+      this._rebuildVirtualIndex();
+      this._derivedCues = null;
+      this.cutRanges = cutRanges;
+      this.hardDeletedMediaSkips = JSON.parse(JSON.stringify(hardSkips));
+      this._syncVirtualTimelineDeleted();
+      this._notify();
+      return;
+    }
+
+    const lines = anchorSourceTimesIfMissing(
+      repairCueLinesWordTimelines(
+        commitSubtitleLinesThroughTimeline(
+          syncAllSubtitleLinesFromWords(
+            reconcileAllCuesWordsToLineText(normalizeCuesFromAgent(doc.subtitles || [])),
+          ),
+        ),
+      ),
+    );
+    this.setCues(lines, { cutRanges, recordHistory: false });
+    if (hardSkips?.length) {
+      this.hardDeletedMediaSkips = JSON.parse(JSON.stringify(hardSkips));
+    }
+  }
+
+  /**
    * @param {unknown} raw
    * @param {{ cutRanges?: { start: number, end: number }[] }} [opts]
    */
-  ingestFromProject(raw, opts = {}) {
+  _ingestLegacyProjectCues(raw, opts = {}) {
     this.virtualTimelineDeleted = [];
+    this.hardDeletedMediaSkips = [];
     this.gapFillWhenBuildingVrew = false;
     this._undoStack = [];
     this._redoStack = [];
@@ -268,49 +643,61 @@ export class SubtitleAppHub {
     this.setCues(lines, { cutRanges: opts.cutRanges, recordHistory: false });
   }
 
+  /** D) Reset */
   reset() {
-    this.cues = [];
+    this.blocks = [];
+    this._virtualIndex = [];
+    this._derivedCues = null;
     this.cutRanges = [];
     this.virtualTimelineDeleted = [];
+    this.hardDeletedMediaSkips = [];
     this._undoStack = [];
     this._redoStack = [];
     this._notify();
   }
 
+  /** C) Snapshot restore */
   undo() {
     if (!this._undoStack.length) return false;
     const cur = this._snapshot();
     this._redoStack.push({
-      cues: JSON.parse(JSON.stringify(cur.cues)),
+      blocks: JSON.parse(JSON.stringify(cur.blocks)),
       cutRanges: JSON.parse(JSON.stringify(cur.cutRanges)),
       virtualTimelineDeleted: JSON.parse(JSON.stringify(cur.virtualTimelineDeleted)),
+      hardDeletedMediaSkips: JSON.parse(JSON.stringify(cur.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: cur.gapFillWhenBuildingVrew,
     });
     const entry = this._undoStack.pop();
-    this.cues = entry.cues;
+    this.blocks = JSON.parse(JSON.stringify(entry.blocks));
     this.cutRanges = entry.cutRanges;
     this.virtualTimelineDeleted = entry.virtualTimelineDeleted || [];
+    this.hardDeletedMediaSkips = entry.hardDeletedMediaSkips || [];
     this.gapFillWhenBuildingVrew = entry.gapFillWhenBuildingVrew;
-    this.cues = syncCuesAfterWordEdit(this.cues);
+    this._rebuildVirtualIndex();
+    this._derivedCues = null;
     this._notify();
     return true;
   }
 
+  /** C) Snapshot restore */
   redo() {
     if (!this._redoStack.length) return false;
     const cur = this._snapshot();
     this._undoStack.push({
-      cues: JSON.parse(JSON.stringify(cur.cues)),
+      blocks: JSON.parse(JSON.stringify(cur.blocks)),
       cutRanges: JSON.parse(JSON.stringify(cur.cutRanges)),
       virtualTimelineDeleted: JSON.parse(JSON.stringify(cur.virtualTimelineDeleted)),
+      hardDeletedMediaSkips: JSON.parse(JSON.stringify(cur.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: cur.gapFillWhenBuildingVrew,
     });
     const entry = this._redoStack.pop();
-    this.cues = entry.cues;
+    this.blocks = JSON.parse(JSON.stringify(entry.blocks));
     this.cutRanges = entry.cutRanges;
     this.virtualTimelineDeleted = entry.virtualTimelineDeleted || [];
+    this.hardDeletedMediaSkips = entry.hardDeletedMediaSkips || [];
     this.gapFillWhenBuildingVrew = entry.gapFillWhenBuildingVrew;
-    this.cues = syncCuesAfterWordEdit(this.cues);
+    this._rebuildVirtualIndex();
+    this._derivedCues = null;
     this._notify();
     return true;
   }

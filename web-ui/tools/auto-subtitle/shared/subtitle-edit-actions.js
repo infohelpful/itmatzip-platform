@@ -8,38 +8,16 @@ import {
   markLineTextUserEdited,
   clearLineTextUserEdited,
   subtitleLineEditDisplayText,
-  subtitleLineTextAfterWordMutation,
   syncSubtitleLineFromWords,
-  visibleSubtitleWords,
   wordIsDeleted,
   wordIsSilence,
 } from "./subtitles.js?v=24";
-import { subtitleLinesAfterSoftDeleteWordRange } from "./virtual-timeline.js";
-import { splitSubtitleLine, mergeEmptySubtitleWithPrevious } from "./subtitle-edit-ops.js";
 import { timelineEditLog } from "./timeline-edit-log.js";
-import {
-  reorderCuesByListInsert,
-  reorderCuesByListPosition,
-} from "./subtitle-list-indices.js?v=6";
-import { reorderCuesWithRelocate } from "./subtitle-reorder-relocate.js?v=1";
 import { bumpListableCueIndicesCache } from "./subtitle-list-playback.js?v=11";
 
 function textFromWords(line, words, fallback) {
   const t = displayTextFromSubtitleWords(words);
   return t.length > 0 ? t : fallback;
-}
-
-/** @param {readonly import("./subtitles.js").SubtitleLine[]} lines @param {number} cardIndex */
-function linesWithoutEmptySpeechCue(lines, cardIndex) {
-  const card = lines[cardIndex];
-  if (!card || card.is_silence || card.isSilence) return lines;
-  if (visibleSubtitleWords(card.words ?? []).length > 0) return lines;
-  const words = card.words ?? [];
-  const hasVisibleSilenceChip = words.some(
-    (w) => !wordIsDeleted(w) && wordIsSilence(w),
-  );
-  if (hasVisibleSilenceChip) return lines;
-  return [...lines.slice(0, cardIndex), ...lines.slice(cardIndex + 1)];
 }
 
 /** @param {import("./subtitles.js").SubtitleLine} line @param {number} storageSplitIndex */
@@ -86,24 +64,12 @@ function mergeLockedLineTexts(...lines) {
 
 /**
  * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
- * @param {{ start: number, end: number }[]} cuts
- * @param {string} [textHint]
- */
-function applyPendingVirtualMediaCuts(hub, cuts, textHint = "") {
-  if (!cuts?.length) return;
-  for (const r of cuts) {
-    hub.mergeVirtualTimelineDeleted(r, textHint);
-  }
-}
-
-/**
- * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
  * @param {number} index
  * @param {number} cursorPos
  */
 export function splitSubtitleAt(hub, index, cursorPos) {
   timelineEditLog("split", { index, cursorPos });
-  hub.applySubtitleChange((prev) => splitSubtitleLine(prev, index, cursorPos));
+  hub.splitBlockAtTextCursor(index, cursorPos);
 }
 
 /**
@@ -111,7 +77,7 @@ export function splitSubtitleAt(hub, index, cursorPos) {
  * @param {number} index
  */
 export function mergeEmptySubtitleAt(hub, index) {
-  hub.applySubtitleChange((prev) => mergeEmptySubtitleWithPrevious(prev, index) ?? prev);
+  hub.mergeEmptyBlockAt(index);
 }
 
 /**
@@ -120,10 +86,7 @@ export function mergeEmptySubtitleAt(hub, index) {
  */
 export function deleteSubtitleLineAt(hub, index) {
   timelineEditLog("delete-line", { index });
-  hub.applySubtitleChange((prev) => {
-    if (index < 0 || index >= prev.length) return prev;
-    return [...prev.slice(0, index), ...prev.slice(index + 1)];
-  });
+  hub.deleteBlockAt(index);
 }
 
 /**
@@ -131,17 +94,10 @@ export function deleteSubtitleLineAt(hub, index) {
  * @param {readonly number[]} indices cue indices, any order
  */
 export function deleteSubtitleLinesAt(hub, indices) {
-  const unique = [...new Set(indices)].filter((i) => i >= 0).sort((a, b) => b - a);
+  const unique = [...new Set(indices)].filter((i) => i >= 0);
   if (!unique.length) return;
   timelineEditLog("delete-lines", { indices: unique });
-  hub.applySubtitleChange((prev) => {
-    let next = prev;
-    for (const i of unique) {
-      if (i < 0 || i >= next.length) continue;
-      next = [...next.slice(0, i), ...next.slice(i + 1)];
-    }
-    return next;
-  });
+  hub.deleteBlocksAt(unique);
 }
 
 /**
@@ -151,7 +107,9 @@ export function deleteSubtitleLinesAt(hub, indices) {
  */
 export function reorderSubtitleLinesByListPosition(hub, fromListPos, toListPos) {
   timelineEditLog("reorder-line", { fromListPos, toListPos });
-  hub.applySubtitleChange((prev) => reorderCuesByListPosition(prev, fromListPos, toListPos));
+  const result = hub.reorderBlocksByListPosition(fromListPos, toListPos);
+  bumpListableCueIndicesCache();
+  return result;
 }
 
 /**
@@ -161,9 +119,7 @@ export function reorderSubtitleLinesByListPosition(hub, fromListPos, toListPos) 
  */
 export function reorderSubtitleLinesByListInsert(hub, fromListPos, insertBeforePos) {
   timelineEditLog("reorder-line-insert", { fromListPos, insertBeforePos });
-  const result = reorderCuesWithRelocate(hub.cues, fromListPos, insertBeforePos);
-  if (!result.ok) return result;
-  hub.applySubtitleChange(() => result.cues);
+  const result = hub.reorderBlocksByListInsert(fromListPos, insertBeforePos);
   bumpListableCueIndicesCache();
   return result;
 }
@@ -228,63 +184,11 @@ export function explodeCueByWordBreaks(cue, breakAfterStorageIndices) {
  * @param {number[]} breakAfterStorageIndices
  */
 export function applyCueWordAutoAlign(hub, cueIndex, breakAfterStorageIndices) {
-  hub.applySubtitleChange((prev) => {
-    if (cueIndex < 0 || cueIndex >= prev.length) return prev;
-    const parts = explodeCueByWordBreaks(prev[cueIndex], breakAfterStorageIndices);
-    if (parts.length <= 1) return prev;
-    return [...prev.slice(0, cueIndex), ...parts, ...prev.slice(cueIndex + 1)];
-  });
+  hub.splitBlockByWordBreaks(cueIndex, breakAfterStorageIndices);
 }
 
 export function splitSubtitleAtWord(hub, index, wordIndex) {
-  hub.applySubtitleChange((prev) => {
-    if (index < 0 || index >= prev.length) return prev;
-    const cur = prev[index];
-    const words = cur.words ?? [];
-    if (wordIndex <= 0 || wordIndex >= words.length) return prev;
-
-    const leftWords = words.slice(0, wordIndex);
-    const rightWords = words.slice(wordIndex);
-    if (leftWords.length === 0 || rightWords.length === 0) return prev;
-
-    const leftEndRaw = leftWords[leftWords.length - 1].end;
-    const rightStartRaw = rightWords[0].start;
-    let splitTime = (leftEndRaw + rightStartRaw) / 2;
-    if (!Number.isFinite(splitTime)) splitTime = rightStartRaw;
-    splitTime = Math.max(cur.start + 0.1, Math.min(cur.end - 0.1, splitTime));
-    if (!(splitTime > cur.start && splitTime < cur.end)) return prev;
-
-    const locked = lineTextIsUserLocked(cur);
-    const { left: lockedLeft, right: lockedRight } = locked
-      ? splitLockedLineTextAtStorageIndex(cur, wordIndex)
-      : { left: "", right: "" };
-    const leftText = locked ? lockedLeft : textFromWords(cur, leftWords, cur.text);
-    const rightText = locked ? lockedRight : textFromWords(cur, rightWords, cur.text);
-
-    let first = {
-      ...cur,
-      end: splitTime,
-      words: leftWords,
-    };
-    let second = {
-      ...cur,
-      start: splitTime,
-      end: cur.end,
-      words: rightWords,
-    };
-    if (locked) {
-      first = withLineEditText(first, leftText);
-      second = withLineEditText(second, rightText);
-    } else {
-      clearLineTextUserEdited(first);
-      clearLineTextUserEdited(second);
-      first.text = leftText;
-      second.text = rightText;
-      syncSubtitleLineFromWords(first);
-      syncSubtitleLineFromWords(second);
-    }
-    return [...prev.slice(0, index), first, second, ...prev.slice(index + 1)];
-  });
+  hub.splitBlockAtWordIndex(index, wordIndex);
 }
 
 /**
@@ -294,51 +198,23 @@ export function splitSubtitleAtWord(hub, index, wordIndex) {
  */
 export function backspaceWordAt(hub, cardIndex, wordIndex) {
   hub.gapFillWhenBuildingVrew = false;
-  hub.applySubtitleChange((prev) => {
-    if (cardIndex < 0 || cardIndex >= prev.length) return prev;
-    const cur = prev[cardIndex];
-    const words = cur.words ?? [];
-    if (wordIndex < 0 || wordIndex >= words.length) return prev;
+  timelineEditLog("backspace-word", { cardIndex, wordIndex });
+  const cur = hub.cues[cardIndex];
+  const words = cur?.words ?? [];
+  if (wordIndex < 0 || wordIndex >= words.length) return;
 
-    if (wordIndex > 0) {
-      const nextWords = words.map((w, i) =>
-        i === wordIndex - 1 ? { ...w, is_deleted: true, isDeleted: true } : w,
-      );
-      const visibleNext = visibleSubtitleWords(nextWords);
-      if (visibleNext.length === 0) {
-        return linesWithoutEmptySpeechCue(prev, cardIndex);
-      }
-      const nextStart = visibleNext[0].start;
-      const nextEnd = visibleNext[visibleNext.length - 1].end;
-      const fromWords = textFromWords(cur, nextWords, cur.text);
-      const updated = {
-        ...cur,
-        start: nextStart,
-        end: Math.max(nextStart + 0.1, nextEnd),
-        words: nextWords,
-        text: subtitleLineTextAfterWordMutation(cur, nextWords, fromWords),
-      };
-      return [...prev.slice(0, cardIndex), updated, ...prev.slice(cardIndex + 1)];
-    }
+  if (wordIndex > 0) {
+    hub.softDeleteWordRangeAt(cardIndex, wordIndex - 1, wordIndex);
+    return;
+  }
 
-    if (cardIndex === 0) return prev;
-    const up = prev[cardIndex - 1];
-    const upWords = up.words ?? [];
-    const mergedWords = [...upWords, ...words];
-    if (mergedWords.length === 0) return prev;
-    const merged = withLineEditText(
-      {
-        ...up,
-        start: Math.min(up.start, mergedWords[0].start),
-        end: Math.max(up.end, mergedWords[mergedWords.length - 1].end),
-        words: mergedWords,
-      },
-      lineTextIsUserLocked(up) || lineTextIsUserLocked(cur)
-        ? mergeLockedLineTexts(up, cur)
-        : textFromWords(up, mergedWords, up.text),
-    );
-    return [...prev.slice(0, cardIndex - 1), merged, ...prev.slice(cardIndex + 1)];
-  });
+  if (cardIndex === 0) return;
+  const up = hub.cues[cardIndex - 1];
+  const mergedText =
+    lineTextIsUserLocked(up) || lineTextIsUserLocked(cur)
+      ? mergeLockedLineTexts(up, cur)
+      : undefined;
+  hub.mergeBlocksAt(cardIndex - 1, cardIndex, mergedText);
 }
 
 /**
@@ -348,58 +224,25 @@ export function backspaceWordAt(hub, cardIndex, wordIndex) {
  */
 export function deleteWordAt(hub, cardIndex, caretIndex) {
   hub.gapFillWhenBuildingVrew = false;
-  /** @type {{ start: number, end: number }[]} */
-  let pendingMediaCuts = [];
-  let pendingHint = "";
+  timelineEditLog("delete-word", { cardIndex, caretIndex });
+  const cur = hub.cues[cardIndex];
+  const words = cur?.words ?? [];
+  if (cardIndex < 0 || cardIndex >= hub.blocks.length) return;
+  if (caretIndex < 0 || caretIndex > words.length) return;
 
-  hub.applySubtitleChange(
-    (prev) => {
-      if (cardIndex < 0 || cardIndex >= prev.length) return prev;
-      const cur = prev[cardIndex];
-      const words = cur.words ?? [];
-      if (caretIndex < 0 || caretIndex > words.length) return prev;
+  if (caretIndex < words.length) {
+    hub.softDeleteWordRangeAt(cardIndex, caretIndex, caretIndex + 1);
+    return;
+  }
 
-      if (caretIndex < words.length) {
-        const result = subtitleLinesAfterSoftDeleteWordRange(
-          prev,
-          cardIndex,
-          caretIndex,
-          caretIndex + 1,
-        );
-        if (!result) return prev;
-        const { lines: next, mediaCutsForVirtual } = result;
-        const updatedCard = next[cardIndex];
-        const visible = visibleSubtitleWords(updatedCard?.words ?? []);
-        pendingMediaCuts = mediaCutsForVirtual;
-        pendingHint = words[caretIndex]?.word ?? "";
-        if (visible.length === 0) {
-          return linesWithoutEmptySpeechCue(next, cardIndex);
-        }
-        return next;
-      }
-
-      if (caretIndex === words.length && cardIndex < prev.length - 1) {
-        const nextLine = prev[cardIndex + 1];
-        const mergedWords = [...words, ...(nextLine.words ?? [])];
-        const merged = withLineEditText(
-          {
-            ...cur,
-            end: nextLine.end,
-            words: mergedWords,
-          },
-          lineTextIsUserLocked(cur) || lineTextIsUserLocked(nextLine)
-            ? mergeLockedLineTexts(cur, nextLine)
-            : textFromWords(cur, mergedWords, cur.text),
-        );
-        return [...prev.slice(0, cardIndex), merged, ...prev.slice(cardIndex + 2)];
-      }
-
-      return prev;
-    },
-    {
-      afterCommit: () => applyPendingVirtualMediaCuts(hub, pendingMediaCuts, pendingHint),
-    },
-  );
+  if (caretIndex === words.length && cardIndex < hub.blocks.length - 1) {
+    const nextLine = hub.cues[cardIndex + 1];
+    const mergedText =
+      lineTextIsUserLocked(cur) || lineTextIsUserLocked(nextLine)
+        ? mergeLockedLineTexts(cur, nextLine)
+        : undefined;
+    hub.mergeBlocksAt(cardIndex, cardIndex + 1, mergedText);
+  }
 }
 
 /**
@@ -410,30 +253,10 @@ export function deleteWordAt(hub, cardIndex, caretIndex) {
  */
 export function deleteWordRangeAt(hub, cardIndex, fromWordIndex, toWordIndex) {
   hub.gapFillWhenBuildingVrew = false;
-  /** @type {{ start: number, end: number }[]} */
-  let pendingMediaCuts = [];
-  let pendingHint = "";
-
-  hub.applySubtitleChange(
-    (prev) => {
-      if (cardIndex < 0 || cardIndex >= prev.length) return prev;
-      const words = prev[cardIndex].words ?? [];
-      const start = Math.max(0, Math.min(fromWordIndex, toWordIndex));
-      const end = Math.min(words.length, Math.max(fromWordIndex, toWordIndex));
-      if (start >= end) return prev;
-
-      const result = subtitleLinesAfterSoftDeleteWordRange(prev, cardIndex, start, end);
-      if (!result) return prev;
-      const { lines: next, mediaCutsForVirtual } = result;
-      pendingMediaCuts = mediaCutsForVirtual;
-      pendingHint = words[start]?.word ?? "";
-      const updatedCard = next[cardIndex];
-      const visible = visibleSubtitleWords(updatedCard?.words ?? []);
-      if (visible.length > 0) return next;
-      return linesWithoutEmptySpeechCue(next, cardIndex);
-    },
-    {
-      afterCommit: () => applyPendingVirtualMediaCuts(hub, pendingMediaCuts, pendingHint),
-    },
-  );
+  timelineEditLog("delete-word-range", { cardIndex, fromWordIndex, toWordIndex });
+  const words = hub.cues[cardIndex]?.words ?? [];
+  const start = Math.max(0, Math.min(fromWordIndex, toWordIndex));
+  const end = Math.min(words.length, Math.max(fromWordIndex, toWordIndex));
+  if (start >= end) return;
+  hub.softDeleteWordRangeAt(cardIndex, start, end);
 }

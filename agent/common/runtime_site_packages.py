@@ -299,7 +299,7 @@ def use_runtime_site_packages() -> bool:
 
 
 def activate_runtime_site_packages(tool_id: str) -> None:
-    if not use_runtime_site_packages():
+    if not _uses_runtime_site_packages(tool_id):
         return
     if not runtime_site_packages_readable(tool_id):
         ensure_runtime_tree_acl(tool_id)
@@ -311,7 +311,7 @@ def activate_runtime_site_packages(tool_id: str) -> None:
 
 def tool_has_module(tool_id: str, module_name: str) -> bool:
     """해당 툴 runtime 에만 설치된 모듈인지 확인 (다른 툴·engine 과 혼동 방지)."""
-    if not use_runtime_site_packages():
+    if not _uses_runtime_site_packages(tool_id):
         return importlib.util.find_spec(module_name) is not None
     activate_runtime_site_packages(tool_id)
     site = runtime_site_packages_dir(tool_id).resolve()
@@ -327,9 +327,16 @@ def tool_has_module(tool_id: str, module_name: str) -> bool:
         return str(site).lower() in str(spec.origin).lower()
 
 
+def _uses_runtime_site_packages(tool_id: str | None = None) -> bool:
+    tid = (tool_id or os.environ.get("ITMATZIP_RUNTIME_TOOL", "")).strip()
+    if tid in ENGINE_RUNTIME_TOOL_IDS:
+        return True
+    return use_runtime_site_packages()
+
+
 def engine_python_c_prefix(tool_id: str) -> str:
     """Embeddable Python 은 PYTHONPATH 를 무시하는 경우가 있어 -c 스크립트 앞에 붙입니다."""
-    if not use_runtime_site_packages():
+    if not _uses_runtime_site_packages(tool_id):
         return ""
     path = str(runtime_site_packages_dir(tool_id))
     return (
@@ -338,19 +345,47 @@ def engine_python_c_prefix(tool_id: str) -> str:
     )
 
 
-def verify_importable(tool_id: str, *module_names: str) -> None:
+def probe_runtime_import(
+    tool_id: str,
+    import_name: str,
+    smoke: tuple[str, ...] = (),
+) -> bool:
+    """별도 Python 프로세스에서 import 검증 (PyO3/numpy 이중 로드 방지)."""
+    from common.subprocess_util import no_window_creationflags
+
+    if not tool_has_module(tool_id, import_name):
+        return False
+
+    lines = [
+        "import importlib",
+        f"m = importlib.import_module({import_name!r})",
+    ]
+    if import_name == "numpy":
+        lines.append("assert getattr(m, '__version__', None)")
+    for sub in smoke:
+        lines.append(f"importlib.import_module({sub!r})")
+    script = engine_python_c_prefix(tool_id) + "\n".join(lines) + "\n"
+
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        env=pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": tool_id}),
+        capture_output=True,
+        creationflags=no_window_creationflags(),
+    )
+    return proc.returncode == 0
+
+
+def verify_importable(
+    tool_id: str,
+    *module_names: str,
+    smoke_by_module: dict[str, tuple[str, ...]] | None = None,
+) -> None:
     """pip --target 설치 직후, 해당 툴 runtime 에서 import 가능한지 확인."""
-    activate_runtime_site_packages(tool_id)
-    if not runtime_site_packages_readable(tool_id):
-        ensure_runtime_tree_acl(tool_id)
+    smoke_map = smoke_by_module or {}
     missing: list[str] = []
     for name in module_names:
-        if not tool_has_module(tool_id, name):
-            missing.append(name)
-            continue
-        try:
-            importlib.import_module(name)
-        except Exception:
+        smoke = smoke_map.get(name, ())
+        if not probe_runtime_import(tool_id, name, smoke):
             missing.append(name)
     if missing:
         raise RuntimeError(
@@ -360,7 +395,7 @@ def verify_importable(tool_id: str, *module_names: str) -> None:
 
 
 def runtime_pythonpath_entry(tool_id: str | None = None) -> str:
-    if not use_runtime_site_packages():
+    if not _uses_runtime_site_packages(tool_id):
         return ""
     tid = (tool_id or os.environ.get("ITMATZIP_RUNTIME_TOOL", "")).strip()
     if not tid:
@@ -379,13 +414,29 @@ def prepend_runtime_pythonpath(env: dict[str, str]) -> None:
 
 
 def pip_target_args(tool_id: str) -> list[str]:
-    if not use_runtime_site_packages():
+    """툴별 runtime pip 는 항상 %APPDATA% --target (Program Files 쓰기 방지)."""
+    if not _uses_runtime_site_packages(tool_id):
         return []
     return [
         "--target",
         str(runtime_site_packages_dir(tool_id)),
         "--no-warn-script-location",
     ]
+
+
+def pip_cache_dir() -> Path:
+    """pip wheel cache — %LOCALAPPDATA% 권한 이슈(관리자 pip) 회피."""
+    cache = _appdata_root() / "pip-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
+
+
+def pip_subprocess_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    from common.subprocess_util import agent_subprocess_env
+
+    env = agent_subprocess_env(extra)
+    env["PIP_CACHE_DIR"] = str(pip_cache_dir())
+    return env
 
 
 def pip_install_cmd(
@@ -399,6 +450,8 @@ def pip_install_cmd(
         cmd.append("--upgrade")
     if force_reinstall:
         cmd.append("--force-reinstall")
+    cmd.append("--no-cache-dir")
+    cmd.append("--prefer-binary")
     cmd.extend(pip_target_args(tool_id))
     return cmd
 
@@ -428,6 +481,7 @@ def run_runtime_pip(
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """툴별 runtime pip + Windows ACL 정리 (모든 사이트·PC 공통)."""
+    from common.runtime_site_packages import finalize_runtime_pip, pip_subprocess_env
     from common.subprocess_util import agent_subprocess_env, run_hidden
 
     ensure_runtime_tree_acl(tool_id)
@@ -441,10 +495,69 @@ def run_runtime_pip(
         capture_output=True,
         text=True,
         timeout=timeout,
-        env=agent_subprocess_env(extra),
+        env=pip_subprocess_env(extra),
     )
     finalize_runtime_pip(tool_id)
     return proc
+
+
+def _rm_rf(path: Path) -> None:
+    if not path.exists():
+        return
+
+    def _onerror(func, p, exc_info) -> None:  # noqa: ARG001
+        import stat
+
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except OSError:
+            pass
+
+    if path.is_dir():
+        shutil.rmtree(path, onerror=_onerror)
+    else:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            try:
+                import stat
+
+                os.chmod(path, stat.S_IWRITE)
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def purge_runtime_site_all(tool_id: str) -> None:
+    """툴 runtime site-packages 전체 비우기 (손상·반쯤 설치 복구)."""
+    import uuid
+
+    site = runtime_site_packages_dir(tool_id)
+    if not site.is_dir():
+        site.mkdir(parents=True, exist_ok=True)
+        return
+    if not any(site.iterdir()):
+        return
+
+    trash = site.parent / f"_purged_{uuid.uuid4().hex[:8]}"
+    try:
+        site.rename(trash)
+        site.mkdir(parents=True, exist_ok=True)
+        ensure_runtime_tree_acl(tool_id)
+        shutil.rmtree(trash, ignore_errors=True)
+        return
+    except OSError as exc:
+        _log.warning("runtime site rename purge failed (%s), falling back to entry delete", exc)
+
+    for entry in list(site.iterdir()):
+        _rm_rf(entry)
+    remaining = list(site.iterdir())
+    if remaining:
+        raise RuntimeError(
+            "runtime Python 패키지 폴더를 비울 수 없습니다. "
+            "itmatzip-agent 트레이를 완전히 종료한 뒤 「환경 준비」를 다시 시도하세요."
+        )
 
 
 def purge_runtime_site_entries(tool_id: str, *prefixes: str) -> None:
@@ -457,10 +570,4 @@ def purge_runtime_site_entries(tool_id: str, *prefixes: str) -> None:
         name = entry.name.lower()
         if not any(name == p or name.startswith(f"{p}-") or name.startswith(f"{p}.") for p in lowered):
             continue
-        if entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
-            try:
-                entry.unlink(missing_ok=True)
-            except OSError:
-                pass
+        _rm_rf(entry)

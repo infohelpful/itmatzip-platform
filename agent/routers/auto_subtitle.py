@@ -954,6 +954,24 @@ async def post_media_probe(
         }
 
 
+@router.post("/media/prepare-preview")
+async def post_media_prepare_preview(
+    body: AutoSubtitleMediaProbeBody,
+    _: AutoSubtitleFfmpeg,
+) -> dict[str, Any]:
+    """VFR→CFR·A/V remux — transcribe 없이 preview/export SSOT 생성 (캐시 재사용)."""
+    media = _validate_media_path(body.video_path)
+    try:
+        return await run_sync(lambda: auto_subtitle.build_preview_media_ssot(media))
+    except Exception as exc:
+        logger.exception("media/prepare-preview failed for %s", media)
+        return {
+            "ok": False,
+            "source_path": str(media),
+            "error": str(exc),
+        }
+
+
 @router.get("/media/stream")
 def get_media_stream(
     video_path: str = Query(..., description="로컬 미디어 절대 경로"),
@@ -1228,7 +1246,25 @@ def post_project_load(body: AutoSubtitleProjectLoadBody) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"프로젝트 읽기 실패: {exc}") from exc
     normalized, err = auto_subtitle_project.parse_autosub_project(raw)
     if normalized is None:
-        raise HTTPException(status_code=400, detail=err or "프로젝트 형식이 올바르지 않습니다.")
+        # v2: 프론트가 blocks SSOT — 구버전 에이전트·파서 실패 시에도 raw JSON 전달
+        if (
+            isinstance(raw, dict)
+            and raw.get("format") in (auto_subtitle_project.AUTOSUB_FILE_FORMAT, "autosub-project")
+            and raw.get("version") in (2, "2")
+            and isinstance(raw.get("blocks"), list)
+        ):
+            normalized = {
+                "format": auto_subtitle_project.AUTOSUB_FILE_FORMAT,
+                "version": 2,
+                "video_path": raw.get("videoPath") or raw.get("video_path"),
+                "cut_ranges": raw.get("cutRanges") or raw.get("cut_ranges") or [],
+                "hard_deleted_media_skips": raw.get("hardDeletedMediaSkips") or [],
+                "blocks": raw.get("blocks") or [],
+                "subtitle_style": raw.get("subtitleStyle") or raw.get("subtitle_style"),
+                "cues": raw.get("subtitles") or raw.get("cues") or [],
+            }
+        else:
+            raise HTTPException(status_code=400, detail=err or "프로젝트 형식이 올바르지 않습니다.")
     return {
         "ok": True,
         "project": raw,

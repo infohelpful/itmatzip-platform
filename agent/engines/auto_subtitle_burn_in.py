@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from common.bin_manager import get_ffmpeg_executable
+from common.ffmpeg_filter import filter_complex_argv
 from common.subprocess_util import no_window_creationflags
 from engines.auto_subtitle_export import ExportProgressCallback
 
@@ -25,14 +26,14 @@ _log = _logging.getLogger(__name__)
 
 
 def _probe_encoder(ffmpeg: str, encoder: str) -> bool:
-    """GPU 인코더가 실제 사용 가능한지 1-frame 테스트."""
+    """GPU 인코더가 실제 사용 가능한지 1-frame 테스트 (NVENC 최소 해상도 256px)."""
     if encoder == "libx264":
         return True
     try:
         p = subprocess.run(
             [
                 ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.04",
+                "-f", "lavfi", "-i", "nullsrc=s=256x256:d=0.04",
                 "-c:v", encoder, "-frames:v", "1",
                 "-f", "null", "-",
             ],
@@ -205,9 +206,12 @@ def select_h264_encoder(ffmpeg_exe: str | None = None) -> str:
 
 
 def select_burn_in_h264_encoder(ffmpeg_exe: str | None = None) -> str:
-    """rawvideo overlay filter_complex — libx264가 GPU+필터 조합보다 안정·빠름."""
-    _ = ffmpeg_exe
-    return "libx264"
+    """자막 1회 overlay 최종 패스 — GPU 인코더 우선."""
+    return select_h264_encoder(ffmpeg_exe)
+
+
+CUE_OVERLAY_BATCH_SIZE = 8
+SUBTITLE_LAYER_CODEC = ("qtrle", "argb")
 
 
 def _fps_filter_expr(fps: float) -> str:
@@ -221,11 +225,6 @@ def _fps_filter_expr(fps: float) -> str:
     if abs(fps - rounded) < 0.001:
         return str(int(rounded))
     return f"{fps:.6g}"
-
-
-def _escape_ffmpeg_movie_path(path: Path) -> str:
-    p = str(path.resolve()).replace("\\", "/")
-    return p.replace(":", "\\:").replace("'", "'\\''")
 
 
 def _ensure_cue_png(rgba_path: Path, rw: int, rh: int) -> Path:
@@ -245,38 +244,65 @@ def _ensure_cue_png(rgba_path: Path, rw: int, rh: int) -> Path:
     return png_path
 
 
-def build_cue_overlay_filter_script(
-    cue_pngs: list[tuple[Path, float, float]],
+def build_cue_overlay_on_layer_filter(
+    cue_timings: list[tuple[float, float]],
+    *,
+    full_w: int,
+    full_h: int,
+    png_input_start: int = 1,
+    wm_input_index: int | None = None,
+    wm_x: int = 0,
+    wm_y: int = 0,
+) -> str:
+    """투명/누적 자막 레이어 위에 cue PNG enable overlay (입력 0 = 베이스 레이어)."""
+    w, h = max(1, int(full_w)), max(1, int(full_h))
+    parts = ["[0:v]format=rgba[base0]"]
+    current = "[base0]"
+    n = len(cue_timings)
+    for i, (start, end) in enumerate(cue_timings):
+        en = f"between(t\\,{start:.6f}\\,{end:.6f})"
+        in_idx = png_input_start + i
+        out = "[vout]" if i == n - 1 and wm_input_index is None else f"[ov{i}]"
+        parts.append(
+            f"[{in_idx}:v]format=rgba,scale={w}:{h}:flags=bilinear[sub{i}s];"
+            f"{current}[sub{i}s]overlay=0:0:enable='{en}'{out}"
+        )
+        current = out
+    if wm_input_index is not None:
+        parts.append(
+            f"[{wm_input_index}:v]format=rgba[wm];"
+            f"{current}[wm]overlay={wm_x}:{wm_y}[vout]"
+        )
+    return ";".join(parts)
+
+
+def build_cue_overlay_filter_complex(
+    cue_timings: list[tuple[float, float]],
     *,
     fps_expr: str,
     full_w: int,
     full_h: int,
-    render_w: int,
-    render_h: int,
-    wm_path: Path | None = None,
+    wm_input_index: int | None = None,
     wm_x: int = 0,
     wm_y: int = 0,
 ) -> str:
-    """업로드 cue PNG를 movie+enable 오버레이로 합성 — stdin 전체 프레임 전송 불필요."""
+    """업로드 cue PNG(-loop 1 -i)를 enable 오버레이로 합성 — movie 필터 미사용(FFmpeg 62+ 호환)."""
     w, h = max(1, int(full_w)), max(1, int(full_h))
-    rw, rh = max(1, int(render_w)), max(1, int(render_h))
     parts = [f"[0:v]fps=fps={fps_expr},setpts=PTS-STARTPTS,setsar=1[vmain]"]
     current = "[vmain]"
-    n = len(cue_pngs)
-    for i, (png_path, start, end) in enumerate(cue_pngs):
-        esc = _escape_ffmpeg_movie_path(png_path)
+    n = len(cue_timings)
+    for i, (start, end) in enumerate(cue_timings):
         en = f"between(t\\,{start:.6f}\\,{end:.6f})"
-        out = "[vout]" if i == n - 1 and wm_path is None else f"[ov{i}]"
+        out = "[vout]" if i == n - 1 and wm_input_index is None else f"[ov{i}]"
+        in_idx = i + 1
         parts.append(
-            f"movie=filename='{esc}':s={rw}x{rh}:format=rgba[sub{i}];"
-            f"[sub{i}]scale={w}:{h}:flags=bilinear[sub{i}s];"
+            f"[{in_idx}:v]format=rgba,scale={w}:{h}:flags=bilinear[sub{i}s];"
             f"{current}[sub{i}s]overlay=0:0:enable='{en}'{out}"
         )
         current = out
-    if wm_path is not None:
-        esc_wm = _escape_ffmpeg_movie_path(wm_path)
+    if wm_input_index is not None:
         parts.append(
-            f"movie=filename='{esc_wm}':format=rgba[wm];"
+            f"[{wm_input_index}:v]format=rgba[wm];"
             f"{current}[wm]overlay={wm_x}:{wm_y}[vout]"
         )
     return ";".join(parts)
@@ -478,6 +504,398 @@ def _wait_ffmpeg_burn_in(
         raise RuntimeError(f"FFmpeg 실패 (exit {proc.returncode}): {ffmpeg_err or 'unknown'}")
 
 
+def _chunk_cue_pngs(
+    cue_pngs: list[tuple[Path, float, float]],
+    batch_size: int,
+) -> list[list[tuple[Path, float, float]]]:
+    if batch_size < 1:
+        raise ValueError("batch_size must be >= 1")
+    return [cue_pngs[i : i + batch_size] for i in range(0, len(cue_pngs), batch_size)]
+
+
+def _run_ffmpeg_filter_pass(
+    cmd: list[str],
+    *,
+    overlay_dur: float,
+    on_progress: ExportProgressCallback | None,
+    timeout_sec: float,
+    log_label: str,
+    progress_base: float = 32.0,
+    progress_span: float = 67.0,
+    progress_message: str = "FFmpeg 인코딩 중…",
+) -> None:
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=no_window_creationflags(),
+    )
+    _log.info("[BURN_IN] ffmpeg_pid=%s mode=%s", proc.pid, log_label)
+
+    write_err: list[BaseException] = []
+    stderr_tail: list[str] = []
+    progress_lock = threading.Lock()
+    diag_lock = threading.Lock()
+    last_pct = progress_base
+    expected_ms = max(1, int(overlay_dur * 1000))
+    last_out_time_ms = 0
+    stderr_finished = False
+    wait_started = time.perf_counter()
+    capped_at_99_logged = False
+
+    def _report(pct: float, msg: str) -> None:
+        nonlocal last_pct, capped_at_99_logged
+        if not on_progress:
+            return
+        with progress_lock:
+            mapped = max(progress_base, min(progress_base + progress_span, float(pct)))
+            cap = progress_base + progress_span
+            if mapped > last_pct + 0.05 or mapped >= cap - 0.01:
+                if mapped >= cap - 0.01 and not capped_at_99_logged:
+                    capped_at_99_logged = True
+                last_pct = mapped
+                on_progress(mapped, msg)
+
+    def _read_stderr() -> None:
+        nonlocal last_out_time_ms, stderr_finished
+        buf = b""
+        try:
+            while True:
+                chunk = proc.stderr.read(4096)
+                if not chunk:
+                    break
+                buf += chunk
+                while b"\n" in buf:
+                    raw_line, buf = buf.split(b"\n", 1)
+                    line = raw_line.decode("utf-8", errors="replace")
+                    stderr_tail.append(line)
+                    if len(stderr_tail) > 200:
+                        stderr_tail.pop(0)
+                    stripped = line.strip()
+                    if stripped.startswith("out_time_ms="):
+                        try:
+                            raw = int(stripped.split("=", 1)[1])
+                            with diag_lock:
+                                last_out_time_ms = raw
+                            pct = max(0, min(99, int((raw / expected_ms) * 100)))
+                            _report(
+                                progress_base + (pct / 100.0) * progress_span,
+                                progress_message,
+                            )
+                        except (ValueError, IndexError):
+                            pass
+        except Exception as exc:
+            write_err.append(exc)
+        finally:
+            stderr_finished = True
+
+    stderr_thread = threading.Thread(target=_read_stderr, name="burn-in-stderr", daemon=True)
+    stderr_thread.start()
+
+    deadline = time.perf_counter() + timeout_sec
+    while proc.poll() is None:
+        if time.perf_counter() > deadline:
+            proc.kill()
+            raise TimeoutError("FFmpeg보내기 시간 초과")
+        time.sleep(0.1)
+
+    stderr_thread.join(timeout=5.0)
+    rest = proc.stderr.read()
+    if rest:
+        stderr_tail.append(rest.decode("utf-8", errors="replace"))
+    ffmpeg_err = "\n".join(stderr_tail)[-4000:]
+    if proc.returncode != 0 or write_err:
+        _log.error("[BURN_IN] ffmpeg_stderr_tail mode=%s\n%s", log_label, ffmpeg_err[-1500:])
+    if write_err:
+        raise write_err[0]
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg 실패 (exit {proc.returncode}): {ffmpeg_err or 'unknown'}")
+
+
+def _write_transparent_segment_mov(
+    ffmpeg: str,
+    path: Path,
+    duration: float,
+    w: int,
+    h: int,
+) -> None:
+    if duration <= 1e-6:
+        return
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c=0x00000000:s={w}x{h}:d={duration:.6f}:r=30",
+        "-an",
+        "-c:v",
+        SUBTITLE_LAYER_CODEC[0],
+        "-pix_fmt",
+        SUBTITLE_LAYER_CODEC[1],
+        str(path),
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=no_window_creationflags(),
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")[-1500:]
+        raise RuntimeError(f"투명 구간 생성 실패: {err or proc.returncode}")
+
+
+def _write_png_segment_mov(
+    ffmpeg: str,
+    png_path: Path,
+    path: Path,
+    duration: float,
+    w: int,
+    h: int,
+) -> None:
+    dur = max(0.04, float(duration))
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-loop",
+        "1",
+        "-i",
+        str(png_path),
+        "-t",
+        f"{dur:.6f}",
+        "-vf",
+        f"scale={w}:{h}",
+        "-an",
+        "-c:v",
+        SUBTITLE_LAYER_CODEC[0],
+        "-pix_fmt",
+        SUBTITLE_LAYER_CODEC[1],
+        str(path),
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=no_window_creationflags(),
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")[-1500:]
+        raise RuntimeError(f"자막 구간 생성 실패: {err or proc.returncode}")
+
+
+def _cue_pngs_overlap(cue_pngs: list[tuple[Path, float, float]]) -> bool:
+    ordered = sorted(cue_pngs, key=lambda item: (item[1], item[2]))
+    prev_end = -1.0
+    for _, start, end in ordered:
+        if start < prev_end - 1e-6:
+            return True
+        prev_end = max(prev_end, end)
+    return False
+
+
+def _build_subtitle_layer_mov_concat(
+    *,
+    ffmpeg: str,
+    cue_pngs: list[tuple[Path, float, float]],
+    overlay_dur: float,
+    w: int,
+    h: int,
+    work_dir: Path,
+    on_progress: ExportProgressCallback | None,
+) -> Path:
+    """cue/gap 구간별 짧은 qtrle 클립 → concat (overlay 필터 N-input 회피)."""
+    segments_dir = work_dir / "_subtitle_segs"
+    segments_dir.mkdir(parents=True, exist_ok=True)
+    for old in segments_dir.glob("*.mov"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+    ordered = sorted(cue_pngs, key=lambda item: (item[1], item[2]))
+    segments: list[Path] = []
+    pos = 0.0
+    total_steps = max(1, len(ordered) * 2 + 1)
+    step = 0
+
+    for png_path, start, end in ordered:
+        start = max(0.0, min(float(start), overlay_dur))
+        end = max(start, min(float(end), overlay_dur))
+        if end <= start + 1e-6:
+            continue
+        if start > pos + 1e-6:
+            seg = segments_dir / f"seg_{len(segments):04d}.mov"
+            _write_transparent_segment_mov(ffmpeg, seg, start - pos, w, h)
+            segments.append(seg)
+            pos = start
+            step += 1
+            if on_progress:
+                on_progress(32.0 + (step / total_steps) * 28.0, "자막 레이어 합성…")
+        seg = segments_dir / f"seg_{len(segments):04d}.mov"
+        _write_png_segment_mov(ffmpeg, png_path, seg, end - start, w, h)
+        segments.append(seg)
+        pos = end
+        step += 1
+        if on_progress:
+            on_progress(32.0 + (step / total_steps) * 28.0, "자막 레이어 합성…")
+
+    if pos < overlay_dur - 1e-6:
+        seg = segments_dir / f"seg_{len(segments):04d}.mov"
+        _write_transparent_segment_mov(ffmpeg, seg, overlay_dur - pos, w, h)
+        segments.append(seg)
+
+    if not segments:
+        raise ValueError("자막 레이어 세그먼트가 없습니다.")
+
+    list_path = work_dir / "_subtitle_concat.txt"
+    lines: list[str] = []
+    for seg in segments:
+        esc = str(seg.resolve()).replace("\\", "/").replace("'", "'\\''")
+        lines.append(f"file '{esc}'")
+    list_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    layer_path = work_dir / "_subtitle_layer.mov"
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-hide_banner",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        str(list_path),
+        "-c",
+        "copy",
+        str(layer_path),
+    ]
+    proc = subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=no_window_creationflags(),
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or b"").decode("utf-8", errors="replace")[-1500:]
+        raise RuntimeError(f"자막 레이어 concat 실패: {err or proc.returncode}")
+
+    try:
+        list_path.unlink(missing_ok=True)
+    except OSError:
+        pass
+    for seg in segments:
+        try:
+            seg.unlink(missing_ok=True)
+        except OSError:
+            pass
+    try:
+        segments_dir.rmdir()
+    except OSError:
+        pass
+    return layer_path
+
+
+def _build_batched_subtitle_layer_mov(
+    *,
+    ffmpeg: str,
+    cue_pngs: list[tuple[Path, float, float]],
+    overlay_dur: float,
+    fps_expr: str,
+    w: int,
+    h: int,
+    work_dir: Path,
+    on_progress: ExportProgressCallback | None,
+    timeout_sec: float,
+) -> Path:
+    """cue PNG를 소배치 overlay로 투명 자막 레이어 mov 생성 (입력 수 제한)."""
+    batches = _chunk_cue_pngs(cue_pngs, CUE_OVERLAY_BATCH_SIZE)
+    layer_path: Path | None = None
+    temp_paths: list[Path] = []
+
+    for bi, batch in enumerate(batches):
+        out_path = work_dir / f"_subtitle_layer_{bi:03d}.mov"
+        temp_paths.append(out_path)
+        script_path = work_dir / f"_subtitle_layer_{bi:03d}.txt"
+
+        if on_progress:
+            pct = 32.0 + (bi / max(1, len(batches))) * 28.0
+            on_progress(pct, f"자막 레이어 합성 ({bi + 1}/{len(batches)})…")
+
+        cmd = [ffmpeg, "-y", "-hide_banner"]
+        if layer_path is None:
+            lavfi = f"color=c=0x00000000:s={w}x{h}:d={overlay_dur:.6f}:r={fps_expr}"
+            cmd.extend(["-f", "lavfi", "-i", lavfi])
+        else:
+            cmd.extend(["-i", str(layer_path)])
+        for png_path, _, _ in batch:
+            cmd.extend(["-loop", "1", "-i", str(png_path)])
+
+        script_body = build_cue_overlay_on_layer_filter(
+            [(start, end) for _, start, end in batch],
+            full_w=w,
+            full_h=h,
+        )
+        cmd.extend(
+            [
+                *filter_complex_argv(ffmpeg, script_body, script_path=script_path),
+                "-map",
+                "[vout]",
+                "-an",
+                "-c:v",
+                SUBTITLE_LAYER_CODEC[0],
+                "-pix_fmt",
+                SUBTITLE_LAYER_CODEC[1],
+                "-t",
+                f"{overlay_dur:.6f}",
+                "-progress",
+                "pipe:2",
+                "-nostats",
+                str(out_path),
+            ]
+        )
+        _log.info(
+            "[BURN_IN] subtitle_layer_batch batch=%s/%s cues=%s in=%s out=%s",
+            bi + 1,
+            len(batches),
+            len(batch),
+            layer_path.name if layer_path else "lavfi",
+            out_path.name,
+        )
+        _run_ffmpeg_filter_pass(
+            cmd,
+            overlay_dur=overlay_dur,
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+            log_label=f"subtitle_layer_{bi}",
+            progress_base=32.0 + (bi / max(1, len(batches))) * 28.0,
+            progress_span=28.0 / max(1, len(batches)),
+            progress_message=f"자막 레이어 합성 ({bi + 1}/{len(batches)})…",
+        )
+        layer_path = out_path
+
+    if layer_path is None:
+        raise ValueError("자막 레이어를 생성하지 못했습니다.")
+    for p in temp_paths:
+        if p != layer_path and p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+    for p in work_dir.glob("_subtitle_layer_*.txt"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
+    return layer_path
+
+
 def _run_cue_file_burn_in(
     *,
     ffmpeg: str,
@@ -504,22 +922,48 @@ def _run_cue_file_burn_in(
             raise ValueError("cue overlay 경로에 frame path가 없습니다.")
         cue_pngs.append((_ensure_cue_png(c.path, rw, rh), c.start, c.end))
 
-    script_body = build_cue_overlay_filter_script(
-        cue_pngs,
-        fps_expr=fps_expr,
-        full_w=w,
-        full_h=h,
-        render_w=rw,
-        render_h=rh,
-        wm_path=wm_path,
-        wm_x=wm_x,
-        wm_y=wm_y,
-    )
-    script_path = output_path.parent / "_burn_filter.txt"
-    script_path.write_text(script_body, encoding="utf-8")
+    work_dir = output_path.parent
+    if _cue_pngs_overlap(cue_pngs):
+        _log.warning("[BURN_IN] overlapping cues detected — batched overlay fallback")
+        layer_mov = _build_batched_subtitle_layer_mov(
+            ffmpeg=ffmpeg,
+            cue_pngs=cue_pngs,
+            overlay_dur=overlay_dur,
+            fps_expr=fps_expr,
+            w=w,
+            h=h,
+            work_dir=work_dir,
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+        )
+    else:
+        layer_mov = _build_subtitle_layer_mov_concat(
+            ffmpeg=ffmpeg,
+            cue_pngs=cue_pngs,
+            overlay_dur=overlay_dur,
+            w=w,
+            h=h,
+            work_dir=work_dir,
+            on_progress=on_progress,
+        )
 
     if on_progress:
-        on_progress(32.0, "FFmpeg 자막 합성·인코딩…")
+        on_progress(62.0, "FFmpeg 영상·자막 합성·인코딩…")
+
+    vmain_chain = f"[0:v]fps=fps={fps_expr},setpts=PTS-STARTPTS,setsar=1[vmain]"
+    if wm_path is not None:
+        filter_complex = (
+            f"{vmain_chain};"
+            f"[1:v]format=rgba[sub];"
+            f"[vmain][sub]overlay=0:0[vsub];"
+            f"[vsub][2:v]overlay={wm_x}:{wm_y}[vout]"
+        )
+    else:
+        filter_complex = (
+            f"{vmain_chain};"
+            f"[1:v]format=rgba[sub];"
+            f"[vmain][sub]overlay=0:0[vout]"
+        )
 
     cmd = [
         ffmpeg,
@@ -531,28 +975,37 @@ def _run_cue_file_burn_in(
         "+genpts",
         "-i",
         str(input_video_path),
-        "-filter_complex_script",
-        str(script_path),
-        "-map",
-        "[vout]",
-        "-map",
-        "0:a?",
-        "-map",
-        "-0:s",
-        *enc_args,
-        "-c:a",
-        "copy",
-        "-t",
-        f"{overlay_dur:.6f}",
-        "-progress",
-        "pipe:2",
-        "-nostats",
-        str(output_path),
+        "-i",
+        str(layer_mov),
     ]
+    if wm_path is not None:
+        cmd.extend(["-loop", "1", "-i", str(wm_path)])
+    cmd.extend(
+        [
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[vout]",
+            "-map",
+            "0:a?",
+            "-map",
+            "-0:s",
+            *enc_args,
+            "-c:a",
+            "copy",
+            "-t",
+            f"{overlay_dur:.6f}",
+            "-progress",
+            "pipe:2",
+            "-nostats",
+            str(output_path),
+        ]
+    )
     _log.info(
-        "[BURN_IN] ffmpeg_start mode=cue_overlay input=%s output=%s encoder=%s "
+        "[BURN_IN] ffmpeg_start mode=layer_mux input=%s layer=%s output=%s encoder=%s "
         "overlay_dur=%.3f cues=%s render=%dx%d full=%dx%d fps=%s",
         input_video_path.name,
+        layer_mov.name,
         output_path.name,
         chosen_encoder,
         overlay_dur,
@@ -563,27 +1016,24 @@ def _run_cue_file_burn_in(
         h,
         fps_expr,
     )
-    proc = subprocess.Popen(
+    enc_label = chosen_encoder.replace("h264_", "").upper()
+    mux_message = f"FFmpeg 인코딩 중… ({enc_label})"
+    _run_ffmpeg_filter_pass(
         cmd,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        creationflags=no_window_creationflags(),
-    )
-    _log.info("[BURN_IN] ffmpeg_pid=%s mode=cue_overlay", proc.pid)
-    _wait_ffmpeg_burn_in(
-        proc,
         overlay_dur=overlay_dur,
         on_progress=on_progress,
         timeout_sec=timeout_sec,
-        log_label="cue_overlay",
+        log_label="layer_mux",
+        progress_base=62.0,
+        progress_span=37.0,
+        progress_message=mux_message,
     )
     try:
-        script_path.unlink(missing_ok=True)
+        layer_mov.unlink(missing_ok=True)
     except OSError:
         pass
     _log.info(
-        "[BURN_IN] ffmpeg_success mode=cue_overlay output=%s size_bytes=%s",
+        "[BURN_IN] ffmpeg_success mode=layer_mux output=%s size_bytes=%s",
         output_path.name,
         output_path.stat().st_size if output_path.is_file() else 0,
     )
@@ -696,11 +1146,12 @@ def run_single_pass_subtitle_burn_in(
             )
 
     fps_expr = _fps_filter_expr(fps)
-    chosen_encoder = (h264_encoder or "libx264").strip().lower()
+    chosen_encoder = (h264_encoder or select_h264_encoder(ffmpeg)).strip().lower()
     if chosen_encoder != "libx264" and not _probe_encoder(ffmpeg, chosen_encoder):
         _log.warning("인코더 %s 사용 불가 → libx264 fallback", chosen_encoder)
         chosen_encoder = "libx264"
     enc_args = build_h264_video_encode_args(chosen_encoder)
+    _log.info("[BURN_IN] video_encoder=%s", chosen_encoder)
 
     if frame_paths is not None:
         _run_cue_file_burn_in(

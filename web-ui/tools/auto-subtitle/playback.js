@@ -3,10 +3,14 @@
  */
 
 import { mergeCutRanges } from "./shared/timeline-collapse.js?v=17";
-import { collectDeletedWordSkipRangesFromLines } from "./shared/virtual-timeline.js?v=17";
+import { collectDeletedWordSkipRangesFromLines } from "./shared/virtual-timeline.js?v=18";
 import { listableCueIndices } from "./shared/subtitle-list-indices.js?v=5";
 import { getCueWords, visibleWords } from "./subtitle-words.js?v=18";
 import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
+import {
+  findVirtualIndexEntryByVirtualSec,
+  mapMediaToBlockVirtualSec,
+} from "./shared/block-timeline-adapter.js?v=4";
 
 const TIME_EPS = 1e-4;
 /** 재생 칩 하이라이트 — word.start가 audible onset보다 늦을 때만 적용 */
@@ -190,6 +194,98 @@ export function pickActiveCueIndexWithHint(cues, t, hint = -1) {
   }
 
   return pickActiveCueIndex(list, t);
+}
+
+/**
+ * @param {VirtualIndexEntry | null | undefined} entry
+ * @param {number} virtualSec
+ */
+export function timeInVirtualBlockSpan(entry, virtualSec) {
+  if (!entry) return false;
+  const t = Number(virtualSec) || 0;
+  return t >= entry.virtualStart - TIME_EPS && t < entry.virtualEnd + TIME_EPS;
+}
+
+/**
+ * Phase 2 — 가상 타임라인 O(log N) cue 하이라이트.
+ *
+ * @param {Array<{ start: number, end: number, text?: string, is_silence?: boolean }>} cues
+ * @param {readonly import("./shared/block-timeline-adapter.js").Block[]} blocks
+ * @param {readonly import("./shared/block-timeline-adapter.js").VirtualIndexEntry[]} virtualIndex
+ * @param {number} virtualSec
+ * @param {number} [hint]
+ */
+export function pickActiveCueIndexWithBlockVirtual(cues, blocks, virtualIndex, virtualSec, hint = -1) {
+  const list = cues || [];
+  const idx = virtualIndex || [];
+  if (!idx.length) return pickActiveCueIndexWithHint(list, virtualSec, hint);
+
+  const entryForBlock = (blockIndex) => idx.find((e) => e.blockIndex === blockIndex) ?? null;
+
+  if (hint >= 0 && hint < list.length) {
+    const hintEntry = entryForBlock(hint);
+    if (hintEntry && timeInVirtualBlockSpan(hintEntry, virtualSec) && cueIsPlayableListRow(list[hint])) {
+      return hint;
+    }
+    if (hintEntry && cueIsPlayableListRow(list[hint])) {
+      const vs = hintEntry.virtualStart;
+      const ve = hintEntry.virtualEnd;
+      if (virtualSec >= vs - TIME_EPS && virtualSec <= ve + INTER_CUE_GAP_HOLD_SEC) return hint;
+    }
+
+    const hintPos = idx.findIndex((e) => e.blockIndex === hint);
+    if (hintPos >= 0) {
+      let found = -1;
+      const lo = Math.max(0, hintPos - 4);
+      const hi = Math.min(idx.length - 1, hintPos + 8);
+      for (let i = lo; i <= hi; i += 1) {
+        const e = idx[i];
+        if (!cueIsPlayableListRow(list[e.blockIndex])) continue;
+        if (timeInVirtualBlockSpan(e, virtualSec)) found = e.blockIndex;
+      }
+      if (found >= 0) return found;
+    }
+  }
+
+  const hit = findVirtualIndexEntryByVirtualSec(idx, virtualSec);
+  if (hit && cueIsPlayableListRow(list[hit.blockIndex])) return hit.blockIndex;
+
+  for (let i = idx.length - 1; i >= 0; i -= 1) {
+    const e = idx[i];
+    if (
+      virtualSec >= e.virtualEnd - TIME_EPS &&
+      virtualSec <= e.virtualEnd + INTER_CUE_GAP_HOLD_SEC &&
+      cueIsPlayableListRow(list[e.blockIndex])
+    ) {
+      return e.blockIndex;
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * @param {number} mediaSec
+ * @param {readonly import("./shared/block-timeline-adapter.js").Block[]} blocks
+ * @param {readonly import("./shared/block-timeline-adapter.js").VirtualIndexEntry[]} virtualIndex
+ * @param {readonly { start: number, end: number }[]} skipRanges
+ * @param {{ listOrderClips?: readonly object[], mapMediaToProgramSec?: (mediaSec: number, clips: readonly object[]) => number }} [listOrder]
+ */
+export function resolveBlockVirtualSecFromMedia(
+  mediaSec,
+  blocks,
+  virtualIndex,
+  skipRanges,
+  listOrder = {},
+) {
+  return mapMediaToBlockVirtualSec(
+    mediaSec,
+    blocks,
+    virtualIndex,
+    skipRanges,
+    skipCutRangeAt,
+    listOrder,
+  );
 }
 
 /**

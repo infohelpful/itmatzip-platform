@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import json
 import logging
@@ -23,6 +24,8 @@ from common.runtime_site_packages import (
     TOOL_AUTO_SUBTITLE,
     activate_runtime_site_packages,
     pip_install_cmd,
+    purge_runtime_site_all,
+    probe_runtime_import,
     tool_has_module,
     verify_importable,
 )
@@ -178,6 +181,155 @@ def get_whisper_model() -> Any | None:
 
 def _runtime_module_installed(module_name: str) -> bool:
     return tool_has_module(RUNTIME_TOOL_ID, module_name)
+
+
+# (import_name, pip_spec, purge_dir_prefixes…, import_smoke…)
+_PREPARE_PYTHON_PACKAGES: tuple[tuple[str, str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("faster_whisper", "faster-whisper>=1.0.3", ("faster_whisper", "faster-whisper"), ()),
+    ("huggingface_hub", "huggingface_hub>=0.26.0", ("huggingface_hub",), ()),
+    ("tqdm", "tqdm>=4.66.0", ("tqdm",), ()),
+    ("numpy", "numpy", ("numpy", "numpy.libs"), ("numpy.linalg",)),
+    ("tokenizers", "tokenizers", ("tokenizers",), ()),
+    ("ctranslate2", "ctranslate2", ("ctranslate2",), ()),
+    ("av", "av", ("av",), ()),
+    ("kiwipiepy", "kiwipiepy>=0.18.0", ("kiwipiepy", "kiwipiepy_model"), ()),
+)
+
+# 손상 복구 시 한 번에 설치 (faster-whisper 가 대부분 의존성 포함)
+_FRESH_PREPARE_PIP_SPECS: tuple[str, ...] = (
+    "numpy",
+    "kiwipiepy>=0.18.0",
+    "faster-whisper>=1.0.3",
+)
+
+# faster-whisper 설치 시 중복 pip 방지
+_WHISPER_PIP_BUNDLE = frozenset({
+    "numpy",
+    "tokenizers",
+    "ctranslate2",
+    "av",
+    "tqdm>=4.66.0",
+    "huggingface_hub>=0.26.0",
+})
+_WHISPER_PIP_SPEC = "faster-whisper>=1.0.3"
+
+
+def _evict_runtime_modules_from_sys(*import_names: str) -> None:
+    for name in import_names:
+        for key in list(sys.modules):
+            if key == name or key.startswith(f"{name}."):
+                sys.modules.pop(key, None)
+
+
+def _prepare_import_smoke_map() -> dict[str, tuple[str, ...]]:
+    return {import_name: smoke for import_name, _, _, smoke in _PREPARE_PYTHON_PACKAGES if smoke}
+
+
+def _scan_prepare_python_packages() -> tuple[list[str], list[str]]:
+    """누락·손상 pip spec 과 purge 대상 prefix."""
+    missing_specs: list[str] = []
+    purge_prefixes: list[str] = []
+    for import_name, pip_spec, purge, smoke in _PREPARE_PYTHON_PACKAGES:
+        present = tool_has_module(RUNTIME_TOOL_ID, import_name)
+        if not present:
+            missing_specs.append(pip_spec)
+            continue
+        if not probe_runtime_import(RUNTIME_TOOL_ID, import_name, smoke):
+            purge_prefixes.extend(purge)
+            if pip_spec not in missing_specs:
+                missing_specs.append(pip_spec)
+    return missing_specs, purge_prefixes
+
+
+def _dedupe_prepare_pip_specs(specs: list[str]) -> list[str]:
+    """faster-whisper 번들에 포함되는 spec 은 제외."""
+    if _WHISPER_PIP_SPEC not in specs:
+        return list(dict.fromkeys(specs))
+    out = [_WHISPER_PIP_SPEC]
+    for spec in specs:
+        if spec == _WHISPER_PIP_SPEC or spec in _WHISPER_PIP_BUNDLE:
+            continue
+        out.append(spec)
+    return list(dict.fromkeys(out))
+
+
+def _assert_runtime_site_empty() -> None:
+    from common.runtime_site_packages import runtime_site_packages_dir
+
+    left = list(runtime_site_packages_dir(RUNTIME_TOOL_ID).iterdir())
+    if left:
+        names = ", ".join(p.name for p in left[:8])
+        raise RuntimeError(
+            f"runtime Python 패키지 폴더를 비우지 못했습니다 ({names}). "
+            "itmatzip-agent 트레이를 완전히 종료한 뒤 「환경 준비」를 다시 시도하세요."
+        )
+
+
+def _run_prepare_pip_install(
+    specs: list[str],
+    *,
+    on_progress: PrepareProgressCallback | None,
+    batch: bool = False,
+) -> None:
+    from common.runtime_site_packages import (
+        ensure_runtime_tree_acl,
+        finalize_runtime_pip,
+        pip_subprocess_env,
+    )
+
+    if not specs:
+        return
+
+    ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
+    batches = [specs] if batch else [[spec] for spec in specs]
+    for batch_specs in batches:
+        cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=False, force_reinstall=False)
+        cmd.extend(batch_specs)
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=no_window_creationflags(),
+            env=pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID}),
+        )
+        lines_seen = 0
+        last_line = ""
+        output_tail: list[str] = []
+        while True:
+            line = proc.stdout.readline()  # type: ignore[union-attr]
+            if not line and proc.poll() is not None:
+                break
+            if not line:
+                continue
+            lines_seen += 1
+            stripped = line.strip()
+            if stripped:
+                last_line = stripped
+                output_tail.append(stripped)
+                if len(output_tail) > 40:
+                    output_tail.pop(0)
+            label = batch_specs[0] if len(batch_specs) == 1 else f"{len(batch_specs)} packages"
+            if on_progress is not None and lines_seen % 3 == 0:
+                pct = min(17.0, 7.0 + lines_seen * 0.1)
+                short = last_line[:80] if last_line else f"{label} 설치 중…"
+                _emit_prepare_progress(on_progress, pct, "Python 패키지 설치", short)
+        proc.wait()
+        combined = "\n".join(output_tail)
+        if proc.returncode != 0 and "Successfully installed" not in combined:
+            hint = ""
+            if "Permission" in last_line or "permission" in last_line.lower():
+                hint = (
+                    " — pip 캐시/폴더 권한 문제일 수 있습니다. "
+                    "itmatzip-agent 트레이를 완전히 종료한 뒤 「환경 준비」를 다시 시도하세요."
+                )
+            label = ", ".join(batch_specs)
+            raise RuntimeError(
+                f"pip install 실패 ({label}, exit {proc.returncode}): {last_line}{hint}"
+            )
+    finalize_runtime_pip(RUNTIME_TOOL_ID)
 
 
 def resolve_model_dir() -> Path:
@@ -458,68 +610,37 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
             "ItMatZip Agent MSI(engine Python)를 사용하세요."
         )
 
-    missing: list[str] = []
-    if not is_faster_whisper_installed():
-        missing.append("faster-whisper>=1.0.3")
-    if not is_huggingface_hub_installed():
-        missing.append("huggingface_hub>=0.26.0")
-    if not _runtime_module_installed("tqdm"):
-        missing.append("tqdm>=4.66.0")
-    if not _runtime_module_installed("numpy"):
-        missing.append("numpy")
-    if not _runtime_module_installed("tokenizers"):
-        missing.append("tokenizers")
-    if not _runtime_module_installed("ctranslate2"):
-        missing.append("ctranslate2")
-    if not _runtime_module_installed("av"):
-        missing.append("av")
-    if not tool_has_module(RUNTIME_TOOL_ID, "kiwipiepy"):
-        missing.append("kiwipiepy>=0.18.0")
-    if not missing:
+    missing_specs, purge_prefixes = _scan_prepare_python_packages()
+    full_reinstall = bool(purge_prefixes)
+    if full_reinstall:
+        _emit_prepare_progress(
+            on_progress,
+            5.0,
+            "Python 패키지",
+            "손상된 runtime 패키지 정리 중… (잠시만 기다려 주세요)",
+        )
+        purge_runtime_site_all(RUNTIME_TOOL_ID)
+        _assert_runtime_site_empty()
+        _evict_runtime_modules_from_sys(*(row[0] for row in _PREPARE_PYTHON_PACKAGES))
+        ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
+        missing_specs = list(_FRESH_PREPARE_PIP_SPECS)
+
+    if missing_specs:
+        pip_specs = list(_FRESH_PREPARE_PIP_SPECS) if full_reinstall else _dedupe_prepare_pip_specs(missing_specs)
+        _emit_prepare_progress(
+            on_progress,
+            6.0,
+            "Python 패키지",
+            f"pip install 시작: {', '.join(pip_specs)} (수 분 소요될 수 있습니다)",
+        )
+        _run_prepare_pip_install(
+            pip_specs,
+            on_progress=on_progress,
+            batch=False,
+        )
+    elif not full_reinstall:
         _emit_prepare_progress(on_progress, 12.0, "Python 패키지", "faster-whisper 이미 설치됨")
-        return
 
-    _emit_prepare_progress(
-        on_progress,
-        6.0,
-        "Python 패키지",
-        f"pip install 시작: {', '.join(missing)} (수 분 소요될 수 있습니다)",
-    )
-    from common.subprocess_util import agent_subprocess_env
-
-    ensure_runtime_tree_acl(RUNTIME_TOOL_ID)
-    cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True)
-    cmd.extend(missing)
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=no_window_creationflags(),
-        env=agent_subprocess_env({"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID}),
-    )
-    lines_seen = 0
-    last_line = ""
-    while True:
-        line = proc.stdout.readline()  # type: ignore[union-attr]
-        if not line and proc.poll() is not None:
-            break
-        if not line:
-            continue
-        lines_seen += 1
-        stripped = line.strip()
-        if stripped:
-            last_line = stripped
-        if on_progress is not None and lines_seen % 3 == 0:
-            pct = min(17.0, 7.0 + lines_seen * 0.1)
-            short = last_line[:80] if last_line else "설치 중…"
-            _emit_prepare_progress(on_progress, pct, "Python 패키지 설치", short)
-    proc.wait()
-    if proc.returncode != 0:
-        raise RuntimeError(f"pip install 실패 (exit {proc.returncode}): {last_line}")
-    finalize_runtime_pip(RUNTIME_TOOL_ID)
     activate_runtime_site_packages(RUNTIME_TOOL_ID)
     verify_importable(
         RUNTIME_TOOL_ID,
@@ -531,6 +652,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         "ctranslate2",
         "av",
         "kiwipiepy",
+        smoke_by_module=_prepare_import_smoke_map(),
     )
     prepend_cuda_runtime_dll_dirs()
     _emit_prepare_progress(on_progress, 18.0, "Python 패키지", "설치 완료")
@@ -1197,6 +1319,50 @@ def _preview_video_duration_sec(
             if isinstance(v, (int, float)) and float(v) > 0:
                 return float(v)
     return 0.0
+
+
+def build_preview_media_ssot(
+    media_path: Path,
+    *,
+    on_progress: Callable[[float, str, str], None] | None = None,
+) -> dict[str, Any]:
+    """프로젝트 불러오기·export용 CFR preview SSOT (transcribe 없이)."""
+    from engines.auto_subtitle_media_normalize import prepare_preview_media_bundle
+
+    media_path = media_path.resolve()
+    if not media_path.is_file():
+        return {
+            "ok": False,
+            "error": "file_not_found",
+            "source_path": str(media_path),
+        }
+
+    prepend_ffmpeg_bin_to_env(os.environ)
+    prep, source_probe, preview_probe = prepare_preview_media_bundle(
+        media_path,
+        on_progress=on_progress,
+    )
+    base_timing: dict[str, Any] = {
+        **source_probe,
+        "source_media_path": str(media_path),
+        "source_path": str(media_path),
+        "source_probe": source_probe,
+    }
+    media_timing = _apply_preview_probe_to_media_timing(
+        base_timing,
+        preview_probe,
+        preview_path=prep.preview_path,
+        prep_actions=prep.actions,
+    )
+    media_timing["normalized"] = bool(prep.normalized)
+    return {
+        "ok": True,
+        "preview_media_path": str(prep.preview_path.resolve()),
+        "media_timing": media_timing,
+        "normalized": prep.normalized,
+        "actions": prep.actions,
+        "source_path": str(media_path),
+    }
 
 
 def _run_transcribe(

@@ -24,6 +24,8 @@ import { mediaTimingDiagLog, mediaTimingDiagWarn } from "./media-timing-diagnost
 export const AV_DURATION_SCALE_MIN_DELTA_SEC = 0.05;
 export const DURATION_RATIO_SCALE_THRESHOLD = 0.0005;
 
+const STORAGE_PREVIEW_PATH = "auto-subtitle:preview-media-path";
+
 /** @type {MediaTimingProbe | null} */
 let sessionMediaTiming = null;
 /** @type {string | null} */
@@ -47,6 +49,21 @@ export function getSessionMediaTiming() {
 export function setSessionPreviewMediaPath(path) {
   const p = String(path || "").trim();
   sessionPreviewMediaPath = p || null;
+  try {
+    if (p) sessionStorage.setItem(STORAGE_PREVIEW_PATH, p);
+    else sessionStorage.removeItem(STORAGE_PREVIEW_PATH);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function restoreSessionPreviewMediaPathFromStorage() {
+  try {
+    const p = String(sessionStorage.getItem(STORAGE_PREVIEW_PATH) || "").trim();
+    if (p) sessionPreviewMediaPath = p;
+  } catch {
+    /* ignore */
+  }
 }
 
 export function clearSessionPreviewMediaPath() {
@@ -59,7 +76,7 @@ export function getSessionPreviewMediaPath() {
 
 export function clearSessionMediaTiming() {
   sessionMediaTiming = null;
-  sessionPreviewMediaPath = null;
+  setSessionPreviewMediaPath(null);
 }
 
 /**

@@ -6,6 +6,15 @@ from typing import Any
 
 AUTOSUB_FILE_FORMAT = "autosubtitle-project"
 AUTOSUB_VERSION = 1
+AUTOSUB_VERSION_V2 = 2
+_SUPPORTED_VERSIONS = frozenset({1, 2, "1", "2"})
+
+
+def _float_or(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _is_record(x: Any) -> bool:
@@ -117,6 +126,66 @@ def _parse_subtitles(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _parse_word_block(raw: dict[str, Any]) -> dict[str, Any]:
+    source_in = _float_or(raw.get("sourceIn", raw.get("source_in")))
+    source_out = _float_or(raw.get("sourceOut", raw.get("source_out")), source_in)
+    out: dict[str, Any] = {
+        "id": str(raw.get("id") or ""),
+        "text": str(raw.get("text") or raw.get("word") or ""),
+        "duration": _float_or(raw.get("duration")),
+        "sourceIn": source_in,
+        "sourceOut": max(source_in, source_out),
+    }
+    if raw.get("isDeleted") is True or raw.get("is_deleted") is True:
+        out["isDeleted"] = True
+    if raw.get("isSilence") is True or raw.get("is_silence") is True:
+        out["isSilence"] = True
+    if raw.get("mergedByEdgeTrim") is True or raw.get("merged_by_edge_trim") is True:
+        out["mergedByEdgeTrim"] = True
+    split_chain = raw.get("splitChain") or raw.get("split_chain")
+    if split_chain:
+        out["splitChain"] = str(split_chain)
+    return out
+
+
+def _parse_block(raw: dict[str, Any]) -> dict[str, Any] | None:
+    block_id = str(raw.get("id") or "").strip()
+    if not block_id:
+        return None
+    source_in = _float_or(raw.get("sourceIn", raw.get("source_in")))
+    source_out = _float_or(raw.get("sourceOut", raw.get("source_out")), source_in)
+    block: dict[str, Any] = {
+        "id": block_id,
+        "text": str(raw.get("text") or ""),
+        "duration": _float_or(raw.get("duration")),
+        "sourceIn": source_in,
+        "sourceOut": max(source_in, source_out),
+    }
+    if raw.get("isDeleted") is True or raw.get("is_deleted") is True:
+        block["isDeleted"] = True
+    if raw.get("isSilence") is True or raw.get("is_silence") is True:
+        block["isSilence"] = True
+    words_raw = raw.get("words")
+    if isinstance(words_raw, list):
+        words = [_parse_word_block(w) for w in words_raw if _is_record(w)]
+        if words:
+            block["words"] = words
+    return block
+
+
+def _parse_blocks(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not _is_record(item):
+            continue
+        block = _parse_block(item)
+        if block:
+            out.append(block)
+    return out
+
+
 def _parse_style(raw: Any) -> dict[str, Any] | None:
     if not _is_record(raw):
         return None
@@ -167,14 +236,19 @@ def parse_autosub_project(raw: Any) -> tuple[dict[str, Any] | None, str | None]:
     if fmt not in (AUTOSUB_FILE_FORMAT, "autosub-project"):
         return None, f"지원하지 않는 format: {fmt!r}"
     version = raw.get("version")
-    if version not in (AUTOSUB_VERSION, "1", 1):
+    if version not in _SUPPORTED_VERSIONS:
         return None, f"지원하지 않는 버전: {version!r}"
+    version_num = AUTOSUB_VERSION_V2 if version in (AUTOSUB_VERSION_V2, "2") else AUTOSUB_VERSION
 
     video_path = raw.get("videoPath") or raw.get("video_path")
     if video_path is not None and not isinstance(video_path, str):
         video_path = None
 
     cut_ranges = _parse_cut_ranges(raw.get("cutRanges") or raw.get("cut_ranges"))
+    hard_deleted_media_skips = _parse_cut_ranges(
+        raw.get("hardDeletedMediaSkips") or raw.get("hard_deleted_media_skips")
+    )
+    blocks = _parse_blocks(raw.get("blocks"))
     vt_cuts = _cuts_from_virtual_timeline(raw.get("virtualTimeline"))
     if vt_cuts:
         cut_ranges = cut_ranges + vt_cuts
@@ -184,9 +258,11 @@ def parse_autosub_project(raw: Any) -> tuple[dict[str, Any] | None, str | None]:
 
     normalized = {
         "format": AUTOSUB_FILE_FORMAT,
-        "version": AUTOSUB_VERSION,
+        "version": version_num,
         "video_path": video_path.strip() if isinstance(video_path, str) and video_path.strip() else None,
         "cut_ranges": cut_ranges,
+        "hard_deleted_media_skips": hard_deleted_media_skips,
+        "blocks": blocks,
         "subtitle_style": style,
         "cues": cues,
     }

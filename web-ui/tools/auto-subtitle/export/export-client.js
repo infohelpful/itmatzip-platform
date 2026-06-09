@@ -6,6 +6,11 @@ import { buildTextExport, TEXT_EXPORT_FORMATS } from "../shared/export-subtitle-
 import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=4";
 import { anyCueRelocated } from "../shared/dual-axis.js?v=1";
 import {
+  blocksRequireConcatExport,
+  blocksToVirtualAudioMap,
+  buildBlockStitchedProgramExportCues,
+} from "../shared/blocks-to-export.js?v=1";
+import {
   buildStitchedProgramExportCues,
   buildVirtualAudioMap,
   isSourceStartMonotonic,
@@ -71,15 +76,40 @@ export function buildExportCuesForPayload(lastCues, cutRanges, requiresConcat) {
  * @param {object} style
  * @param {string} format
  * @param {{ previewMediaPath?: string | null, videoPath?: string | null }} [media]
+ * @param {{ blocks?: readonly object[], virtualIndex?: readonly object[] }} [blockOpts]
  */
-export function buildExportRequestPayload(lastCues, cutRanges, style, format, media = {}) {
+export function buildExportRequestPayload(
+  lastCues,
+  cutRanges,
+  style,
+  format,
+  media = {},
+  blockOpts = {},
+) {
   const fmt = normalizeExportFormat(format);
   const needsMedia = ["video", "mp3", "wav"].includes(fmt);
   const previewMediaPath = media.previewMediaPath ?? null;
   const videoPath = media.videoPath ?? null;
-  const requiresConcat = computeRequiresConcatExport(lastCues, cutRanges);
-  const virtualAudioMap = buildVirtualAudioMap(lastCues, { cutRanges });
-  const exportCues = buildExportCuesForPayload(lastCues, cutRanges, requiresConcat);
+  const blocks = blockOpts.blocks;
+  const virtualIndex = blockOpts.virtualIndex;
+  const useBlocks =
+    Array.isArray(blocks) &&
+    blocks.length > 0 &&
+    Array.isArray(virtualIndex) &&
+    virtualIndex.length > 0;
+
+  const requiresConcat = useBlocks
+    ? blocksRequireConcatExport(blocks, virtualIndex, cutRanges)
+    : computeRequiresConcatExport(lastCues, cutRanges);
+  const virtualAudioMap = useBlocks
+    ? blocksToVirtualAudioMap(blocks, virtualIndex, { cutRanges })
+    : buildVirtualAudioMap(lastCues, { cutRanges });
+  const exportCues = useBlocks
+    ? buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
+        cutRanges,
+        requiresConcat,
+      })
+    : buildExportCuesForPayload(lastCues, cutRanges, requiresConcat);
 
   return {
     format: fmt,
