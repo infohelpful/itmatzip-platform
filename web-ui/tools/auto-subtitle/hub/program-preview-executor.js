@@ -6,10 +6,11 @@
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { programToSource } from "../shared/program-clips-ssot.js";
 import {
-  classifyGapTransition,
+  classifyListOrderGapTransition,
+  clipBlockKeysMatch,
   effectiveSourceEndForClip,
   passThroughEpsilonSec,
-} from "../shared/clip-boundary-ssot.js?v=4";
+} from "../shared/clip-boundary-ssot.js?v=5";
 import {
   atProgramBoundary,
   atProgramPlaybackBoundary,
@@ -259,14 +260,29 @@ export class ProgramPreviewExecutor {
     }
 
     const mediaSec = Math.max(0, audio.currentTime);
-    this.programSec = programSecFromAudioSlave(clip, mediaSec);
-
+    const effEnd = effectiveSourceEndForClip(clip);
+    const eps = passThroughEpsilonSec();
     const nextPos = this.clipPos + 1;
     const nextClip = this.clips[nextPos];
-    if (nextClip && !nextClip.isSilence && !clip.isSilence) {
-      const effEnd = effectiveSourceEndForClip(clip);
+
+    if (mediaSec > effEnd + eps) {
+      if (!nextClip || !clipBlockKeysMatch(clip, nextClip)) {
+        if (nextClip && !nextClip.isSilence && !clip.isSilence) {
+          return this.advanceToNextClip(audio, video);
+        }
+        return this.finishClipAtSourceEnd(clip, effEnd, audio, video);
+      }
+    }
+
+    this.programSec = programSecFromAudioSlave(clip, mediaSec);
+
+    if (
+      nextClip &&
+      !nextClip.isSilence &&
+      !clip.isSilence &&
+      clipBlockKeysMatch(clip, nextClip)
+    ) {
       const nextStart = Number(nextClip.mediaStart) || 0;
-      const eps = passThroughEpsilonSec();
       const interGap = nextStart - effEnd;
       if (
         interGap > eps &&
@@ -364,7 +380,7 @@ export class ProgramPreviewExecutor {
     const target = skipCutRangeAt(sourceSec, this.skipRanges);
     const mediaNow = Math.max(0, Number(audio?.currentTime) || target);
     const cls = cur
-      ? classifyGapTransition({
+      ? classifyListOrderGapTransition({
           cur,
           next,
           clips: this.clips,
@@ -408,6 +424,29 @@ export class ProgramPreviewExecutor {
       void video.play().catch(() => undefined);
     }
 
+    return this.snapshot();
+  }
+
+  /**
+   * @param {import("../shared/timeline-mapping.js").TimelineClip} clip
+   * @param {number} effEnd
+   * @param {HTMLMediaElement | null} audio
+   * @param {HTMLMediaElement | null} video
+   */
+  finishClipAtSourceEnd(clip, effEnd, audio, video) {
+    const clamp = skipCutRangeAt(effEnd, this.skipRanges);
+    if (audio && Math.abs(audio.currentTime - clamp) > passThroughEpsilonSec()) {
+      audio.currentTime = clamp;
+    }
+    if (video && Math.abs(video.currentTime - clamp) > VIDEO_SYNC_EPS_SEC) {
+      video.currentTime = clamp;
+    }
+    this.programSec = programClipPlaybackEnd(clip);
+    this.ended = true;
+    this.playing = false;
+    this.exitSilenceHold();
+    if (audio) audio.pause();
+    if (video) video.pause();
     return this.snapshot();
   }
 

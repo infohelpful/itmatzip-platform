@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyGapTransition } from "../shared/clip-boundary-ssot.js";
+import { classifyGapTransition, classifyListOrderGapTransition } from "../shared/clip-boundary-ssot.js";
 import { buildProgramClips } from "../shared/program-clips-ssot.js";
 import { programClipsToTimelineClips } from "../shared/program-clips-adapter.js";
 import {
@@ -57,7 +57,7 @@ test("adjacent blocks — playback end excludes tail pad past next sourceStart",
   );
 });
 
-test("continuous adjacent blocks — pass-through without seek", () => {
+test("continuous adjacent blocks — raw classify allows pass-through", () => {
   const blocks = [
     makeBlock({ id: "a", words: [makeWord(0, 5)] }),
     makeBlock({ id: "b", words: [makeWord(5, 8)] }),
@@ -78,6 +78,56 @@ test("continuous adjacent blocks — pass-through without seek", () => {
     shouldPassThroughClipTransition(cur, next, 5.0, 5.0, cls),
     true,
   );
+});
+
+test("list-order literal — different blocks never pass-through when source touches", () => {
+  const blocks = [
+    makeBlock({ id: "a", words: [makeWord(0, 5)] }),
+    makeBlock({ id: "b", words: [makeWord(5, 8)] }),
+  ];
+  const clips = programClipsToTimelineClips(buildProgramClips(blocks));
+  const cur = clips[0];
+  const next = clips[1];
+  const cls = classifyListOrderGapTransition({
+    cur,
+    next,
+    clips,
+    curPos: 0,
+    nextPos: 1,
+    skipRanges: [],
+  });
+  assert.equal(cls.kind, "edit");
+  assert.equal(cls.literalBlockJump, true);
+  assert.equal(
+    shouldPassThroughClipTransition(cur, next, 5.0, 5.0, cls),
+    false,
+  );
+});
+
+test("reorder 2-3-1 — line1 clip ends at its source span only", () => {
+  const blocks = [
+    makeBlock({ id: "line2", words: [makeWord(2, 5)] }),
+    makeBlock({ id: "line3", words: [makeWord(5, 7)] }),
+    makeBlock({ id: "line1", words: [makeWord(0, 2)] }),
+  ];
+  const clips = programClipsToTimelineClips(buildProgramClips(blocks));
+  assert.equal(clips.length, 3);
+  const line1 = clips[2];
+  assert.equal(line1.mediaStart, 0);
+  assert.ok(line1.effectiveSourceEnd <= 2.01, `line1 effEnd=${line1.effectiveSourceEnd}`);
+  assert.equal(
+    atProgramPlaybackBoundary(programClipPlaybackEnd(line1), line1),
+    true,
+  );
+  const line3to1 = classifyListOrderGapTransition({
+    cur: clips[1],
+    next: clips[2],
+    clips,
+    curPos: 1,
+    nextPos: 2,
+    skipRanges: [],
+  });
+  assert.equal(shouldPassThroughClipTransition(clips[1], clips[2], 7, 0, line3to1), false);
 });
 
 test("reorder backward jump — seek required", () => {

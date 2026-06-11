@@ -46,6 +46,8 @@ export const DELETED_WORD_MEDIA_GAP_SEC = 0.35;
 
  *   interEffectiveGap: number,
 
+ *   literalBlockJump?: boolean,
+
  * }} GapTransitionClassification
 
  */
@@ -518,7 +520,98 @@ export function classifyGapTransition(params) {
 
 }
 
+/** @param {import("./timeline-mapping.js").TimelineClip | null | undefined} clip */
+export function clipBlockKey(clip) {
+  if (!clip) return null;
+  if (clip.blockId != null && clip.blockId !== "") return String(clip.blockId);
+  if (Number.isInteger(clip.blockIndex) && clip.blockIndex >= 0) {
+    return `idx:${clip.blockIndex}`;
+  }
+  if (Number.isInteger(clip.cueIndex) && clip.cueIndex >= 0) {
+    return `cue:${clip.cueIndex}`;
+  }
+  return null;
+}
 
+/** @param {import("./timeline-mapping.js").TimelineClip | null | undefined} cur @param {import("./timeline-mapping.js").TimelineClip | null | undefined} next */
+export function clipBlockKeysMatch(cur, next) {
+  const a = clipBlockKey(cur);
+  const b = clipBlockKey(next);
+  return a != null && b != null && a === b;
+}
+
+/**
+ * List-order — natural/micro passThrough 금지 (continuous·edit 유지).
+ * @param {GapTransitionClassification} cls
+ */
+export function applyListOrderGapOverride(cls) {
+  if (!cls || cls.kind === "continuous" || cls.kind === "edit") {
+    return cls;
+  }
+  if (cls.kind === "micro" || cls.kind === "natural") {
+    return {
+      ...cls,
+      kind: "edit",
+      realDiscontinuity: true,
+      passThrough: false,
+    };
+  }
+  return cls;
+}
+
+/**
+ * PC-LITERAL — program 큐: 다른 block이면 source ε-adjacent여도 discontinuity.
+ *
+ * @param {import("./timeline-mapping.js").TimelineClip} cur
+ * @param {import("./timeline-mapping.js").TimelineClip} next
+ * @param {GapTransitionClassification} cls
+ */
+export function applyListOrderLiteralOverride(cur, next, cls) {
+  if (!cls) return cls;
+  if (cls.kind === "edit") return cls;
+
+  const sameBlock = clipBlockKeysMatch(cur, next);
+
+  if (cls.sameBlockSplit) {
+    if (cls.kind === "continuous") return cls;
+    return applyListOrderGapOverride(cls);
+  }
+
+  if (!sameBlock) {
+    return {
+      ...cls,
+      kind: "edit",
+      passThrough: false,
+      realDiscontinuity: true,
+      literalBlockJump: true,
+    };
+  }
+
+  if (cls.kind === "continuous") return cls;
+  return applyListOrderGapOverride(cls);
+}
+
+/**
+ * @param {{
+ *   cur: import("./timeline-mapping.js").TimelineClip,
+ *   next: import("./timeline-mapping.js").TimelineClip,
+ *   clips: readonly import("./timeline-mapping.js").TimelineClip[],
+ *   curPos: number,
+ *   nextPos: number,
+ *   skipRanges: readonly { start: number, end: number }[],
+ *   cutRanges?: readonly { start: number, end: number }[],
+ *   softDeleteSourceSkips?: readonly { start: number, end: number }[],
+ *   vfr?: boolean,
+ * }} params
+ * @returns {GapTransitionClassification}
+ */
+export function classifyListOrderGapTransition(params) {
+  return applyListOrderLiteralOverride(
+    params.cur,
+    params.next,
+    classifyGapTransition(params),
+  );
+}
 
 /** @deprecated — classifyGapTransition(kind:'continuous') 사용 */
 

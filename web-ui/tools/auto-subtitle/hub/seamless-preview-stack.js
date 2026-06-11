@@ -8,11 +8,11 @@ import { seekWithNudge } from "./html-audio-master-playback.js?v=4";
 import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=7";
 import {
   DELETED_WORD_MEDIA_GAP_SEC,
-  classifyGapTransition,
+  classifyListOrderGapTransition,
   effectiveSourceEndForClip,
   interClipEffectiveGap,
   passThroughEpsilonSec,
-} from "../shared/clip-boundary-ssot.js?v=3";
+} from "../shared/clip-boundary-ssot.js?v=5";
 
 const HAVE_FUTURE = HTMLMediaElement.HAVE_FUTURE_DATA;
 const PREFETCH_LEAD_MIN_SEC = 0.28;
@@ -26,73 +26,6 @@ const TRANSITION_IDLE_POLL_MS = 16;
 const TRANSITION_IDLE_MAX_MS = 2400;
 
 /**
- * List-order — program 큐 우선: natural/micro passThrough 금지 (continuous·edit 유지).
- * @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls
- */
-function applyListOrderGapOverride(cls) {
-  if (!cls || cls.kind === "continuous" || cls.kind === "edit") {
-    return cls;
-  }
-  if (cls.kind === "micro" || cls.kind === "natural") {
-    return {
-      ...cls,
-      kind: "edit",
-      realDiscontinuity: true,
-      passThrough: false,
-    };
-  }
-  return cls;
-}
-
-/** @param {import("../shared/timeline-mapping.js").TimelineClip | null | undefined} clip */
-function clipBlockKey(clip) {
-  if (!clip) return null;
-  if (clip.blockId != null && clip.blockId !== "") return String(clip.blockId);
-  if (Number.isInteger(clip.blockIndex) && clip.blockIndex >= 0) {
-    return `idx:${clip.blockIndex}`;
-  }
-  if (Number.isInteger(clip.cueIndex) && clip.cueIndex >= 0) {
-    return `cue:${clip.cueIndex}`;
-  }
-  return null;
-}
-
-/**
- * PC-LITERAL — programClips 큐 literal: 다른 block이면 source ε-adjacent여도 discontinuity.
- * L2 edit 유지 · L3 same-block continuous 허용 · L4 same-block natural/micro → gap override.
- *
- * @param {import("../shared/timeline-mapping.js").TimelineClip} cur
- * @param {import("../shared/timeline-mapping.js").TimelineClip} next
- * @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls
- */
-function applyListOrderLiteralOverride(cur, next, cls) {
-  if (!cls) return cls;
-  if (cls.kind === "edit") return cls;
-
-  const curBlock = clipBlockKey(cur);
-  const nextBlock = clipBlockKey(next);
-  const sameBlock = curBlock != null && nextBlock != null && curBlock === nextBlock;
-
-  if (cls.sameBlockSplit) {
-    if (cls.kind === "continuous") return cls;
-    return applyListOrderGapOverride(cls);
-  }
-
-  if (!sameBlock) {
-    return {
-      ...cls,
-      kind: "edit",
-      passThrough: false,
-      realDiscontinuity: true,
-      literalBlockJump: true,
-    };
-  }
-
-  if (cls.kind === "continuous") return cls;
-  return applyListOrderGapOverride(cls);
-}
-
-/**
  * @param {{
  *   cur: import("../shared/timeline-mapping.js").TimelineClip,
  *   next: import("../shared/timeline-mapping.js").TimelineClip,
@@ -103,18 +36,14 @@ function applyListOrderLiteralOverride(cur, next, cls) {
  * }} ctx
  */
 function classifyListOrderGap(ctx) {
-  return applyListOrderLiteralOverride(
-    ctx.cur,
-    ctx.next,
-    classifyGapTransition({
-      cur: ctx.cur,
-      next: ctx.next,
-      clips: ctx.clips,
-      curPos: ctx.curPos,
-      nextPos: ctx.nextPos,
-      skipRanges: ctx.skipRanges,
-    }),
-  );
+  return classifyListOrderGapTransition({
+    cur: ctx.cur,
+    next: ctx.next,
+    clips: ctx.clips,
+    curPos: ctx.curPos,
+    nextPos: ctx.nextPos,
+    skipRanges: ctx.skipRanges,
+  });
 }
 
 /** @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls */

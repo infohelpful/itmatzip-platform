@@ -5,7 +5,7 @@
 import {
   getPreviewMediaBridge,
   isListOrderTransitionLocked,
-} from "./seamless-preview-stack.js?v=29";
+} from "./seamless-preview-stack.js?v=30";
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { isProgramPlaybackTimeline } from "../shared/media-timing-ssot.js?v=7";
 import { programSecFromAudioSlave } from "../shared/program-clip-boundary-ssot.js";
@@ -13,7 +13,7 @@ import {
   disarmProgramPreviewExecutor,
   getProgramPreviewExecutor,
   isProgramPreviewExecutorActive,
-} from "./program-preview-executor.js?v=2";
+} from "./program-preview-executor.js?v=3";
 
 /** @type {import("../shared/timeline-mapping.js").TimelineClip[]} */
 let activeClips = [];
