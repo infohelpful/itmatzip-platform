@@ -231,11 +231,11 @@ import {
   isProgramPreviewExecutorActive,
   resetListOrderPreviewClipPos,
   setListOrderPreviewTimeline,
-} from "./hub/list-order-preview-sync.js?v=12";
+} from "./hub/list-order-preview-sync.js?v=14";
 import {
   getPreviewMediaBridge,
   initPreviewMediaBridgeFromDom,
-} from "./hub/seamless-preview-stack.js?v=30";
+} from "./hub/seamless-preview-stack.js?v=32";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";

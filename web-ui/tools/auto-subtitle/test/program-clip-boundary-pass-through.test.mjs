@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyGapTransition, classifyListOrderGapTransition } from "../shared/clip-boundary-ssot.js";
+import {
+  classifyGapTransition,
+  classifyListOrderGapTransition,
+  listAndSourceSuccessorsMatch,
+} from "../shared/clip-boundary-ssot.js";
 import { buildProgramClips } from "../shared/program-clips-ssot.js";
 import { programClipsToTimelineClips } from "../shared/program-clips-adapter.js";
 import {
@@ -80,7 +84,7 @@ test("continuous adjacent blocks — raw classify allows pass-through", () => {
   );
 });
 
-test("list-order literal — different blocks never pass-through when source touches", () => {
+test("list-order — source/list successor match allows pass-through (2→3)", () => {
   const blocks = [
     makeBlock({ id: "a", words: [makeWord(0, 5)] }),
     makeBlock({ id: "b", words: [makeWord(5, 8)] }),
@@ -88,6 +92,7 @@ test("list-order literal — different blocks never pass-through when source tou
   const clips = programClipsToTimelineClips(buildProgramClips(blocks));
   const cur = clips[0];
   const next = clips[1];
+  assert.equal(listAndSourceSuccessorsMatch(cur, next, clips, 0, 1), true);
   const cls = classifyListOrderGapTransition({
     cur,
     next,
@@ -96,10 +101,34 @@ test("list-order literal — different blocks never pass-through when source tou
     nextPos: 1,
     skipRanges: [],
   });
-  assert.equal(cls.kind, "edit");
-  assert.equal(cls.literalBlockJump, true);
+  assert.equal(cls.kind, "continuous");
   assert.equal(
     shouldPassThroughClipTransition(cur, next, 5.0, 5.0, cls),
+    true,
+  );
+});
+
+test("list-order — reorder jump blocks pass-through (3→1 style)", () => {
+  const blocks = [
+    makeBlock({ id: "line2", words: [makeWord(2, 5)] }),
+    makeBlock({ id: "line3", words: [makeWord(5, 7)] }),
+    makeBlock({ id: "line1", words: [makeWord(0, 2)] }),
+  ];
+  const clips = programClipsToTimelineClips(buildProgramClips(blocks));
+  const cur = clips[1];
+  const next = clips[2];
+  assert.equal(listAndSourceSuccessorsMatch(cur, next, clips, 1, 2), false);
+  const cls = classifyListOrderGapTransition({
+    cur,
+    next,
+    clips,
+    curPos: 1,
+    nextPos: 2,
+    skipRanges: [],
+  });
+  assert.equal(cls.reorderDiscontinuity, true);
+  assert.equal(
+    shouldPassThroughClipTransition(cur, next, 7.0, 0.0, cls),
     false,
   );
 });

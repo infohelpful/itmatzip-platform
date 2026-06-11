@@ -48,6 +48,8 @@ export const DELETED_WORD_MEDIA_GAP_SEC = 0.35;
 
  *   literalBlockJump?: boolean,
 
+ *   reorderDiscontinuity?: boolean,
+
  * }} GapTransitionClassification
 
  */
@@ -541,6 +543,52 @@ export function clipBlockKeysMatch(cur, next) {
 }
 
 /**
+ * @param {readonly import("./timeline-mapping.js").TimelineClip[]} clips
+ */
+export function buildClipSourceOrderIndex(clips) {
+  /** @type {{ clipPos: number, blockKey: string, start: number }[]} */
+  const entries = [];
+  for (let clipPos = 0; clipPos < (clips || []).length; clipPos += 1) {
+    const c = clips[clipPos];
+    if (!c || c.isSilence) continue;
+    const blockKey = clipBlockKey(c);
+    if (!blockKey) continue;
+    entries.push({
+      clipPos,
+      blockKey,
+      start: Number(c.mediaStart) || 0,
+    });
+  }
+  entries.sort((a, b) => a.start - b.start || a.clipPos - b.clipPos);
+  /** @type {Map<number, number>} */
+  const rankByClipPos = new Map();
+  for (let rank = 0; rank < entries.length; rank += 1) {
+    rankByClipPos.set(entries[rank].clipPos, rank);
+  }
+  return { entries, rankByClipPos };
+}
+
+/**
+ * 목록 다음 줄 === 소스 타임라인에서 바로 다음 줄 (재정렬 pass-through SSOT).
+ *
+ * @param {import("./timeline-mapping.js").TimelineClip} cur
+ * @param {import("./timeline-mapping.js").TimelineClip} next
+ * @param {readonly import("./timeline-mapping.js").TimelineClip[]} clips
+ * @param {number} curPos
+ * @param {number} nextPos
+ */
+export function listAndSourceSuccessorsMatch(cur, next, clips, curPos, nextPos) {
+  if (!cur || !next || nextPos !== curPos + 1) return false;
+  const listKey = clipBlockKey(next);
+  if (!listKey) return false;
+  const { entries, rankByClipPos } = buildClipSourceOrderIndex(clips);
+  const curRank = rankByClipPos.get(curPos);
+  if (curRank == null) return false;
+  const sourceNext = entries[curRank + 1];
+  return Boolean(sourceNext && sourceNext.blockKey === listKey);
+}
+
+/**
  * List-order — natural/micro passThrough 금지 (continuous·edit 유지).
  * @param {GapTransitionClassification} cls
  */
@@ -560,34 +608,51 @@ export function applyListOrderGapOverride(cls) {
 }
 
 /**
- * PC-LITERAL — program 큐: 다른 block이면 source ε-adjacent여도 discontinuity.
+ * List-order playback — source/list successor 일치 시 pass-through, 불일치 시 seek.
  *
  * @param {import("./timeline-mapping.js").TimelineClip} cur
  * @param {import("./timeline-mapping.js").TimelineClip} next
  * @param {GapTransitionClassification} cls
+ * @param {{ clips: readonly import("./timeline-mapping.js").TimelineClip[], curPos: number, nextPos: number }} ctx
  */
-export function applyListOrderLiteralOverride(cur, next, cls) {
+export function applyListOrderLiteralOverride(cur, next, cls, ctx) {
   if (!cls) return cls;
-  if (cls.kind === "edit") return cls;
 
-  const sameBlock = clipBlockKeysMatch(cur, next);
+  const successorsMatch =
+    ctx?.clips && Number.isInteger(ctx.curPos) && Number.isInteger(ctx.nextPos)
+      ? listAndSourceSuccessorsMatch(cur, next, ctx.clips, ctx.curPos, ctx.nextPos)
+      : clipBlockKeysMatch(cur, next);
 
-  if (cls.sameBlockSplit) {
-    if (cls.kind === "continuous") return cls;
-    return applyListOrderGapOverride(cls);
-  }
-
-  if (!sameBlock) {
+  if (!successorsMatch) {
     return {
       ...cls,
       kind: "edit",
       passThrough: false,
       realDiscontinuity: true,
       literalBlockJump: true,
+      reorderDiscontinuity: true,
     };
   }
 
-  if (cls.kind === "continuous") return cls;
+  if (cls.hasCutData || cls.hasSourceJump) return cls;
+
+  if (cls.sameBlockSplit) {
+    if (cls.kind === "edit") return cls;
+    if (cls.kind === "continuous") return cls;
+    return applyListOrderGapOverride(cls);
+  }
+
+  if (cls.kind === "continuous" || cls.kind === "micro") {
+    return {
+      ...cls,
+      passThrough: true,
+      realDiscontinuity: false,
+      literalBlockJump: false,
+      reorderDiscontinuity: false,
+    };
+  }
+
+  if (cls.kind === "edit") return cls;
   return applyListOrderGapOverride(cls);
 }
 
@@ -610,7 +675,17 @@ export function classifyListOrderGapTransition(params) {
     params.cur,
     params.next,
     classifyGapTransition(params),
+    {
+      clips: params.clips,
+      curPos: params.curPos,
+      nextPos: params.nextPos,
+    },
   );
+}
+
+/** @deprecated alias — PC-LITERAL block-only override */
+export function applyListOrderPlaybackOverride(cur, next, cls, ctx) {
+  return applyListOrderLiteralOverride(cur, next, cls, ctx);
 }
 
 /** @deprecated — classifyGapTransition(kind:'continuous') 사용 */

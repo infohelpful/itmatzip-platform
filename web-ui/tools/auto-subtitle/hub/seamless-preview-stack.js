@@ -12,7 +12,7 @@ import {
   effectiveSourceEndForClip,
   interClipEffectiveGap,
   passThroughEpsilonSec,
-} from "../shared/clip-boundary-ssot.js?v=5";
+} from "../shared/clip-boundary-ssot.js?v=6";
 
 const HAVE_FUTURE = HTMLMediaElement.HAVE_FUTURE_DATA;
 const PREFETCH_LEAD_MIN_SEC = 0.28;
@@ -564,6 +564,36 @@ export class SeamlessPreviewStack {
    * @param {number} nextClipPos
    * @param {() => Promise<void>} runner
    */
+  startCrossfadeTransition(nextClipPos, runner) {
+    if (this.switchInFlight) return;
+    this.switchInFlight = true;
+    this.pendingClipPos = nextClipPos;
+    this._passThroughVideoSync = false;
+    const gen = ++this._transitionGen;
+    this.prefetchClipPos = -1;
+    this.idlePrepared = false;
+
+    void (async () => {
+      try {
+        await runner();
+        if (gen !== this._transitionGen) return;
+        this.commitClipPos(nextClipPos);
+        this.onLayerSwapped?.();
+      } catch (err) {
+        console.warn("[seamless-preview] crossfade transition failed", err);
+      } finally {
+        if (gen === this._transitionGen) {
+          this.pendingClipPos = -1;
+          this.switchInFlight = false;
+        }
+      }
+    })();
+  }
+
+  /**
+   * @param {number} nextClipPos
+   * @param {() => Promise<void>} runner
+   */
   startDiscontinuityTransition(nextClipPos, runner) {
     if (this.switchInFlight) return;
     this.switchInFlight = true;
@@ -655,6 +685,100 @@ export class SeamlessPreviewStack {
         void video.play().catch(() => undefined);
       }
     }
+  }
+
+  /**
+   * Discontinuity transition — sequential envelope (fade out → switch → fade in).
+   * Overlapping crossfade는 서로 다른 source 구간이 동시에 들려 이중 목소리 유발.
+   *
+   * @param {number} toMediaSec
+   * @param {number} [durationSec]
+   */
+  async runCrossfadeDiscontinuityCore(toMediaSec, durationSec = ENVELOPE_FADE_SEC) {
+    await this.unlockAudioOutput();
+    this.normalizeAudioElementVolumes();
+
+    const activeV = this.activeVideo;
+    const activeA = this.audibleAudio;
+    const to = Math.max(0, toMediaSec);
+    const mediaNow = Math.max(0, Number(activeA.currentTime) || 0);
+    const wasPlaying = !activeA.paused;
+
+    if (Math.abs(mediaNow - to) <= 0.025) {
+      await this.hardSwitchToIdleLayerCore(to);
+      return;
+    }
+
+    const targetLayer = 1 - this.active;
+    const idleV = targetLayer === 0 ? this.videoA : this.videoB;
+    const idleA = targetLayer === 0 ? this.audioA : this.audioB;
+    const halfDur = Math.max(0.008, durationSec * 0.45);
+
+    idleA.pause();
+    idleV.pause();
+
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const gActive = this.active === 0 ? this.gainA : this.gainB;
+      const gIdle = targetLayer === 0 ? this.gainA : this.gainB;
+      const t0 = this.audioCtx.currentTime;
+      gIdle.gain.cancelScheduledValues(t0);
+      gIdle.gain.setValueAtTime(0, t0);
+      gActive.gain.cancelScheduledValues(t0);
+      gActive.gain.setValueAtTime(Math.max(0, gActive.gain.value), t0);
+      gActive.gain.linearRampToValueAtTime(0, t0 + halfDur);
+    } else if (wasPlaying) {
+      await rampElementVolume(activeA, 0, halfDur);
+    }
+
+    await delayMs(Math.ceil(halfDur * 1000) + 8);
+    activeA.pause();
+    activeV.pause();
+
+    idleV.currentTime = to;
+    idleA.currentTime = to;
+    await Promise.all([waitMediaReady(idleV), waitMediaReady(idleA)]);
+
+    this.active = targetLayer;
+    this.applyLayerVisibility();
+
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const gNewActive = this.active === 0 ? this.gainA : this.gainB;
+      const gOther = this.active === 0 ? this.gainB : this.gainA;
+      const t0 = this.audioCtx.currentTime;
+      gOther.gain.cancelScheduledValues(t0);
+      gOther.gain.setValueAtTime(0, t0);
+      gNewActive.gain.cancelScheduledValues(t0);
+      gNewActive.gain.setValueAtTime(0, t0);
+    } else {
+      idleA.volume = 0;
+    }
+
+    if (wasPlaying) {
+      try {
+        await idleA.play();
+      } catch {
+        /* ignore */
+      }
+      try {
+        await idleV.play();
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const gNewActive = this.active === 0 ? this.gainA : this.gainB;
+      const t0 = this.audioCtx.currentTime;
+      gNewActive.gain.linearRampToValueAtTime(1, t0 + halfDur);
+    } else if (wasPlaying) {
+      await rampElementVolume(idleA, 1, halfDur);
+    }
+
+    await delayMs(Math.ceil(halfDur * 1000) + 8);
+    this.silenceIdleAudioGain();
+    this.normalizeAudioElementVolumes();
+    activeA.pause();
+    activeV.pause();
   }
 
   /**
@@ -883,12 +1007,11 @@ export class SeamlessPreviewStack {
 
     const useInPlace =
       interEff > DELETED_WORD_MEDIA_GAP_SEC && mediaSec < nextStart - 0.012;
-    this.startDiscontinuityTransition(
-      nextPos,
-      useInPlace
-        ? () => this.seekAudibleInPlaceCore(nextStart)
-        : () => this.hardSwitchToIdleLayerCore(nextStart),
-    );
+    if (useInPlace) {
+      this.startDiscontinuityTransition(nextPos, () => this.seekAudibleInPlaceCore(nextStart));
+    } else {
+      this.startCrossfadeTransition(nextPos, () => this.runCrossfadeDiscontinuityCore(nextStart));
+    }
     return this.makeTickResult({
       realDiscontinuity: true,
       pendingClipPos: nextPos,
@@ -1099,6 +1222,37 @@ export class PreviewMediaBridge {
 
   async waitTransitionIdle(maxMs) {
     await this.stack?.waitTransitionIdle(maxMs);
+  }
+
+  /**
+   * @param {{
+   *   targetMediaSec: number,
+   *   onComplete?: () => void,
+   *   onError?: (err: unknown) => void,
+   * }} opts
+   */
+  async startExecutorCrossfade(opts) {
+    if (!this.stack) {
+      opts.onComplete?.();
+      return;
+    }
+    if (this.stack.switchInFlight) return;
+    this.stack.switchInFlight = true;
+    const gen = this.stack._transitionGen;
+    try {
+      await this.stack.runCrossfadeDiscontinuityCore(opts.targetMediaSec);
+      if (gen === this.stack._transitionGen) {
+        opts.onComplete?.();
+      }
+    } catch (err) {
+      console.warn("[seamless-preview] executor crossfade failed", err);
+      opts.onError?.(err);
+      opts.onComplete?.();
+    } finally {
+      if (gen === this.stack._transitionGen) {
+        this.stack.switchInFlight = false;
+      }
+    }
   }
 
   syncListOrderTick(opts) {

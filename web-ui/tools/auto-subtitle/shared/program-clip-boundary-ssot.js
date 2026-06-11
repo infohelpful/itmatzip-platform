@@ -7,7 +7,7 @@ import { PROGRAM_CLIP_EPS } from "./program-clips-ssot.js";
 import {
   effectiveSourceEndForClip,
   passThroughEpsilonSec,
-} from "./clip-boundary-ssot.js?v=5";
+} from "./clip-boundary-ssot.js?v=6";
 
 export const PROGRAM_BOUNDARY_EPS = 1e-3;
 
@@ -91,7 +91,7 @@ export function shouldPassThroughClipTransition(
   if (
     cls?.passThrough === false ||
     cls?.literalBlockJump ||
-    cls?.kind === "edit"
+    cls?.reorderDiscontinuity
   ) {
     return false;
   }

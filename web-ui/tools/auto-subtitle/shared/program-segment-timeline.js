@@ -15,7 +15,7 @@ import {
 } from "./program-clips-ssot.js?v=2";
 import { programClipsToTimelineClips } from "./program-clips-adapter.js?v=3";
 import { clampProgramSec } from "./program-playback-clock.js?v=3";
-import { setListOrderPreviewTimeline, armListOrderSeamlessPlayback, isListOrderSeamlessPlaybackActive } from "../hub/list-order-preview-sync.js?v=12";
+import { setListOrderPreviewTimeline, armListOrderSeamlessPlayback, isListOrderSeamlessPlaybackActive } from "../hub/list-order-preview-sync.js?v=14";
 
 /**
  * @typedef {import("./program-clips-ssot.js").ProgramClip} ProgramClip

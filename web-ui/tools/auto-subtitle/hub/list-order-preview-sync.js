@@ -5,7 +5,7 @@
 import {
   getPreviewMediaBridge,
   isListOrderTransitionLocked,
-} from "./seamless-preview-stack.js?v=30";
+} from "./seamless-preview-stack.js?v=32";
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { isProgramPlaybackTimeline } from "../shared/media-timing-ssot.js?v=7";
 import { programSecFromAudioSlave } from "../shared/program-clip-boundary-ssot.js";
@@ -13,7 +13,7 @@ import {
   disarmProgramPreviewExecutor,
   getProgramPreviewExecutor,
   isProgramPreviewExecutorActive,
-} from "./program-preview-executor.js?v=3";
+} from "./program-preview-executor.js?v=5";
 
 /** @type {import("../shared/timeline-mapping.js").TimelineClip[]} */
 let activeClips = [];
@@ -118,12 +118,22 @@ export function syncListOrderPreviewPlayback(video, audio, opts) {
   const ex = getProgramPreviewExecutor();
   if (!ex.isArmed()) return false;
   const bridge = getPreviewMediaBridge();
+  if (ex.isTransitionPending() || bridge.isTransitionLocked()) {
+    return true;
+  }
   const a = bridge.audio ?? bridge.primaryAudio ?? audio;
   const v = bridge.video ?? bridge.primaryVideo ?? video;
   if (opts?.skipRanges) {
     ex.skipRanges = opts.skipRanges;
   }
-  const snap = ex.tick({ audio: a, video: v });
+  const snap = ex.tick({
+    audio: a,
+    video: v,
+    bridge: {
+      startExecutorCrossfade: (crossOpts) => bridge.startExecutorCrossfade(crossOpts),
+      isTransitionLocked: () => bridge.isTransitionLocked(),
+    },
+  });
   activeClipPos = snap.clipPos;
   return true;
 }

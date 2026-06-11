@@ -1,16 +1,18 @@
 /**
- * ProgramClip-Driven Preview Executor (v5.1)
+ * ProgramClip-Driven Preview Executor (v5.2)
  * SSOT: programSec · clipPos · Policy A sequential queue.
+ * Stage 1: source/list successor pass-through vs seek.
+ * Stage 2: discontinuity crossfade via PreviewMediaBridge.
  */
 
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { programToSource } from "../shared/program-clips-ssot.js";
 import {
   classifyListOrderGapTransition,
-  clipBlockKeysMatch,
   effectiveSourceEndForClip,
+  listAndSourceSuccessorsMatch,
   passThroughEpsilonSec,
-} from "../shared/clip-boundary-ssot.js?v=5";
+} from "../shared/clip-boundary-ssot.js?v=6";
 import {
   atProgramBoundary,
   atProgramPlaybackBoundary,
@@ -62,10 +64,17 @@ export class ProgramPreviewExecutor {
     this.ended = false;
     /** @type {{ start: number, end: number }[]} */
     this.skipRanges = [];
+    this.transitionInFlight = false;
+    /** @type {number} */
+    this.pendingClipPos = -1;
   }
 
   isArmed() {
     return this.armed && this.clips.length > 0;
+  }
+
+  isTransitionPending() {
+    return this.transitionInFlight;
   }
 
   getClipPos() {
@@ -107,6 +116,8 @@ export class ProgramPreviewExecutor {
     this.inSilence = false;
     this.ended = false;
     this.playing = false;
+    this.transitionInFlight = false;
+    this.pendingClipPos = -1;
     this.armed = this.clips.length > 0;
     if (this.clips[this.clipPos]?.isSilence) {
       this.enterSilenceHold();
@@ -126,6 +137,8 @@ export class ProgramPreviewExecutor {
     this.programSec = Math.max(0, Math.min(Number(programSec) || 0, dur));
     this.clipPos = clipPosForProgramSec(this.programSec, this.clips);
     this.ended = false;
+    this.transitionInFlight = false;
+    this.pendingClipPos = -1;
     const clip = this.clips[this.clipPos];
     if (!clip) return this.snapshot();
 
@@ -209,10 +222,28 @@ export class ProgramPreviewExecutor {
   }
 
   /**
+   * @param {import("../shared/timeline-mapping.js").TimelineClip} cur
+   * @param {import("../shared/timeline-mapping.js").TimelineClip} next
+   * @param {number} curPos
+   * @param {number} nextPos
+   */
+  classifyTransition(cur, next, curPos, nextPos) {
+    return classifyListOrderGapTransition({
+      cur,
+      next,
+      clips: this.clips,
+      curPos,
+      nextPos,
+      skipRanges: this.skipRanges,
+    });
+  }
+
+  /**
    * @param {{
    *   audio?: HTMLMediaElement | null,
    *   video?: HTMLMediaElement | null,
    *   wallMs?: number,
+   *   bridge?: { startExecutorCrossfade?: (opts: unknown) => Promise<void>, isTransitionLocked?: () => boolean } | null,
    * }} ctx
    * @returns {ExecutorTickResult}
    */
@@ -222,9 +253,14 @@ export class ProgramPreviewExecutor {
     }
     const audio = ctx.audio ?? null;
     const video = ctx.video ?? null;
+    const bridge = ctx.bridge ?? null;
     const wallMs = Number.isFinite(ctx.wallMs) ? ctx.wallMs : performance.now();
 
     if (!this.playing) {
+      return this.snapshot();
+    }
+
+    if (this.transitionInFlight || bridge?.isTransitionLocked?.()) {
       return this.snapshot();
     }
 
@@ -243,7 +279,7 @@ export class ProgramPreviewExecutor {
     if (!clip) return this.snapshot();
 
     if (clip.isSilence || this.inSilence) {
-      return this.tickSilence(clip, wallMs, audio, video);
+      return this.tickSilence(clip, wallMs, audio, video, bridge);
     }
 
     if (!audio) return this.snapshot();
@@ -262,29 +298,33 @@ export class ProgramPreviewExecutor {
     const mediaSec = Math.max(0, audio.currentTime);
     const effEnd = effectiveSourceEndForClip(clip);
     const eps = passThroughEpsilonSec();
-    const nextPos = this.clipPos + 1;
+    const curPos = this.clipPos;
+    const nextPos = curPos + 1;
     const nextClip = this.clips[nextPos];
 
     if (mediaSec > effEnd + eps) {
-      if (!nextClip || !clipBlockKeysMatch(clip, nextClip)) {
-        if (nextClip && !nextClip.isSilence && !clip.isSilence) {
-          return this.advanceToNextClip(audio, video);
-        }
+      if (!nextClip) {
         return this.finishClipAtSourceEnd(clip, effEnd, audio, video);
       }
+      return this.advanceToNextClip(audio, video, bridge);
     }
 
     this.programSec = programSecFromAudioSlave(clip, mediaSec);
 
-    if (
-      nextClip &&
-      !nextClip.isSilence &&
-      !clip.isSilence &&
-      clipBlockKeysMatch(clip, nextClip)
-    ) {
+    if (nextClip && !nextClip.isSilence && !clip.isSilence) {
+      const cls = this.classifyTransition(clip, nextClip, curPos, nextPos);
+      const successorsMatch = listAndSourceSuccessorsMatch(
+        clip,
+        nextClip,
+        this.clips,
+        curPos,
+        nextPos,
+      );
       const nextStart = Number(nextClip.mediaStart) || 0;
       const interGap = nextStart - effEnd;
       if (
+        successorsMatch &&
+        cls.kind === "natural" &&
         interGap > eps &&
         mediaSec >= effEnd - PROGRAM_BOUNDARY_EPS &&
         mediaSec < nextStart - eps
@@ -296,7 +336,7 @@ export class ProgramPreviewExecutor {
     }
 
     if (atProgramPlaybackBoundary(this.programSec, clip)) {
-      return this.advanceToNextClip(audio, video);
+      return this.advanceToNextClip(audio, video, bridge);
     }
 
     this.syncVideoSlave(video);
@@ -308,8 +348,10 @@ export class ProgramPreviewExecutor {
    * @param {number} wallMs
    * @param {HTMLMediaElement | null} audio
    * @param {HTMLMediaElement | null} video
+   * @param {{ startExecutorCrossfade?: (opts: unknown) => Promise<void> } | null} bridge
    */
-  tickSilence(clip, wallMs, audio, video) {
+  tickSilence(clip, wallMs, audio, video, bridge) {
+    void bridge;
     if (!this.inSilence) {
       this.enterSilenceHold();
     }
@@ -324,7 +366,7 @@ export class ProgramPreviewExecutor {
       return this.snapshot();
     }
 
-    return this.advanceToNextClip(audio, video);
+    return this.advanceToNextClip(audio, video, bridge);
   }
 
   enterSilenceHold() {
@@ -347,8 +389,9 @@ export class ProgramPreviewExecutor {
   /**
    * @param {HTMLMediaElement | null} audio
    * @param {HTMLMediaElement | null} video
+   * @param {{ startExecutorCrossfade?: (opts: unknown) => Promise<void> } | null} [bridge]
    */
-  advanceToNextClip(audio, video) {
+  advanceToNextClip(audio, video, bridge = null) {
     const curPos = this.clipPos;
     const cur = this.clips[curPos];
     const nextPos = curPos + 1;
@@ -362,11 +405,11 @@ export class ProgramPreviewExecutor {
       return this.snapshot();
     }
 
-    this.clipPos = nextPos;
-    this.exitSilenceHold();
     const next = this.clips[nextPos];
 
     if (next.isSilence) {
+      this.clipPos = nextPos;
+      this.exitSilenceHold();
       this.programSec = programClipStart(next);
       this.enterSilenceHold();
       if (audio) audio.pause();
@@ -380,14 +423,7 @@ export class ProgramPreviewExecutor {
     const target = skipCutRangeAt(sourceSec, this.skipRanges);
     const mediaNow = Math.max(0, Number(audio?.currentTime) || target);
     const cls = cur
-      ? classifyListOrderGapTransition({
-          cur,
-          next,
-          clips: this.clips,
-          curPos,
-          nextPos,
-          skipRanges: this.skipRanges,
-        })
+      ? this.classifyTransition(cur, next, curPos, nextPos)
       : null;
     const passThrough = shouldPassThroughClipTransition(
       cur,
@@ -397,34 +433,84 @@ export class ProgramPreviewExecutor {
       cls,
     );
 
+    if (passThrough) {
+      this.clipPos = nextPos;
+      this.exitSilenceHold();
+      if (audio) {
+        audio.playbackRate = this.playbackRate;
+        this.programSec = programSecFromAudioSlave(next, mediaNow);
+      }
+      if (video) {
+        video.playbackRate = this.playbackRate;
+        this.syncVideoSlave(video, { suppressSeek: false });
+      }
+      if (this.playing && audio?.paused) {
+        void audio.play().catch(() => undefined);
+      }
+      if (this.playing && video?.paused) {
+        void video.play().catch(() => undefined);
+      }
+      return this.snapshot();
+    }
+
+    const eps = passThroughEpsilonSec();
+    if (Math.abs(mediaNow - target) <= eps + 0.01) {
+      this.applySyncSeekToNext(audio, video, next, nextPos, target);
+      return this.snapshot();
+    }
+
+    if (bridge?.startExecutorCrossfade && !this.transitionInFlight) {
+      this.transitionInFlight = true;
+      this.pendingClipPos = nextPos;
+      void bridge.startExecutorCrossfade({
+        targetMediaSec: target,
+        onComplete: () => {
+          this.transitionInFlight = false;
+          this.pendingClipPos = -1;
+          this.clipPos = nextPos;
+          this.exitSilenceHold();
+          this.programSec = programSecFromAudioSlave(next, target);
+        },
+        onError: () => {
+          this.applySyncSeekToNext(audio, video, next, nextPos, target);
+        },
+      });
+      return this.snapshot();
+    }
+
+    this.applySyncSeekToNext(audio, video, next, nextPos, target);
+    return this.snapshot();
+  }
+
+  /**
+   * @param {HTMLMediaElement | null} audio
+   * @param {HTMLMediaElement | null} video
+   * @param {import("../shared/timeline-mapping.js").TimelineClip} next
+   * @param {number} nextPos
+   * @param {number} target
+   */
+  applySyncSeekToNext(audio, video, next, nextPos, target) {
+    this.clipPos = nextPos;
+    this.exitSilenceHold();
+    this.transitionInFlight = false;
+    this.pendingClipPos = -1;
     if (audio) {
       audio.playbackRate = this.playbackRate;
-      if (!passThrough) {
-        audio.currentTime = target;
-      }
-      this.programSec = programSecFromAudioSlave(
-        next,
-        passThrough ? mediaNow : target,
-      );
+      audio.currentTime = target;
+      this.programSec = programSecFromAudioSlave(next, target);
     }
     if (video) {
       video.playbackRate = this.playbackRate;
-      if (
-        !passThrough &&
-        Math.abs(video.currentTime - target) > VIDEO_SYNC_EPS_SEC
-      ) {
+      if (Math.abs(video.currentTime - target) > VIDEO_SYNC_EPS_SEC) {
         video.currentTime = target;
       }
     }
-
     if (this.playing && audio?.paused) {
       void audio.play().catch(() => undefined);
     }
     if (this.playing && video?.paused) {
       void video.play().catch(() => undefined);
     }
-
-    return this.snapshot();
   }
 
   /**
