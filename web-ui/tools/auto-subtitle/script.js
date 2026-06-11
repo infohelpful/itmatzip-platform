@@ -84,7 +84,7 @@ import {
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=35";
+} from "./playback.js?v=37";
 import { USE_BLOCK_VIRTUAL_HIGHLIGHT } from "./timeline/playback-policy.js";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
@@ -235,7 +235,7 @@ import {
 import {
   getPreviewMediaBridge,
   initPreviewMediaBridgeFromDom,
-} from "./hub/seamless-preview-stack.js?v=32";
+} from "./hub/seamless-preview-stack.js?v=37";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";

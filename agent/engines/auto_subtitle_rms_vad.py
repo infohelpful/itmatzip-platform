@@ -46,6 +46,13 @@ GAP_RISE_WINDOW_FRAMES = 4
 GAP_FLAT_RANGE_DB = 3.0
 MIN_WORD_SEC = 0.05
 TIMELINE_PAIR_EPS = 1e-4
+# Zero-crossing refine — RMS/VAD offset 직후 저진폭·부호변화 지점으로 스냅
+ZC_END_SEARCH_BEFORE_SEC = 0.012
+ZC_END_SEARCH_AFTER_SEC = 0.004
+ZC_START_SEARCH_BEFORE_SEC = 0.004
+ZC_START_SEARCH_AFTER_SEC = 0.012
+ZC_MIN_REMAINING_WORD_SEC = 0.04
+ZC_PAIR_EPS = 1e-4
 
 
 def _resolve_ffmpeg(explicit: str | None) -> str:
@@ -363,6 +370,149 @@ def _apply_gap_boundary_pullback(
                 return ws1, True
 
     return max(prev_end + 1e-4, ws0), False
+
+
+def _refine_time_to_zero_cross(
+    samples: np.ndarray,
+    sr: int,
+    t_sec: float,
+    search_before: float,
+    search_after: float,
+    *,
+    dur_max: float,
+) -> float:
+    """t_sec ± search window — zero-cross 또는 |sample| 최소 지점."""
+    t_sec = float(t_sec)
+    t0 = max(0.0, t_sec - float(search_before))
+    t1 = min(float(dur_max), t_sec + float(search_after))
+    inv_sr = 1.0 / float(sr)
+    if t1 <= t0 + inv_sr:
+        return max(0.0, min(dur_max, t_sec))
+
+    i0 = max(0, int(math.floor(t0 * sr)))
+    i1 = min(len(samples) - 2, int(math.ceil(t1 * sr)))
+    if i1 <= i0:
+        return max(0.0, min(dur_max, t_sec))
+
+    best_t = t_sec
+    best_score = float("inf")
+
+    for i in range(i0, i1 + 1):
+        a = float(samples[i])
+        if abs(a) <= 1e-7:
+            t_cross = i * inv_sr
+            score = abs(t_cross - t_sec)
+            if score < best_score:
+                best_score = score
+                best_t = t_cross
+        if i >= len(samples) - 1:
+            continue
+        b = float(samples[i + 1])
+        if a * b < -1e-12:
+            denom = b - a
+            if abs(denom) > 1e-12:
+                frac = max(0.0, min(1.0, -a / denom))
+                t_cross = (i + frac) * inv_sr
+                score = abs(t_cross - t_sec)
+                if score < best_score:
+                    best_score = score
+                    best_t = t_cross
+
+    seg = np.abs(samples[i0 : i1 + 1].astype(np.float64))
+    if seg.size > 0:
+        rel = int(np.argmin(seg))
+        t_min = (i0 + rel) * inv_sr
+        amp = float(seg[rel])
+        score = abs(t_min - t_sec) + amp * 80.0
+        if score < best_score:
+            best_t = t_min
+
+    return max(0.0, min(dur_max, best_t))
+
+
+def _apply_zero_cross_refine_to_cues(
+    cues: list[dict[str, Any]],
+    samples: np.ndarray,
+    dur_max: float,
+) -> list[dict[str, Any]]:
+    """Spoken word start/end — RMS 스냅 직후 zero-crossing refine."""
+    if samples.size < 8 or not cues:
+        return cues
+
+    out: list[dict[str, Any]] = []
+    prev_global_end = 0.0
+    for cue in cues:
+        if not isinstance(cue, dict):
+            continue
+        raw_words = cue.get("words")
+        if not isinstance(raw_words, list) or not raw_words:
+            out.append(dict(cue))
+            continue
+
+        refined: list[dict[str, Any]] = []
+        for w in raw_words:
+            if not isinstance(w, dict):
+                continue
+            if _is_silence_token(w) or _is_pause_or_filler_token(w):
+                ws = max(0.0, min(dur_max, float(w.get("start", 0))))
+                we = max(ws + 1e-4, min(dur_max, float(w.get("end", 0))))
+                refined.append({**w, "start": ws, "end": we})
+                prev_global_end = max(prev_global_end, we)
+                continue
+
+            ws0 = float(w.get("start", 0))
+            we0 = float(w.get("end", 0))
+            if not (we0 > ws0 + 1e-6):
+                refined.append(dict(w))
+                continue
+
+            nws = _refine_time_to_zero_cross(
+                samples,
+                SR,
+                ws0,
+                ZC_START_SEARCH_BEFORE_SEC,
+                ZC_START_SEARCH_AFTER_SEC,
+                dur_max=dur_max,
+            )
+            nwe = _refine_time_to_zero_cross(
+                samples,
+                SR,
+                we0,
+                ZC_END_SEARCH_BEFORE_SEC,
+                ZC_END_SEARCH_AFTER_SEC,
+                dur_max=dur_max,
+            )
+            nws = max(prev_global_end + ZC_PAIR_EPS, nws)
+            min_dur = min(
+                ZC_MIN_REMAINING_WORD_SEC,
+                max(1e-3, (we0 - ws0) * 0.5),
+            )
+            if nwe <= nws + min_dur:
+                nwe = min(dur_max, nws + max(min_dur, we0 - ws0))
+            nwe = max(nwe, nws + 1e-4)
+            refined.append({**w, "start": nws, "end": nwe})
+            prev_global_end = max(prev_global_end, nwe)
+
+        if not refined:
+            out.append(dict(cue))
+            continue
+
+        eps = 1e-4
+        for i in range(len(refined) - 1):
+            a, b = refined[i], refined[i + 1]
+            if float(a["end"]) > float(b["start"]) + eps:
+                a["end"] = max(float(a["start"]) + eps, float(b["start"]) - eps)
+
+        out.append(
+            {
+                **{k: v for k, v in cue.items() if k != "words"},
+                "start": min(float(x["start"]) for x in refined),
+                "end": max(float(x["end"]) for x in refined),
+                "text": _rebuild_cue_text(refined),
+                "words": refined,
+            }
+        )
+    return out
 
 
 def _snap_word_pair(
@@ -697,6 +847,7 @@ def apply_rms_vad_word_align(
     *,
     total_duration: float,
     word_snap: bool = True,
+    zero_cross_refine: bool = True,
 ) -> list[dict[str, Any]]:
     if not cues:
         return cues
@@ -846,4 +997,6 @@ def apply_rms_vad_word_align(
                 "words": merged,
             }
         )
+    if zero_cross_refine and word_snap:
+        out_cues = _apply_zero_cross_refine_to_cues(out_cues, samples, dur_max)
     return _apply_v21_asymmetric_timeline_pass(out_cues)
