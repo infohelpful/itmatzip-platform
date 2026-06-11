@@ -80,42 +80,65 @@ import {
   pickActiveWordIndexForHighlight,
   pickActiveWordIndexWithHintForHighlight,
   resolveBlockVirtualSecFromMedia,
+  sourceSecToProgramSecInClip,
   skipCutRangeAt,
   playableEditSecForWord,
   firstPlayableSecInRange,
-} from "./playback.js?v=34";
+} from "./playback.js?v=35";
 import { USE_BLOCK_VIRTUAL_HIGHLIGHT } from "./timeline/playback-policy.js";
 import { loadWaveformPeaksForMedia } from "./waveform-peaks-client.js?v=25";
 import {
   buildExportRequestPayload,
+  computeRequiresConcatExport,
   exportFormatLabel,
   EXPORT_TEXT_FORMATS,
-} from "./export/export-client.js?v=27";
-import { isRelocated, sourceSecToVirtualSec } from "./shared/dual-axis.js?v=1";
+  resolveExportTimeAxis,
+} from "./export/export-client.js?v=29";
+import {
+  getWordSourceEnd,
+  getWordSourceStart,
+  isRelocated,
+  sourceSecToVirtualSec,
+} from "./shared/dual-axis.js?v=1";
+import {
+  blocksRequireConcatExport,
+  blocksToVirtualAudioMap,
+} from "./shared/blocks-to-export.js?v=5";
+import { buildVirtualAudioMap } from "./shared/virtual-audio-map.js?v=4";
 import {
   burnInConsoleLog,
   isVideoBurnInNotFoundError,
   runVideoBurnInExport,
-} from "./export/video-burn-in-client.js?v=13";
+} from "./export/video-burn-in-client.js?v=19";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
 } from "./shared/cues-ssot.js?v=39";
 import {
+  buildBurnInMediaContract,
+  buildProgramToBurninMapFromVirtualAudioMap,
   clearSessionMediaTiming,
   getAudioTimelineDurationSec,
   getSessionMediaTiming,
+  getVideoTimelineDurationSec,
   getVideoToWordTimelineScale,
   getSessionPreviewMediaPath,
   inferMediaTimingFromBrowserMedia,
   isSourceVideoPtsTimeline,
+  isProgramPlaybackTimeline,
+  setProgramPlaybackActive,
   mapVideoTimeToWordTimeline,
   mapWordTimelineToVideoTime,
   restoreSessionPreviewMediaPathFromStorage,
   resolveWordTimelineClockSec,
   setSessionMediaTiming,
   setSessionPreviewMediaPath,
-} from "./shared/media-timing-ssot.js?v=5";
+} from "./shared/media-timing-ssot.js?v=7";
+import {
+  createOverlayTimingContext,
+  invalidateOverlayTimingCache,
+  resolveCueAtTime,
+} from "./shared/overlay-timing-ssot.js?v=2";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
@@ -139,9 +162,42 @@ import {
   startSyncedPlayback,
   stopSyncedPlayback,
   syncVideoFromHtmlAudioMaster,
-} from "./hub/synced-playback.js?v=40";
+} from "./hub/synced-playback.js?v=48";
 import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=2";
-import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=24";
+import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=26";
+import {
+  buildProgramClips,
+  getProgramDurationSec,
+  programToSource,
+  sourceToProgram,
+  PROGRAM_CLIP_EPS,
+} from "./shared/program-clips-ssot.js?v=4";
+import {
+  clearProgramSegmentTimeline,
+  getProgramSegmentDurationSec,
+  getProgramSegmentProgramClips,
+  getProgramSegmentTimelineBundle,
+  getProgramSegmentTimelineClips,
+  isProgramSegmentPreviewActive,
+  refreshProgramSegmentTimeline,
+  isProgramSegmentTimelineRebuilding,
+  setProgramSegmentTimelineCallbacks,
+} from "./shared/program-segment-timeline.js?v=6";
+import {
+  buildBlocksPreviewPlaybackSkips,
+  effectiveSourceEndForClip,
+} from "./shared/clip-boundary-ssot.js?v=3";
+import {
+  resolveMediaSecFromProgram,
+  resolveProgramSecFromMedia,
+  resolveSegmentPlaybackAnchor,
+  resolveSourceSecFromProgram,
+} from "./shared/program-playback-clock.js?v=3";
+import {
+  bakeProgramMaster,
+  clearProgramMasterCache,
+  getProgramMasterCache,
+} from "./shared/program-master-client.js?v=2";
 import {
   splitSubtitleAt,
   mergeEmptySubtitleAt,
@@ -156,24 +212,29 @@ import { listableCueIndices } from "./shared/subtitle-list-indices.js?v=5";
 import {
   bumpListableCueIndicesCache,
   clipIndexForListPos,
-  createListOrderPreviewMapping,
   cueIndexForClipIndex,
   getListableCueIndicesCached,
   listPosForCueIndex,
   resolveListClipIndexFromMedia,
-} from "./shared/subtitle-list-playback.js?v=11";
+} from "./shared/subtitle-list-playback.js?v=15";
 import {
+  armListOrderSeamlessPlayback,
   clearListOrderPreviewTimeline,
   getListOrderPreviewClipPos,
+  getListOrderPreviewClips,
+  getListOrderPreviewProgramSec,
+  isListOrderPreviewPlaybackEnded,
   isListOrderPreviewTimelineActive,
   isListOrderSeamlessPlaybackActive,
+  isListOrderTransitionLocked,
+  isProgramPreviewExecutorActive,
   resetListOrderPreviewClipPos,
   setListOrderPreviewTimeline,
-} from "./hub/list-order-preview-sync.js?v=7";
+} from "./hub/list-order-preview-sync.js?v=11";
 import {
   getPreviewMediaBridge,
   initPreviewMediaBridgeFromDom,
-} from "./hub/seamless-preview-stack.js?v=10";
+} from "./hub/seamless-preview-stack.js?v=29";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";
@@ -190,6 +251,19 @@ import {
   mediaTimingDiagIsEnabled,
 } from "./shared/media-timing-diagnostics.js?v=1";
 import {
+  analyzeBurnInPipelineHandoff,
+  burnInPipelineDiagAgentPayload,
+  burnInPipelineDiagHandoff,
+  burnInPipelineDiagGetLastHandoff,
+  burnInPipelineDiagIsEnabled,
+  burnInPipelineDiagLog,
+  burnInPipelineDiagReport,
+  burnInPipelineDiagRestoreFromStorage,
+  burnInPipelineDiagSetEnabled,
+  burnInPipelineDiagSyncAgent,
+  virtualMapProgramEndSec,
+} from "./shared/burn-in-pipeline-diagnostics.js?v=3";
+import {
   diagLogBufferPush,
   diagLogBufferClear,
   diagLogBufferLength,
@@ -197,6 +271,8 @@ import {
 } from "./shared/diag-log-export.js?v=1";
 
 configureBridge({ healthPath: "/health" });
+
+burnInPipelineDiagRestoreFromStorage();
 
 const TOOL_PREFIX = "/api/tools/auto-subtitle";
 const STORAGE_CUES = "auto-subtitle:last-cues";
@@ -299,6 +375,7 @@ const previewOverlay = document.getElementById("preview-subtitle-overlay");
 const previewWatermarkOverlay = document.getElementById("preview-watermark-overlay");
 const previewEmpty = document.getElementById("preview-empty");
 const btnPreviewPlay = document.getElementById("btn-preview-play");
+const btnHqPreview = document.getElementById("btn-hq-preview");
 const previewSeek = document.getElementById("preview-seek");
 const previewTimeCurrent = document.getElementById("preview-time-current");
 const previewTimeTotal = document.getElementById("preview-time-total");
@@ -423,8 +500,179 @@ function isPreviewMediaPlaying() {
   return Boolean(getPv() && !getPv().paused);
 }
 
+function mapEditSecToPreviewMediaSec(editSec) {
+  const orch = getPlaybackOrchestrator();
+  const skip = getPlaybackSkipRanges();
+  if (isBlocksProgramSegmentPreview()) {
+    return skipCutRangeAt(
+      resolveMediaSecFromProgram(editSec, getProgramSegmentTimelineClips()),
+      skip,
+    );
+  }
+  return skipCutRangeAt(orch.mapEditToMediaSec(editSec), skip);
+}
+
+function mapPreviewMediaSecToEditSec(mediaSec) {
+  const orch = getPlaybackOrchestrator();
+  if (isBlocksProgramSegmentPreview()) {
+    const clips = getProgramSegmentTimelineClips();
+    const clipHint = getActiveSegmentClipPosHint();
+    return resolveProgramSecFromMedia(mediaSec, clips, clipHint);
+  }
+  return orch.mapMediaToEditSec(mediaSec);
+}
+
+/**
+ * cue/word.start·end — source(media) 축 → playhead(program 또는 edit) 축.
+ * @param {number} sourceSec
+ */
+function mapSourceSecToPlayheadSec(sourceSec) {
+  const t = Math.max(0, Number(sourceSec) || 0);
+  if (isBlocksProgramSegmentPreview()) {
+    return sourceToProgram(getActiveProgramClips(), t);
+  }
+  return mapPreviewMediaSecToEditSec(t);
+}
+
+/**
+ * @param {number} cueIndex
+ */
+function cuePlayheadBounds(cueIndex) {
+  const cue = lastCues[cueIndex];
+  if (!cue) return { start: 0, end: 0 };
+  if (isBlocksProgramSegmentPreview()) {
+    const clips = getProgramSegmentTimelineClips();
+    if (clips?.length) {
+      const listPos = listPosForCueIndex(lastCues, cueIndex);
+      const clipPos = clipIndexForListPos(clips, lastCues, listPos);
+      const clip = clips[clipPos];
+      if (clip) return { start: clip.editStart, end: clip.editEnd };
+    }
+    const clips2 = getActiveProgramClips();
+    return {
+      start: sourceToProgram(clips2, Number(cue.start) || 0),
+      end: sourceToProgram(clips2, Number(cue.end) || 0),
+    };
+  }
+  return { start: Number(cue.start) || 0, end: Number(cue.end) || 0 };
+}
+
+/**
+ * cue/word source(media) → playhead(program) — 해당 cue(block) 기준 (재정렬 후 역매핑 오류 방지).
+ * @param {number} cueIndex
+ * @param {number} sourceSec
+ */
+function mapSourceSecToPlayheadSecForCue(cueIndex, sourceSec) {
+  const t = Math.max(0, Number(sourceSec) || 0);
+  if (!isBlocksProgramSegmentPreview()) {
+    return mapSourceSecToPlayheadSec(t);
+  }
+  const programClips = getActiveProgramClips();
+  const pc = programClips.find((c) => c.blockIndex === cueIndex);
+  if (pc && t >= pc.sourceStart - 0.02 && t <= pc.sourceEnd + 0.02) {
+    return pc.programStart + (t - pc.sourceStart);
+  }
+  const clips = getProgramSegmentTimelineClips();
+  if (clips?.length && cueIndex >= 0) {
+    const listPos = listPosForCueIndex(lastCues, cueIndex);
+    const clipPos = clipIndexForListPos(clips, lastCues, listPos);
+    const clip = clips[clipPos];
+    if (clip && t >= clip.mediaStart - 0.02 && t < clip.mediaEnd + 0.02) {
+      return clip.editStart + (t - clip.mediaStart);
+    }
+  }
+  return sourceToProgram(programClips, t);
+}
+
+/** 파형 패널·waveformPlayRangeEndEdit — source(media) 축 playhead */
+function getWaveformEditSec(cueIndex = expandedCueIndex) {
+  if (!isBlocksProgramSegmentPreview()) {
+    return playheadSec;
+  }
+  const ci = cueIndex >= 0 ? cueIndex : selectedCueIndex;
+  const programClips = getActiveProgramClips();
+  if (ci >= 0 && programClips.length) {
+    const pc = programClips.find((c) => c.blockIndex === ci);
+    if (
+      pc &&
+      playheadSec >= pc.programStart - 0.02 &&
+      playheadSec < pc.programEnd + 0.02
+    ) {
+      return pc.sourceStart + (playheadSec - pc.programStart);
+    }
+  }
+  return programClips.length ? programToSource(programClips, playheadSec) : playheadSec;
+}
+
+/** source(edit) → CFR 미디어 seek */
+function mapWaveformEditToMediaSec(sourceEditSec) {
+  const skip = getPlaybackSkipRanges();
+  if (isBlocksProgramSegmentPreview()) {
+    return skipCutRangeAt(Math.max(0, Number(sourceEditSec) || 0), skip);
+  }
+  const orch = getPlaybackOrchestrator();
+  return skipCutRangeAt(orch.mapEditToMediaSec(sourceEditSec), skip);
+}
+
+/** CFR 미디어 → source(edit) — 파형 UI용 */
+function mapWaveformMediaToEditSec(mediaSec) {
+  if (isBlocksProgramSegmentPreview()) {
+    return Math.max(0, Number(mediaSec) || 0);
+  }
+  const orch = getPlaybackOrchestrator();
+  return orch.mapMediaToEditSec(mediaSec);
+}
+
+/**
+ * word/cue 클릭 seek — source(media) 축 SSOT.
+ * @param {number} sourceSec
+ * @param {{ commitUi?: boolean, cueIndex?: number }} [opts]
+ */
+function seekPreviewToSourceSec(sourceSec, opts = {}) {
+  if (!getPv() || !Number.isFinite(sourceSec)) return;
+  const skip = getPlaybackSkipRanges();
+  let media = skipCutRangeAt(Math.max(0, sourceSec), skip);
+  const cueIndex =
+    Number.isFinite(Number(opts.cueIndex)) && Number(opts.cueIndex) >= 0
+      ? Number(opts.cueIndex)
+      : selectedCueIndex;
+
+  if (isBlocksProgramSegmentPreview()) {
+    playheadSec =
+      cueIndex >= 0
+        ? mapSourceSecToPlayheadSecForCue(cueIndex, sourceSec)
+        : mapSourceSecToPlayheadSec(sourceSec);
+    const clips = getProgramSegmentTimelineClips();
+    if (clips?.length) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(playheadSec, clips);
+      playheadSec = anchor.programSec;
+      listPlaybackClipPos = anchor.clipPos;
+      resetListOrderPreviewClipPos(anchor.clipPos);
+      media = skipCutRangeAt(anchor.mediaSec, skip);
+    }
+  } else {
+    playheadSec = mapPreviewMediaSecToEditSec(media);
+  }
+
+  if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+  const videoMedia = mapWordTimelineToVideoTime(media);
+  if (getPv()) {
+    if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+      const vSeek = Math.min(videoMedia, Math.max(0, getPv().duration - 0.001));
+      if (Math.abs(getPv().currentTime - vSeek) > 0.002) getPv().currentTime = vSeek;
+    } else if (Math.abs(getPv().currentTime - videoMedia) > 0.002) {
+      getPv().currentTime = videoMedia;
+    }
+  }
+  getPlaybackOrchestrator().seekMediaSec(media);
+  if (opts.commitUi !== false) commitPlayheadUi();
+}
+
 /** 재생 클럭 — transport·edit 축 (audible SSOT) */
 function readPreviewMediaClockSec() {
+  if (isProgramPlaybackTimeline() && getPv() && Number.isFinite(getPv().currentTime)) {
+    return Math.max(0, getPv().currentTime);
+  }
   const skip = getPlaybackSkipRanges();
   if (getPa() && isHtmlAudioMasterActive()) {
     const { mediaSec, active } = readHtmlAudioMasterPlayhead(getPa(), {
@@ -451,6 +699,45 @@ function readPreviewMediaClockSec() {
 function capturePlayheadFromPreviewMedia() {
   const orch = getPlaybackOrchestrator();
   const before = playheadSec;
+  if (isProgramPlaybackTimeline()) {
+    const v = getPv();
+    if (v && Number.isFinite(v.currentTime)) {
+      playheadSec = Math.max(0, v.currentTime);
+      caretPlayDiagLog("capturePlayheadFromPreviewMedia", caretPlayDiagSnapshot({
+        playheadBefore: before,
+        playheadAfter: playheadSec,
+        capturedMediaSec: v.currentTime,
+        programPlayback: true,
+      }));
+      return;
+    }
+  }
+  if (isBlocksProgramSegmentPreview()) {
+    const clips = getProgramSegmentTimelineClips();
+    let media = null;
+    if (getPa() && Number.isFinite(getPa().currentTime)) {
+      media = getPa().currentTime;
+    } else if (getPv() && Number.isFinite(getPv().currentTime)) {
+      media = getPv().currentTime;
+    }
+    if (media != null) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(
+        resolveProgramSecFromMedia(media, clips),
+        clips,
+      );
+      playheadSec = anchor.programSec;
+      listPlaybackClipPos = anchor.clipPos;
+      resetListOrderPreviewClipPos(anchor.clipPos);
+      caretPlayDiagLog("capturePlayheadFromPreviewMedia", caretPlayDiagSnapshot({
+        playheadBefore: before,
+        playheadAfter: playheadSec,
+        capturedMediaSec: media,
+        segmentPreview: true,
+        clipPos: anchor.clipPos,
+      }));
+      return;
+    }
+  }
   if (isSourceVideoPtsTimeline()) {
     const v = getPv();
     if (v && Number.isFinite(v.currentTime)) {
@@ -480,11 +767,72 @@ function capturePlayheadFromPreviewMedia() {
 }
 
 /** Electron syncPausedMasterToEdit — 정지 시 word(audio) 축 기준으로 A/V seek */
+let syncPausedPreviewRaf = 0;
+
+function scheduleSyncPausedPreviewMediaToPlayhead() {
+  if (syncPausedPreviewRaf) {
+    cancelAnimationFrame(syncPausedPreviewRaf);
+  }
+  syncPausedPreviewRaf = requestAnimationFrame(() => {
+    syncPausedPreviewRaf = 0;
+    syncPausedPreviewMediaToPlayhead();
+  });
+}
+
 function syncPausedPreviewMediaToPlayhead() {
   if (!getPv() || !Number.isFinite(playheadSec)) return;
-  const orch = getPlaybackOrchestrator();
+  if (isProgramSegmentTimelineRebuilding()) return;
+  if (isProgramPlaybackTimeline()) {
+    const dur = getPv().duration;
+    const seek =
+      Number.isFinite(dur) && dur > 0
+        ? Math.min(Math.max(0, playheadSec), Math.max(0, dur - 0.001))
+        : Math.max(0, playheadSec);
+    if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), seek);
+    if (Math.abs(getPv().currentTime - seek) > 0.002) getPv().currentTime = seek;
+    getPa()?.pause();
+    getPv().pause();
+    playheadSec = seek;
+    return;
+  }
   const skip = getPlaybackSkipRanges();
-  let wordMedia = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  if (isBlocksProgramSegmentPreview()) {
+    const clips = getProgramSegmentTimelineClips();
+    if (clips?.length) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(playheadSec, clips);
+      playheadSec = anchor.programSec;
+      listPlaybackClipPos = anchor.clipPos;
+      resetListOrderPreviewClipPos(anchor.clipPos);
+      let wordMedia = anchor.mediaSec;
+      const audioDur = getAudioTimelineDurationSec();
+      if (audioDur && audioDur > 0) {
+        wordMedia = Math.min(wordMedia, Math.max(0, audioDur - 0.001));
+      }
+      const videoMedia = mapWordTimelineToVideoTime(wordMedia);
+      if (getPa()?.src) {
+        assignMasterAudioTimelineSecIfNeeded(getPa(), wordMedia);
+      }
+      if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+        const vSeek = Math.min(videoMedia, Math.max(0, getPv().duration - 0.001));
+        if (Math.abs(getPv().currentTime - vSeek) > 0.002) {
+          getPv().currentTime = vSeek;
+        }
+      } else if (Math.abs(getPv().currentTime - videoMedia) > 0.002) {
+        getPv().currentTime = videoMedia;
+      }
+      getPa()?.pause();
+      getPv().pause();
+      previewBridge.stack?.pauseAllMedia?.();
+      caretPlayDiagLog("syncPausedPreviewMediaToPlayhead", caretPlayDiagSnapshot({
+        wordMedia,
+        videoMedia,
+        playheadEditSec: playheadSec,
+        clipPos: anchor.clipPos,
+      }));
+      return;
+    }
+  }
+  let wordMedia = mapEditSecToPreviewMediaSec(playheadSec);
   const audioDur = getAudioTimelineDurationSec();
   if (audioDur && audioDur > 0) {
     wordMedia = Math.min(wordMedia, Math.max(0, audioDur - 0.001));
@@ -503,7 +851,7 @@ function syncPausedPreviewMediaToPlayhead() {
   }
   getPa()?.pause();
   getPv().pause();
-  playheadSec = orch.mapMediaToEditSec(wordMedia);
+  playheadSec = mapPreviewMediaSecToEditSec(wordMedia);
   caretPlayDiagLog("syncPausedPreviewMediaToPlayhead", caretPlayDiagSnapshot({
     wordMedia,
     videoMedia,
@@ -511,16 +859,103 @@ function syncPausedPreviewMediaToPlayhead() {
   }));
 }
 
-/** @param {number} startMediaSec */
-async function beginPreviewSyncedPlayback(startMediaSec) {
+/**
+ * 추론 없이 확정된 mediaSec으로 A/V·stack을 동기 seek (Hot Reorder Phase 1+).
+ * resolveSegmentPlaybackAnchor를 호출하지 않으며 clipPos/playheadSec은 기본적으로 변경하지 않습니다.
+ *
+ * @param {number} mediaSec
+ * @param {{ logTag?: string, clipPos?: number, pauseMedia?: boolean, updatePlayhead?: boolean }} [opts]
+ */
+function directSeekPreviewMedia(mediaSec, opts = {}) {
+  if (!getPv()) return;
+  if (isProgramSegmentTimelineRebuilding()) return;
+
+  const pauseMedia = opts.pauseMedia !== false;
+  const updatePlayhead = opts.updatePlayhead === true;
+  const skip = getPlaybackSkipRanges();
+  let wordMedia = skipCutRangeAt(Math.max(0, Number(mediaSec) || 0), skip);
+
+  if (isProgramPlaybackTimeline() && !isBlocksProgramSegmentPreview()) {
+    const dur = getPv().duration;
+    const seek =
+      Number.isFinite(dur) && dur > 0
+        ? Math.min(wordMedia, Math.max(0, dur - 0.001))
+        : wordMedia;
+    if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), seek);
+    if (Math.abs(getPv().currentTime - seek) > 0.002) getPv().currentTime = seek;
+    if (pauseMedia) {
+      getPa()?.pause();
+      getPv().pause();
+    }
+    if (updatePlayhead) playheadSec = seek;
+    caretPlayDiagLog(opts.logTag || "directSeekPreviewMedia", caretPlayDiagSnapshot({
+      wordMedia: seek,
+      videoMedia: seek,
+      playheadEditSec: playheadSec,
+      clipPos: opts.clipPos ?? listPlaybackClipPos,
+    }));
+    return;
+  }
+
+  const audioDur = getAudioTimelineDurationSec();
+  if (audioDur && audioDur > 0) {
+    wordMedia = Math.min(wordMedia, Math.max(0, audioDur - 0.001));
+  }
+  const videoMedia = mapWordTimelineToVideoTime(wordMedia);
+  if (getPa()?.src) {
+    assignMasterAudioTimelineSecIfNeeded(getPa(), wordMedia);
+  }
+  if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+    const vSeek = Math.min(videoMedia, Math.max(0, getPv().duration - 0.001));
+    if (Math.abs(getPv().currentTime - vSeek) > 0.002) {
+      getPv().currentTime = vSeek;
+    }
+  } else if (Math.abs(getPv().currentTime - videoMedia) > 0.002) {
+    getPv().currentTime = videoMedia;
+  }
+  if (pauseMedia) {
+    getPa()?.pause();
+    getPv().pause();
+    previewBridge.stack?.pauseAllMedia?.();
+  }
+  if (updatePlayhead) {
+    playheadSec = mapPreviewMediaSecToEditSec(wordMedia);
+  }
+  caretPlayDiagLog(opts.logTag || "directSeekPreviewMedia", caretPlayDiagSnapshot({
+    wordMedia,
+    videoMedia,
+    playheadEditSec: playheadSec,
+    clipPos: opts.clipPos ?? listPlaybackClipPos,
+  }));
+}
+
+/** @param {number} startMediaSec @param {{ disableListOrder?: boolean }} [opts] */
+async function beginPreviewSyncedPlayback(startMediaSec, opts = {}) {
   const url = getPreviewMediaPlaybackUrl();
   if (!url || !getPv() || !getPa()) return false;
-  caretPlayDiagLog("beginPreviewSyncedPlayback", caretPlayDiagSnapshot({ startMediaSec }));
+  const disableListOrder =
+    opts.disableListOrder === true || waveformPlayRangeEndEdit != null;
+  caretPlayDiagLog("beginPreviewSyncedPlayback", caretPlayDiagSnapshot({
+    startMediaSec,
+    disableListOrder,
+    waveformRangeEnd: waveformPlayRangeEndEdit,
+  }));
   masterMediaUrl = url;
+  if (!disableListOrder) {
+    ensureListOrderPreviewTimelineSynced();
+  }
   await previewBridge.unlockAudioOutput();
+  const clipPos = Math.max(
+    0,
+    listPlaybackClipPos >= 0
+      ? listPlaybackClipPos
+      : getListOrderPreviewClipPos(),
+  );
   await startSyncedPlayback(url, getPv(), getPa(), {
     startMediaSec,
     skipRanges: getPlaybackSkipRanges(),
+    clipPos,
+    disableListOrder,
   });
   return true;
 }
@@ -533,14 +968,22 @@ let lastPlaybackCueIndex = -1;
 let lastPlaybackWordIndex = -1;
 /** 목록(표시 IDX) 기준 재생 — listPos 0..n-1, 파형 구간 재생 시 -1 */
 let listPlaybackListPos = -1;
-/** @type {ReturnType<typeof createListOrderPreviewMapping> | null} */
-let listPreviewBundle = null;
 /** 목록 stitched 클립 인덱스 (미디어 시각 역매핑 대신 SSOT) */
 let listPlaybackClipPos = -1;
+/** Phase 4-12 — program-master 단일 파일 HQ 미리보기 (편집 시 자동 해제) */
+let hqPreviewMode = false;
+/** @type {import("./shared/program-segment-timeline.js").RefreshProgramSegmentTimelineOpts | null} */
+let hubBlocksChangedOpts = null;
+/** Hot reorder 진행 중 list-order tick·playhead 갱신 차단 */
+let hotReorderInFlight = false;
+/** 줄 드래그 시작 시점 재생 상태 — drop 시 isVideoPlaying이 잠깐 false여도 playing 경로 유지 */
+let hotReorderDragWasPlaying = false;
+/** segment 타임라인 fingerprint — 편집 후 preservePlayhead 억제 */
+let lastPlaybackSegmentFingerprint = "";
 let lastOverlayCueIndex = -1;
 let lastOverlayDisplayText = "";
-/** 재생 오버레이 — 인접 cue 사이 짧은 구간에서 깜박임 방지 (초) */
-const PREVIEW_OVERLAY_BRIDGE_SEC = 0.07;
+/** @type {import("./shared/overlay-timing-ssot.js").OverlayTimingContext | null} */
+let overlayTimingCtx = null;
 /** @type {{ path: string, position: string }} */
 let watermarkConfig = { path: "", position: "" };
 let pendingWatermarkPath = "";
@@ -562,6 +1005,8 @@ let previewMediaDirectUrl = "";
 /** @type {string} */
 let previewMediaResolvedUrl = "";
 let previewMediaLoadGen = 0;
+/** V5 — program-master.mp4 (preview/export SSOT) */
+let programMasterPreviewPath = "";
 /** @type {string} */
 let watermarkMediaDirectUrl = "";
 /** @type {string} */
@@ -604,7 +1049,775 @@ const subtitleHub = new SubtitleAppHub({
   onStateChange: () => {
     syncHubFromState();
   },
+  playbackSnapshotProvider: () => ({
+    programSec: playheadSec,
+    listPlaybackClipPos:
+      listPlaybackClipPos >= 0 ? listPlaybackClipPos : getListOrderPreviewClipPos(),
+  }),
 });
+
+setProgramSegmentTimelineCallbacks({
+  onOrchestratorRebuild(bundle) {
+    rebuildPlaybackSyncFromSegmentBundle(bundle);
+  },
+  onOverlayRefresh() {
+    refreshOverlayTimingContext();
+  },
+  onPlayheadClamp(nextProgramSec) {
+    playheadSec = nextProgramSec;
+  },
+});
+
+function isHqPreviewMode() {
+  return hqPreviewMode;
+}
+
+function isBlocksProgramSegmentPreview() {
+  if (hqPreviewMode) return false;
+  return Boolean(subtitleHub.blocks?.length && isProgramSegmentPreviewActive());
+}
+
+/**
+ * @returns {{
+ *   mediaNow: number,
+ *   isVideoPlaying: boolean,
+ *   wasPlayingAtDragStart: boolean,
+ *   committedClipPos: number,
+ *   blockId: string,
+ *   programSec: number,
+ * }}
+ */
+function captureHotReorderPlaybackSnapshot() {
+  const bridge = getPreviewMediaBridge();
+  const clips = getProgramSegmentTimelineClips();
+  const programClips = getProgramSegmentProgramClips();
+  let committedClipPos = bridge.getCommittedClipPos();
+  if (committedClipPos < 0) {
+    committedClipPos =
+      listPlaybackClipPos >= 0 ? listPlaybackClipPos : getListOrderPreviewClipPos();
+  }
+  committedClipPos = Math.max(0, committedClipPos);
+  const clip = clips?.[committedClipPos];
+  const rawMedia = readPreviewMediaClockSec();
+  const blockId = programClips?.[committedClipPos]?.id
+    ? String(programClips[committedClipPos].id)
+    : clip?.blockId
+      ? String(clip.blockId)
+      : "";
+  return {
+    mediaNow: Number.isFinite(rawMedia) ? rawMedia : 0,
+    isVideoPlaying: Boolean(isVideoPlaying),
+    wasPlayingAtDragStart: Boolean(hotReorderDragWasPlaying),
+    committedClipPos,
+    blockId,
+    programSec: playheadSec,
+  };
+}
+
+/**
+ * @param {string} blockId
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} programClips
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ */
+function findClipPosByBlockId(blockId, programClips, timelineClips) {
+  const id = String(blockId || "").trim();
+  if (!id) return -1;
+  if (programClips?.length) {
+    const idx = programClips.findIndex((c) => String(c.id) === id);
+    if (idx >= 0) return idx;
+  }
+  if (timelineClips?.length) {
+    const idx = timelineClips.findIndex((c) => String(c.blockId || "") === id);
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+/**
+ * @param {number} clipPos
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} programClips
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ */
+function getBlockIdAtClipPos(clipPos, programClips, timelineClips) {
+  if (clipPos >= 0 && programClips?.[clipPos]?.id) {
+    return String(programClips[clipPos].id);
+  }
+  const tc = timelineClips?.[clipPos];
+  if (tc?.blockId) return String(tc.blockId);
+  return "";
+}
+
+/**
+ * @param {import("./shared/timeline-mapping.js").TimelineClip} clip
+ * @param {number} mediaSec
+ */
+function linearProgramSecFromClip(clip, mediaSec) {
+  const editStart = Number(clip.editStart) || 0;
+  const mediaStart = Number(clip.mediaStart) || 0;
+  return editStart + (Math.max(0, Number(mediaSec) || 0) - mediaStart);
+}
+
+/**
+ * @param {{ mediaNow: number, blockId?: string }} snapshot
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} programClips
+ * @returns {{ clipPos: number, mediaSec: number, programSec: number } | null}
+ */
+function buildExplicitHotReorderAnchor(snapshot, timelineClips, programClips) {
+  const clipPos = findClipPosByBlockId(snapshot.blockId, programClips, timelineClips);
+  if (clipPos < 0 || !timelineClips?.[clipPos]) return null;
+  const clip = timelineClips[clipPos];
+  const mediaNow = Math.max(0, Number(snapshot.mediaNow) || 0);
+  const skip = getPlaybackSkipRanges();
+  let mediaSec = clampMediaSecToTimelineClip(clip, mediaNow);
+  mediaSec = skipCutRangeAt(mediaSec, skip);
+  return {
+    clipPos,
+    mediaSec,
+    programSec: linearProgramSecFromClip(clip, mediaSec),
+  };
+}
+
+/** Hot reorder fallback — resolveSegmentPlaybackAnchor 없이 재생 루프만 중단 */
+function hotReorderStopPlaybackWithoutResolve() {
+  playbackLoopGeneration += 1;
+  isVideoPlaying = false;
+  setPreviewPlaybackUiActive(false);
+  waveformPlayRangeEndEdit = null;
+  if (playbackRafId) {
+    cancelAnimationFrame(playbackRafId);
+    playbackRafId = 0;
+  }
+}
+
+/** @param {{ mediaNow: number, blockId?: string }} snapshot */
+function performHotReorderLookupFailureFallback(snapshot) {
+  hotReorderStopPlaybackWithoutResolve();
+  getPa()?.pause();
+  getPv()?.pause();
+  previewBridge.stack?.pauseAllMedia?.();
+  console.error("[HotReorder] block.id lookup failed", snapshot);
+  directSeekPreviewMedia(Math.max(0, Number(snapshot.mediaNow) || 0), {
+    logTag: "hotReorder:lookupFailure",
+    pauseMedia: true,
+  });
+}
+
+/**
+ * @param {{ mediaNow: number, blockId?: string }} snapshot
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} programClips
+ */
+function performHotReorderQuietRollback(snapshot, timelineClips, programClips) {
+  hotReorderStopPlaybackWithoutResolve();
+  getPa()?.pause();
+  getPv()?.pause();
+  previewBridge.stack?.pauseAllMedia?.();
+  console.error("[HotReorder] Stack ID Mismatch", snapshot);
+
+  const mediaNow = Math.max(0, Number(snapshot.mediaNow) || 0);
+  const clipPos = findClipPosByBlockId(snapshot.blockId, programClips, timelineClips);
+  if (clipPos >= 0 && timelineClips[clipPos]) {
+    const clip = timelineClips[clipPos];
+    const skip = getPlaybackSkipRanges();
+    const mediaSec = skipCutRangeAt(clampMediaSecToTimelineClip(clip, mediaNow), skip);
+    directSeekPreviewMedia(mediaSec, {
+      logTag: "hotReorder:rollbackDirectSeek",
+      clipPos,
+      pauseMedia: true,
+    });
+    const anchor = {
+      clipPos,
+      mediaSec,
+      programSec: linearProgramSecFromClip(clip, mediaSec),
+    };
+    applySegmentPlaybackAnchor(anchor);
+    ensureListOrderPreviewTimelineSynced();
+    getPreviewMediaBridge().sealHotReorderStack(anchor.clipPos);
+    syncListPlaybackHighlightFromAnchor(anchor);
+    caretPlayDiagLog("hotReorder:rollback", caretPlayDiagSnapshot({ anchor, blockId: snapshot.blockId }));
+    return;
+  }
+  directSeekPreviewMedia(mediaNow, {
+    logTag: "hotReorder:rollbackMediaOnly",
+    pauseMedia: true,
+  });
+}
+
+/**
+ * @param {{ blockId?: string }} snapshot
+ * @param {{ clipPos: number }} anchor
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} programClips
+ */
+function verifyHotReorderStackOnce(snapshot, anchor, timelineClips, programClips) {
+  const expected = String(snapshot.blockId || "").trim();
+  if (!expected) return true;
+  const actual = getBlockIdAtClipPos(anchor.clipPos, programClips, timelineClips);
+  if (actual === expected) return true;
+  performHotReorderQuietRollback(snapshot, timelineClips, programClips);
+  return false;
+}
+
+/**
+ * @param {import("./shared/timeline-mapping.js").TimelineClip} clip
+ * @param {number} mediaSec
+ */
+function clampMediaSecToTimelineClip(clip, mediaSec) {
+  if (!clip) return mediaSec;
+  const start = Number(clip.mediaStart) || 0;
+  const end = Math.max(start, Number(clip.mediaEnd) - 0.04);
+  return Math.min(Math.max(mediaSec, start), end);
+}
+
+/**
+ * @param {number} programSec
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ * @param {number} [clipPosHint]
+ */
+function resolveSegmentPlaybackAnchorWithSkipsOnClips(
+  programSec,
+  timelineClips,
+  clipPosHint = -1,
+) {
+  if (!timelineClips?.length) {
+    return { programSec: Math.max(0, Number(programSec) || 0), mediaSec: 0, clipPos: 0 };
+  }
+  const skip = getPlaybackSkipRanges();
+  let anchor = resolveSegmentPlaybackAnchor(programSec, timelineClips, clipPosHint);
+  let media = skipCutRangeAt(anchor.mediaSec, skip);
+  if (Math.abs(media - anchor.mediaSec) > 0.001) {
+    anchor = resolveSegmentPlaybackAnchor(
+      resolveProgramSecFromMedia(media, timelineClips, anchor.clipPos),
+      timelineClips,
+      anchor.clipPos,
+    );
+    anchor = { ...anchor, mediaSec: media };
+  }
+  return anchor;
+}
+
+/**
+ * @param {{ clipPos: number }} anchor
+ */
+function syncListPlaybackHighlightFromAnchor(anchor) {
+  const clips = getProgramSegmentTimelineClips();
+  if (!clips?.length) return;
+  const cueIndex = cueIndexForClipIndex(clips, lastCues, anchor.clipPos);
+  if (cueIndex >= 0) {
+    listPlaybackListPos = listPosForCueIndex(lastCues, cueIndex);
+  }
+}
+
+/**
+ * @param {{ programSec: number, mediaSec: number, clipPos: number }} anchor
+ */
+function applyHotReorderStackSeal(anchor) {
+  applySegmentPlaybackAnchor(anchor);
+  ensureListOrderPreviewTimelineSynced();
+  getPreviewMediaBridge().sealHotReorderStack(anchor.clipPos);
+  syncListPlaybackHighlightFromAnchor(anchor);
+}
+
+/**
+ * 재생 중 hot reorder — media 시점 word index 유지 (render 전/후 공용).
+ * cueJustChanged clamp·lastPlayback -1 리셋 없이 exact word 매칭.
+ *
+ * @param {{ clipPos: number, mediaSec: number, programSec?: number }} anchor
+ * @param {{ updateDom?: boolean }} [opts]
+ * @returns {{ ai: number, wi: number, lookupT: number, lookupAxis: string }}
+ */
+function resolveHotReorderPlaybackHighlight(anchor, opts = {}) {
+  const empty = { ai: -1, wi: -1, lookupT: 0, lookupAxis: "listMediaVirtual" };
+  if (!anchor || anchor.clipPos < 0) return empty;
+  const clips = getProgramSegmentTimelineClips();
+  if (!clips?.length) return empty;
+  const ai = cueIndexForClipIndex(clips, lastCues, anchor.clipPos);
+  if (ai < 0) return empty;
+  const cue = lastCues[ai];
+  const mediaSec = Number(anchor.mediaSec);
+  const listOrder = useListIndexPlayback();
+  const highlightComputed = computeHighlightLookupT(cue, {
+    playheadSec: Number(anchor.programSec ?? playheadSec) || 0,
+    mediaSec,
+    listOrder,
+    blockVirtualHighlight: false,
+    programPlayback: isBlocksProgramSegmentPreview(),
+    segmentPreview: isBlocksProgramSegmentPreview(),
+    programClips: getProgramSegmentProgramClips(),
+  });
+  const { lookupT, lookupAxis, activeProgramClip } = highlightComputed;
+  const wi = resolveActiveWordIndexForCue(cue, ai, {
+    lookupT,
+    lookupAxis,
+    activeProgramClip,
+    listOrder,
+    cueJustChanged: false,
+    mediaSec,
+    noHighlight: highlightComputed.noHighlight === true,
+  });
+  lastPlaybackCueIndex = ai;
+  lastPlaybackWordIndex = wi;
+  if (opts.updateDom && wi >= 0) {
+    syncPlaybackWordHighlights(ai, wi, { lookupT, lookupAxis });
+  }
+  return { ai, wi, lookupT, lookupAxis };
+}
+
+/** @param {string} tag @param {Record<string, unknown>} payload */
+function logHotReorderPlayback(tag, payload) {
+  const driftMs = Number(payload.driftMs);
+  caretPlayDiagLog(`hotReorder:${tag}`, caretPlayDiagSnapshot(payload));
+  if (typeof console.debug === "function") {
+    console.debug(`[hot-reorder] ${tag}`, payload);
+  }
+  if (Number.isFinite(driftMs) && driftMs > 40) {
+    console.warn(`[hot-reorder] ${tag} drift`, payload);
+  }
+}
+
+function resolveSegmentPlaybackAnchorWithSkips(programSec, timelineClips) {
+  return resolveSegmentPlaybackAnchorWithSkipsOnClips(
+    programSec,
+    timelineClips,
+    getActiveSegmentClipPosHint(),
+  );
+}
+
+function getActiveSegmentClipPosHint() {
+  if (listPlaybackClipPos >= 0) return listPlaybackClipPos;
+  if (isListOrderSeamlessPlaybackActive()) {
+    const cp = getListOrderPreviewClipPos();
+    if (cp >= 0) return cp;
+  }
+  return -1;
+}
+
+function applySegmentPlaybackAnchor(anchor) {
+  playheadSec = anchor.programSec;
+  listPlaybackClipPos = anchor.clipPos;
+  resetListOrderPreviewClipPos(anchor.clipPos);
+}
+
+function snapPlayheadToCueClipStart(cueIndex) {
+  if (cueIndex < 0 || !lastCues[cueIndex]) return;
+  setListPlaybackListPosFromCueIndex(cueIndex);
+  const clips = getProgramSegmentTimelineClips();
+  if (!clips?.length) {
+    const cue = lastCues[cueIndex];
+    if (Number.isFinite(cue.start)) playheadSec = cue.start;
+    return;
+  }
+  const listPos = listPosForCueIndex(lastCues, cueIndex);
+  const clipPos = clipIndexForListPos(clips, lastCues, listPos);
+  const clip = clips[clipPos];
+  if (clip) {
+    playheadSec = clip.editStart;
+    listPlaybackClipPos = clipPos;
+    resetListOrderPreviewClipPos(clipPos);
+  }
+}
+
+async function rearmActiveSegmentPlayback(anchor) {
+  if (!isBlocksProgramSegmentPreview()) return;
+  const bridge = getPreviewMediaBridge();
+  if (bridge.isTransitionLocked()) {
+    bridge.abortActiveTransition();
+    await bridge.waitTransitionIdle();
+  }
+  ensureListOrderPreviewTimelineSynced();
+  const skip = getPlaybackSkipRanges();
+  getPa()?.pause();
+  getPv()?.pause();
+  await armListOrderSeamlessPlayback({
+    startMediaSec: anchor.mediaSec,
+    skipRanges: skip,
+    clipPos: anchor.clipPos,
+    useEnvelope: true,
+    programClips: getProgramSegmentProgramClips(),
+    playing: isVideoPlaying,
+  });
+  if (!isVideoPlaying) return;
+  try {
+    await getPa()?.play();
+  } catch {
+    /* ignore */
+  }
+  if (getPv()?.paused) {
+    void getPv().play().catch(() => undefined);
+  }
+}
+
+function ensureListOrderPreviewTimelineSynced() {
+  if (!isBlocksProgramSegmentPreview()) return false;
+  const clips = getProgramSegmentTimelineClips();
+  if (!clips?.length) return false;
+  const bundle = getProgramSegmentTimelineBundle();
+  const clipPos = Math.max(
+    0,
+    listPlaybackClipPos >= 0
+      ? listPlaybackClipPos
+      : getListOrderPreviewClipPos(),
+  );
+  setListOrderPreviewTimeline(
+    {
+      clips,
+      mapping: bundle?.mapping ?? null,
+      programClips: bundle?.programClips ?? getProgramSegmentProgramClips(),
+    },
+    clipPos,
+  );
+  return true;
+}
+
+/**
+ * PC-LITERAL WP2 — blocks 변경 후 preview stack을 programClips 큐에 literal 재장착.
+ *
+ * @param {{ reason?: string, bundle?: import("./shared/program-segment-timeline.js").ProgramSegmentTimelineBundle }} [opts]
+ */
+async function applyProgramClipsLiteralPlaybackSync(opts = {}) {
+  if (!isBlocksProgramSegmentPreview()) return;
+
+  const bridge = getPreviewMediaBridge();
+  bridge.abortActiveTransition();
+  await bridge.waitTransitionIdle();
+  getPa()?.pause();
+  getPv()?.pause();
+
+  let bundle = opts.bundle;
+  if (!bundle?.timelineClips?.length) {
+    bundle = refreshProgramSegmentTimelineFromHub({
+      reason: opts.reason || "literal-playback-sync",
+      rearmSeamlessPlayback: false,
+      anchorPlayhead: false,
+      skipPostRefreshAnchor: true,
+    });
+  }
+  if (!bundle?.timelineClips?.length) return;
+
+  ensureListOrderPreviewTimelineSynced();
+  const clipPosHint =
+    listPlaybackClipPos >= 0
+      ? listPlaybackClipPos
+      : getListOrderPreviewClipPos();
+  const anchor = resolveSegmentPlaybackAnchorWithSkips(
+    playheadSec,
+    bundle.timelineClips,
+    clipPosHint >= 0 ? clipPosHint : -1,
+  );
+  applySegmentPlaybackAnchor(anchor);
+
+  await rearmActiveSegmentPlayback(anchor);
+  applyHotReorderStackSeal(anchor);
+  resolveHotReorderPlaybackHighlight(anchor, { updateDom: false });
+
+  if (isVideoPlaying) {
+    if (!playbackRafId) playbackTick();
+  } else {
+    scheduleSyncPausedPreviewMediaToPlayhead();
+  }
+}
+
+/** 삭제 후 playhead·media·clipPos를 갱신된 programClips에 맞춤 (WP2 unified rearm) */
+function applyDeletePlaybackSync() {
+  const bundle = getProgramSegmentTimelineBundle();
+  void applyProgramClipsLiteralPlaybackSync({
+    reason: "line-delete",
+    bundle: bundle?.timelineClips?.length ? bundle : undefined,
+  });
+}
+
+/** 줄 재정렬 후 playhead·media·clipPos를 갱신된 programClips에 맞춤 (Hot Reorder v8 — unified rearm) */
+async function applyReorderPlaybackSync(newCueIndex, hotSnap) {
+  if (!isBlocksProgramSegmentPreview()) return;
+
+  hotReorderInFlight = true;
+  try {
+    const mediaStillPlaying = isPreviewMediaPlaying();
+    const isPlayingReorder = Boolean(
+      hotSnap?.isVideoPlaying ||
+      (hotSnap?.wasPlayingAtDragStart && mediaStillPlaying),
+    );
+
+    if (isPlayingReorder && !isVideoPlaying && isPreviewMediaPlaying()) {
+      isVideoPlaying = true;
+      setPreviewPlaybackUiActive(true);
+    }
+
+    const bridge = getPreviewMediaBridge();
+    bridge.abortActiveTransition();
+    await bridge.waitTransitionIdle();
+    getPa()?.pause();
+    getPv()?.pause();
+
+    const bundle = refreshProgramSegmentTimelineFromHub({
+      reason: "line-reorder",
+      rearmSeamlessPlayback: false,
+      anchorPlayhead: false,
+      skipPostRefreshAnchor: true,
+    });
+    if (!bundle?.timelineClips?.length) return;
+
+    if (newCueIndex >= 0 && !isPlayingReorder) {
+      snapPlayheadToCueClipStart(newCueIndex);
+      setListPlaybackListPosFromCueIndex(newCueIndex);
+    }
+    ensureListOrderPreviewTimelineSynced();
+
+    const programClips = bundle.programClips ?? getProgramSegmentProgramClips();
+    const anchor = buildExplicitHotReorderAnchor(
+      hotSnap,
+      bundle.timelineClips,
+      programClips,
+    );
+    if (!anchor) {
+      performHotReorderLookupFailureFallback(hotSnap);
+      logHotReorderPlayback(isPlayingReorder ? "playingLookupFailed" : "pausedLookupFailed", {
+        mediaNow: hotSnap.mediaNow,
+        blockId: hotSnap.blockId,
+      });
+      return;
+    }
+
+    await rearmActiveSegmentPlayback(anchor);
+    applyHotReorderStackSeal(anchor);
+
+    const stackOk = verifyHotReorderStackOnce(
+      hotSnap,
+      anchor,
+      bundle.timelineClips,
+      programClips,
+    );
+    if (!stackOk) {
+      logHotReorderPlayback(isPlayingReorder ? "playingRollback" : "pausedRollback", {
+        mediaNow: hotSnap.mediaNow,
+        blockId: hotSnap.blockId,
+        clipPos: anchor.clipPos,
+      });
+      return;
+    }
+
+    resolveHotReorderPlaybackHighlight(anchor, { updateDom: false });
+
+    if (isPlayingReorder) {
+      const mediaAfter = readPreviewMediaClockSec();
+      const driftMs = Number.isFinite(mediaAfter)
+        ? Math.abs(mediaAfter - anchor.mediaSec) * 1000
+        : null;
+      logHotReorderPlayback("playing", {
+        mediaNow: hotSnap.mediaNow,
+        wasPlayingAtDragStart: hotSnap.wasPlayingAtDragStart,
+        blockId: hotSnap.blockId,
+        anchor,
+        driftMs,
+        clipPos: anchor.clipPos,
+        cueIndex: lastPlaybackCueIndex,
+      });
+      if (isVideoPlaying && getPa()?.paused) {
+        try {
+          await getPa()?.play();
+        } catch {
+          /* ignore */
+        }
+        if (getPv()?.paused) {
+          void getPv().play().catch(() => undefined);
+        }
+      }
+    } else {
+      logHotReorderPlayback("paused", {
+        newCueIndex,
+        playheadSec,
+        clipPos: anchor.clipPos,
+        mediaStart: bundle.timelineClips[anchor.clipPos]?.mediaStart,
+        blockId: hotSnap.blockId,
+        anchor,
+      });
+    }
+
+    if (isVideoPlaying && !playbackRafId) {
+      playbackTick();
+    }
+  } finally {
+    hotReorderInFlight = false;
+    hotReorderDragWasPlaying = false;
+    hubBlocksChangedOpts = null;
+  }
+}
+
+/**
+ * list-order 미활성 시 segment clip 경계 밖 재생 → 점프 (삭제 구간 연속 재생 방지).
+ * @param {{ skipRanges: { start: number, end: number }[] }} skipOpts
+ */
+function syncSegmentPreviewClipBoundaryTick(skipOpts) {
+  if (
+    !isBlocksProgramSegmentPreview() ||
+    isListOrderSeamlessPlaybackActive() ||
+    !isVideoPlaying
+  ) {
+    return;
+  }
+  const clips = getProgramSegmentTimelineClips();
+  const audio = getPa();
+  if (!clips?.length || !audio || audio.paused || audio.seeking) return;
+
+  const media = readPreviewMediaClockSec();
+  if (!Number.isFinite(media)) return;
+
+  let clipPos =
+    listPlaybackClipPos >= 0
+      ? listPlaybackClipPos
+      : resolveSegmentPlaybackAnchorWithSkips(
+          resolveProgramSecFromMedia(media, clips),
+          clips,
+        ).clipPos;
+  const cur = clips[clipPos];
+  if (!cur) return;
+
+  const inClip = media >= cur.mediaStart - 0.02 && media < cur.mediaEnd - 0.025;
+  if (inClip) {
+    listPlaybackClipPos = clipPos;
+    resetListOrderPreviewClipPos(clipPos);
+    return;
+  }
+
+  const anchor = resolveSegmentPlaybackAnchorWithSkips(
+    resolveProgramSecFromMedia(media, clips),
+    clips,
+  );
+  const target = skipCutRangeAt(anchor.mediaSec, skipOpts.skipRanges || []);
+  if (Math.abs(target - media) <= 0.03) return;
+
+  assignMasterAudioTimelineSecIfNeeded(audio, target);
+  if (getPv() && Math.abs(getPv().currentTime - target) > 0.04) {
+    getPv().currentTime = target;
+  }
+  listPlaybackClipPos = anchor.clipPos;
+  resetListOrderPreviewClipPos(anchor.clipPos);
+  playheadSec = anchor.programSec;
+}
+
+/**
+ * @param {{
+ *   preserveProgramSec?: boolean,
+ *   rearmSeamlessPlayback?: boolean,
+ *   anchorPlayhead?: boolean,
+ *   skipOverlayRefresh?: boolean,
+ *   skipPostRefreshAnchor?: boolean,
+ *   clipPosHint?: number,
+ *   reason?: string,
+ * }} [opts]
+ */
+function refreshProgramSegmentTimelineFromHub(opts = {}) {
+  const blocks = subtitleHub.blocks;
+  if (!blocks?.length) {
+    clearProgramSegmentTimeline();
+    lastPlaybackSegmentFingerprint = "";
+    return null;
+  }
+
+  const wasPlayingListOrder =
+    isVideoPlaying && isBlocksProgramSegmentPreview();
+  const oldClips = getProgramSegmentTimelineClips();
+  let anchorProgramSec = playheadSec;
+  if (wasPlayingListOrder && oldClips?.length) {
+    const mediaNow = readPreviewMediaClockSec();
+    if (Number.isFinite(mediaNow)) {
+      anchorProgramSec = resolveProgramSecFromMedia(
+        mediaNow,
+        oldClips,
+        getActiveSegmentClipPosHint(),
+      );
+    }
+  }
+
+  const shouldRearm =
+    opts.rearmSeamlessPlayback ??
+    (isVideoPlaying && isBlocksProgramSegmentPreview());
+
+  const bundle = refreshProgramSegmentTimeline(
+    {
+      blocks,
+      cutRanges: lastCutRanges || [],
+      previewMediaPath: getSessionPreviewMediaPath(),
+      mediaDurationSec: getMediaDurationSecHint(),
+      hardDeletedMediaSkips: subtitleHub.hardDeletedMediaSkips,
+    },
+    {
+      preserveProgramSec: opts.preserveProgramSec !== false,
+      programSec: playheadSec,
+      rearmSeamlessPlayback: false,
+      clipPos:
+        Number(opts.clipPosHint) >= 0
+          ? Number(opts.clipPosHint)
+          : listPlaybackClipPos >= 0
+            ? listPlaybackClipPos
+            : getListOrderPreviewClipPos(),
+      skipOverlayRefresh: opts.skipOverlayRefresh,
+      reason: opts.reason || "hub",
+    },
+  );
+  if (!bundle) {
+    lastPlaybackSegmentFingerprint = "";
+    return null;
+  }
+
+  if (isBlocksProgramSegmentPreview()) {
+    if (!opts.skipPostRefreshAnchor) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(
+        anchorProgramSec,
+        bundle.timelineClips,
+      );
+      if (shouldRearm) {
+        applySegmentPlaybackAnchor(anchor);
+        void rearmActiveSegmentPlayback(anchor);
+      } else if (opts.anchorPlayhead) {
+        applySegmentPlaybackAnchor(anchor);
+        if (!isVideoPlaying) scheduleSyncPausedPreviewMediaToPlayhead();
+      }
+    }
+  }
+
+  lastPlaybackSegmentFingerprint = bundle.fingerprint;
+  return bundle;
+}
+
+/**
+ * Phase 3 — blocks/cut/skips 변경 시 segment timeline 단일 갱신 hook.
+ *
+ * @param {import("./shared/program-segment-timeline.js").RefreshProgramSegmentTimelineOpts & { anchorPlayhead?: boolean }} [opts]
+ */
+function onProgramBlocksChanged(opts = {}) {
+  if (hqPreviewMode && opts.reason !== "hq-preview-enter") {
+    void exitHqPreviewMode({ silent: true });
+  }
+  if (opts.skipRefresh) {
+    return;
+  }
+  const wasPlaying = isVideoPlaying && isBlocksProgramSegmentPreview();
+  const listOrderLive =
+    isBlocksProgramSegmentPreview() &&
+    (isListOrderSeamlessPlaybackActive() || isListOrderPreviewTimelineActive());
+  const bundle = refreshProgramSegmentTimelineFromHub({
+    preserveProgramSec: opts.preserveProgramSec !== false,
+    rearmSeamlessPlayback: opts.rearmSeamlessPlayback ?? wasPlaying,
+    anchorPlayhead: opts.anchorPlayhead,
+    skipOverlayRefresh: opts.skipOverlayRefresh,
+    skipPostRefreshAnchor: listOrderLive && !wasPlaying ? true : undefined,
+    reason: opts.reason || "blocks-changed",
+  });
+  if (
+    listOrderLive &&
+    !wasPlaying &&
+    opts.reason !== "line-delete" &&
+    opts.reason !== "line-reorder" &&
+    bundle?.timelineClips?.length
+  ) {
+    void applyProgramClipsLiteralPlaybackSync({
+      reason: opts.reason || "blocks-changed",
+      bundle,
+    });
+  }
+}
 
 function syncHubFromState() {
   lastCues = subtitleHub.cues;
@@ -614,25 +1827,479 @@ function syncHubFromState() {
   persistCuts();
   updateUndoRedoButtons();
   updateActionButtons();
-  rebuildPlaybackSync();
-  refreshListOrderPreviewIfActive();
+  onProgramBlocksChanged(hubBlocksChangedOpts || { reason: "hub-state-change" });
+  hubBlocksChangedOpts = null;
   if (subtitleList) refreshExpandedPanelSkipRanges(subtitleList);
 }
 
-function refreshListOrderPreviewIfActive() {
-  if (!listPreviewBundle?.clips?.length) return;
-  const hint = getMediaDurationSecHint() ?? 0;
-  listPreviewBundle = createListOrderPreviewMapping(lastCues, hint);
-  setListOrderPreviewTimeline(listPreviewBundle);
+async function applyRestoredPlaybackSnapshot() {
+  const bridge = getPreviewMediaBridge();
+  if (bridge.isTransitionLocked()) {
+    bridge.abortActiveTransition();
+    await bridge.waitTransitionIdle();
+  }
+  const snap = subtitleHub.consumeRestoredPlaybackSnapshot?.();
+  if (!snap) return;
+  playheadSec = Number(snap.programSec) || 0;
+  if (Number.isInteger(snap.listPlaybackClipPos) && snap.listPlaybackClipPos >= 0) {
+    listPlaybackClipPos = snap.listPlaybackClipPos;
+    resetListOrderPreviewClipPos(snap.listPlaybackClipPos);
+  }
+  if (isBlocksProgramSegmentPreview()) {
+    const anchor = resolveSegmentPlaybackAnchorWithSkips(
+      playheadSec,
+      getProgramSegmentTimelineClips(),
+    );
+    applySegmentPlaybackAnchor(anchor);
+    if (!isVideoPlaying) scheduleSyncPausedPreviewMediaToPlayhead();
+  } else if (isHqPreviewMode() && getPv()) {
+    getPv().currentTime = playheadSec;
+    if (getPa() && !getPa().paused) assignMasterAudioTimelineSecIfNeeded(getPa(), playheadSec);
+  }
+  commitPlayheadUi();
+}
+
+function handleHubHistoryRestore() {
+  void applyRestoredPlaybackSnapshot().then(() => {
+    renderCuesTable(lastCues);
+  });
+}
+
+function usesProgramMasterPreview() {
+  return false;
+}
+
+function getActiveProgramClips() {
+  const cached = getProgramSegmentProgramClips();
+  if (cached.length) return cached;
+  const blocks = subtitleHub.blocks;
+  if (!blocks?.length) return [];
+  return buildProgramClips(blocks, lastCutRanges || []);
+}
+
+/** blocks SSOT — CFR + programClips */
+function isPreviewPlaybackReady() {
+  const hasMediaElement = Boolean(
+    getPv()?.src || previewMediaResolvedUrl || masterMediaUrl,
+  );
+  if (!subtitleHub.blocks?.length) {
+    return hasMediaElement;
+  }
+  return Boolean(
+    getSessionPreviewMediaPath() &&
+      getProgramSegmentTimelineClips().length > 0 &&
+      hasMediaElement,
+  );
+}
+
+/**
+ * @param {number} [timeoutMs]
+ */
+function waitForPreviewMediaReady(timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    const done = (ok) => resolve(ok);
+    const el = getPv();
+    if (el?.src && el.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      done(true);
+      return;
+    }
+    if (previewMediaResolvedUrl || masterMediaUrl) {
+      const t0 = performance.now();
+      const poll = () => {
+        const v = getPv();
+        if (v?.src && v.readyState >= HTMLMediaElement.HAVE_METADATA) {
+          done(true);
+          return;
+        }
+        if (performance.now() - t0 >= timeoutMs) {
+          done(Boolean(v?.src || previewMediaResolvedUrl || masterMediaUrl));
+          return;
+        }
+        requestAnimationFrame(poll);
+      };
+      requestAnimationFrame(poll);
+      return;
+    }
+    done(false);
+  });
+}
+
+/**
+ * ingest 후 CFR + programClips gate — 실패 시 1회 복구 시도.
+ */
+async function ensurePreviewPlaybackReadyAfterIngest(transcribeMeta = {}) {
+  if (isPreviewPlaybackReady()) return true;
+
+  let previewPath =
+    transcribeMeta.preview_media_path ||
+    getSessionPreviewMediaPath() ||
+    transcribeMeta.media_timing?.preview_media_path ||
+    "";
+  if (!previewPath) {
+    previewPath = (await ensureSessionPreviewMediaPath()) || "";
+  }
+  if (previewPath) setSessionPreviewMediaPath(previewPath);
+
+  if (subtitleHub.blocks?.length && !getProgramSegmentTimelineClips().length) {
+    refreshProgramSegmentTimelineFromHub({
+      reason: "ingest-recover-clips",
+      preserveProgramSec: true,
+    });
+  }
+
+  if (previewPath && !getPv()?.src) {
+    await updatePreview(previewPath);
+    await waitForPreviewMediaReady();
+    rebuildPlaybackSync();
+  }
+
+  if (isPreviewPlaybackReady()) return true;
+
+  console.warn("[preview-ready] ingest gate failed", {
+    previewPath: getSessionPreviewMediaPath(),
+    clipCount: getProgramSegmentTimelineClips().length,
+    blockCount: subtitleHub.blocks?.length ?? 0,
+    videoSrc: getPv()?.src ?? null,
+    resolvedUrl: previewMediaResolvedUrl || null,
+  });
+  return false;
+}
+
+/** @deprecated — use isPreviewPlaybackReady */
+function requiresProgramMasterForPreview() {
+  return Boolean(subtitleHub.blocks?.length);
+}
+
+/** @deprecated — use isPreviewPlaybackReady */
+function isProgramMasterReady() {
+  return isPreviewPlaybackReady();
+}
+
+function previewPlaybackGateMessage() {
+  return (
+    "미리보기를 재생할 수 없습니다.\n\n" +
+    "CFR 미디어(media-cfr)와 편집 타임라인(programClips)을 확인해 주세요."
+  );
+}
+
+/** @returns {boolean} */
+function assertPreviewPlaybackReady() {
+  if (isPreviewPlaybackReady()) return true;
+  alert(previewPlaybackGateMessage());
+  return false;
+}
+
+/** @returns {boolean} */
+function assertProgramMasterForPlayback() {
+  return assertPreviewPlaybackReady();
+}
+
+/** @param {string} [masterPath] */
+function applyProgramPlaybackSession(masterPath) {
+  const p = String(masterPath || programMasterPreviewPath || "").trim();
+  if (!p) {
+    setProgramPlaybackActive(false);
+    return;
+  }
+  programMasterPreviewPath = p;
+  setProgramPlaybackActive(true);
+}
+
+function clearProgramPlaybackSession() {
+  setProgramPlaybackActive(false);
+}
+
+/**
+ * @deprecated transcribe는 Program master를 더 이상 반환하지 않음 — 항상 false.
+ * @param {{ program_master_path?: string | null, program_duration_sec?: number | null, program_master_probe_ok?: boolean | null }} transcribeMeta
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} clips
+ */
+function canReuseTranscribeProgramMaster(transcribeMeta, clips) {
+  const backendPath = String(transcribeMeta?.program_master_path || "").trim();
+  if (!backendPath) return false;
+  if (transcribeMeta.program_master_probe_ok === false) return false;
+  const blockDur = getProgramDurationSec(clips);
+  const backendDur = Number(transcribeMeta.program_duration_sec) || 0;
+  if (!(blockDur > PROGRAM_CLIP_EPS) || !(backendDur > PROGRAM_CLIP_EPS)) return false;
+  return Math.abs(blockDur - backendDur) <= Math.max(0.15, blockDur * 0.002);
+}
+
+function isTranscribeLoadingUiActive() {
+  return Boolean(transcribeLoading?.classList.contains("is-active"));
+}
+
+/**
+ * @param {{ showLoading?: boolean, force?: boolean }} [opts]
+ */
+async function refreshProgramMasterPreviewIfNeeded(opts = {}) {
+  const blocks = subtitleHub.blocks;
+  if (!blocks?.length) {
+    programMasterPreviewPath = "";
+    return null;
+  }
+  const previewPath = await ensureSessionPreviewMediaPath();
+  if (!previewPath) return null;
+  const clips = buildProgramClips(blocks, lastCutRanges || []);
+  const programDurationSec = getProgramDurationSec(clips);
+  const useTranscribeShell = Boolean(opts.showLoading && isTranscribeLoadingUiActive());
+  if (opts.showLoading) {
+    if (useTranscribeShell) {
+      setTranscribeLoading(true, {
+        title: TRANSCRIBE_LOADING_TITLE,
+        step: "보내기",
+        message: "Program master 생성 중…",
+        progress: 97,
+      });
+    } else {
+      hidePreviewMediaLoadingModal();
+      setPreviewMediaLoading(true, {
+        title: "Program master",
+        step: "Export bake",
+        message: "보내기용 program-master 생성 중…",
+      });
+    }
+  }
+  updatePreviewTransportAvailability();
+  try {
+    const result = await bakeProgramMaster(TOOL_PREFIX, {
+      previewMediaPath: previewPath,
+      programClips: clips,
+      programDurationSec,
+      cutRangesJson: JSON.stringify(lastCutRanges || []),
+      force: !!opts.force,
+    });
+    const nextPath = String(result?.path || "").trim();
+    if (!nextPath) return null;
+    programMasterPreviewPath = nextPath;
+    logMediaTimingAvSnapshot("program-master cache", getSessionMediaTiming(), {
+      path: nextPath,
+      export_only: true,
+    });
+    return result;
+  } finally {
+    updatePreviewTransportAvailability();
+    if (opts.showLoading && !useTranscribeShell) setPreviewMediaLoading(false);
+  }
+}
+
+/**
+ * Phase 1-R — ingest: CFR preview + segment timeline (Program master는 export/HQ 시 bake).
+ *
+ * @param {{ preview_media_path?: string | null, program_master_path?: string | null }} [transcribeMeta]
+ */
+async function ensureProgramMasterAfterIngest(transcribeMeta = {}) {
+  if (!subtitleHub.blocks?.length) return null;
+  let cfrPath =
+    transcribeMeta.preview_media_path ||
+    getSessionPreviewMediaPath() ||
+    transcribeMeta.media_timing?.preview_media_path ||
+    "";
+  if (!cfrPath) {
+    cfrPath = (await ensureSessionPreviewMediaPath()) || "";
+  }
+  if (!cfrPath) {
+    throw new Error("CFR 미디어 경로가 없습니다. 자막 추출을 다시 실행해 주세요.");
+  }
+  setSessionPreviewMediaPath(cfrPath);
+  clearProgramPlaybackSession();
+  clearProgramMasterCache();
+  programMasterPreviewPath = "";
+  await refreshSessionMediaTimingFromAgent(cfrPath);
+  await updatePreview(cfrPath, { useTranscribeShell: isTranscribeLoadingUiActive() });
+  await waitForPreviewMediaReady();
+  refreshProgramSegmentTimelineFromHub({ reason: "ingest", preserveProgramSec: true });
+  rebuildPlaybackSync();
+  logMediaTimingAvSnapshot("preview playback", getSessionMediaTiming(), {
+    path: cfrPath,
+    timeline_axis: "program-segment",
+    deferred_master_bake: true,
+  });
+  return { path: cfrPath };
+}
+
+async function ensureProgramMasterForExport() {
+  const blocks = subtitleHub.blocks;
+  if (!blocks?.length) return null;
+  return refreshProgramMasterPreviewIfNeeded({ showLoading: false, force: true });
+}
+
+function formatBakeLevelLabel(level) {
+  const key = String(level || "").trim();
+  if (!key) return "";
+  const labels = {
+    l0_copy: "L0 copy",
+    l1_copy: "L1 copy",
+    l1_reencode: "L1 reencode",
+    filter: "L4 filter",
+  };
+  return labels[key] || key;
+}
+
+function updateHqPreviewButtonUi() {
+  if (!btnHqPreview) return;
+  const hasBlocks = Boolean(subtitleHub.blocks?.length);
+  btnHqPreview.hidden = !hasBlocks;
+  btnHqPreview.disabled = !hasBlocks || !agentConnected;
+  btnHqPreview.classList.toggle("is-active", hqPreviewMode);
+  btnHqPreview.title = hqPreviewMode
+    ? "CFR segment 미리보기로 돌아가기"
+    : "Program master HQ 미리보기 (클릭 시 export와 동일 타임라인으로 bake)";
+  btnHqPreview.textContent = hqPreviewMode ? "CFR" : "HQ";
+}
+
+/**
+ * @param {{ silent?: boolean }} [opts]
+ */
+async function exitHqPreviewMode(opts = {}) {
+  if (!hqPreviewMode) return;
+  hqPreviewMode = false;
+  const savedProgramSec = playheadSec;
+  stopPlaybackLoop();
+  deactivateListOrderPreviewPlayback();
+  const cfrPath = getSessionPreviewMediaPath();
+  if (cfrPath) {
+    await updatePreview(cfrPath);
+    onProgramBlocksChanged({
+      reason: "hq-preview-exit",
+      preserveProgramSec: true,
+      rearmSeamlessPlayback: false,
+    });
+    playheadSec = savedProgramSec;
+    if (isBlocksProgramSegmentPreview()) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(
+        playheadSec,
+        getProgramSegmentTimelineClips(),
+      );
+      applySegmentPlaybackAnchor(anchor);
+    }
+    if (!isVideoPlaying) scheduleSyncPausedPreviewMediaToPlayhead();
+    rebuildPlaybackSync();
+  }
+  updateHqPreviewButtonUi();
+  commitPlayheadUi();
+  if (!opts.silent) {
+    console.debug("[hq-preview] exited — CFR segment preview restored");
+  }
+}
+
+async function enterHqPreviewMode() {
+  if (!subtitleHub.blocks?.length || !agentConnected) return;
+  if (hqPreviewMode) {
+    await exitHqPreviewMode();
+    return;
+  }
+  const savedProgramSec = playheadSec;
+  stopPlaybackLoop();
+  deactivateListOrderPreviewPlayback();
+  setPreviewMediaLoading(true, {
+    title: "HQ 미리보기",
+    step: "Program master",
+    message: "export와 동일한 program-master 준비 중…",
+  });
+  try {
+    const previewPath = await ensureSessionPreviewMediaPath();
+    if (!previewPath) {
+      alert("CFR 미디어가 없습니다. 자막 추출을 먼저 실행해 주세요.");
+      return;
+    }
+    const result = await refreshProgramMasterPreviewIfNeeded({
+      showLoading: false,
+      force: !getProgramMasterCache().path,
+    });
+    const path =
+      String(result?.path || "").trim() ||
+      programMasterPreviewPath ||
+      getProgramMasterCache().path ||
+      "";
+    if (!path) {
+      alert(
+        "Program master를 만들 수 없습니다.\nCFR 미디어·에이전트 연결·편집 타임라인(programClips)을 확인해 주세요.",
+      );
+      return;
+    }
+    programMasterPreviewPath = path;
+    hqPreviewMode = true;
+    await updatePreview(path);
+    playheadSec = savedProgramSec;
+    const dur = getPreviewEditDurationSec();
+    if (dur > 0) playheadSec = Math.min(playheadSec, dur);
+    if (getPv()) getPv().currentTime = playheadSec;
+    if (getPa()) assignMasterAudioTimelineSecIfNeeded(getPa(), playheadSec);
+    refreshOverlayTimingContext();
+    updateHqPreviewButtonUi();
+    commitPlayheadUi();
+    console.debug("[hq-preview] active", { path, bakeLevel: result?.bakeLevel ?? null });
+  } finally {
+    setPreviewMediaLoading(false);
+  }
+}
+
+async function toggleHqPreviewMode() {
+  if (hqPreviewMode) await exitHqPreviewMode();
+  else await enterHqPreviewMode();
+}
+
+function refreshOverlayTimingContext() {
+  const blocks = subtitleHub.blocks;
+  const virtualIndex = subtitleHub._virtualIndex;
+  const useBlocks =
+    Array.isArray(blocks) &&
+    blocks.length > 0 &&
+    Array.isArray(virtualIndex) &&
+    virtualIndex.length > 0;
+  const cutRanges = lastCutRanges || [];
+  const requiresConcat = false;
+  const exportTimeAxis = useBlocks ? "program" : "media";
+  const scheduleCutRanges = useBlocks ? [] : cutRanges;
+
+  overlayTimingCtx = createOverlayTimingContext({
+    cues: lastCues,
+    blocks,
+    virtualIndex,
+    cutRanges: scheduleCutRanges,
+    playbackMode: useListIndexPlayback() ? "list-order" : "time",
+    exportTimeAxis,
+    clips: getProgramSegmentTimelineClips(),
+    requiresConcat,
+    isMediaPlaying: isPreviewMediaPlaying(),
+    listPlaybackClipPos: listPlaybackClipPos,
+    resolveListOrderCueIndex: (t) => {
+      if (!useListIndexPlayback()) return -1;
+      return resolvePlaybackIndices(t).ai;
+    },
+  });
+}
+
+/**
+ * @param {import("./shared/program-segment-timeline.js").ProgramSegmentTimelineBundle} bundle
+ */
+function rebuildPlaybackSyncFromSegmentBundle(bundle) {
+  const orch = getPlaybackOrchestrator();
+  const dur =
+    getMediaDurationSecHint() ??
+    bundle.mediaEndHintSec ??
+    (getPv()?.duration && Number.isFinite(getPv().duration) ? getPv().duration : 0);
+  orch.rebuild(lastCues, getPlaybackSkipRanges(), dur, {
+    programMasterMode: false,
+    timelineClips: bundle.timelineClips,
+    stitchedProgramMode: true,
+  });
 }
 
 function rebuildPlaybackSync() {
+  const bundle = getProgramSegmentTimelineBundle();
+  if (bundle) {
+    rebuildPlaybackSyncFromSegmentBundle(bundle);
+    return;
+  }
   const orch = getPlaybackOrchestrator();
   const dur =
     getPv()?.duration && Number.isFinite(getPv().duration)
       ? getPv().duration
       : 0;
-  orch.rebuild(lastCues, getPlaybackSkipRanges(), dur);
+  orch.rebuild(lastCues, getPlaybackSkipRanges(), dur, {
+    programMasterMode: false,
+  });
 }
 
 function updateUndoRedoButtons() {
@@ -661,6 +2328,10 @@ function clearSubtitleWorkspace() {
   subtitleLineDragActive = false;
   listPlaybackListPos = -1;
   deactivateListOrderPreviewPlayback();
+  clearProgramSegmentTimeline();
+  hqPreviewMode = false;
+  invalidateOverlayTimingCache(overlayTimingCtx);
+  overlayTimingCtx = null;
   expandedCueIndex = -1;
   expandedWordIndex = -1;
   peaksPayload = null;
@@ -1149,6 +2820,13 @@ function syncCuesFromDom() {
 }
 
 function getPlaybackSkipRanges() {
+  if (usesProgramMasterPreview() || isProgramPlaybackTimeline()) return [];
+  if (isBlocksProgramSegmentPreview()) {
+    return buildBlocksPreviewPlaybackSkips(
+      subtitleHub.hardDeletedMediaSkips,
+      subtitleHub.blocks,
+    );
+  }
   return subtitleHub.getPlaybackSkipRanges();
 }
 
@@ -1221,27 +2899,76 @@ async function prepareMediaForWhisper(videoPath) {
 
 /** FFmpeg/ffprobe — probe 전에만 준비 (Whisper 패키지 설치 안 함). */
 let agentFfmpegEnsurePromise = null;
+let ffmpegBinariesReadySession = false;
+let whisperPrepareReadySession = false;
+
+async function waitForAgentApiReady(timeoutMs = 90000) {
+  const deadline = performance.now() + timeoutMs;
+  while (performance.now() < deadline) {
+    try {
+      const health = await requestAgent({ path: "/health", method: "GET" });
+      if (health?.fastapi_ready !== false) return true;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 800));
+  }
+  return false;
+}
 
 async function ensureAgentFfmpegReady() {
   if (!agentConnected) return false;
+  if (ffmpegBinariesReadySession) return true;
   if (!agentFfmpegEnsurePromise) {
-    agentFfmpegEnsurePromise = requestAgent({
-      path: "/api/tools/silence-remover/readiness",
-      method: "GET",
-    })
-      .then((data) => {
-        const bins = data?.binaries;
-        if (bins?.ffmpeg && bins?.ffprobe) return true;
-        return requestAgent({
+    agentFfmpegEnsurePromise = (async () => {
+      if (!(await waitForAgentApiReady())) {
+        throw new Error("FastAPI sidecar가 아직 준비되지 않았습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요.");
+      }
+      const readiness = await requestAgent({
+        path: "/api/tools/silence-remover/readiness",
+        method: "GET",
+      });
+      const bins = readiness?.binaries;
+      if (bins?.ffmpeg && bins?.ffprobe) {
+        ffmpegBinariesReadySession = true;
+        return true;
+      }
+
+      setPreviewMediaLoading(true, {
+        title: "FFmpeg 준비",
+        step: "첫 설치",
+        message:
+          "FFmpeg를 다운로드·설치합니다.\n약 80~150MB · 네트워크에 따라 최대 15분 걸릴 수 있습니다.\n창을 닫지 마세요.",
+      });
+      try {
+        await requestAgent({
           path: "/api/tools/silence-remover/prepare",
           method: "POST",
-        }).then(() => true);
-      })
-      .catch((err) => {
-        mediaTimingDiagWarn("FFmpeg prepare failed", err);
-        agentFfmpegEnsurePromise = null;
-        return false;
-      });
+        });
+        const after = await requestAgent({
+          path: "/api/tools/silence-remover/readiness",
+          method: "GET",
+        });
+        if (!after?.binaries?.ffmpeg || !after?.binaries?.ffprobe) {
+          throw new Error("FFmpeg 설치 후에도 준비 상태가 false입니다.");
+        }
+        ffmpegBinariesReadySession = true;
+        return true;
+      } finally {
+        setPreviewMediaLoading(false);
+      }
+    })().catch((err) => {
+      setPreviewMediaLoading(false);
+      mediaTimingDiagWarn("FFmpeg prepare failed", err);
+      agentFfmpegEnsurePromise = null;
+      alert(
+        "FFmpeg 자동 설치에 실패했습니다.\n\n"
+          + "에이전트를 최신으로 업데이트한 뒤 다시 시도하거나, "
+          + "네트워크(VPN/방화벽)를 확인해 주세요.\n\n"
+          + String(err?.message || err),
+      );
+      return false;
+    });
   }
   return agentFfmpegEnsurePromise;
 }
@@ -1323,6 +3050,12 @@ async function refreshSessionMediaTimingFromAgent(filePath) {
     });
     if (data?.ok) {
       setSessionMediaTiming(data);
+      if (
+        programMasterPreviewPath &&
+        (p === programMasterPreviewPath || /program-master\.mp4$/i.test(p))
+      ) {
+        setProgramPlaybackActive(true);
+      }
       const audioDur = getAudioTimelineDurationSec();
       if (audioDur) sessionMediaDurationSec = audioDur;
       if (!getSessionPreviewMediaPath()) {
@@ -1396,52 +3129,20 @@ function getPreviewCueText(cue) {
 }
 
 /**
- * 재생 시각 기준 오버레이 문구 (짧은 cue 경계에서 동일 문구 유지 → 깜박임 감소).
+ * 재생 시각 기준 오버레이 문구 — Overlay Timing SSOT.
  *
  * @param {number} editSec
  */
 function resolveOverlayDisplayTextAt(editSec) {
-  const t = Number(editSec);
-  if (!Number.isFinite(t)) return "";
+  if (!overlayTimingCtx) refreshOverlayTimingContext();
+  if (!overlayTimingCtx) return "";
 
-  if (isPreviewMediaPlaying() && useListIndexPlayback()) {
-    const { ai } = resolvePlaybackIndices(t);
-    if (ai >= 0) return getPreviewCueText(lastCues[ai]);
-  }
+  overlayTimingCtx.isMediaPlaying = isPreviewMediaPlaying();
+  overlayTimingCtx.listPlaybackClipPos = listPlaybackClipPos;
+  overlayTimingCtx.playbackMode = useListIndexPlayback() ? "list-order" : "time";
 
-  let hit = -1;
-  for (let i = 0; i < lastCues.length; i += 1) {
-    const c = lastCues[i];
-    if (!c || c.is_silence || c.isSilence) continue;
-    if (t >= c.start && t < c.end) hit = i;
-  }
-
-  if (hit >= 0) {
-    return getPreviewCueText(lastCues[hit]);
-  }
-
-  if (isPreviewMediaPlaying()) {
-    for (let i = 0; i < lastCues.length; i += 1) {
-      const c = lastCues[i];
-      if (!c || c.is_silence || c.isSilence) continue;
-      const gap = t - c.end;
-      if (gap >= 0 && gap < PREVIEW_OVERLAY_BRIDGE_SEC) {
-        const text = getPreviewCueText(c);
-        if (text) return text;
-      }
-    }
-    for (let i = 0; i < lastCues.length; i += 1) {
-      const c = lastCues[i];
-      if (!c || c.is_silence || c.isSilence) continue;
-      const lead = c.start - t;
-      if (lead > 0 && lead < PREVIEW_OVERLAY_BRIDGE_SEC) {
-        const text = getPreviewCueText(c);
-        if (text) return text;
-      }
-    }
-  }
-
-  return "";
+  const hit = resolveCueAtTime(overlayTimingCtx, editSec);
+  return hit?.text ?? "";
 }
 
 function armDeleteGuard(ms = 280) {
@@ -1474,18 +3175,55 @@ function editSecForStorageWord(cue, storageWordIndex) {
   return editSec;
 }
 
-/** @param {number} editSec */
-function seekEditSecAndPlay(editSec) {
-  if (!getPv() || !getPa() || !Number.isFinite(editSec)) return false;
-  if (selectedCueIndex >= 0) setListPlaybackListPosFromCueIndex(selectedCueIndex);
-  const orch = getPlaybackOrchestrator();
-  const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
-  caretPlayDiagLog("seekEditSecAndPlay", caretPlayDiagSnapshot({ editSec, mediaSec: media }));
-  orch.seekMediaSec(media);
-  playheadSec = orch.mapMediaToEditSec(media);
+/** @param {number} editSec — word/cue source(media) 시각 */
+function seekEditSecAndPlay(sourceSec) {
+  if (!getPv() || !getPa() || !Number.isFinite(sourceSec)) return false;
+  const cueIndex = selectedCueIndex >= 0 ? selectedCueIndex : -1;
+  if (cueIndex >= 0) setListPlaybackListPosFromCueIndex(cueIndex);
+
+  const skip = getPlaybackSkipRanges();
+  let media;
+  if (isBlocksProgramSegmentPreview()) {
+    playheadSec =
+      cueIndex >= 0
+        ? mapSourceSecToPlayheadSecForCue(cueIndex, sourceSec)
+        : mapSourceSecToPlayheadSec(sourceSec);
+    const clips = getProgramSegmentTimelineClips();
+    if (clips?.length) {
+      const anchor = resolveSegmentPlaybackAnchorWithSkips(playheadSec, clips);
+      applySegmentPlaybackAnchor(anchor);
+      media = skipCutRangeAt(anchor.mediaSec, skip);
+    } else {
+      media = skipCutRangeAt(Math.max(0, sourceSec), skip);
+    }
+  } else {
+    const orch = getPlaybackOrchestrator();
+    media = skipCutRangeAt(orch.mapEditToMediaSec(sourceSec), skip);
+    orch.seekMediaSec(media);
+    playheadSec = orch.mapMediaToEditSec(media);
+  }
+
+  if (isBlocksProgramSegmentPreview()) {
+    if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+    const videoMedia = mapWordTimelineToVideoTime(media);
+    if (getPv()) {
+      if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+        const vSeek = Math.min(videoMedia, Math.max(0, getPv().duration - 0.001));
+        if (Math.abs(getPv().currentTime - vSeek) > 0.002) getPv().currentTime = vSeek;
+      } else if (Math.abs(getPv().currentTime - videoMedia) > 0.002) {
+        getPv().currentTime = videoMedia;
+      }
+    }
+    getPlaybackOrchestrator().seekMediaSec(media);
+  }
+
+  caretPlayDiagLog("seekEditSecAndPlay", caretPlayDiagSnapshot({
+    editSec: sourceSec,
+    mediaSec: media,
+    cueIndex,
+  }));
   commitPlayheadUi();
   startPlaybackLoop({ preservePlayhead: true });
-  // console.log("[PLAY-DBG] seekEditSecAndPlay done: isVideoPlaying=%s, rafId=%s", isVideoPlaying, playbackRafId);
   return true;
 }
 
@@ -1529,6 +3267,18 @@ function formatPreviewClock(sec) {
 }
 
 function getPreviewEditDurationSec() {
+  if (isHqPreviewMode()) {
+    const cacheDur = getProgramMasterCache().durationSec;
+    if (cacheDur > 0) return cacheDur;
+    const segDur = getProgramSegmentDurationSec();
+    if (segDur > 0) return segDur;
+    const vdur = getPv()?.duration;
+    if (Number.isFinite(vdur) && vdur > 0) return vdur;
+  }
+  if (isBlocksProgramSegmentPreview()) {
+    const dur = getProgramSegmentDurationSec();
+    if (dur > 0) return dur;
+  }
   const mediaDur = getMediaDurationSecHint();
   if (!(mediaDur > 0)) return 0;
   try {
@@ -1544,8 +3294,10 @@ function getPreviewEditDurationSec() {
 
 function updatePreviewTransportAvailability() {
   const hasMedia = Boolean(getPv()?.src);
-  if (btnPreviewPlay) btnPreviewPlay.disabled = !hasMedia;
-  if (previewSeek) previewSeek.disabled = !hasMedia;
+  const canInteract = hasMedia && (isHqPreviewMode() || isPreviewPlaybackReady());
+  if (btnPreviewPlay) btnPreviewPlay.disabled = !canInteract;
+  if (previewSeek) previewSeek.disabled = !canInteract;
+  updateHqPreviewButtonUi();
 }
 
 function updatePreviewTransportUi() {
@@ -1610,29 +3362,41 @@ function setPreviewPlaybackUiActive(active) {
 function useListIndexPlayback() {
   return (
     isVideoPlaying &&
-    listPlaybackListPos >= 0 &&
     waveformPlayRangeEndEdit == null &&
-    listPreviewBundle?.clips?.length > 0 &&
-    isListOrderSeamlessPlaybackActive()
+    isBlocksProgramSegmentPreview() &&
+    getProgramSegmentTimelineClips()?.length > 0 &&
+    (isListOrderSeamlessPlaybackActive() || isListOrderPreviewTimelineActive())
   );
 }
 
+/** blocks segment preview — playhead·clipPos·listPos를 programClips 큐에 맞춤 */
+function ensureListOrderListPosFromPlayhead() {
+  if (!isBlocksProgramSegmentPreview()) return;
+  const clips = getProgramSegmentTimelineClips();
+  if (!clips?.length) return;
+  activateListOrderPreviewPlayback();
+  const clipPosHint = Math.max(
+    listPlaybackClipPos >= 0 ? listPlaybackClipPos : -1,
+    getListOrderPreviewClipPos(),
+  );
+  const anchor = resolveSegmentPlaybackAnchorWithSkips(
+    playheadSec,
+    clips,
+    clipPosHint >= 0 ? clipPosHint : -1,
+  );
+  listPlaybackClipPos = anchor.clipPos;
+  resetListOrderPreviewClipPos(anchor.clipPos);
+  syncListPlaybackHighlightFromAnchor(anchor);
+}
+
 function activateListOrderPreviewPlayback() {
-  const hint =
-    (getPv()?.duration && Number.isFinite(getPv().duration)
-      ? getPv().duration
-      : 0) ||
-    (getPa()?.duration && Number.isFinite(getPa().duration)
-      ? getPa().duration
-      : 0);
-  listPreviewBundle = createListOrderPreviewMapping(lastCues, hint);
-  setListOrderPreviewTimeline(listPreviewBundle);
+  ensureListOrderPreviewTimelineSynced();
 }
 
 function deactivateListOrderPreviewPlayback() {
   clearListOrderPreviewTimeline();
-  listPreviewBundle = null;
   listPlaybackClipPos = -1;
+  refreshOverlayTimingContext();
 }
 
 function setListPlaybackListPosFromCueIndex(cueIndex) {
@@ -1709,13 +3473,88 @@ function firstVisibleWordStorageIndex(cue) {
  * @param {object | null} cue
  * @param {{ playheadSec: number, mediaSec: number, listOrder: boolean }} ctx
  */
+const LIST_HIGHLIGHT_CLIP_EPS_SEC = 0.02;
+
+/**
+ * @param {readonly import("./shared/program-clips-ssot.js").ProgramClip[]} [programClips]
+ */
+function resolveListOrderActiveProgramClip(programClips) {
+  const clipPos =
+    listPlaybackClipPos >= 0
+      ? listPlaybackClipPos
+      : getListOrderPreviewClipPos();
+  const clips = programClips?.length ? programClips : getProgramSegmentProgramClips();
+  const activeProgramClip =
+    clipPos >= 0 && clipPos < clips.length ? clips[clipPos] : null;
+  return { clipPos, activeProgramClip, programClips: clips };
+}
+
+/**
+ * @param {number} mediaNow
+ * @param {number} clipPos
+ * @param {readonly import("./shared/timeline-mapping.js").TimelineClip[]} timelineClips
+ */
+function resolveListOrderProgramSec(mediaNow, clipPos, timelineClips) {
+  if (isProgramPreviewExecutorActive()) {
+    return getListOrderPreviewProgramSec();
+  }
+  const clip =
+    clipPos >= 0 && clipPos < timelineClips.length ? timelineClips[clipPos] : null;
+  if (clip && Number.isFinite(mediaNow)) {
+    return clip.editStart + (mediaNow - clip.mediaStart);
+  }
+  return resolveProgramSecFromMedia(
+    mediaNow,
+    timelineClips,
+    clipPos >= 0 ? clipPos : -1,
+  );
+}
+
 function computeHighlightLookupT(cue, ctx) {
   if (ctx.listOrder && cue) {
-    const mediaT = Number(ctx.mediaSec);
-    const lookupT = isRelocated(cue)
-      ? sourceSecToVirtualSec(cue, mediaT)
-      : mediaT;
-    return { lookupT, lookupAxis: "listMediaVirtual" };
+    const { clipPos, activeProgramClip, programClips } = resolveListOrderActiveProgramClip(
+      ctx.programClips,
+    );
+    const mediaNow = Number(ctx.mediaSec);
+    const programSec = resolveListOrderProgramSec(
+      mediaNow,
+      clipPos,
+      getProgramSegmentTimelineClips(),
+    );
+    if (!activeProgramClip || !Number.isFinite(programSec)) {
+      return {
+        lookupT: NaN,
+        lookupAxis: "program",
+        activeProgramClip: null,
+        noHighlight: true,
+      };
+    }
+    const inClip =
+      programSec >= activeProgramClip.programStart - LIST_HIGHLIGHT_CLIP_EPS_SEC &&
+      programSec < activeProgramClip.programEnd + LIST_HIGHLIGHT_CLIP_EPS_SEC;
+    return {
+      lookupT: programSec,
+      lookupAxis: "program",
+      activeProgramClip,
+      noHighlight: !inClip,
+    };
+  }
+  if (ctx.programPlayback) {
+    const clips = ctx.programClips?.length ? ctx.programClips : getActiveProgramClips();
+    let programT;
+    if (ctx.segmentPreview) {
+      programT = resolveProgramSecFromMedia(
+        Number(ctx.mediaSec) || 0,
+        getProgramSegmentTimelineClips(),
+        getActiveSegmentClipPosHint(),
+      );
+    } else {
+      programT = Number.isFinite(Number(ctx.mediaSec))
+        ? Number(ctx.mediaSec)
+        : Number(ctx.playheadSec) || 0;
+    }
+    const sourceT = clips.length ? resolveSourceSecFromProgram(programT, clips) : programT;
+    return { lookupT: sourceT, lookupAxis: "sourceFromProgram" };
   }
   if (ctx.blockVirtualHighlight) {
     const mediaT = Number(ctx.mediaSec);
@@ -1733,32 +3572,62 @@ function computeHighlightLookupT(cue, ctx) {
  * @param {{
  *   lookupT: number,
  *   lookupAxis: string,
+ *   activeProgramClip?: import("./shared/program-clips-ssot.js").ProgramClip | null,
  *   listOrder?: boolean,
  *   cueJustChanged?: boolean,
  *   mediaSec?: number,
  * }} opts
  */
 function resolveActiveWordIndexForCue(cue, cueIndex, opts) {
-  if (!cue || !opts || !Number.isFinite(opts.lookupT)) return -1;
+  if (!cue || !opts || opts.noHighlight || !Number.isFinite(opts.lookupT)) return -1;
   const ci =
     typeof cueIndex === "number" && cueIndex >= 0
       ? cueIndex
       : lastCues.indexOf(cue);
   const lookupT = opts.lookupT;
   const lookupAxis = opts.lookupAxis ?? "cueClock";
+  const programClip =
+    lookupAxis === "program" ? opts.activeProgramClip ?? null : null;
   const hintWi = ci === lastPlaybackCueIndex ? lastPlaybackWordIndex : -1;
-  const exactWi = pickActiveWordIndexForHighlight(cue, lookupT);
-  let wi = pickActiveWordIndexWithHintForHighlight(cue, lookupT, hintWi);
+  const exactWi = pickActiveWordIndexForHighlight(
+    cue,
+    lookupT,
+    programClip ?? undefined,
+  );
+  let wi = pickActiveWordIndexWithHintForHighlight(
+    cue,
+    lookupT,
+    hintWi,
+    programClip ?? undefined,
+  );
 
   let clampedToFirstVisible = false;
   const firstVisibleWi = firstVisibleWordStorageIndex(cue);
-  if (
-    opts.cueJustChanged &&
-    firstVisibleWi >= 0 &&
-    (wi < 0 || wi > firstVisibleWi)
-  ) {
-    wi = firstVisibleWi;
-    clampedToFirstVisible = true;
+  if (opts.cueJustChanged && wi < 0) {
+    if (exactWi >= 0) {
+      wi = exactWi;
+    } else if (firstVisibleWi >= 0) {
+      const words = getCueWords(cue);
+      const fv = words[firstVisibleWi];
+      let fvStart;
+      let fvEnd;
+      if (programClip) {
+        fvStart = sourceSecToProgramSecInClip(getWordSourceStart(fv, cue), programClip);
+        fvEnd = sourceSecToProgramSecInClip(getWordSourceEnd(fv, cue), programClip);
+      } else {
+        fvStart = fv ? Number(fv.start) : NaN;
+        fvEnd = fv ? Number(fv.end) : NaN;
+      }
+      const lookupInSpan =
+        Number.isFinite(fvStart) &&
+        Number.isFinite(fvEnd) &&
+        lookupT >= fvStart - 0.12 &&
+        lookupT <= fvEnd + 0.15;
+      if (lookupInSpan) {
+        wi = firstVisibleWi;
+        clampedToFirstVisible = true;
+      }
+    }
   }
 
   if (highlightDiagEnabled) {
@@ -1814,7 +3683,7 @@ function syncPlaybackWordHighlights(activeCueIndex, activeWordIndex, highlightCt
 }
 
 function syncListPlaybackPosFromStack() {
-  const clips = listPreviewBundle?.clips;
+  const clips = getProgramSegmentTimelineClips();
   if (!clips?.length) return;
   const clipPos = getListOrderPreviewClipPos();
   if (clipPos < 0) return;
@@ -1829,7 +3698,7 @@ function syncListPlaybackPosFromStack() {
 }
 
 function syncListPlaybackPosFromMedia(t) {
-  const clips = listPreviewBundle?.clips;
+  const clips = getProgramSegmentTimelineClips();
   if (!clips?.length) return;
   if (useListIndexPlayback()) {
     syncListPlaybackPosFromStack();
@@ -1860,9 +3729,7 @@ function resolvePlaybackIndices(t, ctx = {}) {
   const mediaSec =
     ctx.mediaSec ??
     (isPreviewMediaPlaying() ? getPreviewWordClockSec() : t);
-  const listOrder = Boolean(
-    useListIndexPlayback() && listPreviewBundle?.clips?.length,
-  );
+  const listOrder = useListIndexPlayback();
   const blockVirtualHighlight =
     USE_BLOCK_VIRTUAL_HIGHLIGHT &&
     !listOrder &&
@@ -1871,16 +3738,24 @@ function resolvePlaybackIndices(t, ctx = {}) {
   let ai = -1;
   if (listOrder) {
     syncListPlaybackPosFromStack();
-    const clips = listPreviewBundle.clips;
+    const clips = getProgramSegmentTimelineClips();
     const clipPos =
       listPlaybackClipPos >= 0
         ? listPlaybackClipPos
         : getListOrderPreviewClipPos();
     ai = cueIndexForClipIndex(clips, lastCues, clipPos);
   } else if (blockVirtualHighlight) {
-    const skipRanges = subtitleHub.getPlaybackSkipRanges();
+    const programClips = getActiveProgramClips();
+    let sourceSec = mediaSec;
+    if (isBlocksProgramSegmentPreview()) {
+      const programT = resolveProgramSecFromMedia(mediaSec, getProgramSegmentTimelineClips());
+      sourceSec = programClips.length ? programToSource(programClips, programT) : programT;
+    } else if (isProgramPlaybackTimeline() && programClips.length) {
+      sourceSec = programToSource(programClips, mediaSec);
+    }
+    const skipRanges = getPlaybackSkipRanges();
     const virtualSec = resolveBlockVirtualSecFromMedia(
-      mediaSec,
+      sourceSec,
       subtitleHub.blocks,
       subtitleHub._virtualIndex,
       skipRanges,
@@ -1893,7 +3768,15 @@ function resolvePlaybackIndices(t, ctx = {}) {
       lastPlaybackCueIndex,
     );
   } else {
-    const cueClock = isPreviewMediaPlaying() ? t : mediaSec;
+    let cueClock = isPreviewMediaPlaying() ? t : mediaSec;
+    if (isBlocksProgramSegmentPreview()) {
+      const programT = resolveProgramSecFromMedia(mediaSec, getProgramSegmentTimelineClips());
+      cueClock = programToSource(getActiveProgramClips(), programT);
+    } else if (isProgramPlaybackTimeline()) {
+      const clips = getActiveProgramClips();
+      const programT = isPreviewMediaPlaying() ? mediaSec : t;
+      cueClock = clips.length ? programToSource(clips, programT) : programT;
+    }
     ai = pickActiveCueIndexWithHint(lastCues, cueClock, lastPlaybackCueIndex);
   }
 
@@ -1912,18 +3795,28 @@ function resolvePlaybackIndices(t, ctx = {}) {
 
   const cue = lastCues[ai];
   const cueJustChanged = ai !== lastPlaybackCueIndex;
-  const { lookupT, lookupAxis } = computeHighlightLookupT(cue, {
+  const programClips =
+    isProgramPlaybackTimeline() || isBlocksProgramSegmentPreview()
+      ? getActiveProgramClips()
+      : [];
+  const highlightComputed = computeHighlightLookupT(cue, {
     playheadSec: t,
     mediaSec,
     listOrder,
     blockVirtualHighlight,
+    programPlayback: isProgramPlaybackTimeline() || isBlocksProgramSegmentPreview(),
+    segmentPreview: isBlocksProgramSegmentPreview(),
+    programClips,
   });
+  const { lookupT, lookupAxis, noHighlight, activeProgramClip } = highlightComputed;
   const wi = resolveActiveWordIndexForCue(cue, ai, {
     lookupT,
     lookupAxis,
+    activeProgramClip,
     listOrder,
     cueJustChanged,
     mediaSec,
+    noHighlight: noHighlight === true,
   });
   if (cueJustChanged) {
     caretPlayDiagLog("resolvePlaybackIndices", {
@@ -1931,13 +3824,14 @@ function resolvePlaybackIndices(t, ctx = {}) {
       wordIndex: wi,
       lookupT: +lookupT.toFixed(4),
       lookupAxis,
+      clipPos: activeProgramClip ? listPlaybackClipPos : null,
       cueJustChanged,
       listOrder,
       playheadEditSec: +t.toFixed(4),
       mediaSec: +mediaSec.toFixed(4),
     });
   }
-  return { ai, wi, lookupT, lookupAxis };
+  return { ai, wi, lookupT, lookupAxis, activeProgramClip: activeProgramClip ?? null };
 }
 
 function commitPlayheadUi({
@@ -1951,9 +3845,7 @@ function commitPlayheadUi({
   const t = playheadSec;
   const mediaPlaying = isPreviewMediaPlaying();
   const mediaSec = getPreviewWordClockSec();
-  const listOrder = Boolean(
-    useListIndexPlayback() && listPreviewBundle?.clips?.length,
-  );
+  const listOrder = useListIndexPlayback();
   let resolved = null;
   let ai;
   if (typeof activeCueIndex === "number") {
@@ -1977,9 +3869,11 @@ function commitPlayheadUi({
             return resolveActiveWordIndexForCue(cue, ai, {
               lookupT: hl.lookupT,
               lookupAxis: hl.lookupAxis,
+              activeProgramClip: hl.activeProgramClip ?? null,
               listOrder,
               cueJustChanged,
               mediaSec,
+              noHighlight: hl.noHighlight === true,
             });
           })()
         : -1;
@@ -2086,7 +3980,7 @@ function commitPlayheadUi({
       syncExpandedPanelPlayhead(subtitleList, {
         expandedCueIndex,
         expandedWordIndex,
-        playheadEditSec: t,
+        playheadEditSec: getWaveformEditSec(expandedCueIndex),
         mediaPlaying: true,
       });
     } else if (
@@ -2110,12 +4004,19 @@ function playbackTick() {
     return;
   }
 
+  if (hotReorderInFlight) {
+    playbackRafId = requestAnimationFrame(playbackTick);
+    return;
+  }
+
   const skip = getPlaybackSkipRanges();
   const skipOpts = { skipRanges: skip };
 
   if (getPa() && isHtmlAudioMasterActive()) {
     if (getPa().paused) {
-      if (isVideoPlaying) {
+      const transitionLocked =
+        isListOrderSeamlessPlaybackActive() && isListOrderTransitionLocked();
+      if (isVideoPlaying && !transitionLocked) {
         if (getPa().readyState >= 3) {
           getPa().play().then(() => {
             if (getPv() && getPv().paused) {
@@ -2124,12 +4025,21 @@ function playbackTick() {
           }).catch(() => {});
         }
         playbackRafId = requestAnimationFrame(playbackTick);
+      } else if (isVideoPlaying) {
+        playbackRafId = requestAnimationFrame(playbackTick);
       } else {
         playbackRafId = 0;
       }
       return;
     }
     syncVideoFromHtmlAudioMaster(getPv(), getPa(), skipOpts);
+    if (!isHqPreviewMode() && !isListOrderSeamlessPlaybackActive()) {
+      syncSegmentPreviewClipBoundaryTick(skipOpts);
+    }
+    if (isListOrderSeamlessPlaybackActive()) {
+      const cp = getListOrderPreviewClipPos();
+      if (cp >= 0) listPlaybackClipPos = cp;
+    }
   } else if (getPv().paused) {
     playbackRafId = 0;
     return;
@@ -2139,7 +4049,22 @@ function playbackTick() {
 
   const orch = getPlaybackOrchestrator();
   const media = readPreviewMediaClockSec();
-  playheadSec = orch.mapMediaToEditSec(media);
+  if (
+    isProgramPreviewExecutorActive() &&
+    isBlocksProgramSegmentPreview()
+  ) {
+    const stackClipPos = getListOrderPreviewClipPos();
+    if (stackClipPos >= 0) {
+      listPlaybackClipPos = stackClipPos;
+    }
+    playheadSec = getListOrderPreviewProgramSec();
+  } else if (isHqPreviewMode()) {
+    playheadSec = Number.isFinite(media) ? Math.max(0, media) : playheadSec;
+  } else if (isBlocksProgramSegmentPreview()) {
+    playheadSec = mapPreviewMediaSecToEditSec(media);
+  } else {
+    playheadSec = orch.mapMediaToEditSec(media);
+  }
 
   const playbackResolved = resolvePlaybackIndices(playheadSec, { mediaSec: media });
   const { ai, wi, lookupT, lookupAxis } = playbackResolved;
@@ -2212,17 +4137,9 @@ function playbackTick() {
     lastPlaybackCueIndex = ai;
   }
 
-  if (useListIndexPlayback() && listPreviewBundle?.clips?.length && getPa()) {
+  if (useListIndexPlayback() && isProgramPreviewExecutorActive()) {
     syncListPlaybackPosFromStack();
-    const clips = listPreviewBundle.clips;
-    const clipPos =
-      listPlaybackClipPos >= 0 ? listPlaybackClipPos : clips.length - 1;
-    const cur = clips[clipPos];
-    if (
-      clipPos >= clips.length - 1 &&
-      cur &&
-      media >= cur.mediaEnd - 0.05
-    ) {
+    if (isListOrderPreviewPlaybackEnded()) {
       getPa()?.pause();
       getPv()?.pause();
       stopPlaybackLoop();
@@ -2236,20 +4153,20 @@ function playbackTick() {
     }
   }
 
-  if (
-    waveformPlayRangeEndEdit != null &&
-    playheadSec >= waveformPlayRangeEndEdit - 0.02
-  ) {
-    getPa()?.pause();
-    getPv().pause();
-    stopPlaybackLoop({ waveformRangeNaturalEnd: true });
-    commitPlayheadUi({
-      activeCueIndex: ai,
-      activeWordIndex: wi,
-      highlightLookupT: lookupT,
-      highlightLookupAxis: lookupAxis,
-    });
-    return;
+  if (waveformPlayRangeEndEdit != null) {
+    const waveformEditSec = getWaveformEditSec(expandedCueIndex);
+    if (waveformEditSec >= waveformPlayRangeEndEdit - 0.02) {
+      getPa()?.pause();
+      getPv().pause();
+      stopPlaybackLoop({ waveformRangeNaturalEnd: true });
+      commitPlayheadUi({
+        activeCueIndex: ai,
+        activeWordIndex: wi,
+        highlightLookupT: lookupT,
+        highlightLookupAxis: lookupAxis,
+      });
+      return;
+    }
   }
 
   if (
@@ -2260,7 +4177,7 @@ function playbackTick() {
     syncExpandedPanelPlayhead(subtitleList, {
       expandedCueIndex,
       expandedWordIndex,
-      playheadEditSec: playheadSec,
+      playheadEditSec: getWaveformEditSec(expandedCueIndex),
       mediaPlaying: true,
     });
   }
@@ -2288,6 +4205,7 @@ function startPlaybackLoop(opts = {}) {
     return;
   }
   if (!getPv() || !getPa()) { /* console.log("[PLAY-DBG] startLoop ABORT: no media"); */ return; }
+  if (subtitleHub.blocks?.length && !isPreviewPlaybackReady()) return;
   if (isVideoPlaying && playbackRafId) { /* console.log("[PLAY-DBG] startLoop SKIP: already playing"); */ return; }
 
   if (playbackRafId) {
@@ -2316,26 +4234,43 @@ function startPlaybackLoop(opts = {}) {
     waveformChipCloseTimer = null;
   }
 
-  stopSyncedPlayback(getPv(), getPa());
+  stopSyncedPlayback(getPv(), getPa(), {
+    keepListOrderTimeline: isBlocksProgramSegmentPreview(),
+  });
 
   const orch = getPlaybackOrchestrator();
   orch.suspendSyncEngineForWebAudio();
 
   const skip = getPlaybackSkipRanges();
-  let media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  let media;
+  if (opts.fromWaveformRange) {
+    media = mapWaveformEditToMediaSec(getWaveformEditSec(expandedCueIndex));
+  } else if (isProgramPlaybackTimeline()) {
+    media = Math.max(0, Number(playheadSec) || 0);
+  } else if (isBlocksProgramSegmentPreview()) {
+    media = mapEditSecToPreviewMediaSec(playheadSec);
+  } else {
+    media = skipCutRangeAt(orch.mapEditToMediaSec(playheadSec), skip);
+  }
 
-  if (!opts.fromWaveformRange && !opts.preservePlayhead && listPlaybackListPos >= 0) {
-    activateListOrderPreviewPlayback();
-    const clips = listPreviewBundle?.clips ?? [];
-    const clipPos = clipIndexForListPos(clips, lastCues, listPlaybackListPos);
-    listPlaybackClipPos = clipPos;
-    resetListOrderPreviewClipPos(clipPos);
-    const ci = cueIndexForClipIndex(clips, lastCues, clipPos);
-    const cue = ci >= 0 ? lastCues[ci] : null;
-    const cueStart = Number(cue?.start);
-    if (cue && Number.isFinite(cueStart)) {
-      media = skipCutRangeAt(cueStart, skip);
-      playheadSec = orch.mapMediaToEditSec(media);
+  if (!opts.fromWaveformRange && isBlocksProgramSegmentPreview()) {
+    if (listPlaybackListPos < 0) {
+      ensureListOrderListPosFromPlayhead();
+    } else {
+      activateListOrderPreviewPlayback();
+    }
+    if (!opts.preservePlayhead && listPlaybackListPos >= 0) {
+      const clips = getProgramSegmentTimelineClips() ?? [];
+      const clipPos = clipIndexForListPos(clips, lastCues, listPlaybackListPos);
+      listPlaybackClipPos = clipPos;
+      resetListOrderPreviewClipPos(clipPos);
+      const cur = clips[clipPos];
+      if (cur) {
+        media = skipCutRangeAt(cur.mediaStart, skip);
+        playheadSec = cur.editStart;
+      }
+    } else if (opts.preservePlayhead) {
+      media = skipCutRangeAt(mapEditSecToPreviewMediaSec(playheadSec), skip);
     }
   } else if (!opts.fromWaveformRange && !opts.preservePlayhead) {
     deactivateListOrderPreviewPlayback();
@@ -2350,7 +4285,13 @@ function startPlaybackLoop(opts = {}) {
   if (getPv() && Math.abs(getPv().currentTime - media) > 0.002) {
     getPv().currentTime = media;
   }
-  playheadSec = orch.mapMediaToEditSec(media);
+  if (!opts.fromWaveformRange) {
+    if (isBlocksProgramSegmentPreview()) {
+      playheadSec = mapPreviewMediaSecToEditSec(media);
+    } else {
+      playheadSec = orch.mapMediaToEditSec(media);
+    }
+  }
 
   caretPlayDiagLog("startPlaybackLoop", caretPlayDiagSnapshot({
     mediaSec: media,
@@ -2359,8 +4300,12 @@ function startPlaybackLoop(opts = {}) {
     loopGeneration: playbackLoopGeneration,
   }));
 
-  void beginPreviewSyncedPlayback(media).then(() => {
+  void beginPreviewSyncedPlayback(media, {
+    disableListOrder: Boolean(opts.fromWaveformRange),
+  }).then(() => {
     playbackTick._stallLogged = null;
+    const b = getProgramSegmentTimelineBundle();
+    if (b) lastPlaybackSegmentFingerprint = b.fingerprint;
     playbackTick();
   });
 }
@@ -2438,12 +4383,20 @@ function stopPlaybackLoop(opts = {}) {
     cancelAnimationFrame(playbackRafId);
     playbackRafId = 0;
   }
-  if (getPv()) stopSyncedPlayback(getPv(), getPa() ?? undefined);
+  if (getPv()) {
+    stopSyncedPlayback(getPv(), getPa() ?? undefined, {
+      keepListOrderTimeline: isBlocksProgramSegmentPreview(),
+    });
+  }
   syncPausedPreviewMediaToPlayhead();
   lastPlaybackCueIndex = -1;
   lastPlaybackWordIndex = -1;
-  listPlaybackListPos = -1;
-  deactivateListOrderPreviewPlayback();
+  if (isBlocksProgramSegmentPreview()) {
+    ensureListOrderPreviewTimelineSynced();
+  } else {
+    listPlaybackListPos = -1;
+    deactivateListOrderPreviewPlayback();
+  }
   lastOverlayCueIndex = -1;
   if (wasWaveformRange && expandedCueIndex >= 0 && expandedWordIndex >= 0) {
     finishExpandedPanelRangePlay(subtitleList, {
@@ -2469,8 +4422,23 @@ function applyPlaybackSkipIfNeeded() {
   });
 }
 
+function isExpandedWordWaveformOpen() {
+  return expandedCueIndex >= 0 && expandedWordIndex >= 0;
+}
+
+/** 파형 패널 cut~단어 끝 구간 재생/일시정지 */
+function toggleExpandedWordWaveformPlayback() {
+  if (!subtitleList || !isExpandedWordWaveformOpen()) return false;
+  return toggleExpandedPanelPlayFromCut(subtitleList, {
+    expandedCueIndex,
+    expandedWordIndex,
+    playheadSec,
+  });
+}
+
 async function togglePreviewPlayback(opts = {}) {
   if (!getPv()) return;
+  if (!assertProgramMasterForPlayback()) return;
   const playing = isPreviewMediaPlaying() || isVideoPlaying;
   if (playing) {
     caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({ action: "pause" }));
@@ -2482,6 +4450,15 @@ async function togglePreviewPlayback(opts = {}) {
     return;
   }
   await previewBridge.unlockAudioOutput();
+  if (toggleExpandedWordWaveformPlayback()) {
+    caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({
+      action: "play",
+      waveformRange: true,
+      expandedCueIndex,
+      expandedWordIndex,
+    }));
+    return;
+  }
   caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({ action: "play", selectedCueIndex }));
   // console.log("[PLAY-DBG] toggle → PLAY (selectedCue=%d)", selectedCueIndex);
   resetSpaceSeekIntent();
@@ -2489,23 +4466,26 @@ async function togglePreviewPlayback(opts = {}) {
   let loopOpts = {};
   if (selectedCueIndex >= 0 && lastCues[selectedCueIndex]) {
     setListPlaybackListPosFromCueIndex(selectedCueIndex);
-    const cue = lastCues[selectedCueIndex];
-    const cueStart = Number(cue.start);
-    const cueEnd = Number(cue.end);
+    const bounds = cuePlayheadBounds(selectedCueIndex);
     const withinCue =
-      Number.isFinite(cueStart) &&
-      Number.isFinite(cueEnd) &&
-      playheadSec >= cueStart - 0.02 &&
-      playheadSec < cueEnd + 0.02;
+      playheadSec >= bounds.start - 0.02 &&
+      playheadSec < bounds.end + 0.02;
     lastPlaybackCueIndex = selectedCueIndex;
     if (withinCue) {
       loopOpts = { preservePlayhead: true };
-    } else if (Number.isFinite(cueStart)) {
-      const orch = getPlaybackOrchestrator();
-      const media = skipCutRangeAt(orch.mapEditToMediaSec(cueStart), getPlaybackSkipRanges());
-      orch.seekMediaSec(media);
-      playheadSec = orch.mapMediaToEditSec(media);
+    } else if (isBlocksProgramSegmentPreview()) {
+      snapPlayheadToCueClipStart(selectedCueIndex);
+    } else {
+      const cueStart = Number(lastCues[selectedCueIndex].start);
+      if (Number.isFinite(cueStart)) {
+        const orch = getPlaybackOrchestrator();
+        const media = skipCutRangeAt(orch.mapEditToMediaSec(cueStart), getPlaybackSkipRanges());
+        orch.seekMediaSec(media);
+        playheadSec = orch.mapMediaToEditSec(media);
+      }
     }
+  } else if (isBlocksProgramSegmentPreview()) {
+    ensureListOrderListPosFromPlayhead();
   } else {
     listPlaybackListPos = -1;
     deactivateListOrderPreviewPlayback();
@@ -2876,11 +4856,14 @@ function deleteSelectedSubtitleLines() {
   if (!targets.length) return;
   if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
   const sorted = [...new Set(targets)].sort((a, b) => b - a);
+  hubBlocksChangedOpts = { reason: "line-delete", anchorPlayhead: true };
   deleteSubtitleLinesAt(subtitleHub, sorted);
   adjustEditorIndicesAfterCueRemovals(sorted);
   if (selectedCueIndex < 0) checkedCueIndices.clear();
+  snapPlayheadToCueClipStart(selectedCueIndex);
   armDeleteGuard();
   renderCuesTable(lastCues);
+  applyDeletePlaybackSync();
   commitPlayheadUi();
 }
 
@@ -2900,10 +4883,7 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true, 
   }
   ensureCueWords(cue);
   if (seek && getPv() && Number.isFinite(cue.start)) {
-    const orch = getPlaybackOrchestrator();
-    const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
-    orch.seekMediaSec(media);
-    playheadSec = orch.mapMediaToEditSec(media);
+    seekPreviewToSourceSec(Number(cue.start), { commitUi: false, cueIndex });
   }
   if (rerender) {
     renderCuesTable(lastCues, { capturePendingEdits: true });
@@ -3026,6 +5006,15 @@ function hidePreviewMediaLoadingModal() {
 
 function setPreviewMediaLoading(active, { title, step, message, showOk = false } = {}) {
   if (!previewMediaLoading) return;
+  if (active && isTranscribeLoadingUiActive()) {
+    setTranscribeLoading(true, {
+      title: TRANSCRIBE_LOADING_TITLE,
+      step: step || "미리보기",
+      message: message || "편집 화면 불러오는 중…",
+      progress: 97,
+    });
+    return;
+  }
   if (!active) {
     hidePreviewMediaLoadingModal();
     syncInAppBusyShell();
@@ -3351,14 +5340,19 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
   syncInAppBusyShell();
 }
 
-function showExportError(msg) {
+function showExportError(msg, opts = {}) {
+  const text = msg || "오류가 발생했습니다.";
+  const sticky = opts.sticky === true;
   setExportLoading(true, {
     title: "보내기 실패",
     step: "",
-    message: msg || "오류가 발생했습니다.",
+    message: text,
     progress: 0,
   });
-  setTimeout(() => setExportLoading(false), 5000);
+  burnInConsoleLog("export_error", { message: text, sticky });
+  if (!sticky) {
+    setTimeout(() => setExportLoading(false), 15000);
+  }
 }
 
 function stopExportPoll() {
@@ -3417,7 +5411,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     playheadSec,
     isPlaying: mediaPlaying,
     getIsPlaying: () => isPreviewMediaPlaying(),
-    getPlayheadSec: () => playheadSec,
+    getPlayheadSec: () => getWaveformEditSec(expandedCueIndex >= 0 ? expandedCueIndex : selectedCueIndex),
     getActiveCueIndex: () =>
       isPreviewMediaPlaying() && lastPlaybackCueIndex >= 0
         ? lastPlaybackCueIndex
@@ -3441,11 +5435,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     ensurePeaksLoad: () => loadWaveformPeaks(),
     onCardNavigate: (sec) => {
       if (getPv() && Number.isFinite(sec)) {
-        const orch = getPlaybackOrchestrator();
-        const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
-        orch.seekMediaSec(media);
-        playheadSec = orch.mapMediaToEditSec(media);
-        commitPlayheadUi();
+        seekPreviewToSourceSec(sec);
       }
     },
     onSplitSubtitleAt: (index, pos) => {
@@ -3488,6 +5478,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       armDeleteGuard();
       backspaceWordAt(subtitleHub, cardIndex, wordIndex);
       renderCuesTable(lastCues);
+      applyDeletePlaybackSync();
       if (subtitleList) {
         const focusIdx =
           cardIndex < lastCues.length && lastCues[cardIndex]
@@ -3510,6 +5501,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       armDeleteGuard();
       deleteWordAt(subtitleHub, cardIndex, caretIndex);
       renderCuesTable(lastCues);
+      applyDeletePlaybackSync();
       commitPlayheadUi();
       if (subtitleList && lastCues.length) {
         const focusIdx =
@@ -3532,6 +5524,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       armDeleteGuard();
       deleteWordRangeAt(subtitleHub, cardIndex, from, to);
       renderCuesTable(lastCues);
+      applyDeletePlaybackSync();
       commitPlayheadUi();
       if (subtitleList && lastCues.length) {
         const focusIdx =
@@ -3564,23 +5557,28 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     isCueLineDragActive: () => subtitleLineDragActive,
     onSubtitleLineDragStart: () => {
       subtitleLineDragActive = true;
+      hotReorderDragWasPlaying = Boolean(isVideoPlaying);
     },
     onDragReorderEnd: () => {
       subtitleLineDragActive = false;
+      hotReorderDragWasPlaying = false;
     },
     onReorderCueByListInsert: (fromListPos, insertBeforePos) => {
       if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+      const hotSnap = captureHotReorderPlaybackSnapshot();
       const before = listableCueIndices(lastCues);
       const movedCueIndex = before[fromListPos];
       const wasExpanded = expandedCueIndex === movedCueIndex;
       let newListPos = insertBeforePos;
       if (fromListPos < insertBeforePos) newListPos = insertBeforePos - 1;
+      hubBlocksChangedOpts = { reason: "line-reorder", skipRefresh: true };
       const reorderResult = reorderSubtitleLinesByListInsert(
         subtitleHub,
         fromListPos,
         insertBeforePos,
       );
       if (reorderResult && reorderResult.ok === false) {
+        hubBlocksChangedOpts = null;
         subtitleLineDragActive = false;
         alert("자막 순서를 변경할 수 없습니다.");
         renderCuesTable(lastCues);
@@ -3592,10 +5590,34 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       selectedCueIndex = newCueIndex;
       syncCheckedCueIndicesExclusive(newCueIndex);
       if (wasExpanded) expandedCueIndex = newCueIndex;
-      setListPlaybackListPosFromCueIndex(newCueIndex);
       subtitleLineDragActive = false;
-      renderCuesTable(lastCues);
-      commitPlayheadUi();
+      void applyReorderPlaybackSync(newCueIndex, hotSnap).then(() => {
+        renderCuesTable(lastCues);
+        /** render 후 카드 DOM 재생성 — 선택 CSS 비교값만 초기화 */
+        lastHighlightSelectedCue = -1;
+        if (isVideoPlaying && isPreviewMediaPlaying()) {
+          const clipPos =
+            listPlaybackClipPos >= 0 ? listPlaybackClipPos : 0;
+          const hl = resolveHotReorderPlaybackHighlight(
+            {
+              clipPos,
+              mediaSec: readPreviewMediaClockSec(),
+              programSec: playheadSec,
+            },
+            { updateDom: true },
+          );
+          commitPlayheadUi({
+            activeCueIndex: hl.ai,
+            activeWordIndex: hl.wi,
+            skipWordHighlight: true,
+            highlightLookupT: hl.lookupT,
+            highlightLookupAxis: hl.lookupAxis,
+          });
+          if (!playbackRafId) playbackTick();
+        } else {
+          commitPlayheadUi();
+        }
+      });
     },
     onSelectCue: (cueIndex, detail) =>
       selectCueLine(cueIndex, {
@@ -3637,29 +5659,26 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     },
     onSeek: (sec) => {
       if (getPv() && Number.isFinite(sec)) {
-        const orch = getPlaybackOrchestrator();
         const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
         caretPlayDiagLog("onSeekMedia", caretPlayDiagSnapshot({ mediaSec: sec, mappedMedia: media }));
-        orch.seekMediaSec(media);
-        playheadSec = orch.mapMediaToEditSec(media);
+        if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+        if (Math.abs(getPv().currentTime - media) > 0.002) getPv().currentTime = media;
+        playheadSec = mapPreviewMediaSecToEditSec(media);
         commitPlayheadUi();
       }
     },
     onSeekWord: (cue, storageWordIndex) => {
       if (!getPv()) return;
-      const editSec = editSecForStorageWord(cue, storageWordIndex);
-      if (!Number.isFinite(editSec)) return;
-      const orch = getPlaybackOrchestrator();
-      const media = skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
+      const sourceSec = editSecForStorageWord(cue, storageWordIndex);
+      if (!Number.isFinite(sourceSec)) return;
+      const cueIndex = lastCues.indexOf(cue);
       caretPlayDiagLog("onSeekWord", caretPlayDiagSnapshot({
         storageWordIndex,
-        editSec,
-        mediaSec: media,
-        cueIndex: lastCues.indexOf(cue),
+        editSec: sourceSec,
+        mediaSec: skipCutRangeAt(sourceSec, getPlaybackSkipRanges()),
+        cueIndex,
       }));
-      orch.seekMediaSec(media);
-      playheadSec = orch.mapMediaToEditSec(media);
-      commitPlayheadUi();
+      seekPreviewToSourceSec(sourceSec, { cueIndex });
     },
     onTogglePlayback: (fromSpace) =>
       togglePreviewPlayback({
@@ -3667,6 +5686,10 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }),
     onWaveformSeekAndPlay: (editSec) => {
       if (!Number.isFinite(editSec)) return;
+      if (expandedCueIndex >= 0) {
+        selectedCueIndex = expandedCueIndex;
+        setListPlaybackListPosFromCueIndex(expandedCueIndex);
+      }
       seekEditSecAndPlay(editSec);
     },
     onWaveformChipClick: (ci, _visIdx, storageWi, isActiveChip, detail) => {
@@ -3685,14 +5708,8 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
     },
     onPlayAtCaret: (cardIndex, storageCaret) => playAtSubtitleCaret(cardIndex, storageCaret),
-    mapEditToMediaSec: (editSec) => {
-      const orch = getPlaybackOrchestrator();
-      return skipCutRangeAt(orch.mapEditToMediaSec(editSec), getPlaybackSkipRanges());
-    },
-    mapMediaToEditSec: (mediaSec) => {
-      const orch = getPlaybackOrchestrator();
-      return orch.mapMediaToEditSec(mediaSec);
-    },
+    mapEditToMediaSec: (editSec) => mapWaveformEditToMediaSec(editSec),
+    mapMediaToEditSec: (mediaSec) => mapWaveformMediaToEditSec(mediaSec),
     onWaveformSpacePlay: () => {
       if (!subtitleList || expandedCueIndex < 0 || expandedWordIndex < 0) return false;
       return toggleExpandedPanelPlayFromCut(subtitleList, {
@@ -3743,7 +5760,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       subtitleHub.gapFillWhenBuildingVrew = false;
     },
     onWaveformUndo: () => {
-      if (subtitleHub.undo()) renderCuesTable(lastCues);
+      if (subtitleHub.undo()) handleHubHistoryRestore();
     },
     onPlayEditRange: (startEdit, endEdit) => {
       if (!getPv() || !getPa() || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
@@ -3759,11 +5776,27 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         start = firstPlayableSecInRange(start, hi, skips) ?? skipCutRangeAt(start, skips);
       }
       if (!Number.isFinite(start) || hi - start <= 1e-4) return;
-      const orch = getPlaybackOrchestrator();
-      const startMedia = skipCutRangeAt(orch.mapEditToMediaSec(start), skips);
+      const startMedia = mapWaveformEditToMediaSec(start);
       waveformPlayRangeEndEdit = hi;
-      playheadSec = start;
-      orch.seekMediaSec(startMedia);
+      const ci = expandedCueIndex >= 0 ? expandedCueIndex : selectedCueIndex;
+      if (isBlocksProgramSegmentPreview()) {
+        playheadSec =
+          ci >= 0 ? mapSourceSecToPlayheadSecForCue(ci, start) : mapSourceSecToPlayheadSec(start);
+        if (ci >= 0) {
+          setListPlaybackListPosFromCueIndex(ci);
+          const clips = getProgramSegmentTimelineClips() ?? [];
+          const clipPos = clipIndexForListPos(clips, lastCues, listPlaybackListPos);
+          listPlaybackClipPos = clipPos;
+          resetListOrderPreviewClipPos(clipPos);
+        }
+      } else {
+        playheadSec = start;
+      }
+      if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), startMedia);
+      if (getPv() && Math.abs(getPv().currentTime - startMedia) > 0.002) {
+        getPv().currentTime = startMedia;
+      }
+      getPlaybackOrchestrator().seekMediaSec(startMedia);
       commitPlayheadUi();
       startPlaybackLoop({ fromWaveformRange: true });
     },
@@ -3965,7 +5998,11 @@ async function applyLoadedProject(res) {
             "• VFR 영상이면 자막 추출을 다시 실행하세요",
         );
       }
-      await updatePreview(previewPath || videoPath);
+      if (subtitleHub.blocks?.length) {
+        await ensureProgramMasterAfterIngest({ preview_media_path: previewPath });
+      } else {
+        await updatePreview(previewPath || videoPath);
+      }
       await loadWaveformPeaks();
     } finally {
       setPreviewMediaLoading(false);
@@ -4256,26 +6293,92 @@ function stopTranscribePoll() {
   }
 }
 
+function isPrepareIdlePhase(phase) {
+  const p = String(phase || "").trim();
+  return !p || p === "not_started" || p === "idle";
+}
+
+function isPrepareActivePhase(phase) {
+  const p = String(phase || "").trim();
+  return Boolean(p) && !isPrepareIdlePhase(p) && p !== "ready" && p !== "failed";
+}
+
+function resolvePrepareModalTitle(step, detail, phase) {
+  const blob = `${step || ""} ${detail || ""}`.toLowerCase();
+  if (/모델 로드|float16|float32|int8|cuda|cpu int8|메모리/.test(blob)) {
+    return "Whisper 모델 로드";
+  }
+  if (phase === "downloading_models" || /hugging|model\.bin|ai 모델/.test(blob)) {
+    return "AI 모델 다운로드";
+  }
+  if (/gpu|dll|runtime|cublas/.test(blob)) {
+    return "GPU 런타임 설치";
+  }
+  if (/패키지|pip|python|faster-whisper|whisper/.test(blob)) {
+    if (/이미 설치|설치 완료|준비 완료/.test(blob)) return "Whisper 준비";
+    return "Python 패키지 설치";
+  }
+  if (/ffmpeg/.test(blob)) {
+    if (/이미|준비 완료|준비됨/.test(blob)) return "Whisper 준비";
+    return "FFmpeg 준비";
+  }
+  return "Whisper 준비";
+}
+
+function resolvePrepareModalMessage(step, detail, phase, progress) {
+  const base = detail || step || "준비 중…";
+  if (
+    phase !== "ready" &&
+    typeof progress === "number" &&
+    progress >= 90 &&
+    !/모델 로드|float16|int8|cuda|cpu/.test(`${step} ${base}`.toLowerCase())
+  ) {
+    return "Whisper 모델을 메모리에 올리는 중입니다…";
+  }
+  return base;
+}
+
 async function pollPrepareStatus() {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/prepare/status` });
   const phase = data?.phase || "";
   const step = data?.step || phase;
   const progress = typeof data?.progress === "number" ? data.progress : undefined;
   _lastPrepareProgress = progress ?? _lastPrepareProgress;
-  let title = "환경 준비";
-  if (phase === "downloading_models") title = "AI 모델 다운로드";
-  else if (/FFmpeg/i.test(step)) title = "FFmpeg 다운로드";
-  else if (/Python|pip|패키지/i.test(step)) title = "Python 패키지 설치";
-  else if (/GPU|DLL|runtime/i.test(step)) title = "GPU 런타임 설치";
+  const detail = data?.detail || data?.message || "";
+  if (isPrepareIdlePhase(phase)) {
+    setSetupLoading(true, {
+      title: "Whisper 준비",
+      step: "시작",
+      message: "환경 준비를 시작하는 중…",
+      progress: typeof progress === "number" ? progress : 2,
+    });
+    return null;
+  }
+  const title = resolvePrepareModalTitle(step, detail, phase);
+  let message = resolvePrepareModalMessage(step, detail, phase, progress);
+  if (
+    phase === "downloading_models" &&
+    typeof progress === "number" &&
+    progress >= 84 &&
+    progress < 90 &&
+    /100%/.test(String(message)) &&
+    !/model\.bin|배치|로드|검증|MB 수신/i.test(String(message))
+  ) {
+    message =
+      `${message}\n\n대용량 model.bin(~1.5GB) 수신·검증 중입니다. 진행률 85% 근처에서 1~3분 걸릴 수 있습니다.`;
+  } else if (/모델 로드|GPU\(CUDA\)|CPU int8/i.test(String(step || message))) {
+    message = `${message}\n\nWhisper 모델을 메모리에 올리는 중입니다…`;
+  }
   setSetupLoading(true, {
     title,
     step,
-    message: data?.detail || data?.message || "준비 중…",
+    message,
     progress,
   });
   if (phase === "ready") {
     stopPreparePoll();
     setSetupLoading(false);
+    whisperPrepareReadySession = true;
     await fetchReadiness();
     updateActionButtons();
     return true;
@@ -4289,25 +6392,7 @@ async function pollPrepareStatus() {
   return null;
 }
 
-async function ensurePrepared() {
-  const readiness = await fetchReadiness();
-  if (readiness?.binaries?.model_loaded) {
-    return true;
-  }
-
-  setSetupLoading(true, {
-    title: "AI 환경 준비",
-    step: "시작",
-    message: MSG_SUBTITLE_PREPARE,
-    progress: 2,
-  });
-
-  try {
-    await requestAgent({ path: `${TOOL_PREFIX}/prepare`, method: "POST" });
-  } catch (e) {
-    console.warn("[ensurePrepared] POST /prepare failed, will poll status anyway:", e);
-  }
-
+function waitForPrepareCompletion() {
   return new Promise((resolve) => {
     stopPreparePoll();
     let stallCount = 0;
@@ -4356,8 +6441,87 @@ async function ensurePrepared() {
         alert(friendlyAgentError(err));
         resolve(false);
       }
-    }, 800);
+    }, 400);
   });
+}
+
+async function ensurePrepared() {
+  if (whisperPrepareReadySession) {
+    const cached = await fetchReadiness();
+    if (cached?.binaries?.model_loaded) return true;
+    whisperPrepareReadySession = false;
+  }
+
+  if (!(await waitForAgentApiReady())) {
+    alert("에이전트 Python 엔진이 아직 기동 중입니다.\n잠시 후 다시 시도하거나 트레이에서 서비스를 재시작해 주세요.");
+    return false;
+  }
+
+  let readiness = await fetchReadiness();
+  if (readiness?.binaries?.model_loaded) {
+    whisperPrepareReadySession = true;
+    return true;
+  }
+
+  const bins = readiness?.binaries || {};
+  const depsInstalled =
+    bins.ffmpeg && bins.ffprobe && bins.faster_whisper && bins.model_present;
+
+  let prepareStatus = null;
+  try {
+    prepareStatus = await requestAgent({ path: `${TOOL_PREFIX}/prepare/status` });
+  } catch {
+    /* ignore */
+  }
+
+  if (prepareStatus?.phase === "ready") {
+    readiness = await fetchReadiness();
+    if (readiness?.binaries?.model_loaded) {
+      whisperPrepareReadySession = true;
+      return true;
+    }
+  }
+
+  const prepareRunning = isPrepareActivePhase(prepareStatus?.phase);
+
+  if (!prepareRunning) {
+    if (depsInstalled) {
+      setSetupLoading(true, {
+        title: "Whisper 준비",
+        step: "모델 로드",
+        message: "AI 모델을 메모리에 올리는 중입니다…",
+        progress: 90,
+      });
+    } else {
+      setSetupLoading(true, {
+        title: "AI 환경 준비",
+        step: "시작",
+        message: MSG_SUBTITLE_PREPARE,
+        progress: 2,
+      });
+    }
+    try {
+      await requestAgent({ path: `${TOOL_PREFIX}/prepare`, method: "POST" });
+    } catch (e) {
+      console.warn("[ensurePrepared] POST /prepare failed, will poll status anyway:", e);
+    }
+  } else if (depsInstalled) {
+    setSetupLoading(true, {
+      title: "Whisper 준비",
+      step: prepareStatus?.step || "모델 로드",
+      message: prepareStatus?.detail || prepareStatus?.message || "AI 모델을 메모리에 올리는 중입니다…",
+      progress: typeof prepareStatus?.progress === "number" ? prepareStatus.progress : 90,
+    });
+  } else {
+    setSetupLoading(true, {
+      title: resolvePrepareModalTitle(prepareStatus?.step, prepareStatus?.detail, prepareStatus?.phase),
+      step: prepareStatus?.step || "진행 중",
+      message: prepareStatus?.detail || prepareStatus?.message || MSG_SUBTITLE_PREPARE,
+      progress: typeof prepareStatus?.progress === "number" ? prepareStatus.progress : 2,
+    });
+  }
+
+  return waitForPrepareCompletion();
 }
 
 const TRANSCRIBE_LOADING_TITLE = "자막 추출 중…";
@@ -4375,13 +6539,16 @@ async function pollTranscribeStatus() {
 
   if (phase === "completed") {
     stopTranscribePoll();
-    setTranscribeLoading(false);
     lastExportPath = data.srt_path || null;
     await finalizeTranscribeResults(data.cues || [], data.duration_sec, {
       waveform_peaks_json: data.waveform_peaks_json,
       waveform_peaks: data.waveform_peaks,
       media_timing: data.media_timing,
       preview_media_path: data.preview_media_path,
+      program_master_path: data.program_master_path,
+      program_duration_sec: data.program_duration_sec,
+      program_master_probe_ok: data.program_master_probe_ok,
+      bake_level: data.bake_level,
     });
     return true;
   }
@@ -4402,10 +6569,12 @@ async function pollTranscribeStatus() {
  *
  * @param {unknown[]} rawCues
  * @param {number} [durationSecHint]
- * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null }} [transcribeMeta]
+ * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null, program_master_path?: string | null, program_duration_sec?: number | null, program_master_probe_ok?: boolean | null, bake_level?: string | null }} [transcribeMeta]
  */
 async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}) {
   subtitleHub.gapFillWhenBuildingVrew = false;
+  clearProgramMasterCache();
+  programMasterPreviewPath = "";
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
     step: "후처리",
@@ -4541,19 +6710,27 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
     }
     const previewPath =
       transcribeMeta.preview_media_path || getSessionPreviewMediaPath();
-    const exportPath = videoPathInput?.value?.trim();
-    if (previewPath && exportPath && previewPath !== exportPath) {
-      if (transcribeMeta.preview_media_path) {
-        setSessionPreviewMediaPath(transcribeMeta.preview_media_path);
-      }
-      await updatePreview(previewPath);
-      await refreshSessionMediaTimingFromAgent(previewPath);
+    if (previewPath) {
+      setSessionPreviewMediaPath(previewPath);
+    }
+    if (subtitleHub.blocks?.length) {
+      await ensureProgramMasterAfterIngest(transcribeMeta);
       logMediaTimingAvSnapshot("preview playback", getSessionMediaTiming(), {
-        path: previewPath,
+        path: previewPath || programMasterPreviewPath || "",
         normalized: transcribeMeta.media_timing?.normalized ?? null,
       });
-    } else if (exportPath) {
-      await refreshSessionMediaTimingFromAgent(exportPath);
+    } else if (previewPath) {
+      await updatePreview(previewPath);
+      await refreshSessionMediaTimingFromAgent(previewPath);
+    } else {
+      const exportPath = videoPathInput?.value?.trim();
+      if (exportPath) await refreshSessionMediaTimingFromAgent(exportPath);
+    }
+    if (!isPreviewPlaybackReady() && subtitleHub.blocks?.length) {
+      const recovered = await ensurePreviewPlaybackReadyAfterIngest(transcribeMeta);
+      if (!recovered) {
+        throw new Error("미리보기(CFR + programClips)가 준비되지 않았습니다.");
+      }
     }
     renderCuesTable(lastCues);
     if (resultsMeta) {
@@ -4662,20 +6839,27 @@ async function runTranscribe() {
 
 function buildExportPayload(fmt) {
   syncCuesFromDom();
-  return buildExportRequestPayload(
-    lastCues,
-    lastCutRanges,
-    readSubtitleStyleFromDom(),
-    fmt,
-    {
-      previewMediaPath: getSessionPreviewMediaPath() || null,
-      videoPath: videoPathInput?.value?.trim() || null,
-    },
-    {
-      blocks: subtitleHub.blocks,
-      virtualIndex: subtitleHub._virtualIndex,
-    },
-  );
+  const masterCache = getProgramMasterCache();
+  return {
+    ...buildExportRequestPayload(
+      lastCues,
+      lastCutRanges,
+      readSubtitleStyleFromDom(),
+      fmt,
+      {
+        previewMediaPath: getSessionPreviewMediaPath() || null,
+        videoPath: videoPathInput?.value?.trim() || null,
+        programMasterPath: programMasterPreviewPath || masterCache.path || null,
+      },
+      {
+        blocks: subtitleHub.blocks,
+        virtualIndex: subtitleHub._virtualIndex,
+        mediaDurationSec: getMediaDurationSecHint(),
+      },
+    ),
+    burn_in_media_contract: buildBurnInMediaContract(),
+    ...burnInPipelineDiagAgentPayload(),
+  };
 }
 
 function buildProjectJson() {
@@ -4721,6 +6905,7 @@ async function saveProjectAs() {
 
 async function unloadModel() {
   await requestAgent({ path: `${TOOL_PREFIX}/model/unload`, method: "POST" });
+  whisperPrepareReadySession = false;
   await fetchReadiness();
   alert("AI 모델을 메모리에서 해제했습니다. 다음 자막 추출 시 다시 불러옵니다.");
 }
@@ -4763,22 +6948,103 @@ async function runAwaitingFramesPngBurnIn(statusData) {
   }
   const label = exportFormatLabel("video");
   const pngPayload = buildExportPayload("video");
-  const exportTimeAxis = statusData?.export_time_axis === "stitched_program"
-    ? "stitched_program"
-    : "media";
+  const rawAxis = String(statusData?.export_time_axis || "").trim();
+  const exportTimeAxis =
+    rawAxis === "program"
+      ? "program"
+      : rawAxis === "stitched_program"
+        ? "stitched_program"
+        : rawAxis === "filter_program"
+          ? "filter_program"
+          : "media";
   const stitched = exportTimeAxis === "stitched_program";
-  const cutRanges = stitched ? [] : pngPayload.cut_ranges || [];
+  const useProgram =
+    exportTimeAxis === "program" ||
+    exportTimeAxis === "stitched_program" ||
+    exportTimeAxis === "filter_program";
+  const cutRanges = useProgram ? [] : pngPayload.cut_ranges || [];
   const rawActualDuration = statusData?.actual_duration;
   const actualDuration =
     stitched && typeof rawActualDuration === "number" && rawActualDuration > 0
       ? rawActualDuration
       : undefined;
+  let programToBurninMap = Array.isArray(statusData?.program_to_burnin_map)
+    ? statusData.program_to_burnin_map
+    : Array.isArray(statusData?.burn_in_media_contract?.program_to_burnin_map)
+      ? statusData.burn_in_media_contract.program_to_burnin_map
+      : null;
+  const vmapForMap = pngPayload.virtual_audio_map || [];
+  if (stitched && (!programToBurninMap || !programToBurninMap.length) && actualDuration) {
+    programToBurninMap = buildProgramToBurninMapFromVirtualAudioMap(vmapForMap, actualDuration);
+    burnInConsoleLog("program_map_fe_fallback", {
+      segments: programToBurninMap.length,
+      actualDuration,
+      hint: "BE map 없음 — FE 폴백. 에이전트 재시작·재빌드 권장.",
+    });
+  }
+  const burnInMediaContract = {
+    ...buildBurnInMediaContract(),
+    ...(statusData?.burn_in_media_contract && typeof statusData.burn_in_media_contract === "object"
+      ? statusData.burn_in_media_contract
+      : {}),
+    ...(programToBurninMap?.length ? { program_to_burnin_map: programToBurninMap } : {}),
+  };
+  if (stitched && exportTimeAxis !== "program" && (!programToBurninMap || !programToBurninMap.length)) {
+    const errMsg =
+      "program_to_burnin_map이 없습니다. itmatzip-agent를 재빌드·재시작한 뒤 export를 다시 시도하세요.";
+    showExportError(errMsg, { sticky: true });
+    throw new Error(errMsg);
+  }
+  const agentMapMissing = !statusData?.program_to_burnin_map?.length;
+  if (stitched && agentMapMissing && /concat_master\.mp4/i.test(burnPath)) {
+    burnInConsoleLog("agent_cfr_normalize_missing", {
+      burnPath,
+      hint: "concat_master 직결 — CFR normalize 미적용. 에이전트 재시작 필요.",
+    });
+  }
   burnInConsoleLog("awaiting_frames_burn_in_start", {
     burnPath,
     stitched,
     actualDuration,
     exportTimeAxis,
+    programMapSegments: programToBurninMap?.length || 0,
   });
+  const sessionTiming = getSessionMediaTiming();
+  const vmapEnd = virtualMapProgramEndSec(pngPayload.virtual_audio_map || []);
+  const exportHandoff = {
+    burnPath,
+    exportTimeAxis,
+    stitched,
+    actualDuration,
+    previewMediaPath: getSessionPreviewMediaPath(),
+    previewDurationSec: getVideoTimelineDurationSec(),
+    sessionAudioDurationSec: getAudioTimelineDurationSec(),
+    sessionVideoDurationSec: sessionTiming?.video_duration_sec,
+    sessionTargetFps: sessionTiming?.target_ntsc_fps,
+    contractTargetFps: burnInMediaContract?.target_ntsc_fps,
+    programMapSegments: programToBurninMap?.length || 0,
+    virtualProgramEnd: vmapEnd,
+    virtualMapSegments: (pngPayload.virtual_audio_map || []).length,
+    requiresConcat: pngPayload.requires_concat,
+  };
+  burnInPipelineDiagHandoff("awaiting_frames_start", exportHandoff);
+  analyzeBurnInPipelineHandoff(exportHandoff);
+  burnInPipelineDiagLog("awaiting_frames_start", exportHandoff);
+  setExportLoading(true, {
+    title: "보내기",
+    step: "영상 · 자막 캡처",
+    message: "프레임 스케줄 생성·PNG 캡처…",
+    progress: 46,
+  });
+  const programDurationSec =
+    exportTimeAxis === "program"
+      ? Number(
+          statusData?.burn_in_media_contract?.program_duration_sec ??
+            pngPayload.program_duration_sec ??
+            statusData?.actual_duration ??
+            0,
+        ) || undefined
+      : undefined;
   await runVideoBurnInExport({
     toolPrefix: TOOL_PREFIX,
     videoPath: burnPath,
@@ -4786,7 +7052,12 @@ async function runAwaitingFramesPngBurnIn(statusData) {
     cutRanges,
     exportTimeAxis,
     requiresConcat: stitched,
-    actualDuration,
+    actualDuration: exportTimeAxis === "program" ? programDurationSec : actualDuration,
+    burninDuration:
+      exportTimeAxis === "program" ? programDurationSec ?? actualDuration : actualDuration,
+    programToBurninMap: programToBurninMap || undefined,
+    burnInMediaContract,
+    virtualAudioMap: pngPayload.virtual_audio_map || [],
     blocks: subtitleHub.blocks,
     virtualIndex: subtitleHub._virtualIndex,
     style: readSubtitleStyleFromDom(),
@@ -4885,10 +7156,36 @@ async function pollExportStatus(fmt, resolvePromise) {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/export/status` });
   const phase = data?.phase || "";
   logBurnInExportPoll(fmt, data);
+  if (burnInPipelineDiagIsEnabled() && fmt === "video") {
+    burnInPipelineDiagLog("export_poll", {
+      phase,
+      progress: data?.progress,
+      message: data?.message,
+      actualDuration: data?.actual_duration,
+      exportTimeAxis: data?.export_time_axis,
+      videoEncoder: data?.video_encoder,
+      overlayMode: data?.overlay_mode,
+      uiSmoothedProgress: smoothedProgress,
+      uiSmoothTarget: smoothProgressTarget,
+    });
+  }
 
   const rawProgress = typeof data?.progress === "number" ? data.progress : undefined;
-  if (rawProgress != null && rawProgress > smoothProgressTarget) {
-    smoothProgressTarget = Math.min(rawProgress, 99);
+  if (rawProgress != null) {
+    const concatWaitPhases = new Set([
+      "concat_copy",
+      "concat_reencode",
+      "concat_normalize",
+      "running",
+      "queued",
+    ]);
+    if (concatWaitPhases.has(phase)) {
+      const floor = phase === "awaiting_frames" ? 33 : 0;
+      const capped = Math.min(Math.max(rawProgress, floor), 99);
+      smoothProgressTarget = Math.max(smoothProgressTarget, capped);
+    } else if (rawProgress > smoothProgressTarget) {
+      smoothProgressTarget = Math.min(rawProgress, 99);
+    }
   }
 
   const applyProgress = (val) => {
@@ -4909,6 +7206,15 @@ async function pollExportStatus(fmt, resolvePromise) {
       message: data?.message || "처리 중…",
       progress: undefined,
     });
+  }
+
+  if (phase === "completed" && burnInPipelineDiagIsEnabled()) {
+    burnInPipelineDiagHandoff("export_completed", {
+      resultPath: data?.result_path,
+      phase,
+      progress: 100,
+    });
+    burnInPipelineDiagReport();
   }
 
   if (phase === "completed") {
@@ -4961,13 +7267,15 @@ async function pollExportStatus(fmt, resolvePromise) {
       await runAwaitingFramesPngBurnIn(data);
     } catch (err) {
       exportAwaitingFramesInFlight = false;
-      showExportError(friendlyAgentError(err));
+      const msg = friendlyAgentError(err);
+      showExportError(msg, { sticky: /program_to_burnin|gate failed|Agent|에이전트/i.test(msg) });
       return false;
     }
     exportAwaitingFramesInFlight = false;
     if (typeof resolvePromise === "function") {
-      smoothedProgress = Math.max(smoothedProgress, 40);
-      smoothProgressTarget = 40;
+      const resumeProgress = Math.max(smoothedProgress, 45);
+      smoothedProgress = resumeProgress;
+      smoothProgressTarget = Math.max(smoothProgressTarget, resumeProgress);
       startExportStatusPolling(fmt, resolvePromise);
     }
     return null;
@@ -5065,6 +7373,32 @@ async function runExport() {
       );
       return;
     }
+    if (subtitleHub.blocks?.length) {
+      setExportLoading(true, {
+        title: "보내기",
+        step: `${label} · Program master`,
+        message: "편집 타임라인 확인·캐시…",
+        progress: 4,
+      });
+      try {
+        const bakeResult = await ensureProgramMasterForExport();
+        const bakeTag = formatBakeLevelLabel(bakeResult?.bakeLevel);
+        if (bakeTag) {
+          setExportLoading(true, {
+            title: "보내기",
+            step: `${label} · Program master (${bakeTag})`,
+            message: bakeResult?.cached
+              ? "캐시된 program-master 사용"
+              : "program-master bake 완료",
+            progress: 8,
+          });
+        }
+      } catch (err) {
+        setExportLoading(false);
+        showExportError(friendlyAgentError(err));
+        return;
+      }
+    }
     const payload = buildExportPayload(fmt);
     try {
       exportAwaitingFramesInFlight = false;
@@ -5092,6 +7426,7 @@ async function runExport() {
         cutRanges: pngPayload.cut_ranges || [],
         requiresConcat: pngPayload.requires_concat,
         exportTimeAxis: pngPayload.export_time_axis,
+        virtualAudioMap: pngPayload.virtual_audio_map || [],
         blocks: subtitleHub.blocks,
         virtualIndex: subtitleHub._virtualIndex,
         style: readSubtitleStyleFromDom(),
@@ -5163,6 +7498,9 @@ function resetJob() {
     /* ignore */
   }
   clearSubtitleWorkspace();
+  programMasterPreviewPath = "";
+  clearProgramPlaybackSession();
+  clearProgramMasterCache();
   updatePreview("");
 }
 
@@ -5170,7 +7508,7 @@ function detachPreviewMasterAudio() {
   previewBridge.clearMedia();
 }
 
-function updatePreview(videoPath) {
+function updatePreview(videoPath, opts = {}) {
   if (!getPv() || !previewSection) return Promise.resolve();
   stopPlaybackLoop();
   setPreviewPlaybackUiActive(false);
@@ -5178,9 +7516,13 @@ function updatePreview(videoPath) {
   const p = String(videoPath || "").trim();
   const loadGen = ++previewMediaLoadGen;
   releasePreviewMediaBlob();
+  const useTranscribeShell =
+    opts.useTranscribeShell === true ||
+    (opts.useTranscribeShell !== false && isTranscribeLoadingUiActive());
 
   if (!p || !agentConnected) {
-    setPreviewMediaLoading(false);
+    clearProgramPlaybackSession();
+    if (!useTranscribeShell) setPreviewMediaLoading(false);
     previewBridge.clearMedia();
     if (previewEmpty) {
       previewEmpty.hidden = false;
@@ -5204,11 +7546,20 @@ function updatePreview(videoPath) {
     previewEmpty.textContent = "미디어 불러오는 중…";
   }
 
-  setPreviewMediaLoading(true, {
-    title: "미리보기 불러오기",
-    message:
-      "잠시만 기다려 주세요.\n용량이 큰 영상은 시간이 더 걸릴 수 있습니다.\n편집 화면은 불러오기가 끝날 때까지 잠시 멈춥니다.",
-  });
+  if (useTranscribeShell) {
+    setTranscribeLoading(true, {
+      title: TRANSCRIBE_LOADING_TITLE,
+      step: "미리보기",
+      message: "편집 화면 불러오는 중…",
+      progress: 97,
+    });
+  } else {
+    setPreviewMediaLoading(true, {
+      title: "미리보기 불러오기",
+      message:
+        "잠시만 기다려 주세요.\n용량이 큰 영상은 시간이 더 걸릴 수 있습니다.\n편집 화면은 불러오기가 끝날 때까지 잠시 멈춥니다.",
+    });
+  }
 
   previewMediaLoadAbort = new AbortController();
   const { signal } = previewMediaLoadAbort;
@@ -5216,7 +7567,7 @@ function updatePreview(videoPath) {
   return resolveAgentMediaObjectUrl(directUrl, {
     signal,
     onAttempt(attempt) {
-      if (attempt > 1) {
+      if (attempt > 1 && !useTranscribeShell) {
         setPreviewMediaLoading(true, {
           title: "미리보기 다시 불러오기",
           message: "연결이 끊겨 다시 시도합니다.\n잠시만 기다려 주세요…",
@@ -5228,12 +7579,16 @@ function updatePreview(videoPath) {
       if (loadGen !== previewMediaLoadGen) return;
       previewMediaResolvedUrl = url;
       masterMediaUrl = url;
-      void previewBridge.setMediaUrl(url);
-      if (previewEmpty) previewEmpty.hidden = true;
-      previewVideoEl.onloadedmetadata = () => {
-        if (loadGen !== previewMediaLoadGen) return;
-        setPreviewMediaLoading(false);
+      return previewBridge.setMediaUrl(url).then(async () => {
+        await waitForPreviewMediaReady();
+        if (previewEmpty) previewEmpty.hidden = true;
+        if (!useTranscribeShell) setPreviewMediaLoading(false);
         inferMediaTimingFromBrowserMedia(previewVideoEl, getPa());
+        if (/program-master\.mp4$/i.test(p) && !subtitleHub.blocks?.length) {
+          applyProgramPlaybackSession(p);
+        } else {
+          clearProgramPlaybackSession();
+        }
         const dur = getAudioTimelineDurationSec() ?? previewVideoEl.duration;
         if (dur > 0) sessionMediaDurationSec = dur;
         layoutPreviewMediaFrame();
@@ -5252,9 +7607,24 @@ function updatePreview(videoPath) {
           orch.masterAudio = previewAudioEl;
         }
         rebuildPlaybackSync();
+      });
+    })
+    .then(() => {
+      if (loadGen !== previewMediaLoadGen) return;
+      previewVideoEl.onloadedmetadata = () => {
+        if (loadGen !== previewMediaLoadGen) return;
+        if (!useTranscribeShell) setPreviewMediaLoading(false);
+        inferMediaTimingFromBrowserMedia(previewVideoEl, getPa());
+        const dur = getAudioTimelineDurationSec() ?? previewVideoEl.duration;
+        if (dur > 0) sessionMediaDurationSec = dur;
+        layoutPreviewMediaFrame();
+        updatePreviewOverlay();
+        updatePreviewWatermark();
+        updatePreviewTransportUi();
       };
       previewVideoEl.onerror = () => {
         if (loadGen !== previewMediaLoadGen) return;
+        if (useTranscribeShell) return;
         setPreviewMediaLoading(true, {
           title: "미리보기 불러오기 실패",
           message:
@@ -5266,7 +7636,7 @@ function updatePreview(videoPath) {
     .catch((err) => {
       if (loadGen !== previewMediaLoadGen) return;
       if (err instanceof DOMException && err.name === "AbortError") {
-        setPreviewMediaLoading(false);
+        if (!useTranscribeShell) setPreviewMediaLoading(false);
         return;
       }
       console.warn("[auto-subtitle] preview media load", err);
@@ -5281,6 +7651,7 @@ function updatePreview(videoPath) {
           ? "미디어 파일이 손상되었거나 아직 생성 중입니다."
           : "미디어를 불러올 수 없습니다.";
       }
+      if (useTranscribeShell) return;
       setPreviewMediaLoading(true, {
         title: "미리보기 불러오기 실패",
         message: lenMismatch
@@ -5521,11 +7892,15 @@ btnPreviewMediaLoadingOk?.addEventListener("click", () => {
 });
 
 btnUndo?.addEventListener("click", () => {
-  if (subtitleHub.undo()) renderCuesTable(lastCues);
+  if (subtitleHub.undo()) handleHubHistoryRestore();
 });
 
 btnRedo?.addEventListener("click", () => {
-  if (subtitleHub.redo()) renderCuesTable(lastCues);
+  if (subtitleHub.redo()) handleHubHistoryRestore();
+});
+
+btnHqPreview?.addEventListener("click", () => {
+  void toggleHqPreviewMode();
 });
 
 btnGpuInstallDismiss?.addEventListener("click", (e) => {
@@ -5565,6 +7940,7 @@ document.addEventListener("keydown", (e) => {
   //   target?.tagName ?? "null", e.timeStamp, performance.now());
   e.preventDefault();
   if (!getPv()) return;
+  if (toggleExpandedWordWaveformPlayback()) return;
   togglePreviewPlayback();
 });
 
@@ -5593,10 +7969,10 @@ document.addEventListener("keydown", (e) => {
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
   if (e.key === "z" && !e.shiftKey) {
     e.preventDefault();
-    if (subtitleHub.undo()) renderCuesTable(lastCues);
+    if (subtitleHub.undo()) handleHubHistoryRestore();
   } else if (e.key === "y" || (e.key === "z" && e.shiftKey)) {
     e.preventDefault();
-    if (subtitleHub.redo()) renderCuesTable(lastCues);
+    if (subtitleHub.redo()) handleHubHistoryRestore();
   }
 });
 
@@ -5780,10 +8156,12 @@ startAgentEventStream({
 });
 
 function applyPrepareStatusFromWs(data) {
+  const step = data?.step || "";
+  const detail = data?.detail || data?.message || "";
   setSetupLoading(true, {
-    title: data?.phase === "downloading_models" ? "AI 모델" : "환경 준비",
-    step: data?.step || "",
-    message: data?.detail || data?.message || "",
+    title: resolvePrepareModalTitle(step, detail, data?.phase || ""),
+    step,
+    message: resolvePrepareModalMessage(step, detail, data?.phase || "", data?.progress),
     progress: data?.progress,
   });
 }
@@ -5850,10 +8228,7 @@ const subtitleFindReplace = initSubtitleFindReplace({
       }
     }
     if (cue && getPv() && Number.isFinite(cue.start)) {
-      const orch = getPlaybackOrchestrator();
-      const media = skipCutRangeAt(cue.start, getPlaybackSkipRanges());
-      orch.seekMediaSec(media);
-      playheadSec = orch.mapMediaToEditSec(media);
+      seekPreviewToSourceSec(Number(cue.start), { commitUi: false });
     }
     commitPlayheadUi();
     if (subtitleList) {
@@ -5891,6 +8266,51 @@ window.autoSubtitleSyncDiag = {
     return r;
   },
   clear: syncDiagClear,
+};
+
+window.autoSubtitleListOrderSnap = () => {
+  const bridge = getPreviewMediaBridge();
+  const stack = bridge.stack;
+  const playing = Boolean(isVideoPlaying && isPreviewMediaPlaying());
+  const segmentClips = getProgramSegmentTimelineClips();
+  const previewClips = getListOrderPreviewClips();
+  const clipPosHint = Math.max(
+    listPlaybackClipPos >= 0 ? listPlaybackClipPos : -1,
+    getListOrderPreviewClipPos(),
+  );
+  const stackClipPos = stack?.getClipPos?.() ?? -1;
+  const clipPos = playing && stackClipPos >= 0 ? stackClipPos : clipPosHint;
+  const clip =
+    (playing && stack?.clips?.[clipPos]) ||
+    segmentClips[clipPos] ||
+    previewClips[clipPos] ||
+    null;
+  const snap = {
+    playing,
+    segmentPreview: isBlocksProgramSegmentPreview(),
+    /** 재생 중에만 true — 일시정지면 false가 정상 */
+    listMode: stack?.isListOrderMode?.() ?? false,
+    seamlessActive: isListOrderSeamlessPlaybackActive(),
+    previewTimelineActive: isListOrderPreviewTimelineActive(),
+    stackClips: stack?.clips?.length ?? 0,
+    previewClips: previewClips.length,
+    segmentClips: segmentClips.length,
+    clipPos,
+    stackClipPos,
+    listPlaybackClipPos,
+    listPlaybackListPos,
+    audioSec: bridge.audio?.currentTime ?? getPa()?.currentTime ?? null,
+    clipMediaStart: clip?.mediaStart ?? null,
+    clipMediaEnd: clip?.mediaEnd ?? null,
+    clipBlockId: clip?.blockId ?? null,
+    switchInFlight: stack?.switchInFlight ?? null,
+    hint:
+      playing
+        ? "재생 중 — listMode true·stackClips>0 이어야 list-order stack 동작"
+        : "일시정지 — listMode false·stackClips 0 은 정상. previewClips/segmentClips>0 이면 큐 데이터는 살아있음",
+  };
+  console.log("[list-order-snap]", snap);
+  return snap;
 };
 
 window.autoSubtitleHighlightDiag = {
@@ -5938,8 +8358,33 @@ window.autoSubtitleMediaTimingDiag = {
   },
 };
 
+window.autoSubtitleBurnInPipelineDiag = {
+  get enabled() {
+    return burnInPipelineDiagIsEnabled();
+  },
+  async enable(on = true) {
+    burnInPipelineDiagSetEnabled(on);
+    const sync = on ? await burnInPipelineDiagSyncAgent(TOOL_PREFIX, on) : { mode: "off" };
+    console.log(
+      "[BURN-IN-PIPE]",
+      on
+        ? sync.mode === "agent"
+          ? "logging ON (FE+BE) — 보내기 1회 후 report() · autoSubtitleDownloadDiagLogs()"
+          : "logging ON (FE) — BE는 prepare/finish/export에 pipeline_diag 전달. 에이전트 sync-source 또는 재시작 시 BE 전구간."
+        : "logging OFF",
+    );
+    return sync;
+  },
+  report() {
+    return burnInPipelineDiagReport();
+  },
+  get lastHandoff() {
+    return burnInPipelineDiagGetLastHandoff();
+  },
+};
+
 /**
- * 진단 로그 JSON 다운로드 — 켜진 채널(PLAY-HL / CARET-PLAY / media-timing)만 버퍼에 쌓임.
+ * 진단 로그 JSON 다운로드 — 켜진 채널(PLAY-HL / CARET-PLAY / media-timing / BURN-IN-PIPE)만 버퍼에 쌓임.
  * @param {string} [filename]
  * @param {{ includeSyncDiag?: boolean }} [opts]
  */
@@ -5950,6 +8395,13 @@ function autoSubtitleDownloadDiagLogs(filename, opts = {}) {
       extra.syncDiag = syncDiagReport();
     } catch {
       extra.syncDiag = null;
+    }
+  }
+  if (burnInPipelineDiagIsEnabled()) {
+    try {
+      extra.burnInPipeline = burnInPipelineDiagReport();
+    } catch {
+      extra.burnInPipeline = null;
     }
   }
   const name =

@@ -30,9 +30,26 @@ const STORAGE_PREVIEW_PATH = "auto-subtitle:preview-media-path";
 let sessionMediaTiming = null;
 /** @type {string | null} */
 let sessionPreviewMediaPath = null;
+/** program-master.mp4 재생 — video.currentTime = program 축 */
+let programPlaybackActive = false;
 
-/** Go MediaTimingContract 2.0 — word times align 1:1 with video.currentTime */
+/** V5 — program-master 프리뷰 재생 (word lookup은 source↔program 변환) */
+export function isProgramPlaybackTimeline() {
+  return programPlaybackActive;
+}
+
+/** @param {boolean} active */
+export function setProgramPlaybackActive(active) {
+  programPlaybackActive = !!active;
+  if (!programPlaybackActive) return;
+  if (sessionMediaTiming && sessionMediaTiming.timeline_axis !== "program") {
+    sessionMediaTiming = { ...sessionMediaTiming, timeline_axis: "program" };
+  }
+}
+
+/** Go MediaTimingContract 2.0 — word times align 1:1 with video.currentTime (source media only) */
 export function isSourceVideoPtsTimeline() {
+  if (programPlaybackActive) return false;
   return sessionMediaTiming?.timeline_axis === "source_video_pts";
 }
 
@@ -76,6 +93,7 @@ export function getSessionPreviewMediaPath() {
 
 export function clearSessionMediaTiming() {
   sessionMediaTiming = null;
+  programPlaybackActive = false;
   setSessionPreviewMediaPath(null);
 }
 
@@ -245,6 +263,10 @@ export function resolveWordTimelineClockSec(opts = {}) {
   const video = opts.video ?? null;
   const preferAudio = opts.preferAudio !== false;
 
+  if (isProgramPlaybackTimeline() && video && Number.isFinite(video.currentTime)) {
+    return Math.max(0, video.currentTime);
+  }
+
   if (isSourceVideoPtsTimeline() && video && Number.isFinite(video.currentTime)) {
     return Math.max(0, video.currentTime);
   }
@@ -269,6 +291,173 @@ export function resolveWordTimelineClockSec(opts = {}) {
  * @param {import("./subtitles.js").SubtitleLine[]} lines
  * @param {number} scale
  */
+export const DEFAULT_TARGET_NTSC_FPS = "30000/1001";
+
+/** @typedef {object} ProgramToBurninSegment
+ * @property {number} [index]
+ * @property {number} editStart
+ * @property {number} editEnd
+ * @property {number} [ptsStartActual]
+ * @property {number} [ptsEndActual]
+ */
+
+/** @typedef {object} BurnInMediaContract
+ * @property {string} target_ntsc_fps
+ * @property {number | null} [preview_duration_sec]
+ * @property {string} [timeline_axis]
+ * @property {readonly ProgramToBurninSegment[]} [program_to_burnin_map]
+ */
+
+/** @returns {BurnInMediaContract} */
+export function buildBurnInMediaContract() {
+  const timing = getSessionMediaTiming();
+  return {
+    target_ntsc_fps: String(timing?.target_ntsc_fps || DEFAULT_TARGET_NTSC_FPS),
+    preview_duration_sec:
+      getVideoTimelineDurationSec() ?? getAudioTimelineDurationSec() ?? null,
+    timeline_axis: timing?.timeline_axis || "preview_cfr",
+  };
+}
+
+/** @param {string | null | undefined} a @param {string | null | undefined} b */
+export function ntscFpsFractionsEqual(a, b) {
+  const left = String(a || DEFAULT_TARGET_NTSC_FPS).trim();
+  const right = String(b || DEFAULT_TARGET_NTSC_FPS).trim();
+  return left === right;
+}
+
+/**
+ * @param {number} tProgram
+ * @param {readonly ProgramToBurninSegment[]} map
+ */
+export function mapProgramTimeToBurnInPts(tProgram, map) {
+  const t = Number(tProgram);
+  if (!Number.isFinite(t) || t < 0) return 0;
+  if (!Array.isArray(map) || !map.length) return t;
+
+  for (let i = 0; i < map.length; i += 1) {
+    const seg = map[i];
+    const es = Number(seg.editStart ?? seg.edit_start);
+    const ee = Number(seg.editEnd ?? seg.edit_end);
+    if (!Number.isFinite(es) || !Number.isFinite(ee) || ee <= es) continue;
+    const isLast = i === map.length - 1;
+    const inSeg = isLast ? t >= es - 1e-7 && t <= ee + 1e-7 : t >= es - 1e-7 && t < ee - 1e-7;
+    if (!inSeg) continue;
+    const ps = Number(seg.ptsStartActual ?? seg.pts_start_actual ?? es);
+    const pe = Number(seg.ptsEndActual ?? seg.pts_end_actual ?? ee);
+    const len = ee - es;
+    if (len <= 1e-9) return ps;
+    const ratio = Math.min(1, Math.max(0, (t - es) / len));
+    return ps + ratio * (pe - ps);
+  }
+
+  const last = map[map.length - 1];
+  const pe = Number(last?.ptsEndActual ?? last?.pts_end_actual);
+  return Number.isFinite(pe) ? pe : t;
+}
+
+/** @param {readonly ProgramToBurninSegment[]} map */
+export function assertProgramToBurninMapMonotonic(map) {
+  if (!Array.isArray(map) || !map.length) {
+    throw new Error("program_to_burnin_map is empty");
+  }
+  let prevEnd = -Infinity;
+  for (const seg of map) {
+    const ps = Number(seg.ptsStartActual ?? seg.pts_start_actual);
+    const pe = Number(seg.ptsEndActual ?? seg.pts_end_actual);
+    if (!Number.isFinite(ps) || !Number.isFinite(pe) || pe <= ps + 1e-6) {
+      throw new Error(`invalid program_to_burnin_map segment: pts ${ps}..${pe}`);
+    }
+    if (ps < prevEnd - 1e-5) {
+      throw new Error(`program_to_burnin_map not monotonic at ${ps} < ${prevEnd}`);
+    }
+    prevEnd = pe;
+  }
+}
+
+/**
+ * @param {readonly { start: number, end: number, text?: string, cueIndex?: number }[]} schedule
+ * @param {readonly ProgramToBurninSegment[]} map
+ */
+/**
+ * BE map 없을 때 FE 폴백 — virtual_audio_map + actual_duration (Python 동일 알고리즘).
+ * @param {readonly object[]} virtualAudioMap
+ * @param {number} actualDurationNormalized
+ */
+export function buildProgramToBurninMapFromVirtualAudioMap(
+  virtualAudioMap,
+  actualDurationNormalized,
+) {
+  /** @type {{ editStart: number, editEnd: number, length: number }[]} */
+  const segments = [];
+  for (const raw of virtualAudioMap || []) {
+    if (!raw || typeof raw !== "object") continue;
+    const srcStart = Number(raw.sourceStart ?? raw.source_start ?? 0);
+    const srcEnd = Number(raw.sourceEnd ?? raw.source_end ?? 0);
+    const editStart = Number(raw.editStart ?? raw.edit_start ?? 0);
+    const editEnd = Number(raw.editEnd ?? raw.edit_end ?? 0);
+    if (!Number.isFinite(srcEnd) || srcEnd <= srcStart + 1e-5) continue;
+    if (!Number.isFinite(editEnd) || editEnd <= editStart + 1e-6) continue;
+    segments.push({ editStart, editEnd, length: editEnd - editStart });
+  }
+
+  const actual = Number(actualDurationNormalized);
+  if (!segments.length || !Number.isFinite(actual) || actual <= 0) {
+    const dur = Number.isFinite(actual) && actual > 0 ? actual : 0.1;
+    return [
+      {
+        index: 0,
+        editStart: 0,
+        editEnd: dur,
+        ptsStartActual: 0,
+        ptsEndActual: dur,
+      },
+    ];
+  }
+
+  const expectedTotal = segments[segments.length - 1].editEnd;
+  const driftTotal = actual - expectedTotal;
+  let cumulativeDrift = 0;
+  /** @type {ProgramToBurninSegment[]} */
+  const rows = [];
+
+  segments.forEach((seg, i) => {
+    const driftI = expectedTotal > 0 ? driftTotal * (seg.length / expectedTotal) : 0;
+    const ptsStartActual = seg.editStart + cumulativeDrift;
+    const ptsEndActual = ptsStartActual + seg.length + driftI;
+    rows.push({
+      index: i,
+      editStart: seg.editStart,
+      editEnd: seg.editEnd,
+      ptsStartActual,
+      ptsEndActual,
+      driftSegment: driftI,
+    });
+    cumulativeDrift += driftI;
+  });
+
+  if (rows.length) {
+    const last = rows[rows.length - 1];
+    const delta = actual - last.ptsEndActual;
+    if (Math.abs(delta) > 1e-4) {
+      last.ptsEndActual += delta;
+    }
+  }
+  return rows;
+}
+
+export function remapScheduleToBurninAxis(schedule, map) {
+  assertProgramToBurninMapMonotonic(map);
+  const minSeg = 0.01;
+  return schedule
+    .map((s) => ({
+      ...s,
+      start: mapProgramTimeToBurnInPts(s.start, map),
+      end: mapProgramTimeToBurnInPts(s.end, map),
+    }))
+    .filter((s) => s.end > s.start + minSeg);
+}
+
 export function scaleSubtitleLinesTimesInPlace(lines, scale) {
   if (!Array.isArray(lines) || !Number.isFinite(scale) || Math.abs(scale - 1) < DURATION_RATIO_SCALE_THRESHOLD) {
     return lines;

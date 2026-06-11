@@ -69,6 +69,7 @@ function isAutoSubtitleProjectDocument(raw) {
  *   virtualTimelineDeleted: import("../shared/virtual-timeline.js").VirtualTimelineBlock[],
  *   hardDeletedMediaSkips: { start: number, end: number }[],
  *   gapFillWhenBuildingVrew: boolean,
+ *   playbackSnapshot?: { programSec: number, listPlaybackClipPos: number } | null,
  * }} SubtitleHistoryEntry
  */
 
@@ -101,7 +102,7 @@ export function deriveVisibleSubtitleLinesForUi(lines) {
 
 export class SubtitleAppHub {
   /**
-   * @param {{ onStateChange?: () => void }} [opts]
+   * @param {{ onStateChange?: () => void, playbackSnapshotProvider?: () => { programSec: number, listPlaybackClipPos: number } | null }} [opts]
    */
   constructor(opts = {}) {
     /** @type {Block[]} */
@@ -124,6 +125,10 @@ export class SubtitleAppHub {
     /** @type {SubtitleHistoryEntry[]} */
     this._redoStack = [];
     this.onStateChange = opts.onStateChange || (() => {});
+    /** @type {(() => { programSec: number, listPlaybackClipPos: number } | null) | null} */
+    this._playbackSnapshotProvider = opts.playbackSnapshotProvider || null;
+    /** @type {{ programSec: number, listPlaybackClipPos: number } | null} */
+    this._restoredPlaybackSnapshot = null;
 
     Object.defineProperty(this, "cues", {
       configurable: true,
@@ -442,6 +447,24 @@ export class SubtitleAppHub {
     this.onStateChange();
   }
 
+  _capturePlaybackSnapshot() {
+    if (typeof this._playbackSnapshotProvider !== "function") return null;
+    const snap = this._playbackSnapshotProvider();
+    if (!snap || !Number.isFinite(Number(snap.programSec))) return null;
+    return {
+      programSec: Number(snap.programSec) || 0,
+      listPlaybackClipPos: Number.isInteger(snap.listPlaybackClipPos)
+        ? snap.listPlaybackClipPos
+        : -1,
+    };
+  }
+
+  consumeRestoredPlaybackSnapshot() {
+    const snap = this._restoredPlaybackSnapshot;
+    this._restoredPlaybackSnapshot = null;
+    return snap;
+  }
+
   /**
    * @param {SubtitleHistoryEntry} snap
    */
@@ -452,6 +475,9 @@ export class SubtitleAppHub {
       virtualTimelineDeleted: JSON.parse(JSON.stringify(snap.virtualTimelineDeleted)),
       hardDeletedMediaSkips: JSON.parse(JSON.stringify(snap.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: snap.gapFillWhenBuildingVrew,
+      playbackSnapshot: snap.playbackSnapshot
+        ? { ...snap.playbackSnapshot }
+        : this._capturePlaybackSnapshot(),
     });
     if (this._undoStack.length > MAX_HISTORY) this._undoStack.shift();
     this._redoStack = [];
@@ -464,6 +490,7 @@ export class SubtitleAppHub {
       virtualTimelineDeleted: this.virtualTimelineDeleted,
       hardDeletedMediaSkips: this.hardDeletedMediaSkips,
       gapFillWhenBuildingVrew: this.gapFillWhenBuildingVrew,
+      playbackSnapshot: this._capturePlaybackSnapshot(),
     };
   }
 
@@ -666,6 +693,7 @@ export class SubtitleAppHub {
       virtualTimelineDeleted: JSON.parse(JSON.stringify(cur.virtualTimelineDeleted)),
       hardDeletedMediaSkips: JSON.parse(JSON.stringify(cur.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: cur.gapFillWhenBuildingVrew,
+      playbackSnapshot: cur.playbackSnapshot ? { ...cur.playbackSnapshot } : null,
     });
     const entry = this._undoStack.pop();
     this.blocks = JSON.parse(JSON.stringify(entry.blocks));
@@ -673,6 +701,9 @@ export class SubtitleAppHub {
     this.virtualTimelineDeleted = entry.virtualTimelineDeleted || [];
     this.hardDeletedMediaSkips = entry.hardDeletedMediaSkips || [];
     this.gapFillWhenBuildingVrew = entry.gapFillWhenBuildingVrew;
+    this._restoredPlaybackSnapshot = entry.playbackSnapshot
+      ? { ...entry.playbackSnapshot }
+      : null;
     this._rebuildVirtualIndex();
     this._derivedCues = null;
     this._notify();
@@ -689,6 +720,7 @@ export class SubtitleAppHub {
       virtualTimelineDeleted: JSON.parse(JSON.stringify(cur.virtualTimelineDeleted)),
       hardDeletedMediaSkips: JSON.parse(JSON.stringify(cur.hardDeletedMediaSkips || [])),
       gapFillWhenBuildingVrew: cur.gapFillWhenBuildingVrew,
+      playbackSnapshot: cur.playbackSnapshot ? { ...cur.playbackSnapshot } : null,
     });
     const entry = this._redoStack.pop();
     this.blocks = JSON.parse(JSON.stringify(entry.blocks));
@@ -696,6 +728,9 @@ export class SubtitleAppHub {
     this.virtualTimelineDeleted = entry.virtualTimelineDeleted || [];
     this.hardDeletedMediaSkips = entry.hardDeletedMediaSkips || [];
     this.gapFillWhenBuildingVrew = entry.gapFillWhenBuildingVrew;
+    this._restoredPlaybackSnapshot = entry.playbackSnapshot
+      ? { ...entry.playbackSnapshot }
+      : null;
     this._rebuildVirtualIndex();
     this._derivedCues = null;
     this._notify();

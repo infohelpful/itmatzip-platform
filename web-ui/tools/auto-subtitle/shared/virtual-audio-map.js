@@ -10,11 +10,34 @@ import { normalizeCutRanges, remapTimeByCuts } from "../export/export-timeline.j
 
 const CLIP_END_TAIL_PAD_SEC = 0.2;
 
+/** Python `MAX_FILTER_CONCAT_SEGMENTS` (`auto_subtitle_burn_in.py`) 와 동기화 */
+export const MAX_FAST_PATH_SEGMENTS = 256;
+
+const KEEP_SEGMENT_EPS = 1e-6;
+
+/**
+ * 유효 keep run 개수 — Python `normalize_keep_segments` 와 동치.
+ *
+ * @param {readonly object[] | null | undefined} map
+ */
+export function countValidKeepSegments(map) {
+  let count = 0;
+  for (const raw of map || []) {
+    if (!raw || typeof raw !== "object") continue;
+    const start = Number(raw.sourceStart ?? raw.source_start ?? NaN);
+    const end = Number(raw.sourceEnd ?? raw.source_end ?? NaN);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    if (end > start + KEEP_SEGMENT_EPS) count += 1;
+  }
+  return count;
+}
+
 /**
  * @typedef {{
  *   cueIndex: number,
  *   sourceStart: number,
  *   sourceEnd: number,
+ *   effectiveSourceEnd: number,
  *   editStart: number,
  *   editEnd: number,
  *   isSilence: boolean,
@@ -44,8 +67,9 @@ function trimSourceSpanByCuts(srcStart, srcEnd, cuts) {
 /**
  * @param {object} cue
  * @param {object | null} nextCue
+ * @param {boolean} [withTailPad]
  */
-function clipSourceEndForCue(cue, nextCue = null) {
+function clipSourceEndForCue(cue, nextCue = null, withTailPad = true) {
   const mediaStart = getCueSourceStart(cue);
   let mediaEnd = getCueSourceEnd(cue);
   const words = getCueWords(cue);
@@ -54,7 +78,7 @@ function clipSourceEndForCue(cue, nextCue = null) {
     if (!wordVisibleInWordChipRail(w)) continue;
     const e = getWordSourceEnd(w, cue);
     if (Number.isFinite(e)) {
-      mediaEnd = Math.max(mediaEnd, e + CLIP_END_TAIL_PAD_SEC);
+      mediaEnd = Math.max(mediaEnd, e + (withTailPad ? CLIP_END_TAIL_PAD_SEC : 0));
       break;
     }
   }
@@ -65,10 +89,15 @@ function clipSourceEndForCue(cue, nextCue = null) {
     }
     const nextSourceStart = getCueSourceStart(nextCue);
     if (Number.isFinite(nextSourceStart) && nextSourceStart > mediaEnd + 1e-5) {
-      mediaEnd = nextSourceStart;
+      if (withTailPad) mediaEnd = nextSourceStart;
     }
   }
   return mediaEnd;
+}
+
+/** 전환 판정용 — tail pad 미포함 */
+function clipEffectiveSourceEndForCue(cue, nextCue = null) {
+  return clipSourceEndForCue(cue, nextCue, false);
 }
 
 /**
@@ -81,6 +110,56 @@ export function isSourceStartMonotonic(map) {
     if (map[i].sourceStart + 1e-5 < map[i - 1].sourceStart) return false;
   }
   return true;
+}
+
+/**
+ * @param {readonly VirtualAudioSegment[]} segments
+ */
+function removeAdjacentSourceOverlaps(segments) {
+  if (segments.length <= 1) return segments.map((s) => ({ ...s }));
+  /** @type {VirtualAudioSegment[]} */
+  const out = segments.map((s) => ({ ...s }));
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const a = out[i];
+    const b = out[i + 1];
+    const overlapStart = Math.max(a.sourceStart, b.sourceStart);
+    const overlapEnd = Math.min(a.sourceEnd, b.sourceEnd);
+    if (overlapEnd <= overlapStart + KEEP_SEGMENT_EPS) continue;
+    if (b.sourceStart >= a.sourceStart - KEEP_SEGMENT_EPS) {
+      a.sourceEnd = Math.min(a.sourceEnd, b.sourceStart);
+      if (Number.isFinite(a.effectiveSourceEnd)) {
+        a.effectiveSourceEnd = Math.min(a.effectiveSourceEnd, b.sourceStart);
+      }
+    } else {
+      b.sourceStart = Math.max(b.sourceStart, a.sourceEnd);
+      if (Number.isFinite(b.effectiveSourceEnd)) {
+        b.effectiveSourceEnd = Math.max(b.effectiveSourceEnd, a.sourceEnd);
+      }
+    }
+    if (a.sourceEnd <= a.sourceStart + KEEP_SEGMENT_EPS) {
+      out.splice(i, 1);
+      i -= 1;
+      continue;
+    }
+    if (b.sourceEnd <= b.sourceStart + KEEP_SEGMENT_EPS) {
+      out.splice(i + 1, 1);
+    }
+  }
+  return out.filter((s) => s.sourceEnd > s.sourceStart + KEEP_SEGMENT_EPS);
+}
+
+/**
+ * @param {readonly VirtualAudioSegment[]} segments
+ */
+function recalcEditTimelineFromSource(segments) {
+  let cursor = 0;
+  return segments.map((s) => {
+    const dur = s.sourceEnd - s.sourceStart;
+    const editStart = cursor;
+    const editEnd = cursor + dur;
+    cursor = editEnd;
+    return { ...s, editStart, editEnd };
+  });
 }
 
 /**
@@ -104,6 +183,7 @@ export function buildVirtualAudioMap(cues, opts = {}) {
 
     let srcStart = getCueSourceStart(cue);
     let srcEnd = clipSourceEndForCue(cue, nextCue);
+    let effectiveEnd = clipEffectiveSourceEndForCue(cue, nextCue);
     if (srcEnd <= srcStart + 1e-5) continue;
 
     if (cuts.length) {
@@ -111,7 +191,10 @@ export function buildVirtualAudioMap(cues, opts = {}) {
       if (!trimmed) continue;
       srcStart = trimmed.sourceStart;
       srcEnd = trimmed.sourceEnd;
+      const trimmedEff = trimSourceSpanByCuts(srcStart, effectiveEnd, cuts);
+      effectiveEnd = trimmedEff ? trimmedEff.sourceEnd : srcEnd;
     }
+    effectiveEnd = Math.max(srcStart, Math.min(effectiveEnd, srcEnd));
 
     const dur = srcEnd - srcStart;
     const editStart = editCursor;
@@ -120,13 +203,15 @@ export function buildVirtualAudioMap(cues, opts = {}) {
       cueIndex,
       sourceStart: srcStart,
       sourceEnd: srcEnd,
+      effectiveSourceEnd: effectiveEnd,
       editStart,
       editEnd,
       isSilence: !!(cue.is_silence || cue.isSilence),
     });
     editCursor = editEnd;
   }
-  return segments;
+  const deduped = removeAdjacentSourceOverlaps(segments);
+  return recalcEditTimelineFromSource(deduped);
 }
 
 /**

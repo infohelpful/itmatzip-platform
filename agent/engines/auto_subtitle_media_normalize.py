@@ -629,6 +629,76 @@ def normalize_vfr_cfr(
     _emit(on_progress, 100.0, "미디어 정규화", "VFR 정규화 완료")
 
 
+def normalize_burnin_media(
+    src: Path,
+    dest: Path,
+    *,
+    target_ntsc_fps: str = _NTSC_FPS,
+    ffmpeg_exe: str | None = None,
+    timeout_sec: float = 7200.0,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Export burn-in 입력 — Contract CFR 강제 (concat_copy 후 1회)."""
+    if not src.is_file():
+        raise FileNotFoundError(f"burn-in normalize 입력 없음: {src}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    ff = ffmpeg_exe or str(get_ffmpeg_executable())
+    fps = str(target_ntsc_fps or _NTSC_FPS).strip() or _NTSC_FPS
+    _emit(on_progress, 1.0, "burn-in CFR", f"CFR 정규화 ({fps})…")
+    tmp = dest.with_suffix(".burnin-cfr.mp4")
+    cmd = [
+        ff,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(src.resolve()),
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "18",
+        "-r",
+        fps,
+        "-vsync",
+        "cfr",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        str(tmp.resolve()),
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=no_window_creationflags(),
+    )
+    tail = ""
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        stripped = line.strip()
+        if stripped:
+            tail = stripped
+    code = proc.wait(timeout=timeout_sec)
+    if code != 0:
+        raise RuntimeError(f"burn-in CFR 정규화 실패: {tail or code}")
+    if not tmp.is_file() or tmp.stat().st_size <= 0:
+        raise RuntimeError("burn-in CFR 정규화 출력이 비어 있습니다.")
+    finalize_mp4_timestamps(tmp, dest, ffmpeg_exe=ff, timeout_sec=min(timeout_sec, 600.0))
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
+    _emit(on_progress, 100.0, "burn-in CFR", "CFR 정규화 완료")
+
+
 def _post_normalize_av_sync(path: Path, *, actions: list[str], on_progress: ProgressCallback | None = None) -> None:
     """CFR 출력 probe — 잔여 start skew 있으면 adelay/trim 2-pass."""
     from engines.auto_subtitle_media_probe import probe_media_timing

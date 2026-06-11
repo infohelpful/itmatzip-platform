@@ -5,16 +5,23 @@
 import { buildTextExport, TEXT_EXPORT_FORMATS } from "../shared/export-subtitle-formats.js";
 import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=4";
 import { anyCueRelocated } from "../shared/dual-axis.js?v=1";
+import { rebuildVirtualIndexFromBlocks } from "../shared/block-timeline-adapter.js?v=1";
+import { buildBlockStitchedProgramExportCues } from "../shared/blocks-to-export.js?v=3";
 import {
-  blocksRequireConcatExport,
-  blocksToVirtualAudioMap,
-  buildBlockStitchedProgramExportCues,
-} from "../shared/blocks-to-export.js?v=1";
+  buildProgramClips,
+  deriveCutRangesFromProgramClips,
+  EXPORT_SCHEMA_VERSION,
+  getProgramDurationSec,
+  programClipsToApiPayload,
+} from "../shared/program-clips-ssot.js?v=3";
+import { blocksToVirtualAudioMap } from "../shared/blocks-to-export.js?v=3";
 import {
   buildStitchedProgramExportCues,
   buildVirtualAudioMap,
+  countValidKeepSegments,
   isSourceStartMonotonic,
-} from "../shared/virtual-audio-map.js?v=2";
+  MAX_FAST_PATH_SEGMENTS,
+} from "../shared/virtual-audio-map.js?v=3";
 
 export const EXPORT_FORMATS = ["video", "srt", "vtt", "ass", "txt", "mp3", "wav"];
 
@@ -45,17 +52,49 @@ export function exportFormatLabel(fmt) {
 }
 
 /**
+ * V5 — legacy concat path disabled; always false for block-based video export.
  * @param {readonly object[]} lastCues
  * @param {readonly { start: number, end: number }[]} cutRanges
  */
 export function computeRequiresConcatExport(lastCues, cutRanges) {
-  const map = buildVirtualAudioMap(lastCues, { cutRanges });
-  const cuts = cutRanges || [];
-  return !(
-    !anyCueRelocated(lastCues) &&
-    cuts.length === 0 &&
-    isSourceStartMonotonic(map)
-  );
+  void lastCues;
+  void cutRanges;
+  return false;
+}
+
+const FILTER_PROGRAM_START_EPS = 0.02;
+const FILTER_PROGRAM_END_EPS = 0.05;
+
+/**
+ * Monotonic Fast-Path에서 filter trim+concat이 필요한지 (편집 없으면 false).
+ *
+ * @param {readonly object[]} virtualAudioMap
+ * @param {number} [mediaDurationSec]
+ */
+export function virtualAudioMapNeedsFilterProgram(virtualAudioMap, mediaDurationSec) {
+  const map = virtualAudioMap || [];
+  if (map.length === 0) return false;
+  if (map.length > 1) return true;
+  const seg = map[0];
+  const s0 = Number(seg.sourceStart ?? seg.source_start ?? 0);
+  const e0 = Number(seg.sourceEnd ?? seg.source_end ?? 0);
+  if (s0 > FILTER_PROGRAM_START_EPS) return true;
+  const dur = Number(mediaDurationSec);
+  if (Number.isFinite(dur) && dur > 0 && e0 < dur - FILTER_PROGRAM_END_EPS) return true;
+  return false;
+}
+
+/**
+ * @param {boolean} requiresConcat
+ * @param {readonly object[]} virtualAudioMap
+ * @param {number} [mediaDurationSec]
+ */
+export function resolveExportTimeAxis(requiresConcat, virtualAudioMap, mediaDurationSec) {
+  if (requiresConcat) return "stitched_program";
+  if (virtualAudioMapNeedsFilterProgram(virtualAudioMap, mediaDurationSec)) {
+    return "filter_program";
+  }
+  return "media";
 }
 
 /**
@@ -75,8 +114,8 @@ export function buildExportCuesForPayload(lastCues, cutRanges, requiresConcat) {
  * @param {readonly { start: number, end: number }[]} cutRanges
  * @param {object} style
  * @param {string} format
- * @param {{ previewMediaPath?: string | null, videoPath?: string | null }} [media]
- * @param {{ blocks?: readonly object[], virtualIndex?: readonly object[] }} [blockOpts]
+ * @param {{ previewMediaPath?: string | null, videoPath?: string | null, programMasterPath?: string | null }} [media]
+ * @param {{ blocks?: readonly object[], virtualIndex?: readonly object[], mediaDurationSec?: number | null }} [blockOpts]
  */
 export function buildExportRequestPayload(
   lastCues,
@@ -90,26 +129,69 @@ export function buildExportRequestPayload(
   const needsMedia = ["video", "mp3", "wav"].includes(fmt);
   const previewMediaPath = media.previewMediaPath ?? null;
   const videoPath = media.videoPath ?? null;
+  const programMasterPath = media.programMasterPath ?? null;
   const blocks = blockOpts.blocks;
-  const virtualIndex = blockOpts.virtualIndex;
-  const useBlocks =
-    Array.isArray(blocks) &&
-    blocks.length > 0 &&
-    Array.isArray(virtualIndex) &&
-    virtualIndex.length > 0;
+  const useBlocks = Array.isArray(blocks) && blocks.length > 0;
 
-  const requiresConcat = useBlocks
-    ? blocksRequireConcatExport(blocks, virtualIndex, cutRanges)
-    : computeRequiresConcatExport(lastCues, cutRanges);
+  if (useBlocks && fmt === "video") {
+    const programClips = buildProgramClips(blocks, cutRanges || []);
+    const programDurationSec = getProgramDurationSec(programClips);
+    const virtualIndex = rebuildVirtualIndexFromBlocks(blocks);
+    const exportCues = buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
+      cutRanges: cutRanges || [],
+      requiresConcat: true,
+    });
+    return {
+      format: fmt,
+      cues: exportCues,
+      video_path: previewMediaPath || videoPath,
+      preview_media_path: previewMediaPath,
+      export_schema_version: EXPORT_SCHEMA_VERSION,
+      program_clips: programClipsToApiPayload(programClips),
+      program_duration_sec: programDurationSec,
+      program_master_path: programMasterPath,
+      virtual_audio_map: [],
+      requires_concat: false,
+      export_time_axis: "program",
+      cut_ranges: [],
+      style: style || {},
+    };
+  }
+
+  if (useBlocks && needsMedia && fmt !== "video") {
+    const programClips = buildProgramClips(blocks, cutRanges || []);
+    const mediaEndHint = Math.max(
+      Number(blockOpts.mediaDurationSec) || 0,
+      ...programClips.map((c) => Number(c.sourceEnd) || 0),
+    );
+    const derivedCuts = deriveCutRangesFromProgramClips(programClips, mediaEndHint);
+    const virtualIndex = rebuildVirtualIndexFromBlocks(blocks);
+    const virtualAudioMap = blocksToVirtualAudioMap(blocks, virtualIndex, {
+      cutRanges: derivedCuts,
+    });
+    const exportCues = buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
+      cutRanges: derivedCuts,
+      requiresConcat: true,
+    });
+    return {
+      format: fmt,
+      cues: exportCues,
+      video_path: previewMediaPath || videoPath,
+      preview_media_path: previewMediaPath,
+      virtual_audio_map: virtualAudioMap,
+      requires_concat: false,
+      export_time_axis: "program",
+      cut_ranges: [],
+      style: style || {},
+    };
+  }
+
   const virtualAudioMap = useBlocks
-    ? blocksToVirtualAudioMap(blocks, virtualIndex, { cutRanges })
+    ? blocksToVirtualAudioMap(blocks, rebuildVirtualIndexFromBlocks(blocks), { cutRanges })
     : buildVirtualAudioMap(lastCues, { cutRanges });
-  const exportCues = useBlocks
-    ? buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
-        cutRanges,
-        requiresConcat,
-      })
-    : buildExportCuesForPayload(lastCues, cutRanges, requiresConcat);
+  const requiresConcat = false;
+  const exportTimeAxis = "media";
+  const exportCues = buildExportCueLines(lastCues);
 
   return {
     format: fmt,
@@ -118,8 +200,8 @@ export function buildExportRequestPayload(
     preview_media_path: needsMedia ? previewMediaPath : null,
     virtual_audio_map: virtualAudioMap,
     requires_concat: requiresConcat,
-    export_time_axis: requiresConcat ? "stitched_program" : "media",
-    cut_ranges: requiresConcat ? [] : cutRanges || [],
+    export_time_axis: exportTimeAxis,
+    cut_ranges: cutRanges || [],
     style: style || {},
   };
 }

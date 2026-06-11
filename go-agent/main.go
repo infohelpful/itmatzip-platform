@@ -305,6 +305,7 @@ func runAgent(port int, grpcPort int, fastapiPort int, startGRPC bool, startFast
 	if err := ensurePaths(); err != nil {
 		return fmt.Errorf("ensure paths: %w", err)
 	}
+	ensureBundledFFmpegInstalled()
 	setupLogging()
 	initJobObject()
 

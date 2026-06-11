@@ -7,6 +7,7 @@ import { collectDeletedWordSkipRangesFromLines } from "./shared/virtual-timeline
 import { listableCueIndices } from "./shared/subtitle-list-indices.js?v=5";
 import { getCueWords, visibleWords } from "./subtitle-words.js?v=18";
 import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
+import { getWordSourceEnd, getWordSourceStart } from "./shared/dual-axis.js?v=1";
 import {
   findVirtualIndexEntryByVirtualSec,
   mapMediaToBlockVirtualSec,
@@ -372,14 +373,166 @@ export function pickActiveWordIndexWithHint(cue, t, hintWi = -1) {
 }
 
 /**
+ * @param {number} sourceSec
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} programClip
+ */
+export function sourceSecToProgramSecInClip(sourceSec, programClip) {
+  if (!programClip) return NaN;
+  const src = Number(sourceSec);
+  const pcStart = Number(programClip.programStart);
+  const srcStart = Number(programClip.sourceStart);
+  if (!Number.isFinite(src) || !Number.isFinite(pcStart) || !Number.isFinite(srcStart)) {
+    return NaN;
+  }
+  return pcStart + (src - srcStart);
+}
+
+/**
+ * @param {object} word
+ * @param {object} cue
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} programClip
+ */
+function wordProgramSpan(word, cue, programClip) {
+  return {
+    start: sourceSecToProgramSecInClip(getWordSourceStart(word, cue), programClip),
+    end: sourceSecToProgramSecInClip(getWordSourceEnd(word, cue), programClip),
+  };
+}
+
+/**
+ * @param {number} programSec
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} programClip
+ */
+function timeInProgramClipSpan(programSec, programClip) {
+  if (!programClip) return false;
+  const t = Number(programSec);
+  const ps = Number(programClip.programStart);
+  const pe = Number(programClip.programEnd);
+  if (!Number.isFinite(t) || !Number.isFinite(ps) || !Number.isFinite(pe)) return false;
+  return t >= ps - TIME_EPS && t < pe + TIME_EPS;
+}
+
+/**
+ * @param {object} cue
+ * @param {number} programSec
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} programClip
+ */
+function pickActiveWordIndexForProgramHighlight(cue, programSec, programClip) {
+  if (!cue || !programClip) return -1;
+  const t = Number(programSec);
+  if (!Number.isFinite(t)) return -1;
+  const clipEnd = Number(programClip.programEnd);
+  const words = getCueWords(cue);
+  let lastVis = -1;
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const { start: s, end: e } = wordProgramSpan(w, cue, programClip);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    const effectiveEnd =
+      Number.isFinite(clipEnd) ? Math.min(e, clipEnd) : e;
+    if (s >= clipEnd - TIME_EPS) continue;
+    lastVis = wi;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < effectiveEnd + TIME_EPS) return wi;
+  }
+  if (!timeInProgramClipSpan(t, programClip)) return -1;
+  if (lastVis >= 0) {
+    const le = wordProgramSpan(words[lastVis], cue, programClip).end;
+    if (Number.isFinite(le) && t >= le - TIME_EPS) return lastVis;
+  }
+  return -1;
+}
+
+/**
+ * @param {object} cue
+ * @param {number} programSec
+ * @param {number} hintWi
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} programClip
+ */
+function pickActiveWordIndexWithHintForProgramHighlight(
+  cue,
+  programSec,
+  hintWi,
+  programClip,
+) {
+  const exact = pickActiveWordIndexForProgramHighlight(cue, programSec, programClip);
+  if (exact >= 0) return exact;
+  if (!cue || !timeInProgramClipSpan(programSec, programClip)) return -1;
+
+  const words = getCueWords(cue);
+  const t = Number(programSec);
+
+  if (hintWi >= 0 && hintWi < words.length) {
+    const hw = words[hintWi];
+    if (wordVisibleInWordChipRail(hw)) {
+      const { start: hs, end: he } = wordProgramSpan(hw, cue, programClip);
+      if (
+        Number.isFinite(hs) &&
+        Number.isFinite(he) &&
+        t >= hs - WORD_ONSET_LEAD_SEC &&
+        t <= he + INTER_WORD_GAP_HOLD_SEC
+      ) {
+        return hintWi;
+      }
+    }
+  }
+
+  const clipEnd = Number(programClip.programEnd);
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const { start: s, end: e } = wordProgramSpan(w, cue, programClip);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    const effectiveEnd =
+      Number.isFinite(clipEnd) ? Math.min(e, clipEnd) : e;
+    if (s >= clipEnd - TIME_EPS) continue;
+    if (t >= s - WORD_ONSET_LEAD_SEC && t < effectiveEnd + TIME_EPS) return wi;
+  }
+
+  let lastStarted = -1;
+  for (let wi = 0; wi < words.length; wi += 1) {
+    const w = words[wi];
+    if (!wordVisibleInWordChipRail(w)) continue;
+    const { start: s } = wordProgramSpan(w, cue, programClip);
+    if (!Number.isFinite(s)) continue;
+    if (Number.isFinite(clipEnd) && s >= clipEnd - TIME_EPS) continue;
+    if (t >= s - WORD_ONSET_LEAD_SEC) lastStarted = wi;
+  }
+
+  if (lastStarted >= 0) {
+    if (hintWi >= 0 && lastStarted > hintWi) {
+      const ns = wordProgramSpan(words[lastStarted], cue, programClip).start;
+      if (Number.isFinite(ns) && t < ns - WORD_ONSET_LEAD_SEC) return hintWi;
+    }
+    if (hintWi >= 0 && lastStarted < hintWi) {
+      const he = wordProgramSpan(words[hintWi], cue, programClip).end;
+      const effectiveHe =
+        Number.isFinite(clipEnd) && Number.isFinite(he)
+          ? Math.min(he, clipEnd)
+          : he;
+      if (Number.isFinite(effectiveHe) && t <= effectiveHe + INTER_WORD_GAP_HOLD_SEC) {
+        return hintWi;
+      }
+    }
+    return lastStarted;
+  }
+  if (hintWi >= 0) return hintWi;
+  return -1;
+}
+
+/**
  * 재생 하이라이트 전용 — 겹침 구간에서 앞쪽(작은 인덱스) 단어 우선.
  * 캐럿·트림 UI는 pickActiveWordIndex(Last-match)를 그대로 사용.
  *
  * @param {object} cue
- * @param {number} t
+ * @param {number} t sourceSec, cueClock, 또는 programSec (programClip 지정 시)
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} [programClip]
  * @returns {number}
  */
-export function pickActiveWordIndexForHighlight(cue, t) {
+export function pickActiveWordIndexForHighlight(cue, t, programClip = null) {
+  if (programClip) {
+    return pickActiveWordIndexForProgramHighlight(cue, t, programClip);
+  }
   if (!cue) return -1;
   const words = getCueWords(cue);
   let lastVis = -1;
@@ -406,8 +559,17 @@ export function pickActiveWordIndexForHighlight(cue, t) {
  * @param {object} cue
  * @param {number} t
  * @param {number} hintWi
+ * @param {import("./shared/program-clips-ssot.js").ProgramClip} [programClip]
  */
-export function pickActiveWordIndexWithHintForHighlight(cue, t, hintWi = -1) {
+export function pickActiveWordIndexWithHintForHighlight(
+  cue,
+  t,
+  hintWi = -1,
+  programClip = null,
+) {
+  if (programClip) {
+    return pickActiveWordIndexWithHintForProgramHighlight(cue, t, hintWi, programClip);
+  }
   const exact = pickActiveWordIndexForHighlight(cue, t);
   if (exact >= 0) return exact;
   if (!cue || !timeInCueSpan(cue, t)) return -1;

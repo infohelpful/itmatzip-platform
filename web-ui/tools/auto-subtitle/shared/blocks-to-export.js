@@ -4,7 +4,11 @@
 
 import { normalizeCutRanges, remapTimeByCuts } from "../export/export-timeline.js?v=2";
 import { buildExportCueLines } from "./export-cue-pipeline.js?v=4";
-import { isSourceStartMonotonic } from "./virtual-audio-map.js?v=2";
+import {
+  countValidKeepSegments,
+  isSourceStartMonotonic,
+  MAX_FAST_PATH_SEGMENTS,
+} from "./virtual-audio-map.js?v=4";
 
 const EPS = 1e-5;
 const CLIP_END_TAIL_PAD_SEC = 0.2;
@@ -15,6 +19,7 @@ const CLIP_END_TAIL_PAD_SEC = 0.2;
  *   cueIndex: number,
  *   sourceStart: number,
  *   sourceEnd: number,
+ *   effectiveSourceEnd: number,
  *   editStart: number,
  *   editEnd: number,
  *   isSilence: boolean,
@@ -107,14 +112,14 @@ function playableMediaRunsForBlock(block) {
  * @param {import("./block-timeline-adapter.js").Block | null} nextBlock
  * @param {number} mediaEnd
  */
-function clipSourceEndForBlock(block, nextBlock, mediaEnd) {
+function clipSourceEndForBlock(block, nextBlock, mediaEnd, withTailPad = true) {
   let end = mediaEnd;
   const words = block.words || [];
   for (let i = words.length - 1; i >= 0; i -= 1) {
     const w = words[i];
     if (!isPlayableExportWord(w) || w.isSilence) continue;
     const so = Math.max(Number(w.sourceIn) || 0, Number(w.sourceOut) || 0);
-    end = Math.max(end, so + CLIP_END_TAIL_PAD_SEC);
+    end = Math.max(end, so + (withTailPad ? CLIP_END_TAIL_PAD_SEC : 0));
     break;
   }
   if (!nextBlock) return end;
@@ -122,6 +127,10 @@ function clipSourceEndForBlock(block, nextBlock, mediaEnd) {
   if (nextStart > end + EPS) return end;
   if (nextStart > mediaEnd + EPS) return end;
   return end;
+}
+
+function clipEffectiveSourceEndForBlock(block, nextBlock, mediaEnd) {
+  return clipSourceEndForBlock(block, nextBlock, mediaEnd, false);
 }
 
 /**
@@ -138,21 +147,40 @@ function removeAdjacentSourceOverlaps(segments) {
     const overlapEnd = Math.min(a.sourceEnd, b.sourceEnd);
     const overlaps = overlapEnd > overlapStart + EPS;
     if (!overlaps) continue;
-    if (b.sourceStart >= a.sourceStart - EPS) {
-      a.sourceEnd = Math.min(a.sourceEnd, b.sourceStart);
-    } else {
-      b.sourceStart = Math.max(b.sourceStart, a.sourceEnd);
-    }
-    if (a.sourceEnd <= a.sourceStart + EPS) {
-      out.splice(i, 1);
-      i -= 1;
+    // Reorder — program 큐에서 source가 역행하면 각 ProgramClip 소스 구간 유지 (Policy A).
+    if (b.sourceStart < a.sourceStart - EPS) {
       continue;
     }
+    const sameSourceAnchor = Math.abs(b.sourceStart - a.sourceStart) <= EPS;
+    if (b.sourceStart >= a.sourceStart - EPS) {
+      if (!sameSourceAnchor) {
+        a.sourceEnd = Math.min(a.sourceEnd, b.sourceStart);
+        if (Number.isFinite(a.effectiveSourceEnd)) {
+          a.effectiveSourceEnd = Math.min(a.effectiveSourceEnd, b.sourceStart);
+        }
+      }
+    } else {
+      b.sourceStart = Math.max(b.sourceStart, a.sourceEnd);
+      if (Number.isFinite(b.effectiveSourceEnd)) {
+        b.effectiveSourceEnd = Math.max(b.effectiveSourceEnd, a.sourceEnd);
+      }
+    }
+    const MIN_BLOCK_SOURCE_SEC = 1e-4;
+    if (a.sourceEnd <= a.sourceStart + EPS) {
+      a.sourceEnd = a.sourceStart + MIN_BLOCK_SOURCE_SEC;
+      if (Number.isFinite(a.effectiveSourceEnd)) {
+        a.effectiveSourceEnd = Math.max(a.effectiveSourceEnd, a.sourceEnd);
+      }
+    }
     if (b.sourceEnd <= b.sourceStart + EPS) {
-      out.splice(i + 1, 1);
+      b.sourceStart = Math.min(b.sourceStart, a.sourceEnd);
+      b.sourceEnd = b.sourceStart + MIN_BLOCK_SOURCE_SEC;
+      if (Number.isFinite(b.effectiveSourceEnd)) {
+        b.effectiveSourceEnd = Math.max(b.effectiveSourceEnd, b.sourceEnd);
+      }
     }
   }
-  return out.filter((s) => s.sourceEnd > s.sourceStart + EPS);
+  return out;
 }
 
 /**
@@ -194,21 +222,27 @@ export function blocksToExportSegments(blocks, virtualIndex, opts = {}) {
     for (let ri = 0; ri < runs.length; ri += 1) {
       let srcStart = runs[ri].sourceStart;
       let srcEnd = runs[ri].sourceEnd;
+      let effectiveEnd = runs[ri].sourceEnd;
       if (ri === runs.length - 1) {
         srcEnd = clipSourceEndForBlock(block, nextBlock, srcEnd);
+        effectiveEnd = clipEffectiveSourceEndForBlock(block, nextBlock, effectiveEnd);
       }
       if (cuts.length) {
         const trimmed = trimSourceSpanByCuts(srcStart, srcEnd, cuts);
         if (!trimmed) continue;
         srcStart = trimmed.sourceStart;
         srcEnd = trimmed.sourceEnd;
+        const trimmedEff = trimSourceSpanByCuts(srcStart, effectiveEnd, cuts);
+        effectiveEnd = trimmedEff ? trimmedEff.sourceEnd : srcEnd;
       }
+      effectiveEnd = Math.max(srcStart, Math.min(effectiveEnd, srcEnd));
       if (srcEnd <= srcStart + EPS) continue;
       raw.push({
         blockIndex: entry.blockIndex,
         cueIndex: entry.blockIndex,
         sourceStart: srcStart,
         sourceEnd: srcEnd,
+        effectiveSourceEnd: effectiveEnd,
         editStart: 0,
         editEnd: 0,
         isSilence: !!block.isSilence,
@@ -229,11 +263,12 @@ export function blocksToVirtualAudioMap(blocks, virtualIndex, opts = {}) {
  * @param {readonly import("./block-timeline-adapter.js").VirtualIndexEntry[]} virtualIndex
  * @param {readonly { start: number, end: number }[]} cutRanges
  */
+/** @deprecated V5 — program-master path; always false. */
 export function blocksRequireConcatExport(blocks, virtualIndex, cutRanges) {
-  const cuts = cutRanges || [];
-  if (cuts.length > 0) return true;
-  const map = blocksToVirtualAudioMap(blocks, virtualIndex, { cutRanges: cuts });
-  return !isSourceStartMonotonic(map);
+  void blocks;
+  void virtualIndex;
+  void cutRanges;
+  return false;
 }
 
 /**
@@ -307,29 +342,19 @@ export function buildBlockStitchedProgramExportCues(blocks, virtualIndex, cues, 
 export function blocksToOverlayProgramSegments(blocks, virtualIndex, opts = {}) {
   const map = blocksToExportSegments(blocks, virtualIndex, opts);
   /** @type {{ blockIndex: number, editStart: number, editEnd: number, virtualEnd: number, isSilence: boolean }[]} */
-  const byBlock = new Map();
-
-  for (const entry of virtualIndex || []) {
-    const block = blocks[entry.blockIndex];
-    if (!block || block.isDeleted || !isBlockListableForExport(block)) continue;
-    byBlock.set(entry.blockIndex, {
-      blockIndex: entry.blockIndex,
-      editStart: entry.virtualStart,
-      editEnd: entry.virtualEnd,
-      virtualEnd: entry.virtualEnd,
-      isSilence: !!block.isSilence,
-    });
-  }
-
-  /** @type {{ blockIndex: number, editStart: number, editEnd: number, virtualEnd: number, isSilence: boolean }[]} */
   const out = [];
   const seen = new Set();
   for (const seg of map) {
     const bi = seg.blockIndex;
     if (seen.has(bi)) continue;
     seen.add(bi);
-    const virt = byBlock.get(bi);
-    if (virt) out.push(virt);
+    out.push({
+      blockIndex: bi,
+      editStart: seg.editStart,
+      editEnd: seg.editEnd,
+      virtualEnd: seg.editEnd,
+      isSilence: !!seg.isSilence,
+    });
   }
   return out;
 }

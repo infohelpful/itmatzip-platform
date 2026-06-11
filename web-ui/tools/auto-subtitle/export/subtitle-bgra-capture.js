@@ -84,9 +84,99 @@ function ensureCaptureHost(w, h) {
   return captureHostRoot;
 }
 
+function parsePaddingBox(cs) {
+  return {
+    top: parseFloat(cs.paddingTop) || 0,
+    right: parseFloat(cs.paddingRight) || 0,
+    bottom: parseFloat(cs.paddingBottom) || 0,
+    left: parseFloat(cs.paddingLeft) || 0,
+  };
+}
+
+function formatPaddingBox(pad) {
+  return `${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px`;
+}
+
 /**
- * 프리뷰와 동일한 인라인 스타일로 자막 요소를 생성합니다.
- * updatePreviewOverlay()와 완전히 동일한 CSS 속성을 사용합니다.
+ * foreignObject는 flex 세로 중앙이 깨지므로, 프리뷰 박스 기준 텍스트 블록을 패딩으로 중앙 맞춤.
+ * @param {HTMLElement} inner
+ * @param {DOMRect} hostRect
+ * @param {DOMRect} box
+ */
+function computeCenteredPaddingBox(inner, hostRect, box) {
+  const pad = parsePaddingBox(getComputedStyle(inner));
+  const relY = box.top - hostRect.top;
+  const lines = collectTextLines(inner, hostRect);
+  if (!lines.length) return pad;
+
+  const textTop = lines[0].top - hostRect.top;
+  const textBottom =
+    lines[lines.length - 1].top + lines[lines.length - 1].height - hostRect.top;
+  const textCenter = (textTop + textBottom) / 2;
+  const boxCenter = relY + box.height / 2;
+  const shift = boxCenter - textCenter;
+
+  return {
+    top: Math.max(0, pad.top + shift),
+    right: pad.right,
+    bottom: Math.max(0, pad.bottom - shift),
+    left: pad.left,
+  };
+}
+
+function escapeExportMarkupText(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Export 전용 — 프리뷰 layout 스냅샷을 foreignObject에 반영 (flex 금지: SVG에서 세로 중앙 깨짐).
+ * @param {HTMLElement} inner
+ * @param {DOMRect} hostRect
+ */
+function buildExportCaptureInnerMarkup(inner, hostRect) {
+  const box = inner.getBoundingClientRect();
+  const relX = box.left - hostRect.left;
+  const relY = box.top - hostRect.top;
+  const cs = getComputedStyle(inner);
+  const stroke =
+    inner.style.webkitTextStroke ||
+    `${cs.webkitTextStrokeWidth || "0px"} ${cs.webkitTextStrokeColor || "transparent"}`.trim();
+  const bg = inner.style.background || cs.background;
+  const padding = formatPaddingBox(computeCenteredPaddingBox(inner, hostRect, box));
+  const display = cs.display === "inline-flex" || cs.display === "flex" ? "inline-block" : cs.display;
+
+  return `<div style="
+      position:absolute;
+      left:${relX}px;
+      top:${relY}px;
+      width:${box.width}px;
+      height:${box.height}px;
+      display:${display};
+      box-sizing:${cs.boxSizing};
+      text-align:${cs.textAlign};
+      font-family:${cs.fontFamily};
+      font-size:${cs.fontSize};
+      font-weight:${cs.fontWeight};
+      color:${cs.color};
+      -webkit-text-stroke:${stroke};
+      paint-order:${cs.paintOrder || "stroke fill"};
+      background:${bg};
+      padding:${padding};
+      line-height:${cs.lineHeight};
+      border-radius:${cs.borderRadius};
+      border:${inner.style.border || cs.border};
+      word-break:${cs.wordBreak};
+      overflow-wrap:${cs.overflowWrap};
+      white-space:${cs.whiteSpace};
+      max-width:${cs.maxWidth};
+    ">${escapeExportMarkupText(inner.textContent)}</div>`;
+}
+
+/**
+ * 프리뷰 updatePreviewOverlay()와 동일한 인라인 스타일로 export 캡처용 DOM 생성.
  */
 function mountSubtitleOnHost(host, text, st) {
   const inner = document.createElement("div");
@@ -100,6 +190,7 @@ function mountSubtitleOnHost(host, text, st) {
     right: ${pos.right};
     transform: ${pos.transform};
     text-align: ${pos.textAlign};
+    display: inline-block;
     font-family: ${JSON.stringify(st.fontFamily)}, "Malgun Gothic", sans-serif;
     font-size: ${st.fontSize}px;
     font-weight: ${st.fontWeight};
@@ -121,41 +212,16 @@ function mountSubtitleOnHost(host, text, st) {
 }
 
 /**
- * SVG foreignObject를 사용하여 DOM을 Canvas로 캡처합니다.
- * -webkit-text-stroke가 foreignObject에서 작동하지 않으므로,
- * Canvas에서 stroke를 별도로 그립니다.
+ * SVG foreignObject — layout된 inner computed style 스냅샷 + 배경 박스 내 세로 중앙.
  */
 async function captureViaForeignObject(host, inner, st, w, h) {
   const sw = w * CAPTURE_SCALE;
   const sh = h * CAPTURE_SCALE;
 
-  const innerBox = inner.getBoundingClientRect();
   const hostRect = host.getBoundingClientRect();
-  const relX = innerBox.left - hostRect.left;
-  const relY = innerBox.top - hostRect.top;
+  const innerMarkup = buildExportCaptureInnerMarkup(inner, hostRect);
 
-  const wrapperHtml = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;position:relative;overflow:hidden;">
-    <div style="
-      position:absolute;
-      left:${relX}px;
-      top:${relY}px;
-      width:${innerBox.width}px;
-      text-align:${st.align};
-      font-family:${JSON.stringify(st.fontFamily)}, 'Malgun Gothic', sans-serif;
-      font-size:${st.fontSize}px;
-      font-weight:${st.fontWeight};
-      color:${st.textColor};
-      background:${st.background};
-      padding:${st.chrome.padding};
-      line-height:${st.chrome.lineHeight};
-      border-radius:${st.chrome.borderRadius}px;
-      border:${st.chrome.border};
-      box-sizing:${st.chrome.boxSizing};
-      word-break:keep-all;
-      overflow-wrap:normal;
-      white-space:normal;
-    ">${inner.textContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
-  </div>`;
+  const wrapperHtml = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${w}px;height:${h}px;position:relative;overflow:hidden;">${innerMarkup}</div>`;
 
   const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${sw}" height="${sh}" viewBox="0 0 ${w} ${h}">
     <foreignObject width="100%" height="100%">${wrapperHtml}</foreignObject>
@@ -182,10 +248,6 @@ async function captureViaForeignObject(host, inner, st, w, h) {
   ctx.clearRect(0, 0, sw, sh);
   ctx.drawImage(img, 0, 0, sw, sh);
 
-  if (st.strokeWidth > 0) {
-    drawStrokeLayer(inner, st, hostRect, ctx, CAPTURE_SCALE);
-  }
-
   const outCanvas = document.createElement("canvas");
   outCanvas.width = w;
   outCanvas.height = h;
@@ -195,31 +257,6 @@ async function captureViaForeignObject(host, inner, st, w, h) {
   octx.imageSmoothingQuality = "high";
   octx.drawImage(canvas, 0, 0, w, h);
   return outCanvas;
-}
-
-/**
- * stroke 레이어만 Canvas에 직접 그리기 (foreignObject에서 text-stroke 비호환 우회).
- */
-function drawStrokeLayer(inner, st, hostRect, ctx, scale) {
-  const lines = collectTextLines(inner, hostRect);
-  const font = `${st.fontWeight} ${st.fontSize * scale}px ${JSON.stringify(st.fontFamily)}, "Malgun Gothic", sans-serif`;
-  ctx.save();
-  ctx.font = font;
-  ctx.textBaseline = "alphabetic";
-  ctx.lineJoin = "round";
-  ctx.lineCap = "round";
-  ctx.lineWidth = st.strokeWidth * scale * 2;
-  ctx.strokeStyle = st.strokeColor;
-  ctx.globalCompositeOperation = "destination-over";
-
-  for (const line of lines) {
-    const metrics = ctx.measureText(line.text);
-    const ascent = metrics.actualBoundingBoxAscent || st.fontSize * scale * 0.82;
-    const x = line.left * scale;
-    const y = line.top * scale + ascent;
-    ctx.strokeText(line.text, x, y);
-  }
-  ctx.restore();
 }
 
 function collectTextLines(inner, hostRect) {
@@ -297,11 +334,22 @@ function drawSubtitleOnCanvas(inner, st, hostRect, ctx) {
   ctx.lineCap = "round";
 
   const lines = collectTextLines(inner, hostRect);
+  if (!lines.length) {
+    ctx.restore();
+    return;
+  }
+
+  const textTop = lines[0].top;
+  const last = lines[lines.length - 1];
+  const textBottom = last.top + last.height;
+  const textBlockH = textBottom - textTop;
+  const yOffset = relY + box.height / 2 - (textTop + textBlockH / 2);
+
   for (const line of lines) {
     const metrics = ctx.measureText(line.text);
     const ascent = metrics.actualBoundingBoxAscent || st.fontSize * 0.82;
     const x = line.left;
-    const y = line.top + ascent;
+    const y = line.top + ascent + yOffset;
 
     if (st.strokeWidth > 0) {
       ctx.lineWidth = st.strokeWidth * 2;

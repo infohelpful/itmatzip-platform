@@ -145,6 +145,46 @@ export function mapMediaToProgramSec(mediaSec, clips) {
 }
 
 /**
+ * 목록 재정렬 후 동일 source 미디어가 여러 clip에 겹칠 때 — clipPos 힌트로 program 축 보정.
+ *
+ * @param {number} mediaSec
+ * @param {readonly TimelineClip[]} clips
+ * @param {number} clipPosHint
+ */
+export function mapMediaToProgramSecWithClipHint(mediaSec, clips, clipPosHint = -1) {
+  const t = Math.max(0, mediaSec);
+  if (!clips.length) return t;
+  const inClip = (c) => t >= c.mediaStart - 0.02 && t < c.mediaEnd + 0.02;
+
+  if (clipPosHint >= 0 && clipPosHint < clips.length) {
+    const cur = clips[clipPosHint];
+    if (cur && inClip(cur)) {
+      return cur.editStart + (t - cur.mediaStart);
+    }
+    if (clipPosHint + 1 < clips.length) {
+      const next = clips[clipPosHint + 1];
+      if (next && inClip(next)) {
+        return next.editStart + (t - next.mediaStart);
+      }
+    }
+    if (clipPosHint > 0) {
+      const prev = clips[clipPosHint - 1];
+      if (prev && inClip(prev)) {
+        return prev.editStart + (t - prev.mediaStart);
+      }
+    }
+    for (let i = clipPosHint; i < clips.length; i += 1) {
+      if (inClip(clips[i])) return clips[i].editStart + (t - clips[i].mediaStart);
+    }
+    for (let i = clipPosHint - 1; i >= 0; i -= 1) {
+      if (inClip(clips[i])) return clips[i].editStart + (t - clips[i].mediaStart);
+    }
+  }
+
+  return mapMediaToProgramSec(t, clips);
+}
+
+/**
  * @param {readonly { start: number, end: number }[]} cuts
  * @param {number} mediaEndHintSec
  * @param {{ masterMode?: 'stitched' | 'passthrough' }} [options]

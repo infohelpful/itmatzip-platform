@@ -98,7 +98,7 @@ def probe_media_timing(
     from common.bin_manager import ensure_ffmpeg
 
     try:
-        ensure_ffmpeg(download_timeout_sec=120.0)
+        ensure_ffmpeg(download_timeout_sec=900.0)
     except Exception as exc:
         out["error"] = f"ffmpeg_not_ready: {exc}"
         return out

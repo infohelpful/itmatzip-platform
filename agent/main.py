@@ -45,6 +45,7 @@ from version import AGENT_VERSION  # noqa: E402
 async def _app_lifespan(_app: FastAPI):
     silence_remover_engine.schedule_disk_cache_purge()
     schedule_background_update_checks()
+    _schedule_ffmpeg_bootstrap()
     try:
         from engines import custom_fonts
 
@@ -52,6 +53,24 @@ async def _app_lifespan(_app: FastAPI):
     except Exception:
         pass
     yield
+
+
+def _schedule_ffmpeg_bootstrap() -> None:
+    """MSI vendor 번들 → ProgramData 복사만 (네트워크 다운로드는 /prepare 요청 시)."""
+    import logging
+    import threading
+
+    def _run() -> None:
+        try:
+            from common.bin_manager import bootstrap_ffmpeg_from_install_bundle, is_ffmpeg_ready
+
+            if is_ffmpeg_ready():
+                return
+            bootstrap_ffmpeg_from_install_bundle()
+        except Exception as exc:
+            logging.getLogger(__name__).warning("background ffmpeg bootstrap: %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="ffmpeg-bootstrap").start()
 
 
 class _PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):

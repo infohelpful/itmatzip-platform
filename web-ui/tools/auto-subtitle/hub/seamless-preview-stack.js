@@ -1,20 +1,135 @@
 /**
- * Vrew 스타일 — 비디오 더블 버퍼 + 듀얼 오디오 Web Audio 크로스페이드.
- * 재생 시계·하이라이트는 audibleAudio.currentTime SSOT.
+ * Vrew 스타일 — 비디오 더블 버퍼 + 듀얼 오디오 Web Audio.
+ * v3.1 — True Seamless pass-through, transition mutex, micro-envelope.
  */
 
 import { skipCutRangeAt } from "../playback.js?v=28";
-import { seekWithNudge } from "./html-audio-master-playback.js?v=3";
-import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=4";
+import { seekWithNudge } from "./html-audio-master-playback.js?v=4";
+import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=7";
+import {
+  DELETED_WORD_MEDIA_GAP_SEC,
+  classifyGapTransition,
+  effectiveSourceEndForClip,
+  interClipEffectiveGap,
+  passThroughEpsilonSec,
+} from "../shared/clip-boundary-ssot.js?v=3";
 
 const HAVE_FUTURE = HTMLMediaElement.HAVE_FUTURE_DATA;
 const PREFETCH_LEAD_MIN_SEC = 0.28;
 const PREFETCH_LEAD_MAX_SEC = 1.6;
 const PREFETCH_LEAD_RATIO = 0.2;
-const CROSSFADE_SEC = 0.055;
-const LIST_TAIL_SEC = 0.02;
 const LIST_CLIP_END_EPS_SEC = 0.001;
 const AUDIO_SKIP_MIN_MS = 90;
+const ENVELOPE_FADE_SEC = 0.032;
+const VIDEO_SYNC_PASS_THROUGH_EPS_SEC = 0.12;
+const TRANSITION_IDLE_POLL_MS = 16;
+const TRANSITION_IDLE_MAX_MS = 2400;
+
+/**
+ * List-order — program 큐 우선: natural/micro passThrough 금지 (continuous·edit 유지).
+ * @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls
+ */
+function applyListOrderGapOverride(cls) {
+  if (!cls || cls.kind === "continuous" || cls.kind === "edit") {
+    return cls;
+  }
+  if (cls.kind === "micro" || cls.kind === "natural") {
+    return {
+      ...cls,
+      kind: "edit",
+      realDiscontinuity: true,
+      passThrough: false,
+    };
+  }
+  return cls;
+}
+
+/** @param {import("../shared/timeline-mapping.js").TimelineClip | null | undefined} clip */
+function clipBlockKey(clip) {
+  if (!clip) return null;
+  if (clip.blockId != null && clip.blockId !== "") return String(clip.blockId);
+  if (Number.isInteger(clip.blockIndex) && clip.blockIndex >= 0) {
+    return `idx:${clip.blockIndex}`;
+  }
+  if (Number.isInteger(clip.cueIndex) && clip.cueIndex >= 0) {
+    return `cue:${clip.cueIndex}`;
+  }
+  return null;
+}
+
+/**
+ * PC-LITERAL — programClips 큐 literal: 다른 block이면 source ε-adjacent여도 discontinuity.
+ * L2 edit 유지 · L3 same-block continuous 허용 · L4 same-block natural/micro → gap override.
+ *
+ * @param {import("../shared/timeline-mapping.js").TimelineClip} cur
+ * @param {import("../shared/timeline-mapping.js").TimelineClip} next
+ * @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls
+ */
+function applyListOrderLiteralOverride(cur, next, cls) {
+  if (!cls) return cls;
+  if (cls.kind === "edit") return cls;
+
+  const curBlock = clipBlockKey(cur);
+  const nextBlock = clipBlockKey(next);
+  const sameBlock = curBlock != null && nextBlock != null && curBlock === nextBlock;
+
+  if (cls.sameBlockSplit) {
+    if (cls.kind === "continuous") return cls;
+    return applyListOrderGapOverride(cls);
+  }
+
+  if (!sameBlock) {
+    return {
+      ...cls,
+      kind: "edit",
+      passThrough: false,
+      realDiscontinuity: true,
+      literalBlockJump: true,
+    };
+  }
+
+  if (cls.kind === "continuous") return cls;
+  return applyListOrderGapOverride(cls);
+}
+
+/**
+ * @param {{
+ *   cur: import("../shared/timeline-mapping.js").TimelineClip,
+ *   next: import("../shared/timeline-mapping.js").TimelineClip,
+ *   clips: import("../shared/timeline-mapping.js").TimelineClip[],
+ *   curPos: number,
+ *   nextPos: number,
+ *   skipRanges: { start: number, end: number }[],
+ * }} ctx
+ */
+function classifyListOrderGap(ctx) {
+  return applyListOrderLiteralOverride(
+    ctx.cur,
+    ctx.next,
+    classifyGapTransition({
+      cur: ctx.cur,
+      next: ctx.next,
+      clips: ctx.clips,
+      curPos: ctx.curPos,
+      nextPos: ctx.nextPos,
+      skipRanges: ctx.skipRanges,
+    }),
+  );
+}
+
+/** @param {import("../shared/clip-boundary-ssot.js").GapTransitionClassification} cls */
+function listOrderGapAllowsPassThrough(cur, next, clips, curPos, nextPos, skip) {
+  return (
+    classifyListOrderGap({ cur, next, clips, curPos, nextPos, skipRanges: skip }).kind ===
+    "continuous"
+  );
+}
+
+function delayMs(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 /** Web Audio MediaElementSource — crossOrigin 없으면 CORS 제한으로 무음(zeroes) */
 export function applyPreviewMediaCors(el) {
@@ -75,6 +190,26 @@ function waitMediaReady(el, timeoutMs = 2800) {
   });
 }
 
+/**
+ * @param {HTMLMediaElement} el
+ * @param {number} targetVolume
+ * @param {number} durationSec
+ */
+function rampElementVolume(el, targetVolume, durationSec) {
+  const from = el.volume;
+  const start = performance.now();
+  const ms = Math.max(8, durationSec * 1000);
+  return new Promise((resolve) => {
+    const step = () => {
+      const t = Math.min(1, (performance.now() - start) / ms);
+      el.volume = from + (targetVolume - from) * t;
+      if (t < 1) requestAnimationFrame(step);
+      else resolve(undefined);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
 export class SeamlessPreviewStack {
   /**
    * @param {{
@@ -91,7 +226,6 @@ export class SeamlessPreviewStack {
     this.videoB = els.videoB;
     this.audioA = els.audioA;
     this.audioB = els.audioB;
-    /** 비디오·오디오 활성 레이어 (0=A, 1=B) */
     this.active = 0;
     this.mediaUrl = "";
     this.graphReady = false;
@@ -106,14 +240,24 @@ export class SeamlessPreviewStack {
     /** @type {import("../shared/timeline-mapping.js").TimelineClip[]} */
     this.clips = [];
     this.clipPos = 0;
+    this.committedClipPos = 0;
+    this.pendingClipPos = -1;
     this.prefetchClipPos = -1;
     this.idlePrepared = false;
     this.switchInFlight = false;
+    this._transitionGen = 0;
     /** @type {{ start: number, end: number }[]} */
     this.skipRanges = [];
     this.lastAudioSkipWallMs = 0;
+    this.silenceHoldActive = false;
+    this.silenceWallStartMs = 0;
+    this.silenceFreezeMediaSec = 0;
+    this.silenceClipPos = -1;
+    /** @type {number | null} */
+    this.virtualProgramSec = null;
     /** @type {(() => void) | null} */
     this.onLayerSwapped = null;
+    this._passThroughVideoSync = false;
 
     this.videoA.classList.add("is-layer-active");
     this.videoB.classList.remove("is-layer-active");
@@ -134,7 +278,6 @@ export class SeamlessPreviewStack {
     return this.active === 0 ? this.videoB : this.videoA;
   }
 
-  /** 지금 들리는 오디오 — 시계·하이라이트 SSOT */
   get audibleAudio() {
     return this.active === 0 ? this.audioA : this.audioB;
   }
@@ -149,6 +292,76 @@ export class SeamlessPreviewStack {
 
   get primaryAudio() {
     return this.audioA;
+  }
+
+  isTransitionLocked() {
+    return this.switchInFlight;
+  }
+
+  getCommittedClipPos() {
+    return this.committedClipPos;
+  }
+
+  getPendingClipPos() {
+    return this.pendingClipPos;
+  }
+
+  /**
+   * @param {number} pos
+   */
+  commitClipPos(pos) {
+    const p = Math.max(0, Math.min(pos, Math.max(0, this.clips.length - 1)));
+    this.clipPos = p;
+    this.committedClipPos = p;
+    this.pendingClipPos = -1;
+  }
+
+  /** Hot reorder — prefetch/pending flush 후 committed clipPos 고정 */
+  sealHotReorderStack(clipPos) {
+    this.prefetchClipPos = -1;
+    this.pendingClipPos = -1;
+    this.idlePrepared = false;
+    this._passThroughVideoSync = false;
+    if (this.listMode && this.clips.length) {
+      this.commitClipPos(clipPos);
+    }
+  }
+
+  abortActiveTransition() {
+    this._transitionGen += 1;
+    this.pendingClipPos = -1;
+    this.switchInFlight = false;
+    this.prefetchClipPos = -1;
+    this.idlePrepared = false;
+    this._passThroughVideoSync = false;
+    this.normalizeAudioElementVolumes();
+    this.silenceIdleAudioGain();
+    this.idleVideo.pause();
+    this.idleAudio.pause();
+  }
+
+  async waitTransitionIdle(maxMs = TRANSITION_IDLE_MAX_MS) {
+    const start = performance.now();
+    while (this.switchInFlight && performance.now() - start < maxMs) {
+      await delayMs(TRANSITION_IDLE_POLL_MS);
+    }
+  }
+
+  /**
+   * @param {Record<string, unknown>} [extra]
+   */
+  makeTickResult(extra = {}) {
+    return {
+      ok: true,
+      clipPos: this.committedClipPos,
+      committedClipPos: this.committedClipPos,
+      pendingClipPos: this.pendingClipPos,
+      passThrough: false,
+      realDiscontinuity: false,
+      lockedInFlight: this.switchInFlight,
+      effectiveGap: null,
+      ...extra,
+    };
   }
 
   async ensureAudioGraph() {
@@ -203,15 +416,11 @@ export class SeamlessPreviewStack {
     if (this.gainB) this.gainB.gain.value = b;
   }
 
-  /** Web Audio graph도 element.volume이 신호에 반영됨 — 크로스페이드는 gain만 사용 */
   normalizeAudioElementVolumes() {
     this.audioA.volume = 1;
     this.audioB.volume = 1;
   }
 
-  /**
-   * @param {string} url
-   */
   async setMediaUrl(url) {
     this.mediaUrl = url;
     for (const el of [this.videoA, this.videoB, this.audioA, this.audioB]) {
@@ -222,8 +431,8 @@ export class SeamlessPreviewStack {
   clearMedia() {
     this.mediaUrl = "";
     this.endListOrderPlayback();
+    this.pauseAllMedia();
     for (const el of [this.videoA, this.videoB, this.audioA, this.audioB]) {
-      el.pause();
       el.removeAttribute("src");
       try {
         el.load();
@@ -232,6 +441,12 @@ export class SeamlessPreviewStack {
       }
     }
     this.setGainLevels(1, 0);
+  }
+
+  pauseAllMedia() {
+    for (const el of [this.videoA, this.videoB, this.audioA, this.audioB]) {
+      el.pause();
+    }
   }
 
   applyLayerVisibility() {
@@ -245,22 +460,31 @@ export class SeamlessPreviewStack {
    *   clipPos: number,
    *   skipRanges: { start: number, end: number }[],
    *   startMediaSec: number,
+   *   useEnvelope?: boolean,
    * }} opts
    */
   async beginListOrderPlayback(opts) {
+    await this.waitTransitionIdle();
+    this.abortActiveTransition();
     await this.unlockAudioOutput();
     this.listMode = true;
     this.clips = opts.clips;
-    this.clipPos = Math.max(0, Math.min(opts.clipPos, opts.clips.length - 1));
+    const pos = Math.max(0, Math.min(opts.clipPos, opts.clips.length - 1));
+    this.commitClipPos(pos);
     this.skipRanges = opts.skipRanges || [];
     this.prefetchClipPos = -1;
     this.idlePrepared = false;
-    this.switchInFlight = false;
     this.active = 0;
     this.setGainLevels(1, 0);
 
     const start = skipCutRangeAt(Math.max(0, opts.startMediaSec), this.skipRanges);
-    await this.seekLayerPair(this.activeVideo, this.audibleAudio, start);
+    if (opts.useEnvelope === true) {
+      await this.runEnvelopeSeek(async () => {
+        await this.seekLayerPairCore(this.activeVideo, this.audibleAudio, start);
+      });
+    } else {
+      await this.seekLayerPairCore(this.activeVideo, this.audibleAudio, start);
+    }
     this.applyLayerVisibility();
     this.idleVideo.pause();
     this.idleAudio.pause();
@@ -269,12 +493,13 @@ export class SeamlessPreviewStack {
   }
 
   endListOrderPlayback() {
+    this.exitSilenceHold();
     this.listMode = false;
     this.clips = [];
-    this.clipPos = 0;
+    this.commitClipPos(0);
     this.prefetchClipPos = -1;
     this.idlePrepared = false;
-    this.switchInFlight = false;
+    this.abortActiveTransition();
     this.active = 0;
     this.setGainLevels(1, 0);
     this.audioA.volume = 1;
@@ -291,10 +516,9 @@ export class SeamlessPreviewStack {
   }
 
   getClipPos() {
-    return this.clipPos;
+    return this.committedClipPos;
   }
 
-  /** audible 오디오 → 활성 비디오 폴백 — playhead SSOT */
   getMasterPlayheadSec() {
     const audio = this.audibleAudio;
     if (
@@ -336,13 +560,13 @@ export class SeamlessPreviewStack {
    * @param {HTMLAudioElement} audio
    * @param {number} mediaSec
    */
-  seekLayerPair(video, audio, mediaSec) {
+  seekLayerPairCore(video, audio, mediaSec) {
     const t = Math.max(0, mediaSec);
     return new Promise((resolve) => {
       let pending = 0;
       const done = () => {
         pending -= 1;
-        if (pending <= 0) resolve();
+        if (pending <= 0) resolve(undefined);
       };
       if (Math.abs(audio.currentTime - t) > 0.003) {
         pending += 1;
@@ -352,9 +576,93 @@ export class SeamlessPreviewStack {
         pending += 1;
         seekWithNudge(video, t, done);
       }
-      if (pending === 0) resolve();
+      if (pending === 0) resolve(undefined);
       window.setTimeout(resolve, 480);
     });
+  }
+
+  async fadeActiveGainOut(durationSec = ENVELOPE_FADE_SEC) {
+    await this.unlockAudioOutput();
+    const audio = this.audibleAudio;
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const g = this.active === 0 ? this.gainA : this.gainB;
+      const t0 = this.audioCtx.currentTime;
+      g.gain.cancelScheduledValues(t0);
+      g.gain.setValueAtTime(g.gain.value, t0);
+      g.gain.linearRampToValueAtTime(0, t0 + durationSec);
+      await delayMs(Math.ceil(durationSec * 1000) + 10);
+    } else if (audio) {
+      await rampElementVolume(audio, 0, durationSec);
+    }
+  }
+
+  async fadeActiveGainIn(durationSec = ENVELOPE_FADE_SEC) {
+    await this.unlockAudioOutput();
+    const audio = this.audibleAudio;
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const g = this.active === 0 ? this.gainA : this.gainB;
+      const t0 = this.audioCtx.currentTime;
+      g.gain.cancelScheduledValues(t0);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(1, t0 + durationSec);
+      await delayMs(Math.ceil(durationSec * 1000) + 10);
+    } else if (audio) {
+      this.normalizeAudioElementVolumes();
+      await rampElementVolume(audio, 1, durationSec);
+    }
+  }
+
+  /**
+   * @param {() => Promise<void>} seekFn
+   */
+  async runEnvelopeSeek(seekFn) {
+    const gen = this._transitionGen;
+    this.switchInFlight = true;
+    try {
+      await this.fadeActiveGainOut();
+      if (gen !== this._transitionGen) return;
+      await seekFn();
+      if (gen !== this._transitionGen) return;
+      await this.fadeActiveGainIn();
+    } finally {
+      if (gen === this._transitionGen) {
+        this.switchInFlight = false;
+      }
+    }
+  }
+
+  /**
+   * @param {number} nextClipPos
+   * @param {() => Promise<void>} runner
+   */
+  startDiscontinuityTransition(nextClipPos, runner) {
+    if (this.switchInFlight) return;
+    this.switchInFlight = true;
+    this.pendingClipPos = nextClipPos;
+    this._passThroughVideoSync = false;
+    const gen = ++this._transitionGen;
+    this.prefetchClipPos = -1;
+    this.idlePrepared = false;
+
+    void (async () => {
+      try {
+        await this.fadeActiveGainOut();
+        if (gen !== this._transitionGen) return;
+        await runner();
+        if (gen !== this._transitionGen) return;
+        await this.fadeActiveGainIn();
+        if (gen !== this._transitionGen) return;
+        this.commitClipPos(nextClipPos);
+        this.onLayerSwapped?.();
+      } catch (err) {
+        console.warn("[seamless-preview] discontinuity transition failed", err);
+      } finally {
+        if (gen === this._transitionGen) {
+          this.pendingClipPos = -1;
+          this.switchInFlight = false;
+        }
+      }
+    })();
   }
 
   /**
@@ -362,6 +670,7 @@ export class SeamlessPreviewStack {
    * @param {number} nextClipPos
    */
   async prefetchIdleLayer(toMediaSec, nextClipPos) {
+    if (this.switchInFlight) return;
     const idleV = this.idleVideo;
     const idleA = this.idleAudio;
     const to = Math.max(0, toMediaSec);
@@ -375,13 +684,12 @@ export class SeamlessPreviewStack {
     idleV.currentTime = to;
     idleA.currentTime = to;
     await Promise.all([waitMediaReady(idleV), waitMediaReady(idleA)]);
-    if (this.prefetchClipPos === nextClipPos && this.listMode) {
+    if (this.prefetchClipPos === nextClipPos && this.listMode && !this.switchInFlight) {
       this.idlePrepared = true;
       this.silenceIdleAudioGain();
     }
   }
 
-  /** idle 레이어 gain 0 — prefetch·정지 중 누수 방지 */
   silenceIdleAudioGain() {
     if (!this.graphReady || !this.audioCtx || !this.gainA || !this.gainB) return;
     const t0 = this.audioCtx.currentTime;
@@ -393,29 +701,37 @@ export class SeamlessPreviewStack {
     activeGain.gain.setValueAtTime(1, t0);
   }
 
-  /**
-   * 연속 클립(미디어 시각 이어짐)만 크로스페이드 — 역행·재정렬 점프는 겹치면 기계음.
-   * @param {import("../shared/timeline-mapping.js").TimelineClip} cur
-   * @param {import("../shared/timeline-mapping.js").TimelineClip} next
-   * @param {number} mediaSec
-   * @param {boolean} hadPrefetch
-   */
-  shouldCrossfadeClipTransition(cur, next, mediaSec, hadPrefetch) {
-    if (!hadPrefetch) return false;
-    const gap = next.mediaStart - mediaSec;
-    const clipGap = next.mediaStart - cur.mediaEnd;
-    if (gap < -0.02 || gap >= 0.12) return false;
-    if (clipGap < -0.02 || clipGap >= 0.12) return false;
-    return true;
+  restoreActiveAudioGain() {
+    this.silenceIdleAudioGain();
   }
 
   /**
-   * 역행·재정렬 점프 — outgoing 완전 정지 후 idle 단일 재생 (오버랩 없음).
    * @param {number} toMediaSec
    */
-  async hardSwitchToIdleLayer(toMediaSec) {
-    if (this.switchInFlight) return;
-    this.switchInFlight = true;
+  async seekAudibleInPlaceCore(toMediaSec) {
+    const audio = this.audibleAudio;
+    const video = this.activeVideo;
+    const to = Math.max(0, toMediaSec);
+    const wasPlaying = !audio.paused;
+    audio.pause();
+    video.pause();
+    await this.seekLayerPairCore(video, audio, to);
+    if (wasPlaying) {
+      try {
+        await audio.play();
+      } catch {
+        /* ignore */
+      }
+      if (video.paused) {
+        void video.play().catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * @param {number} toMediaSec
+   */
+  async hardSwitchToIdleLayerCore(toMediaSec) {
     await this.unlockAudioOutput();
     this.normalizeAudioElementVolumes();
 
@@ -423,9 +739,8 @@ export class SeamlessPreviewStack {
     const idleV = targetLayer === 0 ? this.videoA : this.videoB;
     const idleA = targetLayer === 0 ? this.audioA : this.audioB;
     const to = Math.max(0, toMediaSec);
-    const outgoingAudible = this.audibleAudio;
 
-    outgoingAudible.pause();
+    this.audibleAudio.pause();
     this.activeVideo.pause();
     if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
       const t0 = this.audioCtx.currentTime;
@@ -443,7 +758,15 @@ export class SeamlessPreviewStack {
 
     this.active = targetLayer;
     this.normalizeAudioElementVolumes();
-    if (this.graphReady) {
+    if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const t0 = this.audioCtx.currentTime;
+      const gTo = targetLayer === 0 ? this.gainA : this.gainB;
+      const gFrom = targetLayer === 0 ? this.gainB : this.gainA;
+      gFrom.gain.cancelScheduledValues(t0);
+      gFrom.gain.setValueAtTime(0, t0);
+      gTo.gain.cancelScheduledValues(t0);
+      gTo.gain.setValueAtTime(0, t0);
+    } else if (this.graphReady) {
       this.setGainLevels(targetLayer === 0 ? 1 : 0, targetLayer === 1 ? 1 : 0);
     }
     this.applyLayerVisibility();
@@ -458,141 +781,277 @@ export class SeamlessPreviewStack {
     } catch {
       /* ignore */
     }
-
-    this.switchInFlight = false;
-    this.onLayerSwapped?.();
   }
 
-  /** 연속 클립 전용 — 짧은 구간만 두 레이어 믹스 */
-  async crossfadeToIdleLayer(toMediaSec) {
-    if (this.switchInFlight) return;
-    this.switchInFlight = true;
-    await this.unlockAudioOutput();
-    this.normalizeAudioElementVolumes();
-
-    const targetLayer = 1 - this.active;
-    const idleV = targetLayer === 0 ? this.videoA : this.videoB;
-    const idleA = targetLayer === 0 ? this.audioA : this.audioB;
-    const to = Math.max(0, toMediaSec);
-
-    idleV.currentTime = to;
-    idleA.currentTime = to;
-    await Promise.all([waitMediaReady(idleV), waitMediaReady(idleA)]);
-
-    try {
-      await idleA.play();
-    } catch {
-      /* ignore */
-    }
-    try {
-      await idleV.play();
-    } catch {
-      /* ignore */
-    }
-
+  /** @param {import("../shared/timeline-mapping.js").TimelineClip} cur */
+  enterSilenceHold(cur) {
+    this.silenceHoldActive = true;
+    this.silenceClipPos = this.committedClipPos;
+    this.silenceWallStartMs = performance.now();
+    this.silenceFreezeMediaSec = Math.max(0, cur.mediaStart);
+    this.virtualProgramSec = cur.editStart;
+    const audio = this.audibleAudio;
+    const video = this.activeVideo;
+    audio.pause();
+    video.pause();
+    this.idleVideo.pause();
+    this.idleAudio.pause();
+    video.currentTime = this.silenceFreezeMediaSec;
     if (this.graphReady && this.audioCtx && this.gainA && this.gainB) {
+      const g = this.active === 0 ? this.gainA : this.gainB;
       const t0 = this.audioCtx.currentTime;
-      const gFrom = this.active === 0 ? this.gainA : this.gainB;
-      const gTo = targetLayer === 0 ? this.gainA : this.gainB;
-      gFrom.gain.cancelScheduledValues(t0);
-      gTo.gain.cancelScheduledValues(t0);
-      gFrom.gain.setValueAtTime(gFrom.gain.value, t0);
-      gFrom.gain.linearRampToValueAtTime(0, t0 + CROSSFADE_SEC);
-      gTo.gain.setValueAtTime(0, t0);
-      gTo.gain.linearRampToValueAtTime(1, t0 + CROSSFADE_SEC);
-    } else {
-      const outgoing = this.audibleAudio;
-      outgoing.volume = 0;
-      idleA.volume = 1;
+      g.gain.cancelScheduledValues(t0);
+      g.gain.setValueAtTime(0, t0);
+    }
+  }
+
+  exitSilenceHold() {
+    if (!this.silenceHoldActive) {
+      this.virtualProgramSec = null;
+      return;
+    }
+    this.silenceHoldActive = false;
+    this.silenceClipPos = -1;
+    this.silenceWallStartMs = 0;
+    this.silenceFreezeMediaSec = 0;
+    this.virtualProgramSec = null;
+    this.restoreActiveAudioGain();
+  }
+
+  /**
+   * @param {import("../shared/timeline-mapping.js").TimelineClip} cur
+   * @param {{ start: number, end: number }[]} skip
+   */
+  tickSilenceClip(cur, skip) {
+    if (!this.silenceHoldActive || this.silenceClipPos !== this.committedClipPos) {
+      this.enterSilenceHold(cur);
+    }
+    const clipDur = Math.max(0.001, cur.editEnd - cur.editStart);
+    const elapsed = (performance.now() - this.silenceWallStartMs) / 1000;
+    const virtualProgramSec = Math.min(cur.editStart + elapsed, cur.editEnd);
+    this.virtualProgramSec = virtualProgramSec;
+
+    if (elapsed < clipDur - LIST_CLIP_END_EPS_SEC) {
+      return this.makeTickResult({
+        silenceHold: true,
+        virtualProgramSec,
+      });
     }
 
-    this.applyLayerVisibility();
-
-    window.setTimeout(() => {
-      const outgoingAudible = this.audibleAudio;
+    const nextPos = this.committedClipPos + 1;
+    if (nextPos >= this.clips.length) {
+      this.exitSilenceHold();
+      this.audibleAudio.pause();
       this.activeVideo.pause();
-      outgoingAudible.pause();
-      this.active = targetLayer;
-      this.normalizeAudioElementVolumes();
-      if (this.graphReady) {
-        this.setGainLevels(targetLayer === 0 ? 1 : 0, targetLayer === 1 ? 1 : 0);
-      }
-      this.applyLayerVisibility();
-      this.switchInFlight = false;
-      this.onLayerSwapped?.();
-    }, Math.ceil(CROSSFADE_SEC * 1000) + 16);
+      return this.makeTickResult({
+        ended: true,
+        virtualProgramSec: cur.editEnd,
+      });
+    }
+
+    const next = this.clips[nextPos];
+    this.exitSilenceHold();
+    this.prefetchClipPos = -1;
+    this.idlePrepared = false;
+
+    if (next.isSilence) {
+      this.commitClipPos(nextPos);
+      return this.tickSilenceClip(next, skip);
+    }
+
+    const to = skipCutRangeAt(next.mediaStart, skip);
+    const interEff = interClipEffectiveGap(cur, next);
+    const silenceEndCls = classifyListOrderGap({
+      cur,
+      next,
+      clips: this.clips,
+      curPos: this.committedClipPos,
+      nextPos,
+      skipRanges: skip,
+    });
+    if (silenceEndCls.kind !== "edit") {
+      this.commitClipPos(nextPos);
+      this._passThroughVideoSync = true;
+      return this.makeTickResult({
+        passThrough: true,
+        silenceEnd: true,
+        virtualProgramSec: cur.editEnd,
+        effectiveGap: interEff,
+        gapKind: silenceEndCls.kind,
+      });
+    }
+
+    this.startDiscontinuityTransition(nextPos, () =>
+      this.hardSwitchToIdleLayerCore(to),
+    );
+    return this.makeTickResult({
+      realDiscontinuity: true,
+      silenceEnd: true,
+      virtualProgramSec: cur.editEnd,
+      effectiveGap: interEff,
+      pendingClipPos: nextPos,
+    });
+  }
+
+  getSilenceVirtualProgramSec() {
+    return this.silenceHoldActive && Number.isFinite(this.virtualProgramSec)
+      ? this.virtualProgramSec
+      : null;
+  }
+
+  /**
+   * list-order — programClips 큐 literal executor (export/burn-in과 동일 의미).
+   * 클립[i].sourceStart~effectiveEnd 재생 후 클립[i+1].sourceStart로 seek.
+   * 예외: 같은 block 분할·source ε-인접(sameBlockSplit+continuous)만 passThrough.
+   */
+  handleClipBoundary(cur, next, nextPos, skip, mediaSec) {
+    const interEff = interClipEffectiveGap(cur, next);
+
+    if (next.isSilence) {
+      this.commitClipPos(nextPos);
+      this.prefetchClipPos = -1;
+      this.idlePrepared = false;
+      return this.tickSilenceClip(next, skip);
+    }
+
+    const cls = classifyListOrderGap({
+      cur,
+      next,
+      clips: this.clips,
+      curPos: this.committedClipPos,
+      nextPos,
+      skipRanges: skip,
+    });
+    const tickMeta = {
+      gapKind: cls.kind,
+      hasCutData: cls.hasCutData,
+      hasSourceJump: cls.hasSourceJump,
+      sameBlockSplit: cls.sameBlockSplit,
+      literalBlockJump: cls.literalBlockJump === true,
+      effectiveGap: interEff,
+      programClipLiteral: true,
+    };
+
+    const nextStart = skipCutRangeAt(next.mediaStart, skip);
+    const eps = passThroughEpsilonSec();
+    const sameBlockPassThrough =
+      cls.sameBlockSplit &&
+      cls.kind === "continuous" &&
+      Math.abs(interEff) <= eps &&
+      mediaSec >= nextStart - LIST_CLIP_END_EPS_SEC;
+
+    if (sameBlockPassThrough) {
+      this.commitClipPos(nextPos);
+      this.prefetchClipPos = -1;
+      this.idlePrepared = false;
+      this._passThroughVideoSync = true;
+      return this.makeTickResult({
+        passThrough: true,
+        realDiscontinuity: false,
+        ...tickMeta,
+      });
+    }
+
+    const useInPlace =
+      interEff > DELETED_WORD_MEDIA_GAP_SEC && mediaSec < nextStart - 0.012;
+    this.startDiscontinuityTransition(
+      nextPos,
+      useInPlace
+        ? () => this.seekAudibleInPlaceCore(nextStart)
+        : () => this.hardSwitchToIdleLayerCore(nextStart),
+    );
+    return this.makeTickResult({
+      realDiscontinuity: true,
+      pendingClipPos: nextPos,
+      literalQueueSeek: "programClip",
+      ...tickMeta,
+    });
   }
 
   /**
    * @param {{ skipRanges?: { start: number, end: number }[] }} opts
    */
   syncListOrderTick(opts) {
-    if (!this.listMode || !this.clips.length || this.switchInFlight) {
-      return { ok: true, clipPos: this.clipPos };
+    if (!this.listMode || !this.clips.length) {
+      return this.makeTickResult({ ok: false });
     }
+    if (this.switchInFlight) {
+      return this.makeTickResult({ lockedInFlight: true });
+    }
+
     const skip = opts.skipRanges ?? this.skipRanges;
     const audio = this.audibleAudio;
     const video = this.activeVideo;
-    if (audio.paused) return { ok: true, paused: true, clipPos: this.clipPos };
-    if (audio.seeking || video.seeking) return { ok: true, clipPos: this.clipPos };
+
+    const curSilence = this.clips[this.committedClipPos];
+    if (curSilence?.isSilence) {
+      return this.tickSilenceClip(curSilence, skip);
+    }
+    if (this.silenceHoldActive) {
+      this.exitSilenceHold();
+    }
+
+    if (audio.paused) {
+      return this.makeTickResult({ paused: true });
+    }
+    if (audio.seeking || video.seeking) {
+      return this.makeTickResult({});
+    }
     if (audio.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       if (!video.paused) video.pause();
-      return { ok: true, clipPos: this.clipPos };
+      return this.makeTickResult({});
     }
     if (video.paused) {
       void video.play().catch(() => undefined);
     }
 
     let mediaSec = Math.max(0, audio.currentTime);
-    const cur = this.clips[this.clipPos];
-    if (!cur) return { ok: false, clipPos: this.clipPos };
+    const cur = this.clips[this.committedClipPos];
+    if (!cur) return this.makeTickResult({ ok: false });
 
+    const effectiveEnd = effectiveSourceEndForClip(cur);
     const remaining = cur.mediaEnd - mediaSec;
     const clipDur = Math.max(0.05, cur.mediaEnd - cur.mediaStart);
     const lead = Math.min(
       PREFETCH_LEAD_MAX_SEC,
       Math.max(PREFETCH_LEAD_MIN_SEC, clipDur * PREFETCH_LEAD_RATIO),
     );
-    const nextPos = this.clipPos + 1;
+    const nextPos = this.committedClipPos + 1;
 
-    if (nextPos < this.clips.length && remaining <= lead && this.prefetchClipPos !== nextPos) {
-      this.prefetchClipPos = nextPos;
+    if (
+      nextPos < this.clips.length &&
+      remaining <= lead &&
+      this.prefetchClipPos !== nextPos &&
+      !this.switchInFlight
+    ) {
       const next = this.clips[nextPos];
-      void this.prefetchIdleLayer(skipCutRangeAt(next.mediaStart, skip), nextPos);
+      const prefetchCls = classifyListOrderGap({
+        cur,
+        next,
+        clips: this.clips,
+        curPos: this.committedClipPos,
+        nextPos,
+        skipRanges: skip,
+      });
+      if (prefetchCls.kind === "edit") {
+        this.prefetchClipPos = nextPos;
+        void this.prefetchIdleLayer(skipCutRangeAt(next.mediaStart, skip), nextPos);
+      }
     }
 
-    if (mediaSec >= cur.mediaEnd - LIST_CLIP_END_EPS_SEC && nextPos < this.clips.length) {
+    const atBoundary =
+      mediaSec >= effectiveEnd - LIST_CLIP_END_EPS_SEC ||
+      mediaSec >= cur.mediaEnd - LIST_CLIP_END_EPS_SEC;
+
+    if (atBoundary && nextPos < this.clips.length) {
       const next = this.clips[nextPos];
-      const gap = next.mediaStart - mediaSec;
-
-      /** inter-cue gap — seek 없이 자연 재생 (꼬리·무음 포함) */
-      if (mediaSec < next.mediaStart - 0.012) {
-        return { ok: true, clipPos: this.clipPos, gapPlayback: true };
+      const tickRes = this.handleClipBoundary(cur, next, nextPos, skip, mediaSec);
+      if (tickRes.gapKind || tickRes.passThrough || tickRes.realDiscontinuity) {
+        if (typeof console.debug === "function") {
+          console.debug("[list-order-tick]", tickRes);
+        }
       }
-
-      if (gap >= -0.015 && gap < 0.1) {
-        this.clipPos = nextPos;
-        this.prefetchClipPos = -1;
-        this.idlePrepared = false;
-        return { ok: true, clipPos: this.clipPos, soft: true };
-      }
-      const to = skipCutRangeAt(next.mediaStart, skip);
-      const hadPrefetch =
-        this.idlePrepared && this.prefetchClipPos === nextPos;
-      this.clipPos = nextPos;
-      this.prefetchClipPos = -1;
-      this.idlePrepared = false;
-      if (this.shouldCrossfadeClipTransition(cur, next, mediaSec, hadPrefetch)) {
-        void this.crossfadeToIdleLayer(to);
-        return { ok: true, clipPos: this.clipPos, crossfade: true };
-      }
-      /** 재정렬·역행 점프만 hard seek */
-      if (hadPrefetch || gap < -0.02 || next.mediaStart - cur.mediaEnd < -0.02) {
-        void this.hardSwitchToIdleLayer(to);
-        return { ok: true, clipPos: this.clipPos, hardSwitch: true };
-      }
-      this.clipPos = nextPos;
-      return { ok: true, clipPos: this.clipPos, soft: true };
+      return tickRes;
     }
 
     const wall = performance.now();
@@ -609,15 +1068,29 @@ export class SeamlessPreviewStack {
       }
     }
 
+    const nextClip = this.clips[nextPos];
+    const passThroughToNext =
+      nextClip &&
+      listOrderGapAllowsPassThrough(
+        cur,
+        nextClip,
+        this.clips,
+        this.committedClipPos,
+        nextPos,
+        skip,
+      );
+    const suppressVideoSeek = this._passThroughVideoSync || passThroughToNext;
+
     if (
+      !suppressVideoSeek &&
       Number.isFinite(video.duration) &&
       video.duration > 0 &&
-      Math.abs(video.currentTime - mediaSec) > 0.12
+      Math.abs(video.currentTime - mediaSec) > VIDEO_SYNC_PASS_THROUGH_EPS_SEC
     ) {
       video.currentTime = Math.min(mediaSec, Math.max(0, video.duration - 0.001));
     }
 
-    return { ok: true, clipPos: this.clipPos };
+    return this.makeTickResult({});
   }
 
   setOnLayerSwapped(cb) {
@@ -678,12 +1151,33 @@ export class PreviewMediaBridge {
     return Boolean(this.stack?.isListOrderMode());
   }
 
+  isTransitionLocked() {
+    return Boolean(this.stack?.isTransitionLocked());
+  }
+
+  getCommittedClipPos() {
+    return this.stack?.getCommittedClipPos() ?? -1;
+  }
+
+  abortActiveTransition() {
+    this.stack?.abortActiveTransition();
+  }
+
+  /** @param {number} clipPos */
+  sealHotReorderStack(clipPos) {
+    this.stack?.sealHotReorderStack(clipPos);
+  }
+
+  async waitTransitionIdle(maxMs) {
+    await this.stack?.waitTransitionIdle(maxMs);
+  }
+
   syncListOrderTick(opts) {
     return this.stack?.syncListOrderTick(opts) ?? { ok: false };
   }
 
   getListClipPos() {
-    return this.stack?.getClipPos() ?? -1;
+    return this.stack?.getCommittedClipPos() ?? -1;
   }
 
   getAudibleMediaSec() {
@@ -694,12 +1188,20 @@ export class PreviewMediaBridge {
     return this.stack?.getMasterPlayheadSec() ?? null;
   }
 
+  getSilenceVirtualProgramSec() {
+    return this.stack?.getSilenceVirtualProgramSec() ?? null;
+  }
+
   isAudioGraphActive() {
     return Boolean(this.stack?.isAudioGraphActive());
   }
 
   async unlockAudioOutput() {
     return Boolean(await this.stack?.unlockAudioOutput());
+  }
+
+  pauseAllMedia() {
+    this.stack?.pauseAllMedia();
   }
 }
 
@@ -718,4 +1220,8 @@ export function initPreviewMediaBridgeFromDom() {
   if (!frame || !videoA || !videoB || !audioA || !audioB) return bridge;
   bridge.bindDom({ frame, videoA, videoB, audioA, audioB });
   return bridge;
+}
+
+export function isListOrderTransitionLocked() {
+  return getPreviewMediaBridge().isTransitionLocked();
 }

@@ -239,6 +239,7 @@ def _concat_ffmpeg(
     on_progress: ExportProgressCallback | None,
     expected_sec: float,
     timeout_sec: float,
+    target_ntsc_fps: str | None = None,
 ) -> None:
     ffmpeg = get_ffmpeg_executable()
     args = [
@@ -253,7 +254,25 @@ def _concat_ffmpeg(
         str(concat_list),
     ]
     if reencode:
-        args.extend(["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "192k"])
+        fps = str(target_ntsc_fps or "30000/1001").strip() or "30000/1001"
+        args.extend(
+            [
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-r",
+                fps,
+                "-vsync",
+                "cfr",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+            ]
+        )
     else:
         args.extend(["-c", "copy"])
     args.extend(["-progress", "pipe:2", "-nostats", str(out_path)])
@@ -272,6 +291,7 @@ def build_concat_master(
     *,
     on_progress: ExportProgressCallback | None = None,
     timeout_sec: float = 7200.0,
+    target_ntsc_fps: str | None = None,
 ) -> tuple[Path, str, dict[str, Any]]:
     """Returns (master_path, export_phase, gate_metrics)."""
     if not preview_media.is_file():
@@ -332,6 +352,7 @@ def build_concat_master(
         on_progress=on_progress,
         expected_sec=expected_end,
         timeout_sec=timeout_sec,
+        target_ntsc_fps=target_ntsc_fps,
     )
 
     ok2, metrics2 = evaluate_dual_quality_gate(

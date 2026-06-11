@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from common.async_io import run_sync
-from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe
+from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe, is_ffmpeg_ready
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
 from engines import silence_remover
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"]
 def _ensure_silence_remover_environment() -> None:
     """무음 탐지 툴이 필요로 하는 로컬 바이너리·Python runtime 만 준비합니다."""
     ensure_silence_remover_runtime(install=True)
-    ensure_ffmpeg(download_timeout_sec=300.0)
+    ensure_ffmpeg(download_timeout_sec=900.0)
 
 
 SilenceRemoverReady = Annotated[None, Depends(_ensure_silence_remover_environment)]
@@ -281,8 +281,8 @@ class SilenceRemoverWaveformAnalyzedBody(BaseModel):
 
 def _silence_binaries_payload() -> dict[str, object]:
     return {
-        "ffmpeg": get_ffmpeg_exe().is_file() or shutil.which("ffmpeg") is not None,
-        "ffprobe": get_ffprobe_exe().is_file() or shutil.which("ffprobe") is not None,
+        "ffmpeg": is_ffmpeg_ready(),
+        "ffprobe": is_ffmpeg_ready(),
         "bin_dir": str(get_bin_root()),
     }
 
@@ -305,7 +305,7 @@ def post_prepare() -> dict[str, object]:
     """FFmpeg/ffprobe가 없으면 다운로드·설치합니다 (최초 1회, 수십 초~수 분 소요 가능)."""
     try:
         ensure_silence_remover_runtime(install=True)
-        ensure_ffmpeg(download_timeout_sec=300.0)
+        ensure_ffmpeg(download_timeout_sec=900.0)
     except Exception as e:
         raise HTTPException(
             status_code=503,

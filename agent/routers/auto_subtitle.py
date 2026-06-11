@@ -18,19 +18,15 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 from common.async_io import run_sync
-from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg
+from common.bin_manager import FFMPEG_EXE, FFPROBE_EXE, ensure_ffmpeg, is_ffmpeg_ready
 
 
 def _ffmpeg_available() -> bool:
-    if FFMPEG_EXE.is_file():
-        return True
-    return shutil.which("ffmpeg") is not None
+    return is_ffmpeg_ready()
 
 
 def _ffprobe_available() -> bool:
-    if FFPROBE_EXE.is_file():
-        return True
-    return shutil.which("ffprobe") is not None
+    return is_ffmpeg_ready()
 from engines import auto_subtitle
 from engines import auto_subtitle_audiowaveform
 from engines import auto_subtitle_export
@@ -57,7 +53,7 @@ def _ensure_auto_subtitle_environment() -> None:
 def _ensure_auto_subtitle_ffmpeg() -> None:
     auto_subtitle.ensure_workspace()
     try:
-        ensure_ffmpeg()
+        ensure_ffmpeg(download_timeout_sec=900.0)
     except TimeoutError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
@@ -110,6 +106,10 @@ class AutoSubtitleTranscribeStatus(BaseModel):
     waveform_peaks_json: dict[str, Any] | None = None
     media_timing: dict[str, Any] | None = None
     preview_media_path: str | None = None
+    program_master_path: str | None = None
+    program_duration_sec: float | None = None
+    program_master_probe_ok: bool | None = None
+    bake_level: str | None = None
 
 
 class CutRangeModel(BaseModel):
@@ -133,9 +133,25 @@ class AutoSubtitleExportBody(BaseModel):
     preview_media_path: str | None = Field(None, description="V41 CFR preview media-cfr.mp4")
     virtual_audio_map: list[dict[str, Any]] = Field(default_factory=list)
     requires_concat: bool | None = Field(None, description="concat demuxer slow-path")
-    export_time_axis: str | None = Field(None, description="stitched_program | media")
+    export_time_axis: str | None = Field(
+        None, description="stitched_program | filter_program | media"
+    )
     cut_ranges: list[CutRangeModel] = Field(default_factory=list)
     style: dict[str, Any] | None = Field(None, description="ASS/SRT/VTT 스타일 (선택)")
+    pipeline_diag: bool = Field(
+        False, description="[BURN-IN-PIPE] agent structured logging for export/concat"
+    )
+    burn_in_media_contract: dict[str, Any] | None = Field(
+        None, description="Preview CFR contract — target_ntsc_fps, preview_duration_sec, timeline_axis"
+    )
+    export_schema_version: int = Field(
+        4, description="5 = V5 programClips + program-master SSOT export"
+    )
+    program_clips: list[dict[str, Any]] = Field(default_factory=list)
+    program_duration_sec: float | None = Field(None, ge=0.0)
+    program_master_path: str | None = Field(
+        None, description="Pre-baked program-master.mp4 (optional cache hit)"
+    )
 
 
 class AutoSubtitleExportStatus(BaseModel):
@@ -148,6 +164,10 @@ class AutoSubtitleExportStatus(BaseModel):
     burnin_media_path: str | None = None
     export_time_axis: str | None = None
     actual_duration: float | None = None
+    video_encoder: str | None = None
+    overlay_mode: str | None = None
+    burn_in_media_contract: dict[str, Any] | None = None
+    program_to_burnin_map: list[dict[str, Any]] | None = None
 
 
 class AutoSubtitleExportFileResponse(BaseModel):
@@ -184,11 +204,32 @@ class AutoSubtitlePngExportBody(BaseModel):
 
 class AutoSubtitleVideoBurnInPrepareBody(BaseModel):
     video_path: str = Field(..., description="로컬 영상 절대 경로")
+    pipeline_diag: bool = Field(
+        False, description="[BURN-IN-PIPE] agent structured logging for this export"
+    )
+
+
+class AutoSubtitleBakeProgramMasterBody(BaseModel):
+    preview_media_path: str = Field(..., description="media-cfr.mp4 path")
+    program_clips: list[dict[str, Any]] = Field(default_factory=list)
+    program_duration_sec: float = Field(..., ge=0.0)
+    target_ntsc_fps: str = Field("30000/1001")
+    export_schema_version: int = Field(5, ge=5)
+    fingerprint: str | None = None
 
 
 class AutoSubtitleVideoBurnInFinishBody(BaseModel):
     job_id: str
+    pipeline_diag: bool = Field(
+        False, description="[BURN-IN-PIPE] agent structured logging for burn-in worker"
+    )
     cut_ranges: list[dict[str, Any]] = Field(default_factory=list)
+    virtual_audio_map: list[dict[str, Any]] = Field(default_factory=list)
+    requires_concat: bool = False
+    export_time_axis: str | None = Field(
+        None, description="program | stitched_program | filter_program | media"
+    )
+    program_duration_sec: float | None = Field(None, ge=0.0)
     watermark: dict[str, Any] | None = Field(
         default=None,
         description='{"path": "C:\\\\logo.png", "position": "top-right"}',
@@ -204,6 +245,10 @@ class AutoSubtitleWaveformPeaksBody(BaseModel):
 
 class AutoSubtitleMediaProbeBody(BaseModel):
     video_path: str = Field(..., description="로컬 미디어 절대 경로")
+
+
+class AutoSubtitleBurnInPipelineDiagBody(BaseModel):
+    enabled: bool = Field(..., description="Burn-in pipeline [BURN-IN-PIPE] agent logging ON/OFF")
 
 
 class AutoSubtitleProjectSaveBody(BaseModel):
@@ -297,7 +342,12 @@ def _run_prepare() -> None:
     except Exception as exc:
         logger.exception("[prepare] failed with exception")
         msg = str(exc)
-        if "WinError 32" in msg or "다른 프로세스가 파일" in msg:
+        if "cannot load module more than once per process" in msg.lower():
+            msg = (
+                "Whisper 네이티브 모듈(ctranslate2)이 이미 로드된 상태에서 재준비를 시도했습니다. "
+                "itmatzip-agent를 트레이에서 완전히 종료한 뒤 다시 실행하고 「환경 준비」를 해 주세요."
+            )
+        elif "WinError 32" in msg or "다른 프로세스가 파일" in msg:
             msg += (
                 " — Windows에서 모델 파일 쓰기가 일시적으로 막혔습니다. "
                 "1~2분 후 「환경 준비」만 다시 시도하세요. "
@@ -474,6 +524,12 @@ def _transcribe_status_payload(job: auto_subtitle.TranscribeJobStatus) -> AutoSu
         waveform_peaks_json=result.get("waveform_peaks_json") if job.phase == "completed" else None,
         media_timing=result.get("media_timing") if job.phase == "completed" else None,
         preview_media_path=result.get("preview_media_path") if job.phase == "completed" else None,
+        program_master_path=result.get("program_master_path") if job.phase == "completed" else None,
+        program_duration_sec=result.get("program_duration_sec") if job.phase == "completed" else None,
+        program_master_probe_ok=result.get("program_master_probe_ok")
+        if job.phase == "completed"
+        else None,
+        bake_level=result.get("bake_level") if job.phase == "completed" else None,
     )
 
 
@@ -780,6 +836,10 @@ def _export_status_payload(job: auto_subtitle_export.ExportJobStatus) -> AutoSub
         burnin_media_path=job.burnin_media_path,
         export_time_axis=job.export_time_axis,
         actual_duration=job.actual_duration,
+        video_encoder=job.video_encoder,
+        overlay_mode=job.overlay_mode,
+        burn_in_media_contract=job.burn_in_media_contract,
+        program_to_burnin_map=job.program_to_burnin_map,
     )
 
 
@@ -793,6 +853,9 @@ def post_export(
     _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleExportStatus:
     """자막 파일·영상 번인·오디오 보내기 job 시작."""
+    from engines.auto_subtitle_burn_in_pipeline_diag import apply_pipeline_diag_request_flag
+
+    apply_pipeline_diag_request_flag(body.pipeline_diag)
     fmt = body.format.lower().strip()
     valid = {"srt", "vtt", "ass", "txt", "video", "mp3", "wav"}
     if fmt not in valid:
@@ -821,6 +884,17 @@ def post_export(
 
     cuts = _cut_ranges_payload(body.cut_ranges)
     vmap = list(body.virtual_audio_map or [])
+    schema_v = int(body.export_schema_version or 4)
+    if schema_v >= 5 and fmt == "video":
+        if not body.program_clips:
+            raise HTTPException(
+                status_code=400,
+                detail="export_schema_version=5 requires program_clips",
+            )
+    master_path: Path | None = None
+    raw_master = (body.program_master_path or "").strip()
+    if raw_master:
+        master_path = _validate_media_path(raw_master)
     try:
         job = auto_subtitle_export.start_export_job(
             fmt,
@@ -831,6 +905,11 @@ def post_export(
             preview_media_path=preview_media,
             virtual_audio_map=vmap if vmap else None,
             requires_concat=body.requires_concat,
+            burn_in_media_contract=body.burn_in_media_contract,
+            export_schema_version=schema_v if schema_v >= 5 else None,
+            program_clips=list(body.program_clips or []) if schema_v >= 5 else None,
+            program_duration_sec=body.program_duration_sec,
+            program_master_path=master_path,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -952,6 +1031,44 @@ async def post_media_probe(
             "source_path": str(media),
             "error": str(exc),
         }
+
+
+@router.post("/media/bake-program-master")
+async def post_media_bake_program_master(
+    body: AutoSubtitleBakeProgramMasterBody,
+    _: AutoSubtitleFfmpeg,
+) -> dict[str, object]:
+    """V5 — programClips → program-master.mp4 (preview/export SSOT)."""
+    if int(body.export_schema_version or 0) < 5:
+        raise HTTPException(status_code=400, detail="export_schema_version>=5 required")
+    preview = _validate_media_path(body.preview_media_path)
+    if not body.program_clips:
+        raise HTTPException(status_code=400, detail="program_clips가 비어 있습니다.")
+    try:
+        from engines.auto_subtitle_program_master import bake_program_master_workspace
+
+        path, duration, metrics = await run_sync(
+            lambda: bake_program_master_workspace(
+                preview,
+                list(body.program_clips),
+                target_ntsc_fps=str(body.target_ntsc_fps or "30000/1001"),
+                program_duration_sec=float(body.program_duration_sec),
+            )
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, TypeError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("bake-program-master failed for %s", preview)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "program_master_path": str(path),
+        "duration_sec": duration,
+        "metrics": metrics,
+        "fingerprint": body.fingerprint,
+    }
 
 
 @router.post("/media/prepare-preview")
@@ -1089,14 +1206,31 @@ async def post_export_video_burn_in_prepare(
     _: AutoSubtitleFfmpeg,
 ) -> dict[str, object]:
     """웹 자막 캡처 번인 — 세션·렌더 해상도 준비."""
+    from engines.auto_subtitle_burn_in_pipeline_diag import (
+        apply_pipeline_diag_request_flag,
+        probe_summary_for_diag,
+    )
+    from engines.auto_subtitle_media_probe import probe_media_timing
+
+    apply_pipeline_diag_request_flag(body.pipeline_diag)
     media = _validate_media_path(body.video_path)
+    contract = auto_subtitle_export.get_active_burn_in_media_contract()
     try:
-        sess = await run_sync(auto_subtitle_burn_in_session.create_session, media)
+        sess = await run_sync(
+            lambda: auto_subtitle_burn_in_session.create_session(
+                media,
+                burn_in_media_contract=contract,
+            )
+        )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if auto_subtitle_export.is_video_export_hold_active():
         auto_subtitle_burn_in_session.register_hold_linked_session(sess.job_id)
     auto_subtitle_export.touch_video_export_idle_activity()
+    probe = probe_media_timing(media)
+    target_fps = None
+    if contract:
+        target_fps = str(contract.get("target_ntsc_fps") or "")
     return {
         "ok": True,
         "job_id": sess.job_id,
@@ -1106,7 +1240,25 @@ async def post_export_video_burn_in_prepare(
         "full_height": sess.full_h,
         "output_path": str(sess.output_path),
         "duration_sec": sess.duration_sec,
+        "export_fps": sess.export_fps,
+        "target_ntsc_fps": target_fps or probe.get("target_ntsc_fps"),
+        "media_probe": probe_summary_for_diag(probe),
     }
+
+
+@router.post("/diag/burn-in-pipeline")
+def post_burn_in_pipeline_diag(
+    body: AutoSubtitleBurnInPipelineDiagBody,
+    _: AutoSubtitleReady,
+) -> dict[str, object]:
+    """FE autoSubtitleBurnInPipelineDiag.enable() — agent [BURN-IN-PIPE] runtime toggle."""
+    from engines.auto_subtitle_burn_in_pipeline_diag import (
+        is_burn_in_pipeline_diag_enabled,
+        set_burn_in_pipeline_diag_enabled,
+    )
+
+    set_burn_in_pipeline_diag_enabled(body.enabled)
+    return {"ok": True, "enabled": is_burn_in_pipeline_diag_enabled()}
 
 
 @router.post("/export/video-burn-in/frame")
@@ -1129,12 +1281,63 @@ async def post_export_video_burn_in_frame(
     return {"ok": True, "index": index}
 
 
+@router.post("/export/video-burn-in/frames-batch")
+async def post_export_video_burn_in_frames_batch(
+    request: Request,
+    _: AutoSubtitleReady,
+) -> dict[str, object]:
+    """V6 — 자막 프레임 배치 업로드 (multipart: job_id, meta JSON, frame_{index})."""
+    try:
+        form = await request.form()
+        job_id = str(form.get("job_id") or "").strip()
+        if not job_id:
+            raise ValueError("job_id가 필요합니다.")
+        meta_raw = form.get("meta")
+        if not meta_raw:
+            raise ValueError("meta JSON이 필요합니다.")
+        meta = json.loads(str(meta_raw))
+        if not isinstance(meta, list):
+            raise ValueError("meta는 배열이어야 합니다.")
+        saved = 0
+        for item in meta:
+            if not isinstance(item, dict):
+                continue
+            index = int(item.get("index", -1))
+            start = float(item.get("start", 0))
+            end = float(item.get("end", 0))
+            if index < 0:
+                continue
+            field = form.get(f"frame_{index}")
+            if field is None:
+                raise ValueError(f"frame_{index} 파일이 없습니다.")
+            body = await field.read()
+            await run_sync(
+                auto_subtitle_burn_in_session.save_frame,
+                job_id,
+                index,
+                start,
+                end,
+                body,
+            )
+            saved += 1
+        if saved == 0:
+            raise ValueError("업로드된 프레임이 없습니다.")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ValueError, json.JSONDecodeError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "count": saved}
+
+
 @router.post("/export/video-burn-in/finish")
 def post_export_video_burn_in_finish(
     body: AutoSubtitleVideoBurnInFinishBody,
     _: AutoSubtitleFfmpeg,
 ) -> AutoSubtitleExportStatus:
     """업로드 완료 후 FFmpeg 단일 패스 번인 시작 (export/status 폴링)."""
+    from engines.auto_subtitle_burn_in_pipeline_diag import apply_pipeline_diag_request_flag
+
+    apply_pipeline_diag_request_flag(body.pipeline_diag)
     # V47a — allow finish while export Lock is held (continuous PNG burn-in transaction).
     if auto_subtitle_runtime.is_job_busy() and auto_subtitle_runtime.get_active_job() != "export":
         raise HTTPException(status_code=409, detail="다른 작업이 진행 중입니다.")
@@ -1143,6 +1346,10 @@ def post_export_video_burn_in_finish(
         auto_subtitle_burn_in_session.finish_and_start_export(
             body.job_id,
             cut_ranges=body.cut_ranges,
+            virtual_audio_map=list(body.virtual_audio_map or []),
+            requires_concat=bool(body.requires_concat),
+            export_time_axis=body.export_time_axis,
+            program_duration_sec=body.program_duration_sec,
             watermark=body.watermark,
         )
     except KeyError as exc:

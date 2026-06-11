@@ -13,19 +13,50 @@ from typing import Any
 from common.bin_manager import get_ffmpeg_executable
 from engines import auto_subtitle
 from engines.auto_subtitle_burn_in import (
-    estimate_overlay_duration_sec,
+    estimate_burn_in_overlay_duration,
+    exceeds_fast_path_segment_limit,
     get_subtitle_render_dimensions,
+    normalize_keep_segments,
     run_single_pass_subtitle_burn_in,
     select_burn_in_h264_encoder,
+    virtual_audio_map_needs_filter_program,
+    MAX_FILTER_CONCAT_SEGMENTS,
 )
 from engines.auto_subtitle_export import (
     _set_export_job,
+    get_active_burn_in_media_contract,
     probe_video_dimensions,
+    update_burn_in_diagnostics,
 )
+from engines.auto_subtitle_burn_in_media_contract import contract_export_fps
 from engines.auto_subtitle_formats import normalize_cut_ranges
+from engines.auto_subtitle_burn_in_pipeline_diag import (
+    burn_in_pipeline_diag,
+    probe_summary_for_diag,
+)
 from engines.auto_subtitle_media_probe import parse_ntsc_fps_fraction, probe_media_timing
 
 _log = logging.getLogger(__name__)
+
+_BURN_IN_UI_PROGRESS_MIN = 45.0
+_BURN_IN_UI_PROGRESS_MAX = 99.0
+
+
+def map_burn_in_progress_to_export_ui(pct: float) -> float:
+    """내부 burn-in 진행률(8–100) → export UI(45–99)."""
+    p = float(pct)
+    if p <= 8.0:
+        return _BURN_IN_UI_PROGRESS_MIN
+    if p >= 100.0:
+        return 100.0
+    if p <= 32.0:
+        return _BURN_IN_UI_PROGRESS_MIN + (p - 8.0) * (8.0 / 24.0)
+    if p <= 45.0:
+        return 53.0 + (p - 32.0) * (7.0 / 13.0)
+    if p <= 60.0:
+        return 60.0 + (p - 45.0) * (15.0 / 15.0)
+    return 75.0 + (p - 60.0) * (24.0 / 39.0)
+
 
 _session_lock = threading.RLock()
 _sessions: dict[str, "BurnInSession"] = {}
@@ -47,7 +78,11 @@ class BurnInSession:
     frame_meta: dict[int, dict[str, float]] = field(default_factory=dict)
 
 
-def create_session(video_path: Path) -> BurnInSession:
+def create_session(
+    video_path: Path,
+    *,
+    burn_in_media_contract: dict[str, Any] | None = None,
+) -> BurnInSession:
     auto_subtitle.ensure_workspace()
     media = video_path.resolve()
     if not media.is_file():
@@ -55,9 +90,13 @@ def create_session(video_path: Path) -> BurnInSession:
     full_w, full_h, dur = probe_video_dimensions(media)
     render_w, render_h = get_subtitle_render_dimensions(full_w, full_h)
     probe = probe_media_timing(media)
-    export_fps = parse_ntsc_fps_fraction(
-        str(probe.get("target_ntsc_fps") or "") if probe.get("ok") else None
-    )
+    contract = burn_in_media_contract or get_active_burn_in_media_contract()
+    if contract:
+        export_fps = contract_export_fps(contract)
+    else:
+        export_fps = parse_ntsc_fps_fraction(
+            str(probe.get("target_ntsc_fps") or "") if probe.get("ok") else None
+        )
     job_id = uuid.uuid4().hex[:12]
     job_dir = auto_subtitle.WORKSPACE_ROOT / f"burn-{job_id}"
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -76,6 +115,16 @@ def create_session(video_path: Path) -> BurnInSession:
     )
     with _session_lock:
         _sessions[job_id] = sess
+    burn_in_pipeline_diag(
+        "prepare_session",
+        job_id=job_id,
+        media_path=str(media),
+        duration_sec=dur,
+        export_fps=export_fps,
+        render_w=render_w,
+        render_h=render_h,
+        probe=probe_summary_for_diag(probe),
+    )
     return sess
 
 
@@ -112,32 +161,14 @@ def get_session(job_id: str) -> BurnInSession:
     return sess
 
 
-def _decode_frame_payload(payload: bytes, render_w: int, render_h: int) -> bytes:
-    expected = render_w * render_h * 4
-    if payload[:8] == b"\x89PNG\r\n\x1a\n":
-        from io import BytesIO
-
-        from PIL import Image
-
-        img = Image.open(BytesIO(payload)).convert("RGBA")
-        if img.size != (render_w, render_h):
-            img = img.resize((render_w, render_h), Image.Resampling.LANCZOS)
-        raw = img.tobytes()
-        if len(raw) != expected:
-            raise ValueError(f"PNG 디코드 크기 불일치: {len(raw)} (기대 {expected})")
-        return raw
-    if len(payload) != expected:
-        raise ValueError(f"프레임 크기 불일치: {len(payload)} (기대 {expected})")
-    return payload
-
-
 def save_frame(job_id: str, index: int, start: float, end: float, payload: bytes) -> None:
     sess = get_session(job_id)
     if index < 0:
         raise ValueError("index must be >= 0")
-    rgba = _decode_frame_payload(payload, sess.render_w, sess.render_h)
-    frame_path = sess.job_dir / f"frame_{index:04d}.rgba"
-    frame_path.write_bytes(rgba)
+    if payload[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("PNG 자막 프레임이 필요합니다.")
+    frame_path = sess.job_dir / f"frame_{index:04d}.png"
+    frame_path.write_bytes(payload)
     meta = {"start": float(start), "end": float(end)}
     (sess.job_dir / f"frame_{index:04d}.meta.json").write_text(
         json.dumps(meta, ensure_ascii=False),
@@ -158,9 +189,14 @@ def _ordered_frame_paths_and_timing(sess: BurnInSession) -> tuple[list[Path], li
     timing: list[dict[str, float]] = []
     for i in indices:
         meta = sess.frame_meta[i]
-        path = sess.job_dir / f"frame_{i:04d}.rgba"
-        if not path.is_file():
-            raise FileNotFoundError(f"프레임 파일 없음: {path}")
+        path_png = sess.job_dir / f"frame_{i:04d}.png"
+        path_rgba = sess.job_dir / f"frame_{i:04d}.rgba"
+        if path_png.is_file():
+            path = path_png
+        elif path_rgba.is_file():
+            path = path_rgba
+        else:
+            raise FileNotFoundError(f"프레임 파일 없음: {path_png}")
         paths.append(path)
         timing.append({"start": meta["start"], "end": meta["end"]})
     return paths, timing
@@ -170,24 +206,87 @@ def _burn_in_worker(
     sess: BurnInSession,
     *,
     cut_ranges: list[dict[str, Any]] | None,
+    virtual_audio_map: list[dict[str, Any]] | None = None,
+    requires_concat: bool = False,
+    export_time_axis: str | None = None,
+    program_duration_sec: float | None = None,
     watermark_path: Path | None = None,
     watermark_position: str | None = None,
 ) -> None:
     try:
         def report(pct: float, msg: str) -> None:
-            _set_export_job("running", pct, msg, fmt="video")
+            _set_export_job(
+                "running",
+                map_burn_in_progress_to_export_ui(pct),
+                msg,
+                fmt="video",
+            )
 
         report(8.0, "자막 프레임 준비…")
         frame_paths, timing = _ordered_frame_paths_and_timing(sess)
         mapped_end = max((t["end"] for t in timing), default=1.0)
+        expected_program_end = mapped_end
+        export_time_axis_local = str(export_time_axis or "").strip()
+        is_program_axis = export_time_axis_local == "program"
+        requires_concat_flag = False if is_program_axis else bool(requires_concat)
+        vmap = [] if is_program_axis else list(virtual_audio_map or [])
         cuts = normalize_cut_ranges(cut_ranges)
-        overlay_dur = estimate_overlay_duration_sec(sess.duration_sec, cuts, mapped_end)
+        overlay_mode: str | None = None
+
+        if (
+            not is_program_axis
+            and not requires_concat_flag
+            and vmap
+            and exceeds_fast_path_segment_limit(vmap)
+        ):
+            seg_count = len(normalize_keep_segments(vmap))
+            raise RuntimeError(
+                f"failsafe_concat 비활성: keep_segments={seg_count} > {MAX_FILTER_CONCAT_SEGMENTS}. "
+                "V5 program export를 사용하세요 (export_schema_version=5)."
+            )
+
+        use_filter_program = False
+        if not is_program_axis:
+            use_filter_program = (
+                not requires_concat_flag
+                and virtual_audio_map_needs_filter_program(vmap, float(sess.duration_sec or 0))
+            )
+
+        contract = get_active_burn_in_media_contract() or {}
+        program_dur = 0.0
+        if is_program_axis:
+            try:
+                program_dur = float(program_duration_sec or contract.get("program_duration_sec") or 0)
+            except (TypeError, ValueError):
+                program_dur = 0.0
+            if program_dur <= 0:
+                program_dur = float(sess.duration_sec or 0)
+            overlay_dur = max(program_dur, mapped_end, 0.1)
+        else:
+            overlay_dur = estimate_burn_in_overlay_duration(
+                sess.duration_sec,
+                cuts,
+                mapped_end,
+                vmap,
+                apply_filter_program=use_filter_program,
+            )
+        input_dur = float(sess.duration_sec or 0)
+        if not is_program_axis:
+            if input_dur > 0:
+                overlay_dur = min(overlay_dur, mapped_end, input_dur)
+            else:
+                overlay_dur = min(overlay_dur, mapped_end)
+        elif input_dur > 0:
+            overlay_dur = min(overlay_dur, input_dur)
         ffmpeg_exe = str(get_ffmpeg_executable())
         encoder = select_burn_in_h264_encoder(ffmpeg_exe)
+        update_burn_in_diagnostics(video_encoder=encoder, overlay_mode=overlay_mode)
 
         _log.info(
             "[BURN_IN] worker_start job_id=%s media=%s input_dur=%.3f overlay_dur=%.3f "
-            "mapped_end=%.3f frames=%s encoder=%s render=%dx%d full=%dx%d",
+            "mapped_end=%.3f frames=%s encoder=%s render=%dx%d full=%dx%d "
+            "requires_concat=%s export_time_axis=%s filter_program=%s map_segments=%s "
+            "overlay_mode=%s",
             sess.job_id,
             sess.media_path.name,
             float(sess.duration_sec or 0),
@@ -199,6 +298,31 @@ def _burn_in_worker(
             sess.render_h,
             sess.full_w,
             sess.full_h,
+            requires_concat_flag,
+            export_time_axis_local,
+            use_filter_program,
+            len(vmap),
+            overlay_mode,
+        )
+        timing_end = max((float(t["end"]) for t in timing), default=0.0)
+        timing_start = min((float(t["start"]) for t in timing), default=0.0)
+        burn_in_pipeline_diag(
+            "worker_handoff",
+            job_id=sess.job_id,
+            media_path=str(sess.media_path),
+            input_duration_sec=float(sess.duration_sec or 0),
+            export_fps=float(sess.export_fps or 0),
+            overlay_dur=overlay_dur,
+            mapped_end=mapped_end,
+            timing_segments=len(timing),
+            timing_start=timing_start,
+            timing_end=timing_end,
+            requires_concat=requires_concat_flag,
+            export_time_axis=export_time_axis_local,
+            filter_program=use_filter_program,
+            virtual_map_segments=len(vmap),
+            overlay_mode=overlay_mode,
+            timing_scale_applied=False,
         )
         report(28.0, "FFmpeg 자막 번인 준비…")
         run_single_pass_subtitle_burn_in(
@@ -217,6 +341,9 @@ def _burn_in_worker(
             watermark_position=watermark_position,
             export_fps=sess.export_fps,
             on_progress=report,
+            virtual_audio_map=vmap if use_filter_program else None,
+            requires_concat=requires_concat_flag,
+            burn_in_overlay_mode=overlay_mode,
         )
         _log.info(
             "[BURN_IN] worker_done job_id=%s output=%s",
@@ -254,6 +381,10 @@ def finish_and_start_export(
     job_id: str,
     *,
     cut_ranges: list[dict[str, Any]] | None = None,
+    virtual_audio_map: list[dict[str, Any]] | None = None,
+    requires_concat: bool = False,
+    export_time_axis: str | None = None,
+    program_duration_sec: float | None = None,
     watermark: dict[str, Any] | None = None,
 ) -> None:
     from engines import auto_subtitle_runtime
@@ -285,6 +416,10 @@ def finish_and_start_export(
         _burn_in_worker(
             sess,
             cut_ranges=cut_ranges,
+            virtual_audio_map=virtual_audio_map,
+            requires_concat=requires_concat,
+            export_time_axis=export_time_axis,
+            program_duration_sec=program_duration_sec,
             watermark_path=wm_path,
             watermark_position=wm_position,
         )

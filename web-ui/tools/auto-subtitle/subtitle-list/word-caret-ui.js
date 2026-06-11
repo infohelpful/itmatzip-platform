@@ -1354,6 +1354,16 @@ export function tryHandleCaretSpaceKey(e, container, cues, opts) {
     return true;
   }
 
+  if (
+    typeof opts.getExpandedCueIndex === "function" &&
+    typeof opts.getExpandedWordIndex === "function" &&
+    opts.getExpandedCueIndex() >= 0 &&
+    opts.getExpandedWordIndex() >= 0 &&
+    opts.onWaveformSpacePlay?.() === true
+  ) {
+    return true;
+  }
+
   const cardIndex = lastCardFocusIndex ?? -1;
   if (spaceSeekIntent === "wholeLine" && cardIndex >= 0) {
     const cue = cues[cardIndex];

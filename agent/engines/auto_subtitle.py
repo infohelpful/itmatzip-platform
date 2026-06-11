@@ -26,6 +26,7 @@ from common.runtime_site_packages import (
     pip_install_cmd,
     purge_runtime_site_all,
     probe_runtime_import,
+    runtime_site_packages_dir,
     tool_has_module,
     verify_importable,
 )
@@ -213,9 +214,41 @@ _WHISPER_PIP_BUNDLE = frozenset({
 })
 _WHISPER_PIP_SPEC = "faster-whisper>=1.0.3"
 
+# ctranslate2·av 등 — sys.modules 에서 제거 후 재 import 시 프로세스 전체 오류.
+_NATIVE_EXTENSION_MODULES = frozenset(
+    {
+        "ctranslate2",
+        "faster_whisper",
+        "av",
+        "tokenizers",
+        "numpy",
+        "kiwipiepy",
+    }
+)
+
+
+def _native_extension_modules_loaded() -> bool:
+    for key in sys.modules:
+        root = key.split(".", 1)[0]
+        if root in _NATIVE_EXTENSION_MODULES:
+            return True
+    return False
+
+
+def _runtime_package_dir(module_name: str) -> Path | None:
+    """네이티브 확장 import 없이 runtime site-packages 내 패키지 경로."""
+    activate_runtime_site_packages(RUNTIME_TOOL_ID)
+    site = runtime_site_packages_dir(RUNTIME_TOOL_ID).resolve()
+    pkg = site / module_name.replace(".", os.sep)
+    if pkg.is_dir():
+        return pkg
+    return None
+
 
 def _evict_runtime_modules_from_sys(*import_names: str) -> None:
     for name in import_names:
+        if name in _NATIVE_EXTENSION_MODULES:
+            continue
         for key in list(sys.modules):
             if key == name or key.startswith(f"{name}."):
                 sys.modules.pop(key, None)
@@ -332,6 +365,18 @@ def _run_prepare_pip_install(
     finalize_runtime_pip(RUNTIME_TOOL_ID)
 
 
+def _legacy_model_dir_candidates() -> list[Path]:
+    """구버전 AutoSubtitle·ItMatZip 경로에 남아 있는 CT2 모델."""
+    appdata = os.environ.get("APPDATA", "").strip()
+    if not appdata:
+        return []
+    base = Path(appdata)
+    return [
+        base / "autosubtitle" / "models" / LOCAL_MODEL_NAME,
+        base / "ItMatZip" / "auto-subtitle" / "models" / LOCAL_MODEL_NAME,
+    ]
+
+
 def resolve_model_dir() -> Path:
     """다운로드·승격 실패(WinError 32) 시 스테이징 경로를 포함해 실제 모델 폴더를 반환."""
     for marker in (_ACTIVE_MODEL_MARKER, _LEGACY_ACTIVE_MODEL_MARKER):
@@ -347,6 +392,9 @@ def resolve_model_dir() -> Path:
         return LOCAL_MODEL_DIR
     if _is_ct2_model_dir(_STAGING_MODEL_DIR):
         return _STAGING_MODEL_DIR
+    for legacy in _legacy_model_dir_candidates():
+        if _is_ct2_model_dir(legacy):
+            return legacy
     return LOCAL_MODEL_DIR
 
 
@@ -393,12 +441,13 @@ def has_nvidia_gpu() -> bool:
 
 
 def _ctranslate2_dir() -> Path | None:
-    try:
-        import ctranslate2
-
-        return Path(ctranslate2.__file__).resolve().parent
-    except ImportError:
-        return None
+    mod = sys.modules.get("ctranslate2")
+    if mod is not None and getattr(mod, "__file__", None):
+        try:
+            return Path(mod.__file__).resolve().parent
+        except OSError:
+            pass
+    return _runtime_package_dir("ctranslate2")
 
 
 def _find_cublas_bin_dir() -> Path | None:
@@ -488,7 +537,11 @@ def _clear_stale_model_download_lock() -> None:
         age = time.time() - _MODEL_DOWNLOAD_LOCK.stat().st_mtime
     except OSError:
         return
-    if age >= _STALE_MODEL_LOCK_SEC:
+    incomplete_staging = (
+        _STAGING_MODEL_DIR.is_dir() and not _is_ct2_model_dir(_STAGING_MODEL_DIR)
+    )
+    threshold = 120.0 if incomplete_staging else _STALE_MODEL_LOCK_SEC
+    if age >= threshold:
         _release_model_download_lock()
 
 
@@ -612,6 +665,12 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
 
     missing_specs, purge_prefixes = _scan_prepare_python_packages()
     full_reinstall = bool(purge_prefixes)
+    if full_reinstall and _native_extension_modules_loaded():
+        raise RuntimeError(
+            "손상된 Python 패키지 복구가 필요하지만 Whisper 런타임(ctranslate2 등)이 "
+            "이미 메모리에 올라가 있습니다. itmatzip-agent를 트레이에서 완전히 종료한 뒤 "
+            "다시 실행하고 「환경 준비」를 시도하세요."
+        )
     if full_reinstall:
         _emit_prepare_progress(
             on_progress,
@@ -663,9 +722,15 @@ def download_whisper_model(on_progress: PrepareProgressCallback | None = None) -
     _reset_prepare_progress()
     MODEL_ROOT.mkdir(parents=True, exist_ok=True)
     if is_model_present():
-        _set_active_model_dir(resolve_model_dir())
-        _emit_prepare_progress(on_progress, 88.0, "AI 모델", "이미 다운로드됨")
+        model_dir = resolve_model_dir()
+        _set_active_model_dir(model_dir)
+        reused = "기존 모델 재사용" if model_dir != LOCAL_MODEL_DIR else "이미 다운로드됨"
+        _emit_prepare_progress(on_progress, 88.0, "AI 모델", reused)
         return False
+
+    if _STAGING_MODEL_DIR.is_dir() and not _is_ct2_model_dir(_STAGING_MODEL_DIR):
+        if not _MODEL_DOWNLOAD_LOCK.is_file():
+            _clear_staging_dir_with_retry(_STAGING_MODEL_DIR)
 
     from tqdm.auto import tqdm as std_tqdm
 
@@ -721,11 +786,9 @@ def download_whisper_model(on_progress: PrepareProgressCallback | None = None) -
                             mb_done = float(self.n) / (1024 * 1024)
                             mb_total = float(grand) / (1024 * 1024)
                             detail = f"{HF_REPO_ID} · {mb_done:.0f}/{mb_total:.0f} MB ({ratio * 100:.0f}%)"
-                        elif self.total and float(self.total) > 0:
-                            ratio = min(float(self.n), float(self.total)) / float(self.total)
-                            detail = f"{HF_REPO_ID} · {ratio * 100:.0f}%"
                         else:
-                            detail = f"{HF_REPO_ID} · {pct:.0f}%"
+                            mb_done = float(self.n) / (1024 * 1024)
+                            detail = f"{HF_REPO_ID} · {mb_done:.0f} MB 수신 중… (model.bin 등 대용량 파일)"
                         _emit_prepare_progress(on_progress, pct, "AI 모델 다운로드", detail)
                     return r
 
@@ -748,9 +811,16 @@ def download_whisper_model(on_progress: PrepareProgressCallback | None = None) -
         if last_err is not None:
             raise last_err
 
+        _emit_prepare_progress(
+            on_progress,
+            86.0,
+            "AI 모델",
+            "다운로드 검증·배치 중… (model.bin 확인)",
+        )
         if not _is_ct2_model_dir(staging):
             raise RuntimeError("모델 다운로드 후 model.bin을 찾지 못했습니다.")
         try:
+            _emit_prepare_progress(on_progress, 87.0, "AI 모델", "모델 폴더 배치 중…")
             _promote_staging_dir(staging, LOCAL_MODEL_DIR)
             _set_active_model_dir(LOCAL_MODEL_DIR)
             promoted = True
@@ -824,9 +894,14 @@ def prepare_all(on_progress: PrepareProgressCallback | None = None) -> dict[str,
 
     auto_subtitle_runtime.cancel_scheduled_unload()
     prepend_ffmpeg_bin_to_env(os.environ)
-    _emit_prepare_progress(on_progress, 3.0, "FFmpeg", "FFmpeg 준비 확인…")
-    ensure_ffmpeg(download_timeout_sec=300.0, on_progress=on_progress)
-    _emit_prepare_progress(on_progress, 5.0, "FFmpeg", "준비 완료")
+    from common.bin_manager import is_ffmpeg_ready
+
+    if is_ffmpeg_ready():
+        _emit_prepare_progress(on_progress, 5.0, "FFmpeg", "이미 준비됨")
+    else:
+        _emit_prepare_progress(on_progress, 3.0, "FFmpeg", "FFmpeg 준비 확인…")
+        ensure_ffmpeg(download_timeout_sec=900.0, on_progress=on_progress)
+        _emit_prepare_progress(on_progress, 5.0, "FFmpeg", "준비 완료")
     install_python_dependencies(on_progress)
     if has_nvidia_gpu():
         from engines import auto_subtitle_gpu_runtime as gpu_rt

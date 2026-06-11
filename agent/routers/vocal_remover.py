@@ -140,7 +140,7 @@ def _run_prepare() -> None:
             step="FFmpeg",
             detail="없으면 다운로드합니다 (최초 1회)",
         )
-        ensure_ffmpeg(download_timeout_sec=300.0)
+        ensure_ffmpeg(download_timeout_sec=900.0)
 
         _set_prepare_state(
             "installing_dependencies",

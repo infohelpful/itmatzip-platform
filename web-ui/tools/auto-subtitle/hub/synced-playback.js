@@ -14,12 +14,19 @@ import {
   armListOrderSeamlessPlayback,
   clearListOrderPreviewTimeline,
   getListOrderPreviewClipPos,
+  getListOrderPreviewClips,
+  getListOrderPreviewProgramClips,
   isListOrderPreviewTimelineActive,
   isListOrderSeamlessPlaybackActive,
   syncListOrderPreviewPlayback,
-} from "./list-order-preview-sync.js?v=7";
-import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=10";
-import { mapWordTimelineToVideoTime, isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=4";
+} from "./list-order-preview-sync.js?v=11";
+import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=29";
+import { getProgramPreviewExecutor } from "./program-preview-executor.js?v=1";
+import {
+  mapWordTimelineToVideoTime,
+  isSourceVideoPtsTimeline,
+  isProgramPlaybackTimeline,
+} from "../shared/media-timing-ssot.js?v=7";
 
 /** @type {WebAudioMasterPlayback | null} */
 let waEngine = null;
@@ -89,34 +96,40 @@ export async function startSyncedPlayback(mediaUrl, video, audio, opts) {
 
   const t = skipCutRangeAt(start, skipRanges);
 
-  if (isListOrderPreviewTimelineActive() && bridge.stack) {
-    const slaveVideo = bridge.video;
-    if (slaveVideo) {
-      await bridge.setMediaUrl(mediaUrl);
-      await bridge.unlockAudioOutput();
-      await armListOrderSeamlessPlayback({
-        startMediaSec: t,
-        skipRanges,
-        clipPos: getListOrderPreviewClipPos(),
-      });
-      const masterAudio = bridge.audio;
-      if (masterAudio && orch.video !== slaveVideo) {
-        orch.attachVideo(slaveVideo, { masterAudio });
-      }
-      if (masterAudio) {
-        slaveVideo.muted = true;
-        masterAudio.muted = false;
-        masterAudio.removeAttribute("muted");
-        playMasterVideoSynced(masterAudio, slaveVideo, {
-          targetVideoSec: t,
-          targetAudioSec: t,
-          onAudioPlayRejected: (err) => {
-            console.warn("seamless list play() rejected", err);
-          },
-        });
-        htmlAudioMasterActive = true;
-      }
+  const listClips = getListOrderPreviewClips();
+  const useListOrder = !opts.disableListOrder && listClips.length > 0;
+  const listOrderVideo = bridge.video ?? bridge.primaryVideo ?? video;
+  const listOrderAudio = bridge.audio ?? bridge.primaryAudio ?? audio;
+
+  if (useListOrder && listOrderVideo && listOrderAudio) {
+    await bridge.setMediaUrl(mediaUrl);
+    await bridge.unlockAudioOutput();
+    const clipPos = Math.max(
+      0,
+      Number.isFinite(Number(opts.clipPos)) ? Number(opts.clipPos) : getListOrderPreviewClipPos(),
+    );
+    await armListOrderSeamlessPlayback({
+      startMediaSec: t,
+      skipRanges,
+      clipPos,
+      programClips: getListOrderPreviewProgramClips(),
+      playing: false,
+    });
+    if (orch.video !== listOrderVideo) {
+      orch.attachVideo(listOrderVideo, { masterAudio: listOrderAudio });
     }
+    listOrderVideo.muted = true;
+    listOrderAudio.muted = false;
+    listOrderAudio.removeAttribute("muted");
+    playMasterVideoSynced(listOrderAudio, listOrderVideo, {
+      targetVideoSec: t,
+      targetAudioSec: t,
+      onAudioPlayRejected: (err) => {
+        console.warn("seamless list play() rejected", err);
+      },
+    });
+    getProgramPreviewExecutor().play();
+    htmlAudioMasterActive = true;
   }
   if (!htmlAudioMasterActive) {
     await bridge.unlockAudioOutput();
@@ -150,16 +163,10 @@ export async function startSyncedPlayback(mediaUrl, video, audio, opts) {
     htmlAudioMasterActive = true;
   }
 
-  const masterAudio =
-    (isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive()) &&
-    bridge.stack
-      ? bridge.audio ?? audio
-      : audio;
-  const slaveVideo =
-    (isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive()) &&
-    bridge.stack
-      ? bridge.video ?? video
-      : video;
+  const useBridgeMedia =
+    isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive();
+  const masterAudio = useBridgeMedia ? bridge.audio ?? audio : audio;
+  const slaveVideo = useBridgeMedia ? bridge.video ?? video : video;
 
   const onEnded = () => {
     if (!htmlAudioMasterActive) return;
@@ -178,9 +185,15 @@ export async function startSyncedPlayback(mediaUrl, video, audio, opts) {
  * @param {HTMLVideoElement} video
  * @param {HTMLAudioElement} [audio]
  */
-export function stopSyncedPlayback(video, audio) {
+export function stopSyncedPlayback(video, audio, opts = {}) {
   htmlAudioMasterActive = false;
-  clearListOrderPreviewTimeline();
+  getProgramPreviewExecutor().pause();
+  getPreviewMediaBridge().stack?.pauseAllMedia?.();
+  if (!opts.keepListOrderTimeline) {
+    clearListOrderPreviewTimeline();
+  } else {
+    getPreviewMediaBridge().stack?.endListOrderPlayback();
+  }
   getWebAudioEngine().stopPlayback();
   getPlaybackOrchestrator().resumeSyncEngineAfterWebAudio();
   if (audio) {
@@ -231,23 +244,45 @@ export function syncVideoFromHtmlAudioMaster(video, audio, opts) {
   if (!htmlAudioMasterActive) return false;
 
   const bridge = getPreviewMediaBridge();
+
+  if (isListOrderSeamlessPlaybackActive()) {
+    const stackAudible = bridge.audio ?? bridge.primaryAudio ?? audio;
+    if (!stackAudible || stackAudible.paused) return false;
+    syncListOrderPreviewPlayback(bridge.video ?? video, stackAudible, opts);
+    if (isSourceVideoPtsTimeline()) {
+      syncAudioFromVideoMaster(bridge.video ?? video, stackAudible, opts);
+    }
+    return true;
+  }
+
   const stackAudible = bridge.audio;
-  const useStackSync =
-    isListOrderSeamlessPlaybackActive() || bridge.isAudioGraphActive();
+  const useStackSync = bridge.isAudioGraphActive();
 
   if (useStackSync && bridge.stack && stackAudible) {
     if (stackAudible.paused) return false;
-    if (isListOrderSeamlessPlaybackActive()) {
-      syncListOrderPreviewPlayback(bridge.video ?? video, stackAudible, opts);
-      if (isSourceVideoPtsTimeline()) {
-        syncAudioFromVideoMaster(bridge.video ?? video, stackAudible, opts);
-      }
-      return true;
-    }
     audio = stackAudible;
     video = bridge.video ?? video;
   } else if (audio.paused) {
     return false;
+  }
+
+  if (isProgramPlaybackTimeline()) {
+    if (video.seeking || audio.seeking) return true;
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      if (!audio.paused) audio.pause();
+      return true;
+    }
+    if (audio.paused && !video.paused) {
+      void audio.play().catch(() => undefined);
+    }
+    const mediaSec = video.currentTime;
+    const wall = performance.now();
+    if (wall - lastVideoSyncWallMs < VIDEO_SYNC_MIN_INTERVAL_MS) return true;
+    if (Math.abs(audio.currentTime - mediaSec) > VIDEO_SYNC_EPS_SEC) {
+      assignMasterAudioTimelineSecIfNeeded(audio, mediaSec);
+      lastVideoSyncWallMs = wall;
+    }
+    return true;
   }
 
   if (isSourceVideoPtsTimeline()) {
@@ -324,6 +359,19 @@ export function readHtmlAudioMasterPlayhead(audio, opts) {
         (bridge.video && !bridge.video.paused),
     );
     return { active, mediaSec };
+  }
+
+  if (isProgramPlaybackTimeline()) {
+    const video = getPreviewMediaBridge().video;
+    if (video && !video.paused && Number.isFinite(video.currentTime)) {
+      return { active: true, mediaSec: video.currentTime };
+    }
+    if (
+      !audio.paused &&
+      audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+    ) {
+      return { active: true, mediaSec: audio.currentTime };
+    }
   }
 
   if (isSourceVideoPtsTimeline()) {

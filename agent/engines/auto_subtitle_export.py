@@ -48,6 +48,10 @@ class ExportJobStatus:
     burnin_media_path: str | None = None
     export_time_axis: str | None = None
     actual_duration: float | None = None
+    video_encoder: str | None = None
+    overlay_mode: str | None = None
+    burn_in_media_contract: dict[str, Any] | None = None
+    program_to_burnin_map: list[dict[str, Any]] | None = None
 
 
 _export_job = ExportJobStatus(phase="idle", progress=0.0)
@@ -69,7 +73,16 @@ def get_export_job_status() -> ExportJobStatus:
             burnin_media_path=_export_job.burnin_media_path,
             export_time_axis=_export_job.export_time_axis,
             actual_duration=_export_job.actual_duration,
+            video_encoder=_export_job.video_encoder,
+            overlay_mode=_export_job.overlay_mode,
+            burn_in_media_contract=_export_job.burn_in_media_contract,
+            program_to_burnin_map=_export_job.program_to_burnin_map,
         )
+
+
+def get_active_burn_in_media_contract() -> dict[str, Any] | None:
+    with _export_lock:
+        return dict(_export_job.burn_in_media_contract) if _export_job.burn_in_media_contract else None
 
 
 def is_video_export_hold_active() -> bool:
@@ -114,6 +127,8 @@ def _on_awaiting_idle_timeout() -> None:
         _export_job.burnin_media_path = None
         _export_job.export_time_axis = None
         _export_job.actual_duration = None
+        _export_job.burn_in_media_contract = None
+        _export_job.program_to_burnin_map = None
     _cancel_awaiting_idle_guard()
     _cleanup_awaiting_hold_resources()
     if auto_subtitle_runtime.get_active_job() == "export":
@@ -148,11 +163,13 @@ def enter_video_export_awaiting_hold(
     progress: float = 45.0,
     message: str | None = None,
     actual_duration: float | None = None,
+    burn_in_media_contract: dict[str, Any] | None = None,
+    program_to_burnin_map: list[dict[str, Any]] | None = None,
 ) -> None:
     """V47b+ — transition to awaiting_frames while retaining export Lock."""
     global _awaiting_hold_job_dir
     axis = export_time_axis.strip() or "media"
-    if axis not in {"stitched_program", "media"}:
+    if axis not in {"stitched_program", "media", "filter_program", "program"}:
         axis = "media"
     with _export_lock:
         _export_job.phase = "awaiting_frames"
@@ -166,6 +183,10 @@ def enter_video_export_awaiting_hold(
             _export_job.actual_duration = float(actual_duration)
         else:
             _export_job.actual_duration = None
+        if burn_in_media_contract is not None:
+            _export_job.burn_in_media_contract = dict(burn_in_media_contract)
+        if program_to_burnin_map is not None:
+            _export_job.program_to_burnin_map = list(program_to_burnin_map)
     _awaiting_hold_job_dir = job_dir.resolve() if job_dir is not None else None
     _schedule_awaiting_idle_guard()
 
@@ -187,6 +208,8 @@ def fail_video_export_hold_and_release_lock(
         _export_job.burnin_media_path = None
         _export_job.export_time_axis = None
         _export_job.actual_duration = None
+        _export_job.burn_in_media_contract = None
+        _export_job.program_to_burnin_map = None
     _cleanup_awaiting_hold_resources()
     if auto_subtitle_runtime.get_active_job() == "export":
         auto_subtitle_runtime.end_job()
@@ -199,6 +222,8 @@ def complete_video_export_hold_cleanup() -> None:
         _export_job.burnin_media_path = None
         _export_job.export_time_axis = None
         _export_job.actual_duration = None
+        _export_job.burn_in_media_contract = None
+        _export_job.program_to_burnin_map = None
     _cleanup_awaiting_hold_resources()
 
 
@@ -238,8 +263,25 @@ def _set_export_job(
                 _export_job.burnin_media_path = None
                 _export_job.export_time_axis = None
                 _export_job.actual_duration = None
+                _export_job.video_encoder = None
+                _export_job.overlay_mode = None
+                _export_job.burn_in_media_contract = None
+                _export_job.program_to_burnin_map = None
         if prev_phase == "awaiting_frames" and phase != "awaiting_frames":
             _cancel_awaiting_idle_guard()
+
+
+def update_burn_in_diagnostics(
+    *,
+    video_encoder: str | None = None,
+    overlay_mode: str | None = None,
+) -> None:
+    """V6 — 번인 인코더·overlay 모드 status 노출."""
+    with _export_lock:
+        if video_encoder is not None:
+            _export_job.video_encoder = video_encoder
+        if overlay_mode is not None:
+            _export_job.overlay_mode = overlay_mode
 
 
 def probe_video_dimensions(path: Path, *, timeout_sec: float = 30.0) -> tuple[int, int, float]:
@@ -514,23 +556,52 @@ def export_video_stitched_pipeline(
     *,
     virtual_audio_map: list[dict[str, Any]] | None = None,
     requires_concat: bool = True,
+    burn_in_media_contract: dict[str, Any] | None = None,
     on_progress: ExportProgressCallback | None = None,
     timeout_sec: float = 7200.0,
 ) -> None:
     """V47b — V41 concat master (optional) then Hold for PNG/DOM burn-in (no ASS)."""
+    from engines.auto_subtitle_burn_in_media_contract import (
+        finalize_burnin_media_for_export,
+        normalize_contract,
+    )
     from engines.auto_subtitle_export_concat import build_concat_master
 
     ensure_workspace()
+    contract = normalize_contract(burn_in_media_contract)
+    target_fps = str(contract.get("target_ntsc_fps") or "30000/1001")
     job_dir = WORKSPACE_ROOT / f"video-{uuid.uuid4().hex[:10]}"
     job_dir.mkdir(parents=True, exist_ok=True)
 
     if not preview_media_path.is_file():
         raise FileNotFoundError(f"preview_media_path를 찾을 수 없습니다: {preview_media_path}")
 
+    from engines.auto_subtitle_burn_in import (
+        exceeds_fast_path_segment_limit,
+        normalize_keep_segments,
+        MAX_FILTER_CONCAT_SEGMENTS,
+    )
+
+    if (
+        not bool(requires_concat)
+        and virtual_audio_map
+        and exceeds_fast_path_segment_limit(virtual_audio_map)
+    ):
+        seg_count = len(normalize_keep_segments(virtual_audio_map))
+        _log.warning(
+            "export_override slow-path: requires_concat=false keep_segments=%s > %s",
+            seg_count,
+            MAX_FILTER_CONCAT_SEGMENTS,
+        )
+        requires_concat = True
+
     use_concat = bool(requires_concat)
     burn_input = preview_media_path.resolve()
     hold_job_dir: Path | None = job_dir
     actual_duration: float | None = None
+    concat_metrics: dict[str, Any] | None = None
+    concat_phase: str | None = None
+    program_map: list[dict[str, Any]] | None = None
 
     if use_concat:
         if not virtual_audio_map:
@@ -544,23 +615,45 @@ def export_video_stitched_pipeline(
             job_dir,
             on_progress=on_progress,
             timeout_sec=timeout_sec,
+            target_ntsc_fps=target_fps,
         )
+        concat_metrics = metrics
         _log_export_metrics(concat_phase, metrics)
-        probed = float(metrics.get("probed_duration") or 0)
-        if probed > 0:
-            actual_duration = probed
-        _set_export_job(
-            concat_phase,
-            42.0,
-            f"미디어 합성 완료 ({concat_phase})",
-            fmt="video",
-        )
         export_time_axis = "stitched_program"
     else:
         if on_progress:
             on_progress(12.0, "Fast-Path 미디어 준비…")
-        hold_job_dir = None
-        export_time_axis = "media"
+        hold_job_dir = job_dir
+        from engines.auto_subtitle_burn_in import virtual_audio_map_needs_filter_program
+
+        _, _, probed_dur = probe_video_dimensions(preview_media_path)
+        if virtual_audio_map and virtual_audio_map_needs_filter_program(
+            virtual_audio_map, probed_dur
+        ):
+            export_time_axis = "filter_program"
+        else:
+            export_time_axis = "media"
+
+    def _normalize_progress(pct: float, msg: str, detail: str = "") -> None:
+        label = f"{msg} — {detail}" if detail else msg
+        with _export_lock:
+            _export_job.phase = "concat_normalize"
+            _export_job.progress = float(pct)
+            _export_job.message = label
+            _export_job.format = "video"
+
+    burn_input, actual_duration, program_map, _probe = finalize_burnin_media_for_export(
+        burn_input,
+        job_dir,
+        concat_phase=concat_phase,
+        target_ntsc_fps=target_fps,
+        virtual_audio_map=virtual_audio_map,
+        requires_concat=use_concat,
+        on_progress=_normalize_progress,
+        timeout_sec=timeout_sec,
+    )
+    contract = dict(contract)
+    contract["program_to_burnin_map"] = program_map
 
     enter_video_export_awaiting_hold(
         str(burn_input),
@@ -569,8 +662,121 @@ def export_video_stitched_pipeline(
         progress=45.0,
         message="자막 프레임 업로드 대기…",
         actual_duration=actual_duration,
+        burn_in_media_contract=contract,
+        program_to_burnin_map=program_map,
+    )
+    from engines.auto_subtitle_burn_in_pipeline_diag import burn_in_pipeline_diag
+
+    burn_in_pipeline_diag(
+        "export_awaiting_frames",
+        burnin_media_path=str(burn_input),
+        export_time_axis=export_time_axis,
+        requires_concat=use_concat,
+        actual_duration=actual_duration,
+        virtual_map_segments=len(virtual_audio_map or []),
+        concat_metrics=concat_metrics,
+        program_map_segments=len(program_map or []),
+        target_ntsc_fps=target_fps,
     )
     # on_progress(report)는 phase=running 으로 덮어써 awaiting_frames 진입을 깨뜨리므로 호출하지 않음.
+
+
+def export_video_program_ssot_pipeline(
+    preview_media_path: Path,
+    *,
+    program_clips: list[dict[str, Any]] | None = None,
+    program_duration_sec: float | None = None,
+    program_master_path: Path | None = None,
+    target_ntsc_fps: str = "30000/1001",
+    on_progress: ExportProgressCallback | None = None,
+    timeout_sec: float = 7200.0,
+) -> None:
+    """V5 — bake program-master (if needed) then PNG burn-in hold on program axis."""
+    import uuid
+
+    from engines.auto_subtitle_program_master import bake_program_master
+
+    ensure_workspace()
+    job_dir = WORKSPACE_ROOT / f"video-{uuid.uuid4().hex[:10]}"
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    preview = preview_media_path.resolve()
+    if not preview.is_file():
+        raise FileNotFoundError(f"preview_media_path를 찾을 수 없습니다: {preview}")
+
+    clips = list(program_clips or [])
+    if not clips:
+        raise ValueError("export_schema_version=5 에는 program_clips가 필요합니다.")
+
+    master_path: Path | None = None
+    actual_duration: float | None = None
+    metrics: dict[str, Any] | None = None
+
+    # Deferred master baking: transcribe does not bake; export is the default bake point.
+    if program_master_path is not None:
+        candidate = program_master_path.resolve()
+        if candidate.is_file():
+            master_path = candidate
+            from engines.auto_subtitle_media_probe import probe_media_timing
+
+            probe = probe_media_timing(master_path, unify_ssot=True)
+            if probe.get("ok"):
+                try:
+                    actual_duration = float(
+                        probe.get("playback_duration_sec")
+                        or probe.get("video_duration_sec")
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    actual_duration = None
+
+    if master_path is None:
+        _set_export_job("bake_master", 8.0, "Program master 생성…", fmt="video")
+        if on_progress:
+            on_progress(8.0, "Program master 생성…")
+
+        def _bake_progress(pct: float, msg: str) -> None:
+            with _export_lock:
+                _export_job.phase = "bake_master"
+                _export_job.progress = float(pct)
+                _export_job.message = msg
+                _export_job.format = "video"
+
+        master_path, actual_duration, metrics = bake_program_master(
+            preview,
+            clips,
+            job_dir,
+            target_ntsc_fps=target_ntsc_fps,
+            program_duration_sec=program_duration_sec,
+            on_progress=_bake_progress,
+            timeout_sec=timeout_sec,
+        )
+        _log.info(
+            "export_v5_bake_master segments=%s actual=%.3f",
+            metrics.get("filter_segment_count"),
+            actual_duration,
+        )
+
+    prog_dur = float(program_duration_sec or 0)
+    if prog_dur <= 0 and actual_duration:
+        prog_dur = float(actual_duration)
+    contract = {
+        "target_ntsc_fps": str(target_ntsc_fps or "30000/1001"),
+        "program_duration_sec": prog_dur,
+        "timeline_axis": "program",
+        "export_schema_version": 5,
+    }
+
+    enter_video_export_awaiting_hold(
+        str(master_path),
+        "program",
+        job_dir=job_dir,
+        progress=45.0,
+        message="자막 프레임 업로드 대기…",
+        actual_duration=actual_duration or prog_dur,
+        burn_in_media_contract=contract,
+        program_to_burnin_map=None,
+    )
 
 
 def _log_export_metrics(phase: str, metrics: dict[str, Any]) -> None:
@@ -597,6 +803,11 @@ def _export_worker(
     preview_media_path: Path | None = None,
     virtual_audio_map: list[dict[str, Any]] | None = None,
     requires_concat: bool | None = None,
+    burn_in_media_contract: dict[str, Any] | None = None,
+    export_schema_version: int | None = None,
+    program_clips: list[dict[str, Any]] | None = None,
+    program_duration_sec: float | None = None,
+    program_master_path: Path | None = None,
 ) -> None:
     try:
         def report(pct: float, msg: str) -> None:
@@ -622,11 +833,26 @@ def _export_worker(
                     "CFR 미디어 재생성 필요: preview_media_path 파일을 찾을 수 없습니다."
                 )
             _set_export_job("running", 5.0, "영상 자막 번인…", fmt="video")
+            schema_v = int(export_schema_version or 0)
+            if schema_v >= 5 and program_clips:
+                fps = "30000/1001"
+                if burn_in_media_contract and burn_in_media_contract.get("target_ntsc_fps"):
+                    fps = str(burn_in_media_contract["target_ntsc_fps"])
+                export_video_program_ssot_pipeline(
+                    preview.resolve(),
+                    program_clips=program_clips,
+                    program_duration_sec=program_duration_sec,
+                    program_master_path=program_master_path,
+                    target_ntsc_fps=fps,
+                    on_progress=report,
+                )
+                return
             use_concat = bool(requires_concat)
             export_video_stitched_pipeline(
                 preview.resolve(),
                 virtual_audio_map=virtual_audio_map,
                 requires_concat=use_concat,
+                burn_in_media_contract=burn_in_media_contract,
                 on_progress=report,
             )
             return
@@ -659,9 +885,15 @@ def start_export_job(
     preview_media_path: Path | None = None,
     virtual_audio_map: list[dict[str, Any]] | None = None,
     requires_concat: bool | None = None,
+    burn_in_media_contract: dict[str, Any] | None = None,
+    export_schema_version: int | None = None,
+    program_clips: list[dict[str, Any]] | None = None,
+    program_duration_sec: float | None = None,
+    program_master_path: Path | None = None,
 ) -> ExportJobStatus:
     global _export_thread
     from engines import auto_subtitle_runtime
+    from engines.auto_subtitle_burn_in_media_contract import normalize_contract
 
     kind = export_kind.lower().strip()
     valid = {"srt", "vtt", "ass", "txt", "video", "mp3", "wav"}
@@ -683,6 +915,9 @@ def start_export_job(
             return get_export_job_status()
 
         _set_export_job("queued", 0.0, "보내기 대기 중…", fmt=kind)
+        if kind == "video" and burn_in_media_contract:
+            with _export_lock:
+                _export_job.burn_in_media_contract = normalize_contract(burn_in_media_contract)
 
         def _target() -> None:
             try:
@@ -696,6 +931,11 @@ def start_export_job(
                     preview_media_path=preview_media_path,
                     virtual_audio_map=virtual_audio_map,
                     requires_concat=requires_concat,
+                    burn_in_media_contract=burn_in_media_contract,
+                    export_schema_version=export_schema_version,
+                    program_clips=program_clips,
+                    program_duration_sec=program_duration_sec,
+                    program_master_path=program_master_path,
                 )
             finally:
                 # V47a — video Hold (awaiting_frames) retains Lock until burn-in completes.

@@ -105,11 +105,9 @@ function Build-DiffqVendorWheel {
     $buildPython = Resolve-BuildPython -EmbeddableVersion $EmbeddableVersion
     if (-not $buildPython) {
         throw (
-            "MSI 빌드에 diffq cp314 wheel 생성용 전체 Python이 필요합니다 (embeddable에는 Python.h 없음)." +
-            [char]10 +
-            "  - Python $EmbeddableVersion 설치 후 다시 빌드하거나" +
-            [char]10 +
-            "  - env:ITMATZIP_BUILD_PYTHON = 'C:\Path\To\python.exe' 지정"
+            "Full Python $EmbeddableVersion is required to build the diffq cp314 wheel (embeddable Python has no Python.h)." + [char]10 +
+            "  - Install Python $EmbeddableVersion and rebuild, or" + [char]10 +
+            "  - Set env var ITMATZIP_BUILD_PYTHON to python.exe (e.g. C:\Path\To\python.exe)"
         )
     }
 
@@ -294,6 +292,12 @@ if (-not (Test-Path $previewScript)) {
 }
 if (-not (Select-String -Path $previewScript -Pattern "loadImageInto" -Quiet)) {
     throw "tools-web/image-enhancer/script.js is outdated (missing loadImageInto). Sync web-ui before MSI build."
+}
+
+$FfmpegVendorDir = Join-Path $Staging "vendor\ffmpeg\gpl-shared"
+if (-not (Test-Path (Join-Path $FfmpegVendorDir "ffmpeg.exe"))) {
+    Write-Step "Staging bundled FFmpeg (gpl-shared) for MSI"
+    & (Join-Path $Root "scripts\install-ffmpeg-vendor.ps1") -TargetDir $FfmpegVendorDir
 }
 
 Write-Step "Staging complete: $Staging"

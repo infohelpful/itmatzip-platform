@@ -3,9 +3,27 @@
  */
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
-import { buildOverlayCaptureSchedule } from "../shared/overlay-capture-schedule.js?v=2";
+import { buildOverlayCaptureSchedule, isProgramExportTimeAxis } from "../shared/overlay-capture-schedule.js?v=4";
+import { createOverlayTimingContext } from "../shared/overlay-timing-ssot.js?v=1";
+import { runExportParityGate, runProgramMapParityGate } from "../shared/overlay-timing-parity.js?v=2";
+import {
+  analyzeBurnInPipelineHandoff,
+  burnInPipelineDiagAgentPayload,
+  burnInPipelineDiagHandoff,
+  burnInPipelineDiagIsEnabled,
+  burnInPipelineDiagLog,
+  burnInPipelineDiagWarn,
+  runBurnInMediaHardGate,
+  virtualMapProgramEndSec,
+} from "../shared/burn-in-pipeline-diagnostics.js?v=3";
+import {
+  buildBurnInMediaContract,
+  buildProgramToBurninMapFromVirtualAudioMap,
+  DEFAULT_TARGET_NTSC_FPS,
+  ntscFpsFractionsEqual,
+} from "../shared/media-timing-ssot.js?v=6";
 import { bindExportStyleVideoNative } from "../shared/export-render-scale.js?v=1";
-import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=5";
+import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=7";
 
 const TRANSIENT_HTTP = new Set([502, 503, 504]);
 
@@ -68,7 +86,7 @@ async function prepareBurnIn(toolPrefix, videoPath) {
     fetchAgentResilient(`${getAgentOrigin()}${toolPrefix}/export/video-burn-in/prepare`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ video_path: videoPath }),
+      body: JSON.stringify({ video_path: videoPath, ...burnInPipelineDiagAgentPayload() }),
       cache: "no-store",
     }).then(async (res) => {
       const data = await res.json().catch(() => ({}));
@@ -87,41 +105,66 @@ async function prepareBurnIn(toolPrefix, videoPath) {
 /**
  * @param {string} toolPrefix
  * @param {string} jobId
- * @param {{ index: number, start: number, end: number, png: Uint8Array }} frame
+ * @param {readonly { index: number, start: number, end: number, png: Uint8Array }[]} frames
  */
-async function uploadBurnInFrame(toolPrefix, jobId, frame) {
-  const url =
-    `${getAgentOrigin()}${toolPrefix}/export/video-burn-in/frame` +
-    `?job_id=${encodeURIComponent(jobId)}` +
-    `&index=${frame.index}` +
-    `&start=${encodeURIComponent(String(frame.start))}` +
-    `&end=${encodeURIComponent(String(frame.end))}`;
-  const res = await fetchAgentResilient(url, {
-    method: "POST",
-    headers: { "Content-Type": "image/png", Accept: "application/json" },
-    body: frame.png,
-    cache: "no-store",
-  });
+async function uploadBurnInFramesBatch(toolPrefix, jobId, frames) {
+  const form = new FormData();
+  form.append("job_id", jobId);
+  form.append(
+    "meta",
+    JSON.stringify(
+      frames.map((f) => ({
+        index: f.index,
+        start: f.start,
+        end: f.end,
+      })),
+    ),
+  );
+  for (const f of frames) {
+    form.append(`frame_${f.index}`, new Blob([f.png]), `frame_${f.index}.png`);
+  }
+  const res = await fetchAgentResilient(
+    `${getAgentOrigin()}${toolPrefix}/export/video-burn-in/frames-batch`,
+    {
+      method: "POST",
+      body: form,
+      cache: "no-store",
+    },
+  );
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data?.detail ? String(data.detail) : `프레임 업로드 실패 (${res.status})`);
+    throw new Error(data?.detail ? String(data.detail) : `프레임 배치 업로드 실패 (${res.status})`);
   }
+  return res.json().catch(() => ({}));
 }
 
 /**
  * @param {string} toolPrefix
  * @param {string} jobId
- * @param {readonly object[]} cutRanges
- * @param {{ path?: string, position?: string } | null | undefined} watermark
+ * @param {object} finishPayload
+ * @param {{ path?: string, position?: string } | null | undefined} finishPayload.watermark
+ * @param {readonly object[]} [finishPayload.cut_ranges]
+ * @param {readonly object[]} [finishPayload.virtual_audio_map]
+ * @param {boolean} [finishPayload.requires_concat]
+ * @param {string} [finishPayload.export_time_axis]
  */
-async function finishBurnIn(toolPrefix, jobId, cutRanges, watermark) {
+async function finishBurnIn(toolPrefix, jobId, finishPayload) {
+  const watermark = finishPayload?.watermark;
   return fetchAgentResilient(`${getAgentOrigin()}${toolPrefix}/export/video-burn-in/finish`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
       job_id: jobId,
-      cut_ranges: cutRanges || [],
+      cut_ranges: finishPayload?.cut_ranges || [],
+      virtual_audio_map: finishPayload?.virtual_audio_map || [],
+      requires_concat: !!finishPayload?.requires_concat,
+      export_time_axis: finishPayload?.export_time_axis || null,
+      program_duration_sec:
+        typeof finishPayload?.program_duration_sec === "number"
+          ? finishPayload.program_duration_sec
+          : null,
       watermark: watermark?.path ? watermark : null,
+      ...burnInPipelineDiagAgentPayload(),
     }),
     cache: "no-store",
   }).then(async (res) => {
@@ -142,12 +185,16 @@ async function finishBurnIn(toolPrefix, jobId, cutRanges, watermark) {
  * @param {readonly object[]} cutRanges
  * @param {object} style
  * @param {boolean} [opts.requiresConcat]
- * @param {"stitched_program" | "media"} [opts.exportTimeAxis]
+ * @param {"stitched_program" | "filter_program" | "media"} [opts.exportTimeAxis]
  * @param {number} [opts.actualDuration]
+ * @param {number} [opts.burninDuration]
+ * @param {readonly object[]} [opts.programToBurninMap]
+ * @param {object} [opts.burnInMediaContract]
  * @param {{ path?: string, position?: string } | null | undefined} [opts.watermark]
  * @param {(patch: { progress?: number, step?: string, message?: string }) => void} [opts.onUiProgress]
  * @param {readonly object[]} [opts.blocks]
  * @param {readonly object[]} [opts.virtualIndex]
+ * @param {readonly object[]} [opts.virtualAudioMap]
  */
 export async function runVideoBurnInExport({
   toolPrefix,
@@ -158,40 +205,190 @@ export async function runVideoBurnInExport({
   requiresConcat,
   exportTimeAxis,
   actualDuration,
+  burninDuration,
+  programToBurninMap,
+  burnInMediaContract,
   watermark,
   onUiProgress,
   blocks,
   virtualIndex,
+  virtualAudioMap,
 }) {
-  const stitched =
-    requiresConcat === true || exportTimeAxis === "stitched_program";
-  const schedule = buildOverlayCaptureSchedule(lastCues, {
-    requiresConcat: stitched,
-    cutRanges: stitched ? [] : cutRanges,
-    actualDuration: stitched ? actualDuration : undefined,
+  const axis = exportTimeAxis || (requiresConcat ? "stitched_program" : "media");
+  const isV5Program = axis === "program";
+  const stitched = !isV5Program && (requiresConcat === true || axis === "stitched_program");
+  const useProgramSchedule = isProgramExportTimeAxis(axis);
+  const scheduleCutRanges = useProgramSchedule ? [] : cutRanges;
+  const contract = burnInMediaContract || buildBurnInMediaContract();
+  let map = programToBurninMap?.length
+    ? programToBurninMap
+    : contract?.program_to_burnin_map?.length
+      ? contract.program_to_burnin_map
+      : null;
+
+  if (
+    stitched &&
+    (!map || !map.length) &&
+    typeof actualDuration === "number" &&
+    actualDuration > 0 &&
+    (virtualAudioMap || []).length
+  ) {
+    map = buildProgramToBurninMapFromVirtualAudioMap(virtualAudioMap, actualDuration);
+    burnInConsoleLog("program_map_fe_fallback", { segments: map.length, actualDuration });
+  }
+
+  if (stitched && !isV5Program && (!map || !map.length)) {
+    throw new Error(
+      "program_to_burnin_map이 없습니다. itmatzip-agent를 재빌드·재시작한 뒤 export를 다시 시도하세요.",
+    );
+  }
+
+  const overlayCtx = createOverlayTimingContext({
+    cues: lastCues,
     blocks,
     virtualIndex,
+    cutRanges: scheduleCutRanges,
+    playbackMode: "time",
+    exportTimeAxis: axis,
+    requiresConcat: stitched,
+  });
+  const parity = runExportParityGate(overlayCtx);
+  burnInConsoleLog("overlay_parity", {
+    ok: parity.ok,
+    blocked: parity.blocked,
+    sampleCount: parity.sampleCount,
+    mismatchCount: parity.mismatches.length,
+  });
+  if (parity.blocked) {
+    throw new Error(
+      `Overlay timing parity failed (${parity.mismatches.length} mismatches / ${parity.sampleCount} samples). Export blocked.`,
+    );
+  }
+
+  if (map?.length) {
+    const mapParity = runProgramMapParityGate(map);
+    if (mapParity.blocked) {
+      throw new Error(
+        `Program→burnin map parity failed (${mapParity.issues.length} issues). Export blocked.`,
+      );
+    }
+  }
+
+  const schedule = buildOverlayCaptureSchedule(lastCues, {
+    requiresConcat: stitched,
+    exportTimeAxis: axis,
+    cutRanges: scheduleCutRanges,
+    blocks,
+    virtualIndex,
+    programToBurninMap: map || undefined,
   });
   if (!schedule.length) throw new Error("보낼 자막이 없습니다.");
+
+  const scheduleEnd = schedule.length ? schedule[schedule.length - 1].end : 0;
+  const burninDur =
+    typeof burninDuration === "number" && burninDuration > 0
+      ? burninDuration
+      : typeof actualDuration === "number" && actualDuration > 0
+        ? actualDuration
+        : scheduleEnd;
+  const contractProgramDur = Number(contract?.program_duration_sec) || 0;
+  const overlayDurationSec = isV5Program
+    ? Math.max(
+        burninDur > 0 ? burninDur : 0,
+        contractProgramDur > 0 ? contractProgramDur : 0,
+        scheduleEnd,
+        0.1,
+      )
+    : Math.min(scheduleEnd, burninDur);
+  const virtualProgramEnd = virtualMapProgramEndSec(virtualAudioMap);
+  const handoffBase = {
+    burninMediaPath: videoPath,
+    exportTimeAxis: axis,
+    stitched,
+    requiresConcat: stitched,
+    actualDuration: stitched ? actualDuration : undefined,
+    burninDuration: burninDur,
+    overlayDurationSec,
+    programMapSegments: map?.length || 0,
+    contractTargetFps: contract?.target_ntsc_fps,
+    scheduleSegments: schedule.length,
+    scheduleEnd,
+    scheduleFirstStart: schedule.length ? schedule[0].start : 0,
+    virtualProgramEnd,
+    virtualMapSegments: (virtualAudioMap || []).length,
+    finishMapSegments: axis === "filter_program" ? (virtualAudioMap || []).length : 0,
+  };
+  burnInPipelineDiagHandoff("schedule_built", handoffBase);
+  analyzeBurnInPipelineHandoff(handoffBase);
+  const hardGate = runBurnInMediaHardGate(handoffBase, { stitched });
+  if (hardGate.blocked) {
+    throw new Error(
+      `Burn-in media contract gate failed: ${hardGate.issues.map((i) => i.code).join(", ")}`,
+    );
+  }
 
   burnInConsoleLog("export_start", {
     videoPath,
     stitched,
+    exportTimeAxis: axis,
+    useProgramSchedule,
     scheduleSegments: schedule.length,
     actualDuration: stitched ? actualDuration : undefined,
-    scheduleEnd: schedule.length ? schedule[schedule.length - 1].end : 0,
+    scheduleEnd,
   });
+  burnInPipelineDiagLog("export_start", handoffBase);
 
   onUiProgress?.({ progress: 2, step: "영상 · 준비", message: "FFmpeg·해상도 확인…" });
   const prep = await prepareBurnIn(toolPrefix, videoPath);
+  const prepHandoff = {
+    jobId: prep.job_id,
+    prepareDurationSec: prep.duration_sec,
+    exportFps: prep.export_fps,
+    probeTargetFps: prep.media_probe?.target_ntsc_fps,
+    probeVideoDur: prep.media_probe?.video_duration_sec,
+    probeAudioDur: prep.media_probe?.audio_duration_sec,
+    probeVfr: prep.media_probe?.vfr_suspected,
+    renderW: prep.render_width,
+    renderH: prep.render_height,
+  };
+  burnInPipelineDiagHandoff("prepare_done", { ...handoffBase, ...prepHandoff });
+  analyzeBurnInPipelineHandoff({
+    ...handoffBase,
+    ...prepHandoff,
+    overlayDurationSec,
+    contractTargetFps: contract?.target_ntsc_fps || DEFAULT_TARGET_NTSC_FPS,
+    probeTargetFpsFraction: prep.media_probe?.target_ntsc_fps,
+    fpsFractionMatch: ntscFpsFractionsEqual(
+      contract?.target_ntsc_fps,
+      prep.media_probe?.target_ntsc_fps,
+    ),
+  });
+  const prepGate = runBurnInMediaHardGate(
+    {
+      ...handoffBase,
+      ...prepHandoff,
+      contractTargetFps: contract?.target_ntsc_fps,
+      probeTargetFpsFraction: prep.media_probe?.target_ntsc_fps,
+      probeVfr: prep.media_probe?.vfr_suspected,
+    },
+    { stitched, afterPrepare: true },
+  );
+  if (prepGate.blocked) {
+    throw new Error(
+      `prepare_done media gate failed: ${prepGate.issues.map((i) => i.code).join(", ")}`,
+    );
+  }
   burnInConsoleLog("prepare_done", {
     jobId: prep.job_id,
     durationSec: prep.duration_sec,
+    exportFps: prep.export_fps,
+    mediaProbe: prep.media_probe,
     renderW: prep.render_width,
     renderH: prep.render_height,
     fullW: prep.full_width,
     fullH: prep.full_height,
   });
+  burnInPipelineDiagLog("prepare_done", prepHandoff);
   const renderW = prep.render_width;
   const renderH = prep.render_height;
   const exportStyle = bindExportStyleVideoNative(
@@ -218,27 +415,95 @@ export async function runVideoBurnInExport({
   burnInConsoleLog("capture_done", { frameCount: frames.length });
 
   onUiProgress?.({ progress: 32, step: "영상 · 업로드", message: "프레임 전송…" });
-  for (let i = 0; i < frames.length; i += 1) {
-    await uploadBurnInFrame(toolPrefix, prep.job_id, frames[i]);
-    const pct = 32 + Math.round(((i + 1) / frames.length) * 8);
+  try {
+    await uploadBurnInFramesBatch(toolPrefix, prep.job_id, frames);
     onUiProgress?.({
-      progress: pct,
+      progress: 40,
       step: "영상 · 업로드",
-      message: `프레임 업로드 ${i + 1}/${frames.length}`,
+      message: `프레임 배치 업로드 ${frames.length}장`,
     });
+  } catch (batchErr) {
+    burnInConsoleLog("upload_batch_fallback", { error: String(batchErr) });
+    for (let i = 0; i < frames.length; i += 1) {
+      const url =
+        `${getAgentOrigin()}${toolPrefix}/export/video-burn-in/frame` +
+        `?job_id=${encodeURIComponent(prep.job_id)}` +
+        `&index=${frames[i].index}` +
+        `&start=${encodeURIComponent(String(frames[i].start))}` +
+        `&end=${encodeURIComponent(String(frames[i].end))}`;
+      const res = await fetchAgentResilient(url, {
+        method: "POST",
+        headers: { "Content-Type": "image/png", Accept: "application/json" },
+        body: frames[i].png,
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail ? String(data.detail) : `프레임 업로드 실패 (${res.status})`);
+      }
+      const pct = 32 + Math.round(((i + 1) / frames.length) * 8);
+      onUiProgress?.({
+        progress: pct,
+        step: "영상 · 업로드",
+        message: `프레임 업로드 ${i + 1}/${frames.length}`,
+      });
+    }
   }
 
   burnInConsoleLog("upload_done", { jobId: prep.job_id, frameCount: frames.length });
 
-  const finishCuts = stitched ? [] : cutRanges || [];
-  onUiProgress?.({ progress: 40, step: "영상 · 인코딩", message: "FFmpeg 번인 시작…" });
-  burnInConsoleLog("finish_request", { jobId: prep.job_id, cutCount: finishCuts.length });
-  const finishStatus = await finishBurnIn(toolPrefix, prep.job_id, finishCuts, watermark);
+  const finishCuts = useProgramSchedule ? [] : cutRanges || [];
+  onUiProgress?.({ progress: 44, step: "영상 · 인코딩", message: "FFmpeg 번인 시작…" });
+  burnInConsoleLog("finish_request", {
+    jobId: prep.job_id,
+    cutCount: finishCuts.length,
+    exportTimeAxis: axis,
+    mapSegments: (virtualAudioMap || []).length,
+  });
+  if (burnInPipelineDiagIsEnabled()) {
+    burnInPipelineDiagLog("finish_request", {
+      jobId: prep.job_id,
+      exportTimeAxis: axis,
+      requiresConcat: stitched,
+      cutCount: finishCuts.length,
+      finishVirtualMapSegments: axis === "filter_program" ? (virtualAudioMap || []).length : 0,
+      frameCount: frames.length,
+      firstFrame: frames[0]
+        ? { start: frames[0].start, end: frames[0].end, index: frames[0].index }
+        : null,
+      lastFrame: frames.length
+        ? {
+            start: frames[frames.length - 1].start,
+            end: frames[frames.length - 1].end,
+            index: frames[frames.length - 1].index,
+          }
+        : null,
+    });
+  }
+  const finishStatus = await finishBurnIn(toolPrefix, prep.job_id, {
+    cut_ranges: finishCuts,
+    virtual_audio_map: axis === "filter_program" ? virtualAudioMap || [] : [],
+    requires_concat: stitched,
+    export_time_axis: axis,
+    program_duration_sec: isV5Program ? overlayDurationSec : undefined,
+    watermark,
+  });
   burnInConsoleLog("finish_accepted", {
     jobId: prep.job_id,
     phase: finishStatus?.phase,
     progress: finishStatus?.progress,
     message: finishStatus?.message,
+  });
+  burnInPipelineDiagHandoff("finish_accepted", {
+    jobId: prep.job_id,
+    phase: finishStatus?.phase,
+    progress: finishStatus?.progress,
+    message: finishStatus?.message,
+  });
+  burnInPipelineDiagLog("finish_accepted", {
+    jobId: prep.job_id,
+    phase: finishStatus?.phase,
+    progress: finishStatus?.progress,
   });
   return prep;
 }

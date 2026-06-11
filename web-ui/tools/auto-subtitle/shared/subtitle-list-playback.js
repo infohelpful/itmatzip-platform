@@ -5,7 +5,7 @@
 import { listableCueIndices } from "./subtitle-list-indices.js?v=6";
 import { pickActiveWordIndex } from "../playback.js?v=31";
 import { getCueSourceEnd, getCueSourceStart, getWordSourceEnd } from "./dual-axis.js?v=1";
-import { buildVirtualAudioMap } from "./virtual-audio-map.js?v=2";
+import { buildVirtualAudioMap } from "./virtual-audio-map.js?v=4";
 import { getCueWords } from "../subtitle-words.js?v=18";
 import { wordVisibleInWordChipRail } from "./subtitles.js?v=28";
 import {
@@ -13,6 +13,7 @@ import {
   mapProgramToMediaSec,
   programDurationSec,
 } from "./timeline-mapping.js";
+import { getListOrderPreviewMappingFromSegment } from "./program-segment-timeline.js?v=6";
 
 const CLIP_END_TAIL_PAD_SEC = 0.2;
 
@@ -95,6 +96,7 @@ export function buildListOrderTimelineClips(cues, opts = {}) {
       timelineEnd: seg.editEnd,
       mediaStart: seg.sourceStart,
       mediaEnd: seg.sourceEnd,
+      effectiveSourceEnd: seg.effectiveSourceEnd ?? seg.sourceEnd,
       cueIndex: seg.cueIndex,
     });
   }
@@ -106,6 +108,9 @@ export function buildListOrderTimelineClips(cues, opts = {}) {
  * @param {number} mediaDurationSec
  */
 export function createListOrderPreviewMapping(cues, mediaDurationSec) {
+  const segmentBundle = getListOrderPreviewMappingFromSegment();
+  if (segmentBundle?.clips?.length) return segmentBundle;
+
   if (cachedListMapping && cacheBuiltForVersion === cacheVersion) {
     return { clips: cachedListClips ?? [], mapping: cachedListMapping };
   }
@@ -148,10 +153,27 @@ export function listPlayableClipCuePairs(cues) {
  * @param {readonly object[]} cues
  * @param {number} listPos
  */
+/**
+ * programClips 큐 — listPos(blocks 순서)에 해당하는 첫 timeline clip 인덱스.
+ * 블록당 segment가 여러 개면 clipIndex !== listPos.
+ */
+export function clipIndexForBlockListPos(clips, listPos) {
+  if (!clips?.length || listPos < 0) return 0;
+  if (clips[0]?.blockId != null) {
+    const idx = clips.findIndex((c) => c.blockIndex === listPos);
+    if (idx >= 0) return idx;
+  }
+  return Math.min(Math.max(0, listPos), clips.length - 1);
+}
+
 export function clipIndexForListPos(clips, cues, listPos) {
   const ci = cueIndexAtListPos(cues, listPos);
   if (ci < 0) return 0;
   if (clips?.length) {
+    /** segment timeline — blockIndex = blocks[] list order (clip 개수와 list 줄 수 불일치 가능) */
+    if (clips[0]?.blockId != null) {
+      return clipIndexForBlockListPos(clips, listPos);
+    }
     const clipIdx = clips.findIndex((c) => c.cueIndex === ci);
     if (clipIdx >= 0) return clipIdx;
   }
@@ -168,6 +190,12 @@ export function clipIndexForListPos(clips, cues, listPos) {
 export function cueIndexForClipIndex(clips, cues, clipIndex) {
   if (clipIndex < 0) return -1;
   const clip = clips?.[clipIndex];
+  if (clip?.blockId != null) {
+    if (Number.isInteger(clip.blockIndex) && clip.blockIndex >= 0) {
+      return cueIndexAtListPos(cues, clip.blockIndex);
+    }
+    return cueIndexAtListPos(cues, clipIndex);
+  }
   if (clip && Number.isInteger(clip.cueIndex)) return clip.cueIndex;
   const pairs = listPlayableClipCuePairs(cues);
   if (clipIndex >= pairs.length) return -1;

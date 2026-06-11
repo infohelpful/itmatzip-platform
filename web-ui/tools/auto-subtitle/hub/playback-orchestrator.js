@@ -8,7 +8,7 @@ import {
   buildPassthroughSegmentsSkippingCuts,
   buildScheduledMediaSegmentsFromSubtitleWords,
 } from "./playback-schedule.js";
-import { createTimelineMapping, jumpVideoPastClipTailIfNeeded } from "../shared/timeline-mapping.js";
+import { createTimelineMapping, jumpVideoPastClipTailIfNeeded, mapMediaToProgramSec, mapProgramToMediaSec } from "../shared/timeline-mapping.js";
 import { skipCutRangeAt } from "../playback.js";
 import { SyncEngineHost } from "../sync/sync-engine-host.js";
 import { VideoSeekUiController } from "../sync/video-seek-ui-controller.js";
@@ -40,6 +40,8 @@ export class PlaybackOrchestrator {
     this.lines = [];
     /** @type {{ start: number, end: number }[]} */
     this.skipRanges = [];
+    /** program-master.mp4 재생 시 SyncEngine jump-cut 비활성 (이미 편집 타임라인에 반영됨) */
+    this.programMasterMode = false;
   }
 
   /**
@@ -94,32 +96,52 @@ export class PlaybackOrchestrator {
    * @param {{ start: number, end: number }[]} skipRanges
    * @param {number} mediaDurationSec
    */
-  rebuild(lines, skipRanges, mediaDurationSec) {
+  rebuild(lines, skipRanges, mediaDurationSec, opts = {}) {
     this.lines = lines || [];
     this.skipRanges = skipRanges || [];
     this.mediaDurationSec = Math.max(0, Number(mediaDurationSec) || 0);
+    this.programMasterMode = !!opts.programMasterMode;
+    const timelineClips = opts.timelineClips;
 
     this.mappingRevision += 1;
-    /** UI·칩·파형 = 미디어 축 항등. 재생 skip 은 skipRanges + skipCutRangeAt 로만 처리. */
-    this.mapping = createTimelineMapping([], this.mediaDurationSec, {
-      masterMode: "passthrough",
-    });
+    if (Array.isArray(timelineClips) && timelineClips.length > 0) {
+      this.mapping = {
+        clips: timelineClips,
+        mergedCuts: [],
+        mediaEndHintSec: this.mediaDurationSec,
+        programToMediaSec: (p) => mapProgramToMediaSec(p, timelineClips),
+        mediaToProgramSec: (m) => mapMediaToProgramSec(m, timelineClips),
+        programToMasterAudioSec: (p) => mapProgramToMediaSec(p, timelineClips),
+        masterAudioToProgramSec: (m) => mapMediaToProgramSec(m, timelineClips),
+        masterMode: "stitched",
+      };
+    } else {
+      /** UI·칩·파형 = 미디어 축 항등. 재생 skip 은 skipRanges + skipCutRangeAt 로만 처리. */
+      this.mapping = createTimelineMapping([], this.mediaDurationSec, {
+        masterMode: "passthrough",
+      });
+    }
     this.router.setMappingRevision(this.mappingRevision, this.mappingRevision);
 
     this.wordBlocks = virtualBlocksForSyncEngine(this.lines, []);
 
     if (this.video && this.syncHost.engine) {
       this.syncHost.setBlocks(this.wordBlocks);
+      if (opts.stitchedProgramMode || opts.timelineClips?.length) {
+        this.syncHost.stop();
+        this._startSyncEngine(opts);
+      }
     } else if (this.video) {
-      this._startSyncEngine();
+      this._startSyncEngine(opts);
     }
   }
 
-  _startSyncEngine() {
+  _startSyncEngine(opts = {}) {
     if (!this.video) return;
+    const stitched = !!opts.stitchedProgramMode || (this.mapping?.masterMode === "stitched");
     const blocks = playbackWordBlocks(this.wordBlocks);
     this.syncHost.attach(this.video, blocks, {
-      jumpCutEnabled: true,
+      jumpCutEnabled: !this.programMasterMode && !stitched,
       onTick: (ctx) => {
         if (this.isSeekingLocked) return;
         const mediaSec = ctx.realTimeMs / 1000;
