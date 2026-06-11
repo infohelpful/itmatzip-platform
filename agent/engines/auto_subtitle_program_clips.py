@@ -70,9 +70,49 @@ def merge_contiguous_program_clips(
     return [(s, e) for s, e, _ in merged if e > s + PROGRAM_CLIP_EPS]
 
 
+def program_clips_to_literal_bake_segments(
+    program_clips: list[dict[str, Any]] | None,
+) -> list[tuple[float, float]]:
+    """V5 literal queue — one trim segment per ProgramClip, no merge/dedupe."""
+    clips = normalize_program_clips(program_clips)
+    segments: list[tuple[float, float]] = []
+    for clip in clips:
+        s = float(clip["sourceStart"])
+        e = float(clip["sourceEnd"])
+        if e <= s + PROGRAM_CLIP_EPS:
+            bid = clip.get("blockIndex", clip.get("block_index", "?"))
+            raise ValueError(
+                f"ProgramClip blockIndex={bid} has zero source duration ({s:.6f}–{e:.6f})"
+            )
+        segments.append((s, e))
+    return segments
+
+
+def validate_literal_bake_segments(
+    clips: list[dict[str, Any]],
+    segments: list[tuple[float, float]],
+    *,
+    program_duration_sec: float | None = None,
+) -> None:
+    """Parity gate — clip count and summed source duration must match program axis."""
+    if len(segments) != len(clips):
+        raise ValueError(
+            f"literal bake parity: clip_count={len(clips)} segment_count={len(segments)}"
+        )
+    seg_dur = sum(e - s for s, e in segments)
+    expected = float(program_duration_sec or 0)
+    if expected <= 0 and clips:
+        expected = float(clips[-1].get("programEnd") or 0)
+    if expected > 0 and abs(seg_dur - expected) > 0.08:
+        raise ValueError(
+            f"literal bake duration parity: segments={seg_dur:.3f} expected={expected:.3f}"
+        )
+
+
 def optimize_clips_for_filter(
     program_clips: list[dict[str, Any]] | None,
 ) -> list[tuple[float, float]]:
+    """Legacy filter path — prefer program_clips_to_literal_bake_segments for V5 bake."""
     clips = normalize_program_clips(program_clips)
     merged = merge_contiguous_program_clips(clips)
     return dedupe_overlapping_keep_segments(merged)

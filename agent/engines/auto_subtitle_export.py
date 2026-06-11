@@ -729,6 +729,19 @@ def export_video_program_ssot_pipeline(
                     )
                 except (TypeError, ValueError):
                     actual_duration = None
+            expected_dur = float(program_duration_sec or 0)
+            if (
+                expected_dur > 0
+                and actual_duration
+                and abs(actual_duration - expected_dur) > 0.08
+            ):
+                _log.warning(
+                    "export_v5 stale program_master: expected=%.3f actual=%.3f — rebake",
+                    expected_dur,
+                    actual_duration,
+                )
+                master_path = None
+                actual_duration = None
 
     if master_path is None:
         _set_export_job("bake_master", 8.0, "Program master 생성…", fmt="video")

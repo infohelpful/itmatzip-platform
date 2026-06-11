@@ -6,15 +6,17 @@ import { buildTextExport, TEXT_EXPORT_FORMATS } from "../shared/export-subtitle-
 import { buildExportCueLines } from "../shared/export-cue-pipeline.js?v=4";
 import { anyCueRelocated } from "../shared/dual-axis.js?v=1";
 import { rebuildVirtualIndexFromBlocks } from "../shared/block-timeline-adapter.js?v=1";
-import { buildBlockStitchedProgramExportCues } from "../shared/blocks-to-export.js?v=3";
 import {
+  assertLiteralBakeParity,
   buildProgramClips,
   deriveCutRangesFromProgramClips,
   EXPORT_SCHEMA_VERSION,
   getProgramDurationSec,
+  programClipsFingerprint,
   programClipsToApiPayload,
-} from "../shared/program-clips-ssot.js?v=3";
-import { blocksToVirtualAudioMap } from "../shared/blocks-to-export.js?v=3";
+  programClipsToExportCues,
+} from "../shared/program-clips-ssot.js?v=6";
+import { blocksToVirtualAudioMap } from "../shared/blocks-to-export.js?v=5";
 import {
   buildStitchedProgramExportCues,
   buildVirtualAudioMap,
@@ -135,12 +137,15 @@ export function buildExportRequestPayload(
 
   if (useBlocks && fmt === "video") {
     const programClips = buildProgramClips(blocks, cutRanges || []);
+    assertLiteralBakeParity(programClips);
     const programDurationSec = getProgramDurationSec(programClips);
-    const virtualIndex = rebuildVirtualIndexFromBlocks(blocks);
-    const exportCues = buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
-      cutRanges: cutRanges || [],
-      requiresConcat: true,
-    });
+    const exportCues = programClipsToExportCues(programClips, blocks);
+    const previewPath = previewMediaPath || videoPath || "";
+    const clipsFingerprint = programClipsFingerprint(
+      previewPath,
+      programClips,
+      JSON.stringify(cutRanges || []),
+    );
     return {
       format: fmt,
       cues: exportCues,
@@ -150,6 +155,7 @@ export function buildExportRequestPayload(
       program_clips: programClipsToApiPayload(programClips),
       program_duration_sec: programDurationSec,
       program_master_path: programMasterPath,
+      program_clips_fingerprint: clipsFingerprint,
       virtual_audio_map: [],
       requires_concat: false,
       export_time_axis: "program",
@@ -169,10 +175,7 @@ export function buildExportRequestPayload(
     const virtualAudioMap = blocksToVirtualAudioMap(blocks, virtualIndex, {
       cutRanges: derivedCuts,
     });
-    const exportCues = buildBlockStitchedProgramExportCues(blocks, virtualIndex, lastCues, {
-      cutRanges: derivedCuts,
-      requiresConcat: true,
-    });
+    const exportCues = programClipsToExportCues(programClips, blocks);
     return {
       format: fmt,
       cues: exportCues,

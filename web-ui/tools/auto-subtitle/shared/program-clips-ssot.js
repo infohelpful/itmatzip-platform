@@ -120,6 +120,114 @@ export function programClipsToApiPayload(clips) {
 }
 
 /**
+ * @param {import("./block-timeline-adapter.js").WordBlock} w
+ */
+function isPlayableExportWord(w) {
+  if (!w) return false;
+  if (w.isDeleted && !w.mergedByEdgeTrim) return false;
+  return true;
+}
+
+/**
+ * overlay / burn-in schedule — programClips programStart/End 직접 사용 (SSOT).
+ *
+ * @param {readonly ProgramClip[]} programClips
+ */
+export function programClipsToOverlaySegments(programClips) {
+  return (programClips || []).map((c) => ({
+    blockIndex: c.blockIndex,
+    editStart: c.programStart,
+    editEnd: c.programEnd,
+    virtualEnd: c.programEnd,
+    isSilence: !!c.isSilence,
+  }));
+}
+
+/**
+ * export cues — programClips program 축 + block words (blocksToExport 재경유 없음).
+ *
+ * @param {readonly ProgramClip[]} programClips
+ * @param {readonly import("./block-timeline-adapter.js").Block[]} blocks
+ */
+export function programClipsToExportCues(programClips, blocks) {
+  /** @type {{ start: number, end: number, text: string, words?: object[] }[]} */
+  const out = [];
+  for (const clip of programClips || []) {
+    if (clip.isSilence) continue;
+    const block = blocks?.[clip.blockIndex];
+    if (!block || block.isDeleted) continue;
+
+    const programStart = clip.programStart;
+    const programEnd = clip.programEnd;
+    const srcStart = clip.sourceStart;
+    const text = String(block.text ?? "").trim();
+    const words = block.words || [];
+
+    if (words.length) {
+      const vis = words.filter(
+        (w) => isPlayableExportWord(w) && !w.isSilence && String(w.text || "").trim(),
+      );
+      if (!vis.length) continue;
+
+      const remapped = vis
+        .map((w) => {
+          const ws = programStart + (Number(w.sourceIn) - srcStart);
+          const we = programStart + (Number(w.sourceOut) - srcStart);
+          return {
+            word: w.text,
+            start: Math.max(programStart, ws),
+            end: Math.min(programEnd, we),
+          };
+        })
+        .filter((w) => w.end > w.start + PROGRAM_CLIP_EPS);
+
+      if (!remapped.length) continue;
+      const start = Math.min(...remapped.map((w) => w.start));
+      const end = Math.max(...remapped.map((w) => w.end));
+      out.push({
+        start,
+        end,
+        text: text || remapped.map((w) => w.word).join(" "),
+        words: remapped,
+      });
+    } else if (text) {
+      out.push({ start: programStart, end: programEnd, text });
+    }
+  }
+  return out;
+}
+
+/**
+ * V5 literal bake parity — clip count == segment count, sum(sourceDur) ≈ programEnd.
+ *
+ * @param {readonly ProgramClip[]} programClips
+ */
+export function assertLiteralBakeParity(programClips) {
+  const clips = programClips || [];
+  let segDur = 0;
+  for (const c of clips) {
+    const d = (Number(c.sourceEnd) || 0) - (Number(c.sourceStart) || 0);
+    if (d <= PROGRAM_CLIP_EPS) {
+      throw new Error(
+        `ProgramClip blockIndex=${c.blockIndex} has zero source duration`,
+      );
+    }
+    segDur += d;
+  }
+  const expected = getProgramDurationSec(clips);
+  if (clips.length && Math.abs(segDur - expected) > 0.08) {
+    throw new Error(
+      `Literal bake parity: segment sum ${segDur.toFixed(3)}s != program ${expected.toFixed(3)}s`,
+    );
+  }
+  return {
+    clipCount: clips.length,
+    segmentDurationSec: segDur,
+    programDurationSec: expected,
+  };
+}
+
+/**
  * @param {string} previewMediaPath
  * @param {readonly ProgramClip[]} clips
  * @param {string} [cutRangesJson]

@@ -7,6 +7,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from engines.auto_subtitle_program_clips import (
+    program_clips_to_literal_bake_segments,
+    validate_literal_bake_segments,
+)
 from engines.auto_subtitle_program_bake_l1 import (
     L1_MAX_SEGMENTS,
     try_bake_l1_concat_copy,
@@ -188,10 +192,45 @@ class ProgramBakeLadderRoutingTests(unittest.TestCase):
                     preview,
                     clips,
                     job,
-                    program_duration_sec=float(len(clips)),
+                    program_duration_sec=clips[-1]["programEnd"],
                 )
                 mock_l1.assert_not_called()
                 mock_ffmpeg.assert_called_once()
+
+
+class ProgramClipsLiteralBakeTests(unittest.TestCase):
+    def test_literal_segments_one_per_clip_reorder(self) -> None:
+        clips = [
+            {
+                "sourceStart": 0.0,
+                "sourceEnd": 2.0,
+                "programStart": 0.0,
+                "programEnd": 2.0,
+                "blockIndex": 0,
+            },
+            {
+                "sourceStart": 10.0,
+                "sourceEnd": 12.0,
+                "programStart": 2.0,
+                "programEnd": 4.0,
+                "blockIndex": 1,
+            },
+            {
+                "sourceStart": 5.0,
+                "sourceEnd": 11.0,
+                "programStart": 4.0,
+                "programEnd": 10.0,
+                "blockIndex": 2,
+            },
+        ]
+        segs = program_clips_to_literal_bake_segments(clips)
+        self.assertEqual(len(segs), 3)
+        validate_literal_bake_segments(clips, segs, program_duration_sec=10.0)
+
+    def test_literal_parity_rejects_segment_count_mismatch(self) -> None:
+        clips = [{"sourceStart": 0.0, "sourceEnd": 1.0, "programEnd": 1.0}]
+        with self.assertRaises(ValueError):
+            validate_literal_bake_segments(clips, [])
 
 
 if __name__ == "__main__":

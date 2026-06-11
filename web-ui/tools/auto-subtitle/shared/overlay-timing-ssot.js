@@ -9,7 +9,8 @@ import { subtitleLineEditDisplayText, visibleSubtitleWords } from "./subtitles.j
 import {
   blocksToExportSegments,
   blocksToOverlayProgramSegments,
-} from "./blocks-to-export.js?v=3";
+} from "./blocks-to-export.js?v=5";
+import { programClipsToOverlaySegments } from "./program-clips-ssot.js?v=6";
 import { buildVirtualAudioMap } from "./virtual-audio-map.js?v=3";
 import {
   EXPORT_CUE_BRIDGE_SEC,
@@ -57,6 +58,7 @@ export function resolveExportCueText(cue) {
  * @property {"list-order" | "time"} playbackMode
  * @property {string} exportTimeAxis
  * @property {readonly import("./timeline-mapping.js").TimelineClip[]} clips
+ * @property {readonly import("./program-clips-ssot.js").ProgramClip[]} [programClips]
  * @property {boolean} requiresConcat
  * @property {number | undefined} actualDuration
  * @property {boolean} isMediaPlaying
@@ -89,6 +91,7 @@ export function resolveExportCueText(cue) {
  *   isMediaPlaying?: boolean,
  *   listPlaybackClipPos?: number,
  *   resolveListOrderCueIndex?: (t: number) => number,
+ *   programClips?: readonly import("./program-clips-ssot.js").ProgramClip[],
  * }} opts
  * @returns {OverlayTimingContext}
  */
@@ -113,6 +116,7 @@ export function createOverlayTimingContext(opts) {
       ? /** @type {number} */ (opts.listPlaybackClipPos)
       : -1,
     resolveListOrderCueIndex: opts.resolveListOrderCueIndex,
+    programClips: opts.programClips?.length ? opts.programClips : undefined,
     _scheduleCache: null,
   };
 }
@@ -163,7 +167,46 @@ function exportTimeRangeForCue(cues, cueIndex) {
  * @returns {OverlayTimingSegment[]}
  */
 function buildProgramAxisBaseSegments(ctx, cutRanges) {
-  const { cues, blocks, virtualIndex } = ctx;
+  const { cues, blocks, virtualIndex, programClips } = ctx;
+
+  if (programClips?.length) {
+    const segs = programClipsToOverlaySegments(programClips);
+    /** @type {OverlayTimingSegment[]} */
+    const out = [];
+    for (let i = 0; i < segs.length; i += 1) {
+      const seg = segs[i];
+      if (seg.isSilence) continue;
+      const cueIndex = seg.blockIndex;
+      const cue = cues[cueIndex];
+      const text = resolveExportCueText(cue);
+      if (!text) continue;
+
+      let start = seg.editStart;
+      let end = seg.editEnd;
+
+      const nextSeg = i + 1 < segs.length ? segs[i + 1] : null;
+      if (nextSeg && cue) {
+        const cueEndVirtual = seg.virtualEnd;
+        const nextStartVirtual = nextSeg.editStart;
+        if (Number.isFinite(nextStartVirtual) && nextStartVirtual > cueEndVirtual + 1e-5) {
+          const tailStart = seg.editEnd - PLAYBACK_TAIL_PRE_SEC;
+          const tailEnd = Math.min(
+            nextSeg.editStart - PLAYBACK_TAIL_LEAD_SEC,
+            seg.editEnd + PREVIEW_OVERLAY_BRIDGE_SEC,
+          );
+          if (tailEnd > tailStart + MIN_SEGMENT_SEC) {
+            end = Math.max(end, tailEnd);
+          }
+        }
+      }
+
+      if (end > start + MIN_SEGMENT_SEC) {
+        out.push({ start, end, text, cueIndex });
+      }
+    }
+    return out;
+  }
+
   const useBlocks =
     Array.isArray(blocks) &&
     blocks.length > 0 &&

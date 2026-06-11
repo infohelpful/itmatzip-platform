@@ -4,7 +4,7 @@
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
 import { buildOverlayCaptureSchedule, isProgramExportTimeAxis } from "../shared/overlay-capture-schedule.js?v=4";
-import { createOverlayTimingContext } from "../shared/overlay-timing-ssot.js?v=1";
+import { createOverlayTimingContext } from "../shared/overlay-timing-ssot.js?v=2";
 import { runExportParityGate, runProgramMapParityGate } from "../shared/overlay-timing-parity.js?v=2";
 import {
   analyzeBurnInPipelineHandoff,
@@ -195,6 +195,7 @@ async function finishBurnIn(toolPrefix, jobId, finishPayload) {
  * @param {readonly object[]} [opts.blocks]
  * @param {readonly object[]} [opts.virtualIndex]
  * @param {readonly object[]} [opts.virtualAudioMap]
+ * @param {readonly import("../shared/program-clips-ssot.js").ProgramClip[]} [opts.programClips]
  */
 export async function runVideoBurnInExport({
   toolPrefix,
@@ -213,6 +214,7 @@ export async function runVideoBurnInExport({
   blocks,
   virtualIndex,
   virtualAudioMap,
+  programClips,
 }) {
   const axis = exportTimeAxis || (requiresConcat ? "stitched_program" : "media");
   const isV5Program = axis === "program";
@@ -251,6 +253,7 @@ export async function runVideoBurnInExport({
     playbackMode: "time",
     exportTimeAxis: axis,
     requiresConcat: stitched,
+    programClips,
   });
   const parity = runExportParityGate(overlayCtx);
   burnInConsoleLog("overlay_parity", {
@@ -280,6 +283,7 @@ export async function runVideoBurnInExport({
     cutRanges: scheduleCutRanges,
     blocks,
     virtualIndex,
+    programClips,
     programToBurninMap: map || undefined,
   });
   if (!schedule.length) throw new Error("보낼 자막이 없습니다.");

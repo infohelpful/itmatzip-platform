@@ -23,7 +23,8 @@ from engines.auto_subtitle_program_clips import (
     EXPORT_SCHEMA_VERSION,
     build_filter_program_av_chain_chunked,
     normalize_program_clips,
-    optimize_clips_for_filter,
+    program_clips_to_literal_bake_segments,
+    validate_literal_bake_segments,
 )
 
 _log = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ def _finalize_bake_metrics(
         "export_schema_version": EXPORT_SCHEMA_VERSION,
         "raw_clip_count": raw_seg_count,
         "filter_segment_count": filter_segment_count,
+        "literal_bake_parity": raw_seg_count == filter_segment_count,
         "chunked": filter_segment_count > L1_MAX_SEGMENTS,
         "expected_program_sec": expected,
         "actual_duration_sec": actual,
@@ -135,7 +137,12 @@ def bake_program_master(
         raise ValueError("program_clips가 비어 있습니다.")
 
     raw_seg_count = len(clips)
-    segments = optimize_clips_for_filter(clips)
+    segments = program_clips_to_literal_bake_segments(clips)
+    validate_literal_bake_segments(
+        clips,
+        segments,
+        program_duration_sec=program_duration_sec,
+    )
     if not segments:
         raise ValueError("유효한 program clip segment가 없습니다.")
 

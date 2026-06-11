@@ -1,6 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildProgramClips, getProgramDurationSec } from "../shared/program-clips-ssot.js";
+import {
+  assertLiteralBakeParity,
+  buildProgramClips,
+  getProgramDurationSec,
+  programClipsToExportCues,
+} from "../shared/program-clips-ssot.js";
 import { programClipEnd } from "../shared/program-clip-boundary-ssot.js";
 
 /**
@@ -141,4 +146,30 @@ test("silence block yields clip with isSilence", () => {
   const clips = buildProgramClips(blocks);
   assert.ok(clips.some((c) => c.isSilence && c.blockIndex === 1));
   assertEveryListableBlockHasClip(blocks, clips);
+});
+
+test("literal bake parity — reorder 1-3-2 clip count and duration", () => {
+  const blocks = [
+    makeBlock({ id: "l1", words: [makeWord(0, 2)] }),
+    makeBlock({ id: "l3", words: [makeWord(10, 12)] }),
+    makeBlock({ id: "l2", words: [makeWord(5, 11)] }),
+    makeBlock({ id: "l4", words: [makeWord(11.94, 12.5)] }),
+    makeBlock({ id: "l5", words: [makeWord(11.94, 13)] }),
+  ];
+  const clips = buildProgramClips(blocks);
+  const parity = assertLiteralBakeParity(clips);
+  assert.equal(parity.clipCount, 5);
+  assert.ok(Math.abs(parity.segmentDurationSec - parity.programDurationSec) < 0.08);
+});
+
+test("export cues use programStart/End from programClips SSOT", () => {
+  const blocks = [
+    makeBlock({ id: "a", words: [makeWord(0, 2)] }),
+    makeBlock({ id: "b", words: [makeWord(10, 12)] }),
+  ];
+  const clips = buildProgramClips(blocks);
+  const cues = programClipsToExportCues(clips, blocks);
+  assert.equal(cues.length, 2);
+  assert.equal(cues[0].start, clips[0].programStart);
+  assert.equal(cues[1].start, clips[1].programStart);
 });

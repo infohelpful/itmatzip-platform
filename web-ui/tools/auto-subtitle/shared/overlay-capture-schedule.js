@@ -18,7 +18,7 @@ import {
 
   resolveExportCueText,
 
-} from "./overlay-timing-ssot.js?v=1";
+} from "./overlay-timing-ssot.js?v=2";
 
 import { remapScheduleToBurninAxis } from "./media-timing-ssot.js?v=6";
 
@@ -60,6 +60,8 @@ export {
 
  *   programToBurninMap?: readonly object[],
 
+ *   programClips?: readonly import("./program-clips-ssot.js").ProgramClip[],
+
  * }} opts
 
  * @returns {OverlayCaptureSegment[]}
@@ -95,6 +97,8 @@ export function buildOverlayCaptureSchedule(cues, opts = {}) {
     exportTimeAxis,
 
     requiresConcat,
+
+    programClips: opts.programClips,
 
   });
 

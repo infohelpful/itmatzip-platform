@@ -168,10 +168,11 @@ import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=26";
 import {
   buildProgramClips,
   getProgramDurationSec,
+  programClipsFingerprint,
   programToSource,
   sourceToProgram,
   PROGRAM_CLIP_EPS,
-} from "./shared/program-clips-ssot.js?v=4";
+} from "./shared/program-clips-ssot.js?v=6";
 import {
   clearProgramSegmentTimeline,
   getProgramSegmentDurationSec,
@@ -6840,6 +6841,20 @@ async function runTranscribe() {
 function buildExportPayload(fmt) {
   syncCuesFromDom();
   const masterCache = getProgramMasterCache();
+  const programClips = buildProgramClips(subtitleHub.blocks, lastCutRanges || []);
+  const previewPath = getSessionPreviewMediaPath() || "";
+  const clipsFingerprint = programClipsFingerprint(
+    previewPath,
+    programClips,
+    JSON.stringify(lastCutRanges || []),
+  );
+  const masterFresh =
+    !!masterCache.path &&
+    masterCache.fingerprint === clipsFingerprint &&
+    Math.abs((masterCache.durationSec || 0) - getProgramDurationSec(programClips)) < 0.08;
+  const programMasterPath = masterFresh
+    ? programMasterPreviewPath || masterCache.path
+    : null;
   return {
     ...buildExportRequestPayload(
       lastCues,
@@ -6847,9 +6862,9 @@ function buildExportPayload(fmt) {
       readSubtitleStyleFromDom(),
       fmt,
       {
-        previewMediaPath: getSessionPreviewMediaPath() || null,
+        previewMediaPath: previewPath || null,
         videoPath: videoPathInput?.value?.trim() || null,
-        programMasterPath: programMasterPreviewPath || masterCache.path || null,
+        programMasterPath,
       },
       {
         blocks: subtitleHub.blocks,
@@ -7060,6 +7075,7 @@ async function runAwaitingFramesPngBurnIn(statusData) {
     virtualAudioMap: pngPayload.virtual_audio_map || [],
     blocks: subtitleHub.blocks,
     virtualIndex: subtitleHub._virtualIndex,
+    programClips: buildProgramClips(subtitleHub.blocks, lastCutRanges || []),
     style: readSubtitleStyleFromDom(),
     watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     onUiProgress: ({ progress, step, message }) => {
@@ -7429,6 +7445,7 @@ async function runExport() {
         virtualAudioMap: pngPayload.virtual_audio_map || [],
         blocks: subtitleHub.blocks,
         virtualIndex: subtitleHub._virtualIndex,
+        programClips: buildProgramClips(subtitleHub.blocks, lastCutRanges || []),
         style: readSubtitleStyleFromDom(),
         watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
         onUiProgress: ({ progress, step, message }) => {
