@@ -280,6 +280,8 @@ const STORAGE_CUES = "auto-subtitle:last-cues";
 const STORAGE_CUTS = "auto-subtitle:cut-ranges";
 const STORAGE_EXPORT_PATH = "auto-subtitle:export-path";
 const STORAGE_VIDEO_PATH = "auto-subtitle:last-video-path";
+const STORAGE_RETURN_FROM_DL = "auto-subtitle:return-from-download";
+const STORAGE_DL_RESTORE = "auto-subtitle:dl-restore-snapshot";
 const STORAGE_USER_PREFS = "auto-subtitle:user-preferences";
 const USER_PREFS_VERSION = 2;
 
@@ -1036,6 +1038,13 @@ function releasePreviewMediaBlob() {
 
 /** 현재 작업에 묶인 영상 경로 (다른 파일 선택 시 자막 초기화) */
 let sessionVideoPath = "";
+/** download.html 복귀 후 CFR 미리보기·playhead 재적용 대기 */
+let downloadReturnRestorePending = false;
+/** @type {{
+ *   playback?: { programSec?: number, listPlaybackClipPos?: number },
+ *   exportPath?: string | null,
+ * } | null} */
+let downloadReturnRestoreMeta = null;
 /** @type {string | null} */
 let masterMediaUrl = null;
 /** 재생·피크·파형 축 SSOT (timeline_sec / 브라우저 duration) */
@@ -2331,6 +2340,8 @@ function clearSubtitleWorkspace() {
   deactivateListOrderPreviewPlayback();
   clearProgramSegmentTimeline();
   hqPreviewMode = false;
+  downloadReturnRestorePending = false;
+  downloadReturnRestoreMeta = null;
   invalidateOverlayTimingCache(overlayTimingCtx);
   overlayTimingCtx = null;
   expandedCueIndex = -1;
@@ -2343,6 +2354,8 @@ function clearSubtitleWorkspace() {
     sessionStorage.removeItem(STORAGE_CUES);
     sessionStorage.removeItem(STORAGE_CUTS);
     sessionStorage.removeItem(STORAGE_EXPORT_PATH);
+    sessionStorage.removeItem(STORAGE_DL_RESTORE);
+    sessionStorage.removeItem(STORAGE_RETURN_FROM_DL);
   } catch {
     /* ignore */
   }
@@ -7484,18 +7497,131 @@ async function runExport() {
   });
 }
 
-function openDownload(filePath) {
-  if (!filePath || !agentConnected) return;
-  const fmt = exportFormatSelect?.value || "srt";
+function buildDownloadReturnSnapshot(filePath, fmt) {
+  syncCuesFromDom();
+  if (isPreviewMediaPlaying() || isVideoPlaying) {
+    capturePlayheadFromPreviewMedia();
+  }
+  const previewMediaPath = getSessionPreviewMediaPath() || "";
+  const vp = videoPathInput?.value?.trim() || sessionVideoPath || "";
+  return {
+    v: 1,
+    format: fmt,
+    exportPath: filePath,
+    previewMediaPath,
+    playback: {
+      programSec: Number(playheadSec) || 0,
+      listPlaybackClipPos:
+        listPlaybackClipPos >= 0
+          ? listPlaybackClipPos
+          : getListOrderPreviewClipPos(),
+    },
+    project: {
+      format: "autosubtitle-project",
+      version: 2,
+      videoPath: vp || null,
+      cutRanges: lastCutRanges || [],
+      hardDeletedMediaSkips: subtitleHub.hardDeletedMediaSkips || [],
+      blocks: subtitleHub.blocks?.length ? subtitleHub.blocks : [],
+      subtitles: lastCues,
+    },
+  };
+}
+
+function persistDownloadReturnSnapshot(filePath, fmt) {
+  const snapshot = buildDownloadReturnSnapshot(filePath, fmt);
+  const vp = snapshot.project?.videoPath;
   try {
     sessionStorage.setItem("auto-subtitle:dl-file-path", filePath);
     sessionStorage.setItem("auto-subtitle:dl-format", fmt);
+    sessionStorage.setItem(STORAGE_RETURN_FROM_DL, "1");
+    sessionStorage.setItem(STORAGE_DL_RESTORE, JSON.stringify(snapshot));
     sessionStorage.setItem(STORAGE_CUES, JSON.stringify(lastCues));
     sessionStorage.setItem(STORAGE_CUTS, JSON.stringify(lastCutRanges));
-    const vp = videoPathInput?.value?.trim() || sessionVideoPath;
     if (vp) sessionStorage.setItem(STORAGE_VIDEO_PATH, vp);
-    sessionStorage.setItem(STORAGE_RETURN_FROM_DL, "1");
-  } catch { /* ignore */ }
+    if (snapshot.previewMediaPath) {
+      setSessionPreviewMediaPath(snapshot.previewMediaPath);
+    }
+    if (lastExportPath) {
+      sessionStorage.setItem(STORAGE_EXPORT_PATH, lastExportPath);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * download.html → index.html 복귀 후 CFR preview·playhead 재적용.
+ */
+async function completeDownloadReturnRestore() {
+  if (!downloadReturnRestorePending) return;
+  downloadReturnRestorePending = false;
+
+  const meta = downloadReturnRestoreMeta;
+  downloadReturnRestoreMeta = null;
+
+  if (subtitleHub.blocks?.length && !getProgramSegmentTimelineClips().length) {
+    refreshProgramSegmentTimelineFromHub({
+      reason: "download-return",
+      preserveProgramSec: true,
+    });
+  }
+
+  const playback = meta?.playback;
+  if (playback && Number.isFinite(Number(playback.programSec))) {
+    playheadSec = Math.max(0, Number(playback.programSec));
+  }
+  if (
+    playback &&
+    Number.isInteger(playback.listPlaybackClipPos) &&
+    playback.listPlaybackClipPos >= 0
+  ) {
+    listPlaybackClipPos = playback.listPlaybackClipPos;
+    resetListOrderPreviewClipPos(playback.listPlaybackClipPos);
+  }
+
+  if (isBlocksProgramSegmentPreview()) {
+    const anchor = resolveSegmentPlaybackAnchorWithSkips(
+      playheadSec,
+      getProgramSegmentTimelineClips(),
+    );
+    applySegmentPlaybackAnchor(anchor);
+    scheduleSyncPausedPreviewMediaToPlayhead();
+  } else if (getPv()) {
+    const media = mapEditSecToPreviewMediaSec(playheadSec);
+    assignMasterAudioTimelineSecIfNeeded(getPa(), media);
+    const videoMedia = mapWordTimelineToVideoTime(media);
+    if (Number.isFinite(getPv().duration) && getPv().duration > 0) {
+      getPv().currentTime = Math.min(
+        videoMedia,
+        Math.max(0, getPv().duration - 0.001),
+      );
+    } else {
+      getPv().currentTime = videoMedia;
+    }
+  }
+
+  if (meta?.exportPath) {
+    lastExportPath = meta.exportPath;
+  } else {
+    try {
+      const storedExport = sessionStorage.getItem(STORAGE_EXPORT_PATH);
+      if (storedExport) lastExportPath = storedExport;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  rebuildPlaybackSync();
+  refreshOverlayTimingContext();
+  commitPlayheadUi();
+  updateActionButtons();
+}
+
+function openDownload(filePath) {
+  if (!filePath || !agentConnected) return;
+  const fmt = exportFormatSelect?.value || "srt";
+  persistDownloadReturnSnapshot(filePath, fmt);
   window.location.href = "download.html";
 }
 
@@ -7796,44 +7922,110 @@ async function onPickLocalFile() {
   }
 }
 
-const STORAGE_RETURN_FROM_DL = "auto-subtitle:return-from-download";
-
 function restoreSession() {
   restoreSessionPreviewMediaPathFromStorage();
   const returningFromDownload = sessionStorage.getItem(STORAGE_RETURN_FROM_DL) === "1";
   if (returningFromDownload) {
     sessionStorage.removeItem(STORAGE_RETURN_FROM_DL);
     try {
-      const raw = sessionStorage.getItem(STORAGE_CUES);
-      const cutsRaw = sessionStorage.getItem(STORAGE_CUTS);
-      const vp = sessionStorage.getItem(STORAGE_VIDEO_PATH);
-      if (raw) {
-        const cues = JSON.parse(raw);
-        const cuts = cutsRaw ? JSON.parse(cutsRaw) : [];
-        if (vp) {
-          if (videoPathInput) videoPathInput.value = vp;
-          sessionVideoPath = vp;
-        }
-        subtitleHub.ingestFromProject(cues, { cutRanges: cuts });
-        renderCuesTable(lastCues);
-        if (resultsMeta) {
-          resultsMeta.textContent = `${lastCues.length} cues`;
-          resultsMeta.hidden = false;
+      const snapRaw = sessionStorage.getItem(STORAGE_DL_RESTORE);
+      sessionStorage.removeItem(STORAGE_DL_RESTORE);
+      /** @type {ReturnType<typeof buildDownloadReturnSnapshot> | null} */
+      let snapshot = null;
+      if (snapRaw) {
+        snapshot = JSON.parse(snapRaw);
+      }
+
+      const project = snapshot?.project;
+      const vp =
+        project?.videoPath || sessionStorage.getItem(STORAGE_VIDEO_PATH) || "";
+      if (vp) {
+        if (videoPathInput) videoPathInput.value = vp;
+        sessionVideoPath = vp;
+      }
+
+      const previewFromSnap = String(snapshot?.previewMediaPath || "").trim();
+      if (previewFromSnap) {
+        setSessionPreviewMediaPath(previewFromSnap);
+      }
+
+      if (
+        project &&
+        (Number(project.version) >= 2 || Array.isArray(project.blocks))
+      ) {
+        subtitleHub.ingestFromProject(project, {
+          cutRanges: Array.isArray(project.cutRanges) ? project.cutRanges : [],
+          hardDeletedMediaSkips: Array.isArray(project.hardDeletedMediaSkips)
+            ? project.hardDeletedMediaSkips
+            : [],
+        });
+      } else {
+        const raw = sessionStorage.getItem(STORAGE_CUES);
+        const cutsRaw = sessionStorage.getItem(STORAGE_CUTS);
+        if (raw) {
+          const cues = JSON.parse(raw);
+          const cuts = cutsRaw ? JSON.parse(cutsRaw) : [];
+          subtitleHub.ingestFromProject(cues, { cutRanges: cuts });
         }
       }
-    } catch { /* ignore */ }
+
+      renderCuesTable(lastCues);
+      if (resultsMeta) {
+        resultsMeta.textContent = `${lastCues.length} cues`;
+        resultsMeta.hidden = false;
+      }
+
+      downloadReturnRestoreMeta = {
+        playback: snapshot?.playback,
+        exportPath: snapshot?.exportPath || null,
+      };
+      downloadReturnRestorePending = true;
+    } catch {
+      /* ignore */
+    }
     updateActionButtons();
     return;
   }
+
+  downloadReturnRestorePending = false;
+  downloadReturnRestoreMeta = null;
 
   try {
     sessionStorage.removeItem(STORAGE_CUES);
     sessionStorage.removeItem(STORAGE_CUTS);
     sessionStorage.removeItem(STORAGE_VIDEO_PATH);
+    sessionStorage.removeItem(STORAGE_DL_RESTORE);
   } catch {
     /* ignore */
   }
   updateActionButtons();
+}
+
+/**
+ * @returns {Promise<string | null>}
+ */
+async function resolveEditorPreviewMediaPath() {
+  const cached = getSessionPreviewMediaPath();
+  if (cached) return cached;
+  if (!agentConnected || !sessionVideoPath) return null;
+  try {
+    return (await ensureSessionPreviewMediaPath()) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** 에이전트 연결·세션 복원 후 CFR preview 로드 + download 복귀 playhead 적용 */
+async function ensureEditorPreviewMediaIfNeeded() {
+  if (!agentConnected) return;
+  if (!getPv() || getPv().src) return;
+  if (!sessionVideoPath && !getSessionPreviewMediaPath()) return;
+  const previewPath = await resolveEditorPreviewMediaPath();
+  if (!previewPath) return;
+  await updatePreview(previewPath);
+  if (downloadReturnRestorePending) {
+    await completeDownloadReturnRestore();
+  }
 }
 
 btnPick?.addEventListener("click", () => void onPickLocalFile());
@@ -8135,6 +8327,13 @@ populateFontSelect(SYSTEM_FONT_CANDIDATES);
 loadAndApplyUserPreferences();
 syncWordAlignButtonState();
 
+initWatermarkPositionGrid();
+
+restoreSession();
+updatePreviewOverlay();
+updatePreviewWatermark();
+updatePreviewTransportUi();
+
 startConnectionMonitor({
   onChange: async (connected, detail) => {
     const longOp = isAgentLongOperationActive();
@@ -8146,9 +8345,7 @@ startConnectionMonitor({
     if (agentConnected) {
       await fetchReadiness();
       await loadSystemFontsFromAgent();
-      if (sessionVideoPath && getPv() && !getPv().src) {
-        updatePreview(sessionVideoPath);
-      }
+      await ensureEditorPreviewMediaIfNeeded();
     } else {
       toolReady = false;
       if (binReadiness) {
@@ -8182,13 +8379,6 @@ function applyPrepareStatusFromWs(data) {
     progress: data?.progress,
   });
 }
-
-initWatermarkPositionGrid();
-
-restoreSession();
-updatePreviewOverlay();
-updatePreviewWatermark();
-updatePreviewTransportUi();
 
 if (previewSection && typeof ResizeObserver !== "undefined") {
   const previewLayoutObserver = new ResizeObserver(() => {

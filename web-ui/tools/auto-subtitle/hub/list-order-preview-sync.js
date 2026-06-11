@@ -13,7 +13,7 @@ import {
   disarmProgramPreviewExecutor,
   getProgramPreviewExecutor,
   isProgramPreviewExecutorActive,
-} from "./program-preview-executor.js?v=1";
+} from "./program-preview-executor.js?v=2";
 
 /** @type {import("../shared/timeline-mapping.js").TimelineClip[]} */
 let activeClips = [];

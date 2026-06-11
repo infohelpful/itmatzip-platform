@@ -88,8 +88,12 @@ function clipSourceEndForCue(cue, nextCue = null, withTailPad = true) {
       return mediaEnd;
     }
     const nextSourceStart = getCueSourceStart(nextCue);
-    if (Number.isFinite(nextSourceStart) && nextSourceStart > mediaEnd + 1e-5) {
-      if (withTailPad) mediaEnd = nextSourceStart;
+    if (Number.isFinite(nextSourceStart)) {
+      if (nextSourceStart > mediaEnd + 1e-5) {
+        if (withTailPad) mediaEnd = nextSourceStart;
+      } else if (withTailPad && nextSourceStart <= mediaEnd + 1e-5) {
+        mediaEnd = Math.min(mediaEnd, nextSourceStart);
+      }
     }
   }
   return mediaEnd;

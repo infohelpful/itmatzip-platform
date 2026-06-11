@@ -6,13 +6,20 @@
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { programToSource } from "../shared/program-clips-ssot.js";
 import {
+  classifyGapTransition,
+  effectiveSourceEndForClip,
+  passThroughEpsilonSec,
+} from "../shared/clip-boundary-ssot.js?v=4";
+import {
   atProgramBoundary,
+  atProgramPlaybackBoundary,
   clipPosForProgramSec,
-  programClipDuration,
   programClipEnd,
+  programClipPlaybackEnd,
   programClipStart,
   programSecFromAudioSlave,
   PROGRAM_BOUNDARY_EPS,
+  shouldPassThroughClipTransition,
 } from "../shared/program-clip-boundary-ssot.js";
 
 const VIDEO_SYNC_EPS_SEC = 0.1;
@@ -251,9 +258,28 @@ export class ProgramPreviewExecutor {
       video.playbackRate = this.playbackRate;
     }
 
-    this.programSec = programSecFromAudioSlave(clip, audio.currentTime);
+    const mediaSec = Math.max(0, audio.currentTime);
+    this.programSec = programSecFromAudioSlave(clip, mediaSec);
 
-    if (atProgramBoundary(this.programSec, clip)) {
+    const nextPos = this.clipPos + 1;
+    const nextClip = this.clips[nextPos];
+    if (nextClip && !nextClip.isSilence && !clip.isSilence) {
+      const effEnd = effectiveSourceEndForClip(clip);
+      const nextStart = Number(nextClip.mediaStart) || 0;
+      const eps = passThroughEpsilonSec();
+      const interGap = nextStart - effEnd;
+      if (
+        interGap > eps &&
+        mediaSec >= effEnd - PROGRAM_BOUNDARY_EPS &&
+        mediaSec < nextStart - eps
+      ) {
+        this.programSec = programClipPlaybackEnd(clip);
+        this.syncVideoSlave(video, { suppressSeek: true });
+        return this.snapshot();
+      }
+    }
+
+    if (atProgramPlaybackBoundary(this.programSec, clip)) {
       return this.advanceToNextClip(audio, video);
     }
 
@@ -307,14 +333,15 @@ export class ProgramPreviewExecutor {
    * @param {HTMLMediaElement | null} video
    */
   advanceToNextClip(audio, video) {
-    const nextPos = this.clipPos + 1;
+    const curPos = this.clipPos;
+    const cur = this.clips[curPos];
+    const nextPos = curPos + 1;
     if (nextPos >= this.clips.length) {
       this.ended = true;
       this.playing = false;
       this.exitSilenceHold();
       if (audio) audio.pause();
       if (video) video.pause();
-      const cur = this.clips[this.clipPos];
       if (cur) this.programSec = programClipEnd(cur);
       return this.snapshot();
     }
@@ -335,15 +362,43 @@ export class ProgramPreviewExecutor {
       ? programToSource(this.programClips, programClipStart(next))
       : next.mediaStart;
     const target = skipCutRangeAt(sourceSec, this.skipRanges);
+    const mediaNow = Math.max(0, Number(audio?.currentTime) || target);
+    const cls = cur
+      ? classifyGapTransition({
+          cur,
+          next,
+          clips: this.clips,
+          curPos,
+          nextPos,
+          skipRanges: this.skipRanges,
+        })
+      : null;
+    const passThrough = shouldPassThroughClipTransition(
+      cur,
+      next,
+      mediaNow,
+      target,
+      cls,
+    );
 
     if (audio) {
       audio.playbackRate = this.playbackRate;
-      audio.currentTime = target;
-      this.programSec = programSecFromAudioSlave(next, target);
+      if (!passThrough) {
+        audio.currentTime = target;
+      }
+      this.programSec = programSecFromAudioSlave(
+        next,
+        passThrough ? mediaNow : target,
+      );
     }
     if (video) {
       video.playbackRate = this.playbackRate;
-      video.currentTime = target;
+      if (
+        !passThrough &&
+        Math.abs(video.currentTime - target) > VIDEO_SYNC_EPS_SEC
+      ) {
+        video.currentTime = target;
+      }
     }
 
     if (this.playing && audio?.paused) {
@@ -356,9 +411,13 @@ export class ProgramPreviewExecutor {
     return this.snapshot();
   }
 
-  /** @param {HTMLMediaElement | null} video */
-  syncVideoSlave(video) {
+  /**
+   * @param {HTMLMediaElement | null} video
+   * @param {{ suppressSeek?: boolean }} [opts]
+   */
+  syncVideoSlave(video, opts = {}) {
     if (!video || this.mode === "baked" || !this.programClips.length) return;
+    if (opts.suppressSeek) return;
     const target = programToSource(this.programClips, this.programSec);
     if (!Number.isFinite(target)) return;
     if (Math.abs(video.currentTime - target) > VIDEO_SYNC_EPS_SEC) {

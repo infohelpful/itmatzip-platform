@@ -1,9 +1,13 @@
 /**
  * ProgramClip 경계 SSOT — executor·highlight·경계 전환은 program 축만 사용.
- * effectiveSourceEnd는 단어 lookup 보조용; clipPos++에는 사용하지 않음.
+ * 재생 경계(clipPos++)는 tail pad 제외 effectiveSourceEnd → programClipPlaybackEnd.
  */
 
 import { PROGRAM_CLIP_EPS } from "./program-clips-ssot.js";
+import {
+  effectiveSourceEndForClip,
+  passThroughEpsilonSec,
+} from "./clip-boundary-ssot.js?v=4";
 
 export const PROGRAM_BOUNDARY_EPS = 1e-3;
 
@@ -39,6 +43,59 @@ export function programClipDuration(clip) {
 export function atProgramBoundary(programSec, clip) {
   const t = Number(programSec) || 0;
   return t >= programClipEnd(clip) - PROGRAM_BOUNDARY_EPS;
+}
+
+/**
+ * 재생·경계 전환용 program 시각 — effectiveSourceEnd 기준 (tail pad 미포함).
+ *
+ * @param {import("./program-clips-ssot.js").ProgramClip | import("./timeline-mapping.js").TimelineClip | null | undefined} clip
+ */
+export function programClipPlaybackEnd(clip) {
+  if (!clip) return 0;
+  const progStart = programClipStart(clip);
+  const mediaStart =
+    Number(clip.mediaStart ?? clip.mediaIn ?? clip.sourceStart) || 0;
+  const effEnd = effectiveSourceEndForClip(clip);
+  return progStart + Math.max(0, effEnd - mediaStart);
+}
+
+/**
+ * @param {number} programSec
+ * @param {import("./program-clips-ssot.js").ProgramClip | import("./timeline-mapping.js").TimelineClip} clip
+ */
+export function atProgramPlaybackBoundary(programSec, clip) {
+  const t = Number(programSec) || 0;
+  return t >= programClipPlaybackEnd(clip) - PROGRAM_BOUNDARY_EPS;
+}
+
+/**
+ * 경계 seek 생략 — source ε-인접·자연 pause 구간(이미 재생 중)은 pass-through.
+ *
+ * @param {import("./timeline-mapping.js").TimelineClip} cur
+ * @param {import("./timeline-mapping.js").TimelineClip} next
+ * @param {number} mediaNow
+ * @param {number} targetMediaSec
+ * @param {import("./clip-boundary-ssot.js").GapTransitionClassification} cls
+ */
+export function shouldPassThroughClipTransition(
+  cur,
+  next,
+  mediaNow,
+  targetMediaSec,
+  cls,
+) {
+  const now = Math.max(0, Number(mediaNow) || 0);
+  const target = Math.max(0, Number(targetMediaSec) || 0);
+  const gap = target - now;
+  const eps = passThroughEpsilonSec();
+  if (cls?.hasCutData || cls?.hasSourceJump) return false;
+  if (gap < -eps - 0.005) return false;
+  if (Math.abs(gap) <= eps) return true;
+  if (cls?.passThrough && gap >= -eps && now >= target - eps) return true;
+  const effEnd = effectiveSourceEndForClip(cur);
+  const interGap = Number(next?.mediaStart) - effEnd;
+  if (interGap > eps && gap > eps && now >= target - eps) return true;
+  return false;
 }
 
 /**

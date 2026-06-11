@@ -21,7 +21,7 @@ import {
   syncListOrderPreviewPlayback,
 } from "./list-order-preview-sync.js?v=11";
 import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=29";
-import { getProgramPreviewExecutor } from "./program-preview-executor.js?v=1";
+import { getProgramPreviewExecutor } from "./program-preview-executor.js?v=2";
 import {
   mapWordTimelineToVideoTime,
   isSourceVideoPtsTimeline,

@@ -108,6 +108,16 @@ function playableMediaRunsForBlock(block) {
 }
 
 /**
+ * @param {import("./block-timeline-adapter.js").Block | null | undefined} block
+ */
+function blockListSourceStart(block) {
+  if (!block) return 0;
+  const runs = playableMediaRunsForBlock(block);
+  if (runs.length) return runs[0].sourceStart;
+  return Number(block.sourceIn) || 0;
+}
+
+/**
  * @param {import("./block-timeline-adapter.js").Block} block
  * @param {import("./block-timeline-adapter.js").Block | null} nextBlock
  * @param {number} mediaEnd
@@ -123,8 +133,11 @@ function clipSourceEndForBlock(block, nextBlock, mediaEnd, withTailPad = true) {
     break;
   }
   if (!nextBlock) return end;
-  const nextStart = Number(nextBlock.sourceIn) || 0;
+  const nextStart = blockListSourceStart(nextBlock);
   if (nextStart > end + EPS) return end;
+  if (withTailPad && nextStart <= end + EPS) {
+    return Math.max(mediaEnd, Math.min(end, nextStart));
+  }
   if (nextStart > mediaEnd + EPS) return end;
   return end;
 }
