@@ -15,6 +15,10 @@ from typing import Any, Callable, Iterator
 from common.bin_manager import get_ffmpeg_executable
 from common.ffmpeg_filter import filter_complex_argv
 from common.subprocess_util import no_window_creationflags
+from engines.auto_subtitle_filter_concat import (
+    EXPORT_AUDIO_CROSSFADE_SEC,
+    build_trim_concat_filter_parts,
+)
 from engines.auto_subtitle_export import ExportProgressCallback
 from engines.auto_subtitle_media_probe import parse_ntsc_fps_fraction, probe_media_timing
 
@@ -318,36 +322,21 @@ def _build_filter_program_av_chain(
     *,
     has_audio: bool,
     force_fps: bool = False,
+    audio_crossfade_sec: float | None = EXPORT_AUDIO_CROSSFADE_SEC,
+    program_slot_durations: list[float] | None = None,
 ) -> tuple[str, str | None]:
     if not segments:
         raise ValueError("filter_program keep segments가 비어 있습니다.")
 
-    parts: list[str] = []
-    if len(segments) == 1:
-        start, end = segments[0]
-        parts.append(f"[0:v]trim=start={start:.6f}:end={end:.6f},setpts=PTS-STARTPTS[v_edit]")
-        if has_audio:
-            parts.append(f"[0:a]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS[a_edit]")
-    else:
-        v_labels: list[str] = []
-        a_labels: list[str] = []
-        for i, (start, end) in enumerate(segments):
-            parts.append(f"[0:v]trim=start={start:.6f}:end={end:.6f},setpts=PTS-STARTPTS[v{i}t]")
-            v_labels.append(f"[v{i}t]")
-            if has_audio:
-                parts.append(f"[0:a]atrim=start={start:.6f}:end={end:.6f},asetpts=PTS-STARTPTS[a{i}t]")
-                a_labels.append(f"[a{i}t]")
-        n = len(segments)
-        if has_audio:
-            # concat v=1:a=1 — 입력 순서는 [v0][a0][v1][a1]… (전부 v 뒤 전부 a 아님)
-            concat_in = "".join(
-                label for i in range(n) for label in (v_labels[i], a_labels[i])
-            )
-            parts.append(f"{concat_in}concat=n={n}:v=1:a=1[v_edit][a_edit]")
-        else:
-            concat_in = "".join(v_labels)
-            parts.append(f"{concat_in}concat=n={n}:v=1:a=0[v_edit]")
-
+    parts = build_trim_concat_filter_parts(
+        segments,
+        has_audio=has_audio,
+        v_out="v_edit",
+        a_out="a_edit" if has_audio else None,
+        id_prefix="",
+        audio_crossfade_sec=audio_crossfade_sec,
+        program_slot_durations=program_slot_durations,
+    )
     parts.append(
         _build_vmain_tail_chain(fps_expr, probe_data, in_label="[v_edit]", force_fps=force_fps)
     )

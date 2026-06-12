@@ -64,10 +64,12 @@ class ProgramBakeLadderRoutingTests(unittest.TestCase):
             mock_ffmpeg.assert_called_once()
 
     @mock.patch("engines.auto_subtitle_program_bake_l1.try_bake_l1_concat_reencode")
+    @mock.patch("engines.auto_subtitle_program_bake_l1.try_bake_l1_filter_crossfade")
     @mock.patch("engines.auto_subtitle_program_bake_l1.try_bake_l1_concat_copy")
     def test_l1_ladder_falls_through_to_reencode(
         self,
         mock_copy: mock.MagicMock,
+        mock_filter: mock.MagicMock,
         mock_re: mock.MagicMock,
     ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,6 +80,7 @@ class ProgramBakeLadderRoutingTests(unittest.TestCase):
             tmp_re = job / "tmp_pmaster_l1_reencode.mp4"
             tmp_re.write_bytes(b"re")
             mock_copy.return_value = (False, None, {"gate_passed": False})
+            mock_filter.return_value = (False, None, {"gate_passed": False})
             mock_re.return_value = (True, tmp_re, {"bake_level": "l1_reencode"})
 
             ok, level, metrics = try_bake_program_master_l1(
@@ -87,6 +90,7 @@ class ProgramBakeLadderRoutingTests(unittest.TestCase):
             self.assertEqual(level, "l1_reencode")
             self.assertTrue(out.is_file())
             mock_copy.assert_called_once()
+            mock_filter.assert_called_once()
             mock_re.assert_called_once()
 
     @mock.patch("engines.auto_subtitle_program_master.build_filter_program_av_chain_chunked")
@@ -172,8 +176,8 @@ class ProgramBakeLadderRoutingTests(unittest.TestCase):
 
         clips = [
             {
-                "sourceStart": float(i * 2.0),
-                "sourceEnd": float(i * 2.0) + 0.4,
+                "sourceStart": float(i * 3.0),
+                "sourceEnd": float(i * 3.0) + 0.4,
                 "programStart": float(i * 0.4),
                 "programEnd": float(i * 0.4) + 0.4,
             }

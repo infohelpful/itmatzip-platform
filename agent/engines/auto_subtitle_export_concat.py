@@ -9,6 +9,11 @@ from typing import Any, Callable
 
 from common.bin_manager import get_ffmpeg_executable, get_ffprobe_executable, prepend_ffmpeg_bin_to_env
 from common.subprocess_util import no_window_creationflags, run_hidden
+from engines.auto_subtitle_filter_concat import EXPORT_AUDIO_CROSSFADE_SEC
+from engines.auto_subtitle_bake_segments import (
+    prepare_bake_segments,
+    segments_from_virtual_audio_map,
+)
 from engines.auto_subtitle_export import ExportProgressCallback, _run_ffmpeg_with_progress
 
 _log = logging.getLogger(__name__)
@@ -307,8 +312,44 @@ def build_concat_master(
             float(s.get("sourceEnd", 0)) - float(s.get("sourceStart", 0)) for s in segs
         )
 
+    raw_tuples = segments_from_virtual_audio_map(segs)
+    prepared_tuples, _program_slots, prep_meta = prepare_bake_segments(
+        preview_media,
+        raw_tuples,
+        merge_contiguous=True,
+        zero_cross=True,
+    )
+    prepared_vmap = [
+        {"sourceStart": s, "sourceEnd": e, "editEnd": expected_end}
+        for s, e in prepared_tuples
+    ]
+    multi_segment = len(prepared_tuples) > 1
+
+    if multi_segment:
+        from engines.auto_subtitle_program_bake_l1 import try_bake_l1_filter_crossfade
+
+        ok_xf, tmp_xf, metrics_xf = try_bake_l1_filter_crossfade(
+            preview_media,
+            prepared_tuples,
+            job_dir,
+            expected_end,
+            target_ntsc_fps=target_ntsc_fps or "30000/1001",
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+            audio_crossfade_sec=EXPORT_AUDIO_CROSSFADE_SEC,
+        )
+        metrics_xf["bake_prepare"] = prep_meta
+        if ok_xf and tmp_xf:
+            master = job_dir / "concat_master.mp4"
+            tmp_xf.replace(master)
+            metrics_xf["export_phase"] = "filter_crossfade"
+            _log.info("export_phase=filter_crossfade segments=%s", len(prepared_tuples))
+            return master, "filter_crossfade", metrics_xf
+        if tmp_xf and tmp_xf.is_file():
+            tmp_xf.unlink(missing_ok=True)
+
     concat_list = job_dir / "concat_list.txt"
-    segments_count = write_concat_demuxer_list(preview_media, segs, concat_list)
+    segments_count = write_concat_demuxer_list(preview_media, prepared_vmap, concat_list)
 
     tmp_copy = job_dir / "tmp_master_copy.mp4"
     if on_progress:
@@ -328,6 +369,7 @@ def build_concat_master(
         expected_end,
         segments_count=segments_count,
     )
+    metrics["bake_prepare"] = prep_meta
     _log_gate_metrics(metrics)
     if ok:
         master = job_dir / "concat_master.mp4"
@@ -336,6 +378,31 @@ def build_concat_master(
         return master, "concat_copy", metrics
 
     tmp_copy.unlink(missing_ok=True)
+
+    if not multi_segment:
+        from engines.auto_subtitle_program_bake_l1 import try_bake_l1_filter_crossfade
+
+        ok_xf, tmp_xf, metrics_xf = try_bake_l1_filter_crossfade(
+            preview_media,
+            prepared_tuples,
+            job_dir,
+            expected_end,
+            target_ntsc_fps=target_ntsc_fps or "30000/1001",
+            on_progress=on_progress,
+            timeout_sec=timeout_sec,
+            audio_crossfade_sec=EXPORT_AUDIO_CROSSFADE_SEC,
+        )
+        metrics_xf["bake_prepare"] = prep_meta
+        metrics_xf["first_pass"] = metrics
+        if ok_xf and tmp_xf:
+            master = job_dir / "concat_master.mp4"
+            tmp_xf.replace(master)
+            metrics_xf["export_phase"] = "filter_crossfade"
+            _log.info("export_phase=filter_crossfade segments=%s", segments_count)
+            return master, "filter_crossfade", metrics_xf
+        if tmp_xf and tmp_xf.is_file():
+            tmp_xf.unlink(missing_ok=True)
+
     if on_progress:
         on_progress(28.0, "concat_reencode 폴백…")
     _log.warning(

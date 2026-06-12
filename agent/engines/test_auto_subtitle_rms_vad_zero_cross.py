@@ -7,10 +7,10 @@ import unittest
 
 import numpy as np
 
-from engines.auto_subtitle_rms_vad import (
+from engines.auto_subtitle_rms_vad import _apply_zero_cross_refine_to_cues
+from engines.auto_subtitle_zero_cross import (
     SR,
-    _apply_zero_cross_refine_to_cues,
-    _refine_time_to_zero_cross,
+    refine_time_to_zero_cross,
 )
 
 
@@ -20,7 +20,7 @@ class ZeroCrossRefineTests(unittest.TestCase):
         t = np.arange(0, dur, 1.0 / SR, dtype=np.float32)
         samples = np.sin(2.0 * math.pi * 440.0 * t).astype(np.float32)
         target = 0.0105
-        refined = _refine_time_to_zero_cross(
+        refined = refine_time_to_zero_cross(
             samples,
             SR,
             target,
