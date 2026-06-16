@@ -5,8 +5,10 @@
 import { mediaSecToPeakPixelIndex } from "./peaks-metrics.js?v=16";
 import { getCueWords } from "./subtitle-words.js";
 import { wordIsDeleted } from "./shared/subtitles.js";
+import { getWordSourceEnd, getWordSourceStart } from "./shared/dual-axis.js?v=3";
+import { waveformContextWordEntries } from "./line-zoom-window.js";
 
-/** @typedef {'outside' | 'neighbor' | 'selection'} WaveformFillKind */
+/** @typedef {'outside' | 'neighbor' | 'selection' | 'active'} WaveformFillKind */
 /** @typedef {{ start: number, end: number, kind: WaveformFillKind }} WaveformFillBand */
 
 const FILL_COLOR = {
@@ -29,15 +31,16 @@ const OUTLINE_COLOR = {
  * @param {readonly { start: number, end: number, is_deleted?: boolean, isDeleted?: boolean }[]} words
  * @param {number} winStart
  * @param {number} winEnd
+ * @param {import("./subtitle-words.js").SubtitleCue | null} [cue]
  */
-export function collectDeletedRangesSec(words, winStart, winEnd) {
+export function collectDeletedRangesSec(words, winStart, winEnd, cue = null) {
   /** @type {Array<{ start: number, end: number }>} */
   const out = [];
   if (!(winEnd > winStart)) return out;
   for (const w of words) {
     if (!wordIsDeleted(w)) continue;
-    const a = Math.min(w.start, w.end);
-    const b = Math.max(w.start, w.end);
+    const a = cue ? getWordSourceStart(w, cue) : Math.min(w.start, w.end);
+    const b = cue ? getWordSourceEnd(w, cue) : Math.max(w.start, w.end);
     const s = Math.max(winStart, a);
     const e = Math.min(winEnd, b);
     if (e > s + 1e-9) out.push({ start: s, end: e });
@@ -54,7 +57,8 @@ function pickFillKind(t, bands) {
   let pr = 0;
   for (const b of bands) {
     if (t < b.start || t > b.end) continue;
-    const p = b.kind === "selection" ? 3 : b.kind === "neighbor" ? 2 : 1;
+    const p =
+      b.kind === "selection" ? 4 : b.kind === "neighbor" ? 3 : b.kind === "active" ? 2 : 1;
     if (p > pr) {
       pr = p;
       best = b.kind;
@@ -146,7 +150,14 @@ export function drawWordContextWaveform(
       k = "muted";
     } else if (useBands && fillBands) {
       const bk = pickFillKind(t, fillBands);
-      k = bk === "selection" ? "selection" : bk === "neighbor" ? "neighbor" : "dim";
+      k =
+        bk === "selection"
+          ? "selection"
+          : bk === "neighbor"
+            ? "neighbor"
+            : bk === "active"
+              ? "active"
+              : "dim";
     } else {
       k = "active";
     }
@@ -200,44 +211,52 @@ export function drawWordContextWaveform(
  * @param {number} centerVisibleIndex visible words 배열 기준
  * @param {number} winStart
  * @param {number} winEnd
+ * @param {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number }, coupled?: boolean, role?: string } | null} [crossLineBounds]
  * @returns {WaveformFillBand[] | null}
  */
-export function buildWordFillBands(cue, centerVisibleIndex, winStart, winEnd) {
-  const all = getCueWords(cue);
-  const activeWords = [];
-  for (const w of all) {
-    if (wordIsDeleted(w)) continue;
-    activeWords.push(w);
-  }
-  if (centerVisibleIndex < 0 || centerVisibleIndex >= activeWords.length) return null;
+export function buildWordFillBands(cue, centerVisibleIndex, winStart, winEnd, crossLineBounds = null) {
+  const { visible } = waveformContextWordEntries(cue);
+  if (centerVisibleIndex < 0 || centerVisibleIndex >= visible.length) return null;
 
   const ws = Math.min(winStart, winEnd);
   const we = Math.max(winStart, winEnd);
   /** @type {WaveformFillBand[]} */
   const bands = [];
 
-  if (centerVisibleIndex > 0) {
-    const nw = activeWords[centerVisibleIndex - 1];
-    const a = Math.min(nw.start, nw.end);
-    const b = Math.max(nw.start, nw.end);
-    if (b > ws + 1e-9 && a < we - 1e-9) {
-      bands.push({ start: Math.max(ws, a), end: Math.min(we, b), kind: "neighbor" });
+  const addNeighbor = (a, b) => {
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (hi > ws + 1e-9 && lo < we - 1e-9) {
+      bands.push({ start: Math.max(ws, lo), end: Math.min(we, hi), kind: "neighbor" });
     }
+  };
+
+  if (
+    crossLineBounds?.coupled &&
+    crossLineBounds.prevWord &&
+    crossLineBounds.role === "lower_start"
+  ) {
+    addNeighbor(crossLineBounds.prevWord.start, crossLineBounds.prevWord.end);
+  } else if (centerVisibleIndex > 0) {
+    const nw = visible[centerVisibleIndex - 1];
+    addNeighbor(nw.start, nw.end);
   }
-  if (centerVisibleIndex < activeWords.length - 1) {
-    const nw = activeWords[centerVisibleIndex + 1];
-    const a = Math.min(nw.start, nw.end);
-    const b = Math.max(nw.start, nw.end);
-    if (b > ws + 1e-9 && a < we - 1e-9) {
-      bands.push({ start: Math.max(ws, a), end: Math.min(we, b), kind: "neighbor" });
-    }
+
+  if (
+    crossLineBounds?.coupled &&
+    crossLineBounds.nextWord &&
+    crossLineBounds.role === "upper_end"
+  ) {
+    addNeighbor(crossLineBounds.nextWord.start, crossLineBounds.nextWord.end);
+  } else if (centerVisibleIndex < visible.length - 1) {
+    const nw = visible[centerVisibleIndex + 1];
+    addNeighbor(nw.start, nw.end);
   }
-  const cw = activeWords[centerVisibleIndex];
-  const es = Math.min(cw.start, cw.end);
-  const ee = Math.max(cw.start, cw.end);
+
+  const cw = visible[centerVisibleIndex];
   bands.push({
-    start: Math.max(ws, es),
-    end: Math.min(we, ee),
+    start: Math.max(ws, Math.min(cw.start, cw.end)),
+    end: Math.min(we, Math.max(cw.start, cw.end)),
     kind: "selection",
   });
   return bands;
@@ -258,8 +277,9 @@ export function buildWordFillBandsFromEditRange(
   editRange,
   winStart,
   winEnd,
+  crossLineBounds = null,
 ) {
-  const base = buildWordFillBands(cue, centerVisibleIndex, winStart, winEnd);
+  const base = buildWordFillBands(cue, centerVisibleIndex, winStart, winEnd, crossLineBounds);
   if (!base) return null;
   const ws = Math.min(winStart, winEnd);
   const we = Math.max(winStart, winEnd);
@@ -272,4 +292,26 @@ export function buildWordFillBandsFromEditRange(
     kind: "selection",
   });
   return filtered;
+}
+
+/**
+ * Line Mode — 줄 전체가 selection, 앞뒤 1초 패딩이 neighbor.
+ *
+ * @param {number} lineStart
+ * @param {number} lineEnd
+ * @param {number} winStart
+ * @param {number} winEnd
+ * @returns {WaveformFillBand[]}
+ */
+export function buildCueLineFillBands(lineStart, lineEnd, winStart, winEnd) {
+  const ws = Math.min(winStart, winEnd);
+  const we = Math.max(winStart, winEnd);
+  const ls = Math.min(lineStart, lineEnd);
+  const le = Math.max(lineStart, lineEnd);
+  /** @type {WaveformFillBand[]} */
+  const bands = [{ start: ws, end: we, kind: "active" }];
+  if (le > ls + 1e-9) {
+    bands.push({ start: Math.max(ws, ls), end: Math.min(we, le), kind: "selection" });
+  }
+  return bands;
 }

@@ -8,9 +8,9 @@ import {
   waveformContextWordEntries,
 } from "./line-zoom-window.js";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js";
-import { applyCueWordEdgeDrag, getCueWords, visibleWords } from "./subtitle-words.js";
+import { applyCueWordEdgeDrag, getCueWords, visibleWords } from "./subtitle-words.js?v=25";
 import { buildEdlSkipMapping } from "./waveform/edl-skip-mapping.js";
-import { collectDeletedRangesSec } from "./word-waveform-draw.js";
+import { buildPanelSkipRanges } from "./waveform/panel-skip-ranges.js";
 import {
   cardBoundsDeltaForStrip,
   computeFirstBoxLayoutPx,
@@ -25,6 +25,12 @@ import {
   paintConnectorOverlay,
 } from "./waveform/waveform-connector-geom.js";
 import { splitWordAtMediaSecInLines } from "./shared/split-word-actions.js";
+import {
+  getWordSourceEnd,
+  getWordSourceStart,
+  isRelocated,
+  sourceSecToVirtualSec,
+} from "./shared/dual-axis.js?v=3";
 import {
   shouldDeferWaveformSpaceToCaret,
 } from "./subtitle-list/word-caret-ui.js?v=54";
@@ -61,6 +67,8 @@ export class LineWaveformPanel {
     this.focusWordIndex = -1;
     this.editor = null;
     this.viewWin = null;
+    /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number }, coupled?: boolean, role?: string } | null} */
+    this.crossLineBounds = null;
     this.editRange = null;
     this.cutSec = null;
     this._connectorAnchorKey = null;
@@ -88,6 +96,7 @@ export class LineWaveformPanel {
     this._stage1WordId = null;
     this._cleanupPanelLeft = null;
     this._cardEl = null;
+    this._microRealignBusy = false;
   }
 
   show(cueIndex, wordIndex) {
@@ -132,6 +141,7 @@ export class LineWaveformPanel {
     if (this.root) this.root.innerHTML = "";
     this.editor = null;
     this.viewWin = null;
+    this.crossLineBounds = null;
     this.editRange = null;
     this.cutSec = null;
     this._cutSecLastWordId = null;
@@ -252,10 +262,65 @@ export class LineWaveformPanel {
     if (this._cardEl) this._syncConnector(this._cardEl);
   }
 
+  /** @param {import("./subtitle-words.js").SubtitleCue} cue @param {import("./shared/subtitles.js").SubtitleWord} w */
+  _wordMediaSpan(cue, w) {
+    return {
+      start: getWordSourceStart(w, cue),
+      end: getWordSourceEnd(w, cue),
+    };
+  }
+
+  /** @param {import("./subtitle-words.js").SubtitleCue} cue @param {number} mediaSec */
+  _mediaSecToEditSec(cue, mediaSec) {
+    if (!cue || !Number.isFinite(mediaSec)) return mediaSec;
+    return isRelocated(cue) ? sourceSecToVirtualSec(cue, mediaSec) : mediaSec;
+  }
+
   refreshPlaybackSkipRanges() {
     const skips = this.deps.getPlaybackSkipRanges?.() || [];
     this.editor?.setPlaybackSkipRanges(skips);
     this.editor?.drawImmediate?.();
+  }
+
+  /** Hub commit 후 — 전체 카드 리렌더 없이 트림 UI만 SSOT에 맞춤 */
+  syncFromCuesAfterTrim(cueIndex, wordIndex) {
+    this.cueIndex = cueIndex;
+    this.focusWordIndex = wordIndex;
+    const cues = this.deps.getCues?.() ?? [];
+    const w = getCueWords(cues[cueIndex])?.[wordIndex];
+    if (!w || w.is_deleted) return;
+
+    const cue = cues[cueIndex];
+    const span = this._wordMediaSpan(cue, w);
+    this.editRange = { start: span.start, end: span.end };
+    this._ensureViewWinForTrim(this.lastTrimEdge || "end");
+
+    if (this.editor && this.viewWin) {
+      this.editor.setViewWindow(this.viewWin);
+      this.editor.setEditRange(this.editRange);
+      this.editor.setCrossLineBounds(this.crossLineBounds);
+      this._syncCutSecFromEditRange();
+      const fmt = this.deps.formatTime || this._fmt.bind(this);
+      const cacheHint = this.deps.getPeaksData?.()?.from_cache ? " · 캐시" : "";
+      const meta = this.root?.querySelector(".subwave-meta");
+      if (meta instanceof HTMLElement) {
+        meta.textContent = `${fmt(span.start)} – ${fmt(span.end)}${cacheHint}`;
+      }
+      const badge = this.root?.querySelector(".subwave-duration-badge");
+      if (badge instanceof HTMLElement) {
+        const spanSec = Math.max(this.editRange.end - this.editRange.start, MIN_SPLIT_SEC);
+        badge.textContent = `${spanSec.toFixed(1)}초`;
+      }
+      const trimStart = this.root?.querySelector('[data-trim="start"]');
+      const trimEnd = this.root?.querySelector('[data-trim="end"]');
+      this._syncOverlays(trimStart, trimEnd, badge);
+      this.refreshPlaybackSkipRanges();
+      this.editor.drawImmediate();
+      this._syncCutLineDom();
+      return;
+    }
+
+    void this._renderAsync();
   }
 
   async _renderAsync() {
@@ -294,15 +359,19 @@ export class LineWaveformPanel {
       return;
     }
 
+    this.crossLineBounds = ctxWin.crossLineBounds ?? null;
+    const coupled = Boolean(this.crossLineBounds?.coupled);
     const keepFrozenWin =
-      this.lockedPpsWordId != null && !this.lastTrimEdge && this.frozenViewWin != null;
+      !coupled &&
+      this.lockedPpsWordId != null &&
+      !this.lastTrimEdge &&
+      this.frozenViewWin != null;
     this.viewWin = keepFrozenWin
       ? { ...this.frozenViewWin }
       : { start: ctxWin.windowStart, end: ctxWin.windowEnd };
 
-    const es = Math.min(w.start, w.end);
-    const ee = Math.max(w.start, w.end);
-    this.editRange = { start: es, end: ee };
+    const span = this._wordMediaSpan(cue, w);
+    this.editRange = { start: span.start, end: span.end };
     this._syncCutSecFromEditRange();
     this._panelMediaDurHint = dur;
     this._renderPanel(cue, peaks, w);
@@ -312,6 +381,7 @@ export class LineWaveformPanel {
     if (!this.root || !this.viewWin || !this.editRange) return;
 
     const fmt = this.deps.formatTime || this._fmt.bind(this);
+    const media = this._wordMediaSpan(cue, w);
     const spanSec = Math.max(this.editRange.end - this.editRange.start, MIN_SPLIT_SEC);
     const card = this.deps.getCard?.() ?? null;
     const cacheHint = peaks.from_cache ? " · 캐시" : "";
@@ -338,10 +408,11 @@ export class LineWaveformPanel {
             <div class="subwave-actions">
               <button type="button" class="subwave-btn" data-act="play" title="자르기 위치부터 재생 (Space)">▶</button>
               <button type="button" class="subwave-btn" data-act="split" title="자르기로 단어 분할" disabled aria-label="자르기 라인 위치에서 단어 분할">✂</button>
+              <button type="button" class="subwave-btn" data-act="micro-realign" title="끝 경계만 맞추기 — 다음 단어 구간 최저 V골(없으면 최저 RMS). 여러 번 눌러 조정">⟳</button>
               <button type="button" class="subwave-btn" data-act="undo" title="되돌리기 (Ctrl+Z)">↩</button>
               <button type="button" class="subwave-btn subwave-btn--close" data-act="close" title="닫기">✕</button>
             </div>
-            <p class="subwave-meta">${fmt(w.start)} – ${fmt(w.end)}${cacheHint}</p>
+            <p class="subwave-meta">${fmt(media.start)} – ${fmt(media.end)}${cacheHint}</p>
           </div>
         </div>
       </div>
@@ -366,6 +437,7 @@ export class LineWaveformPanel {
     this.editor.setPeaks(peaks);
     this.editor.setViewWindow(this.viewWin);
     this.editor.setEditRange(this.editRange);
+    this.editor.setCrossLineBounds(this.crossLineBounds);
     this.editor.setPlaybackSkipRanges(this.deps.getPlaybackSkipRanges?.() || []);
     this.editor.setFocus(this.cueIndex, this.focusWordIndex, cue);
 
@@ -474,6 +546,19 @@ export class LineWaveformPanel {
     const a = Math.min(vw.start, vw.end);
     const b = Math.max(vw.start, vw.end);
     return a + (xPx / width) * (b - a);
+  }
+
+  /** @param {'start' | 'end'} edge */
+  _ensureViewWinForTrim(edge) {
+    void edge;
+    const cues = this.deps.getCues?.() ?? [];
+    const dur = this._panelMediaDurHint ?? this.deps.getMediaDurationSec?.() ?? null;
+    const ctxWin = computeWordContextForCue(cues, this.cueIndex, this.focusWordIndex, dur);
+    if (!ctxWin) return;
+    this.crossLineBounds = ctxWin.crossLineBounds ?? null;
+    this.viewWin = { start: ctxWin.windowStart, end: ctxWin.windowEnd };
+    this.editor?.setViewWindow(this.viewWin);
+    this.editor?.setCrossLineBounds(this.crossLineBounds);
   }
 
   /** @param {number} t */
@@ -595,10 +680,13 @@ export class LineWaveformPanel {
     const ctxWin = computeWordContextForCue(cues, this.cueIndex, this.focusWordIndex, dur);
     if (!ctxWin) return false;
 
+    this.crossLineBounds = ctxWin.crossLineBounds ?? null;
+    this.editor?.setCrossLineBounds(this.crossLineBounds);
+
     const skips = this.deps.getPlaybackSkipRanges?.() || [];
-    const es = Math.min(w.start, w.end);
-    const ee = Math.max(w.start, w.end);
-    const anchorKey = `${activeWordId}|${es}:${ee}`;
+    const media = this._wordMediaSpan(cue, w);
+    const anchorKey = `${activeWordId}|${media.start}:${media.end}`;
+    const coupled = Boolean(this.crossLineBounds?.coupled);
     const isFirstLock = this.lockedPpsWordId !== activeWordId;
 
     if (isFirstLock) {
@@ -606,9 +694,14 @@ export class LineWaveformPanel {
         mount,
         card,
         chipEl: chip,
-        activeWord: { start: es, end: ee },
+        activeWord: { start: media.start, end: media.end },
         ctxWin,
-        skipRanges: skips,
+        skipRanges: buildPanelSkipRanges(
+          { start: ctxWin.windowStart, end: ctxWin.windowEnd },
+          skips,
+          cue,
+          this.crossLineBounds,
+        ),
       });
       if (!layout) {
         if (retry < 12) {
@@ -639,7 +732,13 @@ export class LineWaveformPanel {
         prevLayout: this.boxLayoutPx,
         pps: this.pps,
         ctxWin,
-        skipRanges: skips,
+        skipRanges: buildPanelSkipRanges(
+          { start: ctxWin.windowStart, end: ctxWin.windowEnd },
+          skips,
+          cue,
+          this.crossLineBounds,
+        ),
+        crossLineCoupled: coupled,
       });
       this.boxLayoutPx = { left: re.left, width: re.width };
       this.frozenViewWin = { ...re.viewWin };
@@ -680,12 +779,14 @@ export class LineWaveformPanel {
     if (!this.viewWin) return null;
     const v0 = Math.min(this.viewWin.start, this.viewWin.end);
     const v1 = Math.max(this.viewWin.start, this.viewWin.end);
-    const skips = [...(this.deps.getPlaybackSkipRanges?.() || [])];
     const cues = this.deps.getCues?.();
-    const cue = cues?.[this.cueIndex];
-    if (cue) {
-      skips.push(...collectDeletedRangesSec(getCueWords(cue), v0, v1));
-    }
+    const cue = cues?.[this.cueIndex] ?? null;
+    const skips = buildPanelSkipRanges(
+      { start: v0, end: v1 },
+      this.deps.getPlaybackSkipRanges?.() || [],
+      cue,
+      this.crossLineBounds,
+    );
     return buildEdlSkipMapping({ start: v0, end: v1 }, skips);
   }
 
@@ -762,28 +863,26 @@ export class LineWaveformPanel {
 
   /** @param {'start' | 'end'} edge @param {number} newSec */
   _previewTrimEditRange(edge, newSec) {
+    void edge;
     if (!this.viewWin || !Number.isFinite(newSec)) return null;
     const cues = this.deps.getCues();
+    const cue = cues[this.cueIndex];
+    const editSec = this._mediaSecToEditSec(cue, newSec);
     const preview = applyCueWordEdgeDrag(
       cues,
       this.cueIndex,
       this.focusWordIndex,
       edge,
-      newSec,
+      editSec,
       false,
     );
-    const cue = preview[this.cueIndex];
-    const words = getCueWords(cue);
+    const previewCue = preview[this.cueIndex];
+    const words = getCueWords(previewCue);
     const w = words[this.focusWordIndex];
     if (!w || w.is_deleted) return null;
-    const lo = Math.min(w.start, w.end);
-    const hi = Math.max(w.start, w.end);
-    const ws = Math.min(this.viewWin.start, this.viewWin.end);
-    const we = Math.max(this.viewWin.start, this.viewWin.end);
-    return {
-      start: Math.max(ws, lo),
-      end: Math.min(we, hi),
-    };
+    const span = this._wordMediaSpan(previewCue, w);
+    if (!(span.end > span.start + 1e-6)) return null;
+    return { start: span.start, end: span.end };
   }
 
   _wireTrim(handleStart, handleEnd, badge) {
@@ -800,11 +899,12 @@ export class LineWaveformPanel {
         /* ignore */
       }
 
+      this._ensureViewWinForTrim(edge);
+
       const move = (ev) => {
         const t = this._pointerToTimeOnStrip(ev.clientX);
         const er = this._previewTrimEditRange(edge, t);
         if (!er) return;
-        if (er.end - er.start < MIN_TRIM_SPAN_SEC) return;
         this.editRange = er;
         this.editor.setEditRange(er);
         this.editor.drawImmediate();
@@ -834,14 +934,16 @@ export class LineWaveformPanel {
         const edgeNow = this._trimDragging;
         this._trimDragging = null;
         this.lastTrimEdge = edgeNow;
-        const newSec = edgeNow === "start" ? this.editRange.start : this.editRange.end;
+        const newMediaSec = edgeNow === "start" ? this.editRange.start : this.editRange.end;
         const cues = this.deps.getCues();
+        const cue = cues[this.cueIndex];
+        const newEditSec = this._mediaSecToEditSec(cue, newMediaSec);
         const result = applyCueWordEdgeDrag(
           cues,
           this.cueIndex,
           this.focusWordIndex,
           edgeNow,
-          newSec,
+          newEditSec,
           true,
         );
         const updated = result[this.cueIndex];
@@ -849,11 +951,11 @@ export class LineWaveformPanel {
           this.deps.onApplySubtitleChange(() => result, {
             cueIndex: this.cueIndex,
             focusWordIndex: this.focusWordIndex,
+            trimEdge: edgeNow,
           });
         }
         this._connectorAnchorKey = null;
         this._connectorGeom = null;
-        void this._renderAsync();
       };
 
       window.addEventListener("pointermove", move);
@@ -925,6 +1027,60 @@ export class LineWaveformPanel {
     btn.disabled = disabled;
   }
 
+  /** @param {object} cue @param {HTMLButtonElement | null | undefined} btn */
+  async _runMicroRealign(cue, btn) {
+    if (this._microRealignBusy || !this.deps.onMicroRealign) return;
+    if (this.cueIndex < 0 || this.focusWordIndex < 0) return;
+    this._microRealignBusy = true;
+    if (btn instanceof HTMLButtonElement) {
+      btn.disabled = true;
+      btn.classList.add("is-busy");
+    }
+    try {
+      if (this.deps.isPlaying?.()) {
+        this.deps.onPausePlayback?.();
+      }
+      const result = await this.deps.onMicroRealign(this.cueIndex, this.focusWordIndex);
+      if (!result?.applied) {
+        this.deps.onToast?.(
+          "자동 정렬이 어렵습니다. 핸들로 직접 조절해 주세요.",
+          "warn",
+        );
+        return;
+      }
+      if (result.editRange) {
+        this.editRange = { ...result.editRange };
+        this.editor?.setEditRange(this.editRange);
+        this.cutSec = Math.max(
+          this.editRange.start + CUT_EPS,
+          Math.min(this.editRange.end - CUT_EPS, this.editRange.start + 0.02),
+        );
+        const wid = this._activeWordId();
+        if (wid) cutSecByWordId.set(wid, this.cutSec);
+      }
+      await this._renderAsync();
+      if (result.editRange) {
+        const s = result.editRange.start;
+        const e = result.editRange.end;
+        lastWaveformPlayStartMs = performance.now();
+        this.beginRangePlay(s);
+        this.deps.onPlayEditRange?.(s, e);
+      }
+    } catch (err) {
+      const msg =
+        err?.name === "AbortError"
+          ? "다시 맞추기 시간이 초과되었습니다."
+          : err?.message || "다시 맞추기에 실패했습니다.";
+      this.deps.onToast?.(msg, "warn");
+    } finally {
+      this._microRealignBusy = false;
+      if (btn instanceof HTMLButtonElement) {
+        btn.disabled = false;
+        btn.classList.remove("is-busy");
+      }
+    }
+  }
+
   _wireActions(cue) {
     this.root?.querySelector('[data-act="play"]')?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -934,6 +1090,11 @@ export class LineWaveformPanel {
     splitBtn?.addEventListener("click", (e) => {
       e.stopPropagation();
       this._splitAtCut();
+    });
+    const realignBtn = this.root?.querySelector('[data-act="micro-realign"]');
+    realignBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this._runMicroRealign(cue, realignBtn);
     });
     this.root?.querySelector('[data-act="undo"]')?.addEventListener("click", (e) => {
       e.stopPropagation();

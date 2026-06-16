@@ -146,6 +146,13 @@ export function playMasterVideoSynced(masterAudio, videoEl, opts = {}) {
     masterAudio.readyState === 0;
 
   if (broken && masterAudio.src) {
+    const src = String(masterAudio.currentSrc || masterAudio.src || "");
+    if (
+      src.startsWith("blob:") &&
+      masterAudio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE
+    ) {
+      return;
+    }
     let recovered = false;
     const cont = () => {
       if (recovered) return;

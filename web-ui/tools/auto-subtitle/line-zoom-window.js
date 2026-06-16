@@ -4,6 +4,11 @@
 
 import { getCueWords } from "./subtitle-words.js";
 import { lineIsSilenceOnlyCue, wordIsDeleted } from "./shared/subtitles.js";
+import { getWordSourceEnd, getWordSourceStart } from "./shared/dual-axis.js?v=3";
+import {
+  firstSpokenStorageIndex,
+  lastSpokenStorageIndex,
+} from "./shared/cross-cue-boundary-sync.js?v=5";
 
 /**
  * 파형 컨텍스트용 가시 단어 — 삭제만 제외, 무음(`--`) 포함 (Electron `activeWords` 와 동일).
@@ -19,7 +24,10 @@ export function waveformContextWordEntries(cue) {
   for (let i = 0; i < all.length; i += 1) {
     const w = all[i];
     if (wordIsDeleted(w)) continue;
-    visible.push({ start: w.start, end: w.end });
+    visible.push({
+      start: getWordSourceStart(w, cue),
+      end: getWordSourceEnd(w, cue),
+    });
     storageIdx.push(i);
   }
   return { visible, storageIdx };
@@ -116,7 +124,7 @@ export function wordChipSlotStyle(win, wordStart, wordEnd) {
  * @param {number} activeWordIndex visible words 배열 기준
  * @param {number} [expandLeft]
  * @param {number} [expandRight]
- * @param {{ mediaDurationSec?: number | null, crossLineBounds?: { prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } } | null }} [options]
+ * @param {{ mediaDurationSec?: number | null, crossLineBounds?: { prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } } | null, firstSpokenVisIdx?: number, lastSpokenVisIdx?: number }} [options]
  */
 export function computeWordContextWindow(
   words,
@@ -130,18 +138,27 @@ export function computeWordContextWindow(
 
   const expL = Math.max(0, Math.floor(expandLeft));
   const expR = Math.max(0, Math.floor(expandRight));
-  const lo = Math.max(0, activeWordIndex - 1 - expL);
-  const hi = Math.min(words.length - 1, activeWordIndex + 1 + expR);
+  const firstSpokenVisIdx = options.firstSpokenVisIdx ?? -1;
+  const lastSpokenVisIdx = options.lastSpokenVisIdx ?? -1;
+
+  let lo = Math.max(0, activeWordIndex - 1 - expL);
+  let hi = Math.min(words.length - 1, activeWordIndex + 1 + expR);
+  if (lastSpokenVisIdx >= 0 && activeWordIndex === lastSpokenVisIdx) {
+    hi = activeWordIndex;
+  }
+  if (firstSpokenVisIdx >= 0 && activeWordIndex === firstSpokenVisIdx) {
+    lo = activeWordIndex;
+  }
 
   let lineStart = words[lo].start;
   let lineEnd = words[hi].end;
 
   const cross = options.crossLineBounds;
-  if (cross?.prevWord && activeWordIndex === 0) {
+  if (cross?.prevWord && firstSpokenVisIdx >= 0 && activeWordIndex === firstSpokenVisIdx) {
     lineStart = Math.min(lineStart, Math.min(cross.prevWord.start, cross.prevWord.end));
   }
-  if (cross?.nextWord && activeWordIndex === words.length - 1) {
-    lineEnd = Math.max(lineEnd, Math.max(cross.nextWord.start, cross.nextWord.end));
+  if (cross?.nextWord && lastSpokenVisIdx >= 0 && activeWordIndex === lastSpokenVisIdx) {
+    lineEnd = Math.max(lineEnd, cross.nextWord.start, cross.nextWord.end);
   }
 
   const dur =
@@ -152,7 +169,9 @@ export function computeWordContextWindow(
       : Number.POSITIVE_INFINITY;
 
   const span = Math.max(lineEnd - lineStart, 0.001);
-  const pad = Math.max(0.04, span * 0.02);
+  const pad = cross?.prevWord || cross?.nextWord
+    ? Math.max(0.22, span * 0.18)
+    : Math.max(0.08, span * 0.04);
   let windowStart = Math.max(0, lineStart - pad);
   let windowEnd = Math.min(dur, lineEnd + pad);
   if (windowEnd <= windowStart + 1e-6) {
@@ -169,44 +188,166 @@ export function computeWordContextWindow(
 }
 
 /**
+ * 줄 경계 spoken 쌍 — 윗줄 마지막·아랫줄 첫 spoken이 **동일** viewWin/lineBounds 사용.
+ * (파형 픽셀↔미디어 매핑이 같아야 경계 오른쪽·아래 첫 단어가 같은 오디오로 보임)
+ *
+ * @param {readonly object[]} cues
+ * @param {number} cueIndex
+ * @param {number} storageWordIndex
+ * @param {number} [mediaDurationSec]
+ */
+export function computeCoupledCrossLineViewWindow(cues, cueIndex, storageWordIndex, mediaDurationSec) {
+  const cue = Array.isArray(cues) ? cues[cueIndex] : null;
+  if (!cue) return null;
+
+  const firstSpoken = firstSpokenStorageIndex(cue);
+  const lastSpoken = lastSpokenStorageIndex(cue);
+
+  /** @type {'upper_end' | 'lower_start' | null} */
+  let role = null;
+  /** @type {object | null} */
+  let prevCue = null;
+  /** @type {object | null} */
+  let nextCue = null;
+  /** @type {object | null} */
+  let prevLastWord = null;
+  /** @type {object | null} */
+  let nextFirstWord = null;
+
+  if (lastSpoken >= 0 && storageWordIndex === lastSpoken) {
+    const ni = nextNonSilenceCueIndex(cues, cueIndex);
+    if (ni < 0) return null;
+    nextCue = cues[ni];
+    const frwi = firstSpokenStorageIndex(nextCue);
+    if (frwi < 0) return null;
+    nextFirstWord = nextCue.words?.[frwi];
+    if (!nextFirstWord || wordIsDeleted(nextFirstWord)) return null;
+    prevCue = cue;
+    prevLastWord = cue.words?.[lastSpoken];
+    if (!prevLastWord || wordIsDeleted(prevLastWord)) return null;
+    role = "upper_end";
+  } else if (firstSpoken >= 0 && storageWordIndex === firstSpoken) {
+    const pi = prevNonSilenceCueIndex(cues, cueIndex);
+    if (pi < 0) return null;
+    prevCue = cues[pi];
+    const plwi = lastSpokenStorageIndex(prevCue);
+    if (plwi < 0) return null;
+    prevLastWord = prevCue.words?.[plwi];
+    if (!prevLastWord || wordIsDeleted(prevLastWord)) return null;
+    nextCue = cue;
+    nextFirstWord = cue.words?.[firstSpoken];
+    if (!nextFirstWord || wordIsDeleted(nextFirstWord)) return null;
+    role = "lower_start";
+  } else {
+    return null;
+  }
+
+  const prevStart = getWordSourceStart(prevLastWord, prevCue);
+  const prevEnd = getWordSourceEnd(prevLastWord, prevCue);
+  const nextStart = getWordSourceStart(nextFirstWord, nextCue);
+  const nextEnd = getWordSourceEnd(nextFirstWord, nextCue);
+
+  const lineStart = Math.min(prevStart, nextStart);
+  const lineEnd = Math.max(prevEnd, nextEnd);
+  const dur =
+    mediaDurationSec != null &&
+    Number.isFinite(mediaDurationSec) &&
+    mediaDurationSec > 0
+      ? mediaDurationSec
+      : Number.POSITIVE_INFINITY;
+  const span = Math.max(lineEnd - lineStart, 0.001);
+  const pad = Math.max(0.22, span * 0.18);
+  let windowStart = Math.max(0, lineStart - pad);
+  let windowEnd = Math.min(dur, lineEnd + pad);
+  if (windowEnd <= windowStart + 1e-6) {
+    windowEnd = Math.min(dur, windowStart + 0.12);
+  }
+
+  return {
+    lineStart,
+    lineEnd,
+    windowStart,
+    windowEnd,
+    span: Math.max(windowEnd - windowStart, 1e-6),
+    crossLineBounds: {
+      prevWord: { start: prevStart, end: prevEnd },
+      nextWord: { start: nextStart, end: nextEnd },
+      coupled: true,
+      role,
+    },
+  };
+}
+
+/**
  * @param {readonly object[]} cues
  * @param {number} cueIndex
  * @param {number} storageWordIndex
  * @param {number} [mediaDurationSec]
  */
 export function computeWordContextForCue(cues, cueIndex, storageWordIndex, mediaDurationSec) {
+  const coupled = computeCoupledCrossLineViewWindow(
+    cues,
+    cueIndex,
+    storageWordIndex,
+    mediaDurationSec,
+  );
+  if (coupled) return coupled;
+
   const cue = Array.isArray(cues) ? cues[cueIndex] : null;
   if (!cue) return null;
   const { visible, storageIdx } = waveformContextWordEntries(cue);
   const visIdx = storageIdx.indexOf(storageWordIndex);
   if (visIdx < 0) return null;
 
+  const firstSpoken = firstSpokenStorageIndex(cue);
+  const lastSpoken = lastSpokenStorageIndex(cue);
+
   /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } } | null} */
   let crossLineBounds = null;
   if (Array.isArray(cues) && cues.length > 0 && Number.isFinite(cueIndex)) {
     /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number } }} */
     const bounds = {};
-    if (visIdx === 0) {
+    if (firstSpoken >= 0 && storageWordIndex === firstSpoken) {
       const pi = prevNonSilenceCueIndex(cues, cueIndex);
       if (pi >= 0) {
-        const prevVisible = waveformContextWordEntries(cues[pi]).visible;
-        if (prevVisible.length) bounds.prevWord = prevVisible[prevVisible.length - 1];
+        const prevCue = cues[pi];
+        const prevWords = prevCue?.words;
+        const plwi = lastSpokenStorageIndex(prevCue);
+        const pw = plwi >= 0 ? prevWords?.[plwi] : null;
+        if (pw && !wordIsDeleted(pw)) {
+          bounds.prevWord = {
+            start: getWordSourceStart(pw, prevCue),
+            end: getWordSourceEnd(pw, prevCue),
+          };
+        }
       }
     }
-    if (visIdx === visible.length - 1) {
+    if (lastSpoken >= 0 && storageWordIndex === lastSpoken) {
       const ni = nextNonSilenceCueIndex(cues, cueIndex);
       if (ni >= 0) {
-        const nextVisible = waveformContextWordEntries(cues[ni]).visible;
-        if (nextVisible.length) bounds.nextWord = nextVisible[0];
+        const nextCue = cues[ni];
+        const nextWords = nextCue?.words;
+        const frwi = firstSpokenStorageIndex(nextCue);
+        const nw = frwi >= 0 ? nextWords?.[frwi] : null;
+        if (nw && !wordIsDeleted(nw)) {
+          bounds.nextWord = {
+            start: getWordSourceStart(nw, nextCue),
+            end: getWordSourceEnd(nw, nextCue),
+          };
+        }
       }
     }
     if (bounds.prevWord || bounds.nextWord) crossLineBounds = bounds;
   }
 
-  return computeWordContextWindow(visible, visIdx, 0, 0, {
+  const win = computeWordContextWindow(visible, visIdx, 0, 0, {
     mediaDurationSec: mediaDurationSec ?? undefined,
     crossLineBounds,
+    firstSpokenVisIdx: firstSpoken >= 0 ? storageIdx.indexOf(firstSpoken) : -1,
+    lastSpokenVisIdx: lastSpoken >= 0 ? storageIdx.indexOf(lastSpoken) : -1,
   });
+  if (!win) return null;
+  return crossLineBounds ? { ...win, crossLineBounds } : win;
 }
 
 /**

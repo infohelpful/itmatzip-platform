@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -901,12 +903,39 @@ def prepare_transcribe_media(
         current = out
 
     normalized = current != src
+    preview_path = _mirror_preview_into_job_dir(current, job_dir, actions)
     return TranscribeMediaPrepareResult(
         transcribe_path=current,
-        preview_path=current,
+        preview_path=preview_path,
         actions=actions,
-        normalized=normalized,
+        normalized=normalized or preview_path != src,
     )
+
+
+def _mirror_preview_into_job_dir(
+    src: Path, job_dir: Path, actions: list[str]
+) -> Path:
+    """D: 등 외장 경로 — workspace 복사/하드링크 (cross-volume은 copy2)."""
+    src = src.resolve()
+    if not src.is_file():
+        return src
+    job_dir.mkdir(parents=True, exist_ok=True)
+    dest = job_dir / "media-cfr.mp4"
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest.resolve()
+    legacy = job_dir / "media-preview.mp4"
+    if legacy.is_file() and legacy.stat().st_size > 0:
+        return legacy.resolve()
+    try:
+        if not dest.exists():
+            os.link(str(src), str(dest))
+        actions.append("preview_hardlink")
+        return dest.resolve()
+    except OSError as exc:
+        logger.debug("preview hardlink skipped (%s): %s", src, exc)
+    shutil.copy2(src, dest)
+    actions.append("preview_copy")
+    return dest.resolve()
 
 
 def preview_cache_job_dir(src: Path) -> Path:

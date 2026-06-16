@@ -25,7 +25,6 @@ const (
 	trayRunValue  = "ItMatZipAgentTray"
 )
 
-
 func toolsWebBase() string {
 	if v := strings.TrimSpace(os.Getenv("ITMATZIP_TOOLS_WEB_BASE")); v != "" {
 		return strings.TrimSuffix(v, "/")
@@ -86,7 +85,6 @@ func runTray(port int) error {
 	return runTrayWithOptions(port)
 }
 
-
 var trayAgentCancel context.CancelFunc
 
 func runTrayWithOptions(port int) error {
@@ -129,6 +127,7 @@ func runTrayWithOptions(port int) error {
 
 	sidecar := newFastAPISidecar(defaultFastAPIPort)
 	go func() {
+		time.Sleep(2 * time.Second)
 		startFastAPISidecarWithRetry(ctx, sidecar, mgr)
 		startFastAPISidecarWatchdog(ctx, sidecar, mgr)
 	}()
@@ -238,11 +237,8 @@ func onTrayReady(port int, iconData []byte) {
 	}()
 }
 
-
 func onTrayExit() {
 }
-
-
 
 func updateTrayTooltip(port int, status string) {
 	systray.SetTooltip(fmt.Sprintf("ItMatZip Agent — %s\nhttp://%s:%d", status, defaultHost, port))

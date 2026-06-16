@@ -159,3 +159,66 @@ export function virtualSecToSourceSec(cue, virtualSec) {
   if (!isRelocated(cue)) return t;
   return src0 + (t - v0);
 }
+
+/**
+ * virtual(edit) → source 앵커 — block SSOT·파형 재생 축 동기화.
+ *
+ * @param {import("./subtitles.js").SubtitleLine} cue
+ */
+export function syncCueWordSourcesFromEdit(cue) {
+  if (!cue?.words?.length) return cue;
+  for (const w of cue.words) {
+    if (w.is_deleted || w.isDeleted) continue;
+    const s = Number(w.start);
+    const e = Number(w.end);
+    if (!Number.isFinite(s) || !Number.isFinite(e)) continue;
+    if (!isRelocated(cue)) {
+      w.sourceStart = s;
+      w.source_start = s;
+      w.sourceEnd = e;
+      w.source_end = e;
+      continue;
+    }
+    const srcS = virtualSecToSourceSec(cue, s);
+    const srcE = virtualSecToSourceSec(cue, e);
+    w.sourceStart = srcS;
+    w.source_start = srcS;
+    w.sourceEnd = srcE;
+    w.source_end = srcE;
+  }
+  return cue;
+}
+
+/**
+ * @param {readonly import("./subtitles.js").SubtitleLine[]} cues
+ */
+export function syncAllCueWordSourcesFromEdit(cues) {
+  return (cues || []).map((cue) => {
+    if (!cue?.words?.length) return cue;
+    const words = cue.words.map((w) => {
+      if (w.is_deleted || w.isDeleted) return w;
+      const s = Number(w.start);
+      const e = Number(w.end);
+      if (!Number.isFinite(s) || !Number.isFinite(e)) return w;
+      if (!isRelocated(cue)) {
+        return {
+          ...w,
+          sourceStart: s,
+          source_start: s,
+          sourceEnd: e,
+          source_end: e,
+        };
+      }
+      const srcS = virtualSecToSourceSec(cue, s);
+      const srcE = virtualSecToSourceSec(cue, e);
+      return {
+        ...w,
+        sourceStart: srcS,
+        source_start: srcS,
+        sourceEnd: srcE,
+        source_end: srcE,
+      };
+    });
+    return { ...cue, words };
+  });
+}

@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+. (Join-Path $PSScriptRoot "go-agent/installer/archive-compat.ps1")
 $AgentRoot = Join-Path $PSScriptRoot "agent"
 Set-Location $AgentRoot
 
@@ -71,7 +73,7 @@ $zipStaging = Join-Path $buildDir "zip-staging"
 if (Test-Path $zipStaging) { Remove-Item $zipStaging -Recurse -Force }
 New-Item -ItemType Directory -Path $zipStaging -Force | Out-Null
 Copy-Item -Path (Join-Path $bundleDir "*") -Destination $zipStaging -Recurse -Force
-Compress-Archive -Path (Join-Path $zipStaging "*") -DestinationPath $bundleZip -CompressionLevel Optimal -Force
+Compress-ArchiveCompat -Path $zipStaging -DestinationPath $bundleZip -CompressionLevel Optimal -Force
 Remove-Item $zipStaging -Recurse -Force
 
 Write-Host "[3/3] 단일 itmatzip-agent.exe (설치 프로그램)..."

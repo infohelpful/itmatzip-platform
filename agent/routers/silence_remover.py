@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from common.async_io import run_sync
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe, is_ffmpeg_ready
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
-from engines import silence_remover
+from engines import auto_subtitle, silence_remover
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from runtime_paths import pick_file_available
 
@@ -36,6 +36,15 @@ def _ensure_silence_remover_environment() -> None:
 
 
 SilenceRemoverReady = Annotated[None, Depends(_ensure_silence_remover_environment)]
+
+
+def _resolve_media_path(raw: str) -> Path:
+    """Windows NFC·₩ 경로 등을 정규화한 뒤 실제 파일을 찾습니다."""
+    norm = auto_subtitle.normalize_media_path(raw)
+    resolved = auto_subtitle.resolve_existing_file(norm)
+    if resolved is None:
+        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {norm}")
+    return resolved
 
 
 class SilenceRemoverAnalyzeBody(BaseModel):
@@ -365,9 +374,7 @@ def post_probe(
     body: SilenceRemoverProbeBody,
 ) -> dict[str, object]:
     """영상/오디오 파일 경로로 FPS·평균 볼륨·추천 무음 noise(dB)를 반환합니다."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    path = _resolve_media_path(body.video_path)
 
     try:
         return silence_remover.probe_media_for_silence_ui(path, timeout_sec=body.timeout_sec)
@@ -530,9 +537,7 @@ async def post_waveform_peaks(
     body: SilenceRemoverWaveformPeaksBody,
 ) -> dict[str, object]:
     """Canvas 파형용 열당 피크·dB 배열을 반환합니다 (PNG 없음)."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    path = _resolve_media_path(body.video_path)
     try:
         return await run_sync(
             silence_remover.build_waveform_peaks_payload,
@@ -560,9 +565,7 @@ async def post_waveform_preview(
     body: SilenceRemoverWaveformPreviewBody,
 ) -> Response:
     """전체 타임라인 오디오 파형 PNG(무음 마커 없음). 가로 스크롤용으로 폭이 길 수 있습니다."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    path = _resolve_media_path(body.video_path)
 
     try:
         png_bytes = await asyncio.to_thread(_waveform_preview_png_bytes, path, body)
@@ -578,9 +581,7 @@ async def post_waveform_preview_analyzed(
     body: SilenceRemoverWaveformAnalyzedBody,
 ) -> Response:
     """전체 타임라인 파형 PNG에 무음 구간(반투명 노랑 + 황금 경계선)을 합성합니다."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    path = _resolve_media_path(body.video_path)
 
     try:
         png_bytes = await asyncio.to_thread(_waveform_analyzed_png_bytes, path, body)
@@ -595,7 +596,7 @@ def _analyze_video_payload(
     *,
     on_progress: Callable[[float, str], None] | None = None,
 ) -> dict[str, object]:
-    path = Path(body.video_path)
+    path = _resolve_media_path(body.video_path)
     (
         edl,
         segments,
@@ -703,9 +704,7 @@ def post_analyze(
     body: SilenceRemoverAnalyzeBody,
 ) -> dict[str, object]:
     """무음 분석을 백그라운드에서 시작하고 즉시 상태를 반환합니다. GET /analyze/status 로 폴링하세요."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    _resolve_media_path(body.video_path)
 
     def _run() -> dict[str, object]:
         def on_progress(pct: float, msg: str) -> None:
@@ -728,9 +727,7 @@ async def post_analyze_sync(
     body: SilenceRemoverAnalyzeBody,
 ) -> dict[str, object]:
     """(레거시) 동기 분석 — 긴 영상에서는 /analyze + /analyze/status 를 사용하세요."""
-    path = Path(body.video_path)
-    if not path.is_file():
-        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
+    _resolve_media_path(body.video_path)
 
     try:
         return await run_sync(_analyze_video_payload, body)

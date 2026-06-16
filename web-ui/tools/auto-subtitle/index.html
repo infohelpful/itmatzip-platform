@@ -7,7 +7,7 @@
   <title>Auto Subtitle</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=96">
+  <link rel="stylesheet" href="style.css?v=111">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body class="as-app">
@@ -116,6 +116,24 @@
             title="자막 찾기 및 바꾸기 (Ctrl+F)"
           >
             찾기 및 바꾸기
+          </button>
+          <button
+            type="button"
+            id="btn-line-reflow"
+            class="as-btn as-btn-ghost as-btn-sm"
+            disabled
+            title="수동으로 옮긴 줄은 유지하고 나머지를 한 줄 최대 28자·6.5초 기준으로 묶어 재정리"
+          >
+            줄 자동 정리
+          </button>
+          <button
+            type="button"
+            id="btn-word-valley-align"
+            class="as-btn as-btn-ghost as-btn-sm"
+            disabled
+            title="말소리 단어 2개 이상·미디어 연결 시 사용"
+          >
+            타이밍 맞추기
           </button>
           <button
             type="button"
@@ -422,7 +440,7 @@
   <!-- as-build:167 word-auto-align -->
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=11"></script>
-  <script type="module" src="script.js?v=282"></script>
+  <script type="module" src="script.js?v=357"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

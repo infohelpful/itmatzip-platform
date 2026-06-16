@@ -5,6 +5,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+. (Join-Path (Split-Path -Parent $PSScriptRoot) "installer/archive-compat.ps1")
 
 function Get-LatestFfmpegSharedZipUrl {
     $headers = @{ "User-Agent" = "itmatzip-agent-installer" }
@@ -39,7 +41,7 @@ function Install-FfmpegSharedTo {
         if ($LASTEXITCODE -ne 0) { throw "curl download failed: $LASTEXITCODE" }
 
         $extract = Join-Path $tmp "extract"
-        Expand-Archive -Path $zipPath -DestinationPath $extract -Force
+        Expand-ArchiveCompat -Path $zipPath -DestinationPath $extract -Force
         $binDir = Get-ChildItem -Path $extract -Recurse -Directory -Filter "bin" | Select-Object -First 1
         if (-not $binDir) { throw "bin folder not found in archive" }
 

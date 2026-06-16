@@ -16,7 +16,8 @@ import {
   wordIsDeleted,
   wordIsSilence,
 } from "./shared/subtitles.js?v=24";
-import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=18";
+import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=25";
+import { syncAllCueWordSourcesFromEdit } from "./shared/dual-axis.js?v=2";
 import { SILENCE_PLACEHOLDER_TEXT } from "./shared/word-contract.js";
 
 export const MIN_WORD_SPAN_SEC = MIN_WORD_DURATION_SEC;
@@ -252,7 +253,7 @@ export function applyCueWordEdgeDrag(cues, lineIndex, storageIndex, edge, newSec
     newSec,
     commitMode,
   });
-  return result.subtitles;
+  return syncAllCueWordSourcesFromEdit(result.subtitles);
 }
 
 /**

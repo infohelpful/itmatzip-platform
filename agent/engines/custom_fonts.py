@@ -297,15 +297,37 @@ def _unique_dest_name(fonts_dir: Path, preferred: str) -> str:
     return f"{stem}-{int(time.time())}{suffix}"
 
 
-def _unique_family_name(existing: set[str], preferred: str) -> str:
-    base = str(preferred or "Custom Font").strip() or "Custom Font"
-    if base.casefold() not in existing:
-        return base
-    for i in range(2, 1000):
-        alt = f"{base} ({i})"
-        if alt.casefold() not in existing:
-            return alt
-    return f"{base} ({int(time.time())})"
+def _installed_family_keys(manifest: list[dict[str, Any]] | None = None) -> set[str]:
+    items = manifest if manifest is not None else _load_manifest()
+    return {
+        str(x.get("family") or "").casefold()
+        for x in items
+        if str(x.get("family") or "").strip()
+    }
+
+
+def is_custom_font_family_installed(family: str, manifest: list[dict[str, Any]] | None = None) -> bool:
+    name = str(family or "").strip()
+    if not name:
+        return False
+    return name.casefold() in _installed_family_keys(manifest)
+
+
+def peek_custom_font_install(source_path: str) -> dict[str, Any]:
+    src = Path(str(source_path or "").strip())
+    if not src.is_file():
+        raise FileNotFoundError(f"글꼴 파일을 찾을 수 없습니다: {src}")
+    suffix = src.suffix.lower()
+    if suffix not in ALLOWED_FONT_SUFFIXES:
+        allowed = ", ".join(sorted(ALLOWED_FONT_SUFFIXES))
+        raise ValueError(f"지원하지 않는 글꼴 형식입니다. ({allowed})")
+    manifest = _load_manifest()
+    family = str(read_font_family_name(src) or "").strip() or "Custom Font"
+    return {
+        "ok": True,
+        "family": family,
+        "already_installed": is_custom_font_family_installed(family, manifest),
+    }
 
 
 def _register_font_windows(path: Path) -> None:
@@ -398,10 +420,10 @@ def install_custom_font_from_path(source_path: str) -> dict[str, Any]:
         raise ValueError(f"지원하지 않는 글꼴 형식입니다. ({allowed})")
 
     fonts_dir = get_fonts_dir()
-    family_hint = read_font_family_name(src)
     manifest = _load_manifest()
-    existing_families = {str(x.get("family") or "").casefold() for x in manifest}
-    family = _unique_family_name(existing_families, family_hint)
+    family = str(read_font_family_name(src) or "").strip() or "Custom Font"
+    if is_custom_font_family_installed(family, manifest):
+        raise ValueError(f"이미 추가된 글꼴입니다: {family}")
 
     dest_name = _unique_dest_name(fonts_dir, src.name)
     dest = fonts_dir / dest_name

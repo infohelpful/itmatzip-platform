@@ -3,10 +3,12 @@
  */
 
 import { buildEdlSkipMapping } from "./waveform/edl-skip-mapping.js";
+import { buildPanelSkipRanges } from "./waveform/panel-skip-ranges.js";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js";
 import {
   buildWordFillBands,
   buildWordFillBandsFromEditRange,
+  buildCueLineFillBands,
   collectDeletedRangesSec,
   drawWordContextWaveform,
 } from "./word-waveform-draw.js";
@@ -33,9 +35,12 @@ export class WaveformContextEditor {
     /** @type {{ start: number, end: number }[]} */
     this.playbackSkipRanges = [];
     this.skipMapping = null;
+    /** @type {{ prevWord?: { start: number, end: number }, nextWord?: { start: number, end: number }, coupled?: boolean, role?: string } | null} */
+    this.crossLineBounds = null;
     /** @type {number | null} */
     this.mediaDurationHintSec = null;
     this._layout = { cssW: 320, cssH: BOX_HEIGHT_PX };
+    this._cueLineFill = false;
     this._raf = 0;
   }
 
@@ -80,6 +85,25 @@ export class WaveformContextEditor {
     this.cueIndex = cueIndex;
     this.focusWordStorageIndex = storageIndex;
     this._cue = cue;
+    this._scheduleDraw();
+  }
+
+  /** @param {import("./subtitle-words.js").SubtitleCue} cue */
+  setPreviewCue(cue) {
+    this._cue = cue;
+    this.skipMapping = null;
+    this._scheduleDraw();
+  }
+
+  /** @param {typeof this.crossLineBounds} bounds */
+  setCrossLineBounds(bounds) {
+    this.crossLineBounds = bounds;
+    this._scheduleDraw();
+  }
+
+  /** @param {boolean} on */
+  setCueLineFillMode(on) {
+    this._cueLineFill = Boolean(on);
     this._scheduleDraw();
   }
 
@@ -131,17 +155,20 @@ export class WaveformContextEditor {
       this.skipMapping = null;
       return;
     }
-    const skips = [
-      ...(this.playbackSkipRanges || []),
-      ...this._collectDeletedInView(v0, v1),
-    ];
+    const skips = buildPanelSkipRanges(
+      { start: v0, end: v1 },
+      this.playbackSkipRanges || [],
+      this._cue,
+      this.crossLineBounds,
+    );
     this.skipMapping = buildEdlSkipMapping({ start: v0, end: v1 }, skips);
   }
 
   _collectDeletedInView(v0, v1) {
     const cue = this._cue;
     if (!cue) return [];
-    return collectDeletedRangesSec(getCueWords(cue), v0, v1);
+    if (this.crossLineBounds?.coupled) return [];
+    return collectDeletedRangesSec(getCueWords(cue), v0, v1, cue);
   }
 
   /**
@@ -196,19 +223,27 @@ export class WaveformContextEditor {
     const centerVis = getVisibleWordCenterIndex(cue, this.focusWordStorageIndex);
 
     let fillBands = null;
-    if (this.editRange) {
+    if (this._cueLineFill && this.editRange) {
+      fillBands = buildCueLineFillBands(
+        this.editRange.start,
+        this.editRange.end,
+        v0,
+        v1,
+      );
+    } else if (this.editRange) {
       fillBands = buildWordFillBandsFromEditRange(
         cue,
         centerVis,
         this.editRange,
         v0,
         v1,
+        this.crossLineBounds,
       );
     } else if (centerVis >= 0) {
-      fillBands = buildWordFillBands(cue, centerVis, v0, v1);
+      fillBands = buildWordFillBands(cue, centerVis, v0, v1, this.crossLineBounds);
     }
 
-    const deleted = collectDeletedRangesSec(getCueWords(cue), v0, v1);
+    const deleted = collectDeletedRangesSec(getCueWords(cue), v0, v1, cue);
 
     drawWordContextWaveform(canvas, metrics, v0, v1, deleted, fillBands, {
       heightCssPx: this._layout.cssH,

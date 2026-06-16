@@ -5,6 +5,8 @@ import { wordIsDeleted, wordIsSilence, subtitleLineTextAfterWordMutation } from 
 
 export const MIN_WORD_DURATION_SEC = 0.01;
 
+const BOUNDARY_EPS_SEC = 1e-4;
+
 /**
  * ??? ?? ??? ???? ?????Edge Drag) ??? ?????? ????? ??Vrew ??????**??? ???** ???.
  *
@@ -125,26 +127,24 @@ function applyEdgeChangeInPlace(
   const target = active[targetActiveIdx]
   if (!target) return
 
-  /**
-   * **Same-card only ???** ????? ?? ?????????? ????? ?????????? ?????
-   * target ????edge ??cross-line prev.end / next.start ????? clamp.
-   */
-  const crossPrev = (() => {
-    const i = active.indexOf(target)
-    const p = i > 0 ? active[i - 1] : null
-    return p && p.lineIndex !== target.lineIndex ? p : null
-  })()
-  const crossNext = (() => {
-    const i = active.indexOf(target)
-    const n = i >= 0 && i < active.length - 1 ? active[i + 1] : null
-    return n && n.lineIndex !== target.lineIndex ? n : null
-  })()
-
   if (edge === 'start') {
     const ownEnd = target.end
     let newStart = newSec
     if (newStart > ownEnd - minWidthSec) newStart = ownEnd - minWidthSec
-    if (crossPrev && newStart < crossPrev.end) newStart = crossPrev.end
+    newStart = Math.max(0, newStart)
+
+    const crossPrev = findCrossLineSpokenPrev(active, target)
+    if (crossPrev) {
+      const lo = crossPrev.start + minWidthSec
+      const clamped = Math.max(lo, Math.min(newStart, ownEnd - minWidthSec))
+      crossPrev.end = clamped
+      target.start = clamped
+      if (crossPrev.end < crossPrev.start + minWidthSec) {
+        crossPrev.start = Math.max(0, crossPrev.end - minWidthSec)
+      }
+      shrinkSameLineHeadSilenceBefore(active, target, clamped, minWidthSec)
+      return
+    }
 
     if (newStart < target.start) {
       /**
@@ -204,7 +204,18 @@ function applyEdgeChangeInPlace(
   const ownStart = target.start
   let newEnd = newSec
   if (newEnd < ownStart + minWidthSec) newEnd = ownStart + minWidthSec
-  if (crossNext && newEnd > crossNext.start) newEnd = crossNext.start
+
+  const crossNext = findCrossLineSpokenNext(active, target)
+  if (crossNext) {
+    const clamped = Math.max(ownStart + minWidthSec, newEnd)
+    crossNext.start = clamped
+    target.end = clamped
+    if (crossNext.end < clamped + minWidthSec) {
+      crossNext.end = clamped + minWidthSec
+    }
+    shrinkSameLineTailSilenceAfter(active, target, clamped, minWidthSec)
+    return
+  }
 
   if (newEnd > target.end) {
     /**
@@ -367,6 +378,97 @@ function findNextActive(active, from) {
 function removeActive(active, target) {
   const i = active.indexOf(target)
   if (i >= 0) active.splice(i, 1)
+}
+
+/** spoken active word (무음·tombstone 제외) */
+function isSpokenActive(fw) {
+  return fw && !fw.isDeleted && !fw.isSilence
+}
+
+/** cue 내 첫 spoken 단어인지 (줄 경계 start 핸들) */
+function isFirstSpokenOnLine(active, target) {
+  if (!isSpokenActive(target)) return false
+  const i = active.indexOf(target)
+  if (i < 0) return false
+  for (let j = i - 1; j >= 0; j -= 1) {
+    if (active[j].lineIndex === target.lineIndex && isSpokenActive(active[j])) return false
+  }
+  return true
+}
+
+/** cue 내 마지막 spoken 단어인지 (줄 경계 end 핸들) */
+function isLastSpokenOnLine(active, target) {
+  if (!isSpokenActive(target)) return false
+  const i = active.indexOf(target)
+  if (i < 0) return false
+  for (let j = i + 1; j < active.length; j += 1) {
+    if (active[j].lineIndex === target.lineIndex && isSpokenActive(active[j])) return false
+  }
+  return true
+}
+
+/** 윗줄 마지막 spoken ↔ 아랫줄 첫 spoken (무음-only 줄 건너뜀) */
+function findCrossLineSpokenNext(active, target) {
+  if (!isLastSpokenOnLine(active, target)) return null
+  let nextLine = Infinity
+  for (const w of active) {
+    if (w.lineIndex <= target.lineIndex) continue
+    if (!isSpokenActive(w)) continue
+    if (w.lineIndex < nextLine) nextLine = w.lineIndex
+  }
+  if (!Number.isFinite(nextLine)) return null
+  for (const w of active) {
+    if (w.lineIndex !== nextLine) continue
+    if (!isSpokenActive(w)) continue
+    return w
+  }
+  return null
+}
+
+/** 아랫줄 첫 spoken ↔ 윗줄 마지막 spoken (무음-only 줄 건너뜀) */
+function findCrossLineSpokenPrev(active, target) {
+  if (!isFirstSpokenOnLine(active, target)) return null
+  let prevLine = -1
+  for (const w of active) {
+    if (w.lineIndex >= target.lineIndex) continue
+    if (!isSpokenActive(w)) continue
+    if (w.lineIndex > prevLine) prevLine = w.lineIndex
+  }
+  if (prevLine < 0) return null
+  /** @type {typeof active[0] | null} */
+  let last = null
+  for (const w of active) {
+    if (w.lineIndex !== prevLine) continue
+    if (!isSpokenActive(w)) continue
+    last = w
+  }
+  return last
+}
+
+/** cross-line 경계 조정 시 같은 줄 꼬리 무음 — 다음 줄 오디오 침범 금지 */
+function shrinkSameLineTailSilenceAfter(active, target, boundarySec, minWidthSec) {
+  const ti = active.indexOf(target)
+  if (ti < 0) return
+  for (let j = ti + 1; j < active.length; j += 1) {
+    const w = active[j]
+    if (w.lineIndex !== target.lineIndex) break
+    if (isSpokenActive(w)) break
+    w.start = boundarySec
+    w.end = boundarySec + minWidthSec
+  }
+}
+
+/** cross-line 경계 조정 시 같은 줄 머리 무음 — 윗줄 오디오 침범 금지 */
+function shrinkSameLineHeadSilenceBefore(active, target, boundarySec, minWidthSec) {
+  const ti = active.indexOf(target)
+  if (ti < 0) return
+  for (let j = ti - 1; j >= 0; j -= 1) {
+    const w = active[j]
+    if (w.lineIndex !== target.lineIndex) break
+    if (isSpokenActive(w)) break
+    w.end = boundarySec
+    w.start = Math.max(0, boundarySec - minWidthSec)
+  }
 }
 
 // ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????

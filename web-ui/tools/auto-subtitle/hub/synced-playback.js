@@ -7,7 +7,7 @@ import { WebAudioMasterPlayback } from "./web-audio-master-playback.js";
 import {
   assignMasterAudioTimelineSecIfNeeded,
   playMasterVideoSynced,
-} from "./html-audio-master-playback.js?v=2";
+} from "./html-audio-master-playback.js?v=5";
 import { mergeCutRanges, skipCutRangeAt } from "../playback.js?v=28";
 import { getPlaybackOrchestrator } from "./playback-orchestrator.js";
 import {
@@ -20,7 +20,7 @@ import {
   isListOrderSeamlessPlaybackActive,
   syncListOrderPreviewPlayback,
 } from "./list-order-preview-sync.js?v=14";
-import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=37";
+import { getPreviewMediaBridge, assignPreviewMediaSrc } from "./seamless-preview-stack.js?v=38";
 import { getProgramPreviewExecutor } from "./program-preview-executor.js?v=5";
 import {
   mapWordTimelineToVideoTime,

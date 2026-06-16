@@ -588,6 +588,10 @@ export function parseSubtitleLines(raw) {
         entry.sourceEnd = wse;
         entry.source_end = wse;
       }
+      const hss = Number(w.hintStart ?? w.hint_start);
+      const hse = Number(w.hintEnd ?? w.hint_end);
+      if (Number.isFinite(hss)) entry.hintStart = hss;
+      if (Number.isFinite(hse)) entry.hintEnd = hse;
       words.push(entry);
     }
     if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
@@ -616,6 +620,9 @@ export function parseSubtitleLines(raw) {
     if (Number.isFinite(lse)) {
       line.sourceEnd = lse;
       line.source_end = lse;
+    }
+    if (item.flags && typeof item.flags === "object") {
+      line.flags = { ...item.flags };
     }
     out.push(line);
   }

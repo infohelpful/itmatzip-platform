@@ -4,7 +4,7 @@
  */
 
 import { skipCutRangeAt } from "../playback.js?v=28";
-import { seekWithNudge } from "./html-audio-master-playback.js?v=4";
+import { seekWithNudge } from "./html-audio-master-playback.js?v=5";
 import { isSourceVideoPtsTimeline } from "../shared/media-timing-ssot.js?v=7";
 import {
   DELETED_WORD_MEDIA_GAP_SEC,
@@ -87,6 +87,20 @@ function clampEnvelopeFadeSec(durationSec = ENVELOPE_FADE_SEC) {
 /** @param {number} durationSec */
 function envelopeFadeWaitMs(durationSec) {
   return Math.ceil(clampEnvelopeFadeSec(durationSec) * 1000) + 3;
+}
+
+/** revokeObjectURL 전에 blob: src를 끊어 net::ERR_FILE_NOT_FOUND 스팸 방지 */
+export function detachBlobMediaSrc(el) {
+  if (!el) return;
+  const src = el.currentSrc || el.src || "";
+  if (!src.startsWith("blob:")) return;
+  el.pause();
+  el.removeAttribute("src");
+  try {
+    el.load();
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Web Audio MediaElementSource — crossOrigin 없으면 CORS 제한으로 무음(zeroes) */
@@ -383,6 +397,13 @@ export class SeamlessPreviewStack {
     this.mediaUrl = url;
     for (const el of [this.videoA, this.videoB, this.audioA, this.audioB]) {
       assignPreviewMediaSrc(el, url);
+    }
+  }
+
+  detachBlobUrls() {
+    this.mediaUrl = "";
+    for (const el of [this.videoA, this.videoB, this.audioA, this.audioB]) {
+      detachBlobMediaSrc(el);
     }
   }
 
@@ -1243,6 +1264,10 @@ export class PreviewMediaBridge {
 
   clearMedia() {
     this.stack?.clearMedia();
+  }
+
+  detachBlobUrls() {
+    this.stack?.detachBlobUrls();
   }
 
   setOnLayerSwapped(cb) {

@@ -183,6 +183,8 @@ function wordToWordBlock(word, line, row1Based, slot1Based, existingWord) {
   const chain = word.split_chain ?? word.splitChain;
   const baseId = makeRowWordBlockId(row1Based, slot1Based);
   const id = word.id || existingWord?.id || (chain ? `${baseId}_${chain}` : baseId);
+  const hss = Number(word.hintStart ?? word.hint_start);
+  const hse = Number(word.hintEnd ?? word.hint_end);
   return {
     id,
     text: String(word.word ?? ""),
@@ -193,6 +195,8 @@ function wordToWordBlock(word, line, row1Based, slot1Based, existingWord) {
     isSilence: wordIsSilence(word),
     mergedByEdgeTrim: word.merged_by_edge_trim === true || word.mergedByEdgeTrim === true,
     splitChain: chain || undefined,
+    ...(Number.isFinite(hss) ? { hintStart: hss } : {}),
+    ...(Number.isFinite(hse) ? { hintEnd: hse } : {}),
   };
 }
 
@@ -224,6 +228,7 @@ function lineToBlock(line, lineIndex, existingBlock) {
     isDeleted: line.is_deleted === true || line.isDeleted === true,
     isSilence: line.is_silence === true || line.isSilence === true,
     words: words.length ? words : undefined,
+    ...(line.flags ? { flags: { ...line.flags } } : {}),
   };
 }
 
@@ -278,6 +283,8 @@ function wordBlockToSubtitleWord(w, cue) {
     out.split_chain = w.splitChain;
     out.splitChain = w.splitChain;
   }
+  if (Number.isFinite(Number(w.hintStart))) out.hintStart = Number(w.hintStart);
+  if (Number.isFinite(Number(w.hintEnd))) out.hintEnd = Number(w.hintEnd);
   void cue;
   return out;
 }
@@ -342,6 +349,7 @@ export function blocksToSubtitleLines(blocks, virtualIndex) {
         line.end = Math.max(vis[0].start + 0.1, vis[vis.length - 1].end);
       }
     }
+    if (block.flags) line.flags = { ...block.flags };
     return line;
   });
 }

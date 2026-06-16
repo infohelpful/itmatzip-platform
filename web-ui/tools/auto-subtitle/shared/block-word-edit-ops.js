@@ -88,7 +88,7 @@ export function buildBlockFromWordSubset(block, words, id, text) {
  * @param {import("./block-timeline-adapter.js").Block} block
  * @param {readonly import("./block-timeline-adapter.js").WordBlock[]} words
  */
-function recalcBlockMediaEnvelope(block, words) {
+export function recalcBlockMediaEnvelope(block, words) {
   let min = Infinity;
   let max = -Infinity;
   for (const w of words) {

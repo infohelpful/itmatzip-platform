@@ -16,7 +16,8 @@ import {
   setAgentLongOperationActive,
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
-} from "../common/bridge.js?v=lna16";
+} from "../common/bridge.js?v=lna20";
+import { AGENT_PICK_FONT, AGENT_PICK_IMAGE, AGENT_PICK_PROJECT, AGENT_PICK_SUBTITLE_MEDIA } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { showAdSense } from "../common/adsense.js";
 import {
@@ -43,7 +44,10 @@ import {
   getExpandedPanelCutEditSec,
   updatePlaybackHighlights,
   patchSelectedCueHighlight,
-} from "./cue-cards.js?v=77";
+  refreshWaveformPanelAfterTrim,
+  refreshCueWaveformPanelAfterLineEndTrim,
+  syncOpenCueWaveformPanel,
+} from "./cue-cards.js?v=111";
 import {
   handleGlobalArrowKey,
   isWordCaretKeyboardFocus,
@@ -56,9 +60,11 @@ import {
   prepareCaretAtWord,
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
-} from "./subtitle-list/word-caret-ui.js?v=60";
+  markCaretListStructuralMutation,
+} from "./subtitle-list/word-caret-ui.js?v=63";
 import {
   nearestValidStorageCaret,
+  storageCaretToRenderableCaret,
   visibleWordStorageIndices,
 } from "./shared/subtitle-word-caret-map.js?v=22";
 import {
@@ -113,7 +119,7 @@ import {
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
-} from "./shared/cues-ssot.js?v=39";
+} from "./shared/cues-ssot.js?v=40";
 import {
   buildBurnInMediaContract,
   buildProgramToBurninMapFromVirtualAudioMap,
@@ -133,7 +139,9 @@ import {
   resolveWordTimelineClockSec,
   setSessionMediaTiming,
   setSessionPreviewMediaPath,
-} from "./shared/media-timing-ssot.js?v=7";
+  normalizeAgentMediaPath,
+  hasCorruptMediaPathChars,
+} from "./shared/media-timing-ssot.js?v=11";
 import {
   createOverlayTimingContext,
   invalidateOverlayTimingCache,
@@ -145,14 +153,31 @@ import {
   buildSubtitleOverlayInnerStyle,
   normalizePreviewSubtitleText,
 } from "./shared/subtitle-box-chrome.js?v=25";
-import { SubtitleAppHub } from "./hub/app-hub.js?v=32";
+import { SubtitleAppHub } from "./hub/app-hub.js?v=33";
 import {
   runWordAutoAlign,
   isKoreanLanguageSelected,
   collectWordAlignTargetIndices,
   KIWI_LGPL_URL,
 } from "./word-auto-align.js?v=2";
-import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=8";
+import {
+  countSpokenWordsForValleyAlign,
+  runWordValleyAlign,
+} from "./word-valley-align.js?v=21";
+import { runMicroRealign } from "./word-micro-realign.js?v=1";
+import {
+  commitCrossLineWordTrimOnHub,
+  nextSpokenCueIndex,
+} from "./shared/cross-cue-boundary-sync.js?v=8";
+import { LINE_MODE_ONLY } from "./shared/line-mode/config.js?v=1";
+import { buildSnapGridFromPeaksPayload, buildSnapGridFromPeaksMetrics } from "./shared/line-mode/snap-engine.js?v=2";
+import {
+  buildLineModeProjectSection,
+  parseLineModeFromProject,
+  serializeCuesForReflow,
+} from "./shared/line-mode/serialize-cues.js?v=1";
+import { syncSubtitleLineFromWords } from "./shared/subtitles.js?v=27";
+import { clearWaveformCutSecCache } from "./line-waveform-panel.js?v=14";
 import {
   applyPlaybackSkipToPreviewMedia,
   applyThrottledVideoSkipCut,
@@ -163,7 +188,7 @@ import {
   stopSyncedPlayback,
   syncVideoFromHtmlAudioMaster,
 } from "./hub/synced-playback.js?v=48";
-import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=2";
+import { assignMasterAudioTimelineSecIfNeeded } from "./hub/html-audio-master-playback.js?v=5";
 import { getPlaybackOrchestrator } from "./hub/playback-orchestrator.js?v=26";
 import {
   buildProgramClips,
@@ -202,6 +227,7 @@ import {
 import {
   splitSubtitleAt,
   mergeEmptySubtitleAt,
+  mergeLineBelowIntoAbove,
   splitSubtitleAtWord,
   backspaceWordAt,
   deleteWordAt,
@@ -235,7 +261,7 @@ import {
 import {
   getPreviewMediaBridge,
   initPreviewMediaBridgeFromDom,
-} from "./hub/seamless-preview-stack.js?v=37";
+} from "./hub/seamless-preview-stack.js?v=38";
 import { initSubtitleFindReplace } from "./subtitle-find-replace.js?v=5";
 import { syncFindHighlightLayerToTextarea } from "./subtitle-find-replace-highlight.js?v=2";
 import { syncDiagSample, syncDiagReport, syncDiagSetEnabled, syncDiagClear } from "./shared/sync-diagnostics.js?v=1";
@@ -337,7 +363,9 @@ const btnDownloadResult = document.getElementById("btn-download-result");
 const btnShowExportFolder = document.getElementById("btn-show-export-folder");
 const languageSelect = document.getElementById("language-select");
 const btnFindReplace = document.getElementById("btn-find-replace");
+const btnWordValleyAlign = document.getElementById("btn-word-valley-align");
 const btnWordAutoAlign = document.getElementById("btn-word-auto-align");
+const btnLineReflow = document.getElementById("btn-line-reflow");
 const binReadiness = document.getElementById("bin-readiness");
 const subtitleList = document.getElementById("subtitle-list");
 const subtitleEmpty = document.getElementById("subtitle-empty");
@@ -490,6 +518,8 @@ let waveformChipCloseTimer = null;
 let expandedWordIndex = -1;
 /** @type {object | null} */
 let peaksPayload = null;
+/** peaks 생성에 성공한 미디어 경로 — 세그먼트 클립 경로와 분리 */
+let peaksSourceMediaPath = "";
 let playheadSec = 0;
 let playbackRafId = 0;
 let isVideoPlaying = false;
@@ -1017,6 +1047,11 @@ let watermarkMediaResolvedUrl = "";
 let watermarkMediaLoadGen = 0;
 
 function releaseWatermarkMediaBlob() {
+  const img = previewWatermarkOverlay?.querySelector("img");
+  if (img instanceof HTMLImageElement) {
+    const src = img.currentSrc || img.src || "";
+    if (src.startsWith("blob:")) img.removeAttribute("src");
+  }
   if (watermarkMediaDirectUrl) {
     revokeAgentMediaObjectUrl(watermarkMediaDirectUrl);
     watermarkMediaDirectUrl = "";
@@ -1025,6 +1060,7 @@ function releaseWatermarkMediaBlob() {
 }
 
 function releasePreviewMediaBlob() {
+  previewBridge.detachBlobUrls();
   if (previewMediaDirectUrl) {
     revokeAgentMediaObjectUrl(previewMediaDirectUrl);
     previewMediaDirectUrl = "";
@@ -1038,6 +1074,8 @@ function releasePreviewMediaBlob() {
 
 /** 현재 작업에 묶인 영상 경로 (다른 파일 선택 시 자막 초기화) */
 let sessionVideoPath = "";
+/** probe/stream 400 — 동일 경로 자동 재시도 방지 (연결 모니터 루프 차단) */
+const failedPreviewMediaPaths = new Set();
 /** download.html 복귀 후 CFR 미리보기·playhead 재적용 대기 */
 let downloadReturnRestorePending = false;
 /** @type {{
@@ -1054,6 +1092,7 @@ let sessionWhisperDurationSec = null;
 /** readiness.binaries.audiowaveform — false면 pcm_columns만 사용 */
 let agentAudiowaveformAvailable = false;
 let wordAlignRunning = false;
+let lineReflowRunning = false;
 
 const subtitleHub = new SubtitleAppHub({
   onStateChange: () => {
@@ -1895,11 +1934,9 @@ function isPreviewPlaybackReady() {
   if (!subtitleHub.blocks?.length) {
     return hasMediaElement;
   }
-  return Boolean(
-    getSessionPreviewMediaPath() &&
-      getProgramSegmentTimelineClips().length > 0 &&
-      hasMediaElement,
-  );
+  const hasClips = getProgramSegmentTimelineClips().length > 0;
+  if (hasMediaElement && hasClips) return true;
+  return Boolean(getSessionPreviewMediaPath() && hasClips && hasMediaElement);
 }
 
 /**
@@ -1940,15 +1977,16 @@ function waitForPreviewMediaReady(timeoutMs = 20000) {
 async function ensurePreviewPlaybackReadyAfterIngest(transcribeMeta = {}) {
   if (isPreviewPlaybackReady()) return true;
 
+  applyTranscribePreviewPath(transcribeMeta);
   let previewPath =
-    transcribeMeta.preview_media_path ||
+    (await resolvePreviewMediaPathSsot()) ||
+    resolveTranscribeCfrPreviewPath(transcribeMeta) ||
     getSessionPreviewMediaPath() ||
-    transcribeMeta.media_timing?.preview_media_path ||
     "";
-  if (!previewPath) {
-    previewPath = (await ensureSessionPreviewMediaPath()) || "";
+  if (previewPath) {
+    setSessionPreviewMediaPath(previewPath);
+    failedPreviewMediaPaths.delete(previewPath);
   }
-  if (previewPath) setSessionPreviewMediaPath(previewPath);
 
   if (subtitleHub.blocks?.length && !getProgramSegmentTimelineClips().length) {
     refreshProgramSegmentTimelineFromHub({
@@ -1958,9 +1996,32 @@ async function ensurePreviewPlaybackReadyAfterIngest(transcribeMeta = {}) {
   }
 
   if (previewPath && !getPv()?.src) {
-    await updatePreview(previewPath);
+    await updatePreview(previewPath, {
+      useTranscribeShell: isTranscribeLoadingUiActive(),
+      requirePreviewLoad: true,
+    });
     await waitForPreviewMediaReady();
     rebuildPlaybackSync();
+  }
+
+  if (!isPreviewPlaybackReady() && getActiveVideoSourcePath()) {
+    try {
+      const rebuilt = await ensureSessionPreviewMediaPath({ prepareCfr: true });
+      if (rebuilt) {
+        setSessionPreviewMediaPath(rebuilt);
+        failedPreviewMediaPaths.delete(rebuilt);
+        if (!getPv()?.src && !previewMediaResolvedUrl) {
+          await updatePreview(rebuilt, {
+            useTranscribeShell: true,
+            requirePreviewLoad: true,
+          });
+          await waitForPreviewMediaReady();
+          rebuildPlaybackSync();
+        }
+      }
+    } catch (err) {
+      console.warn("[preview-ready] CFR rebuild failed", err);
+    }
   }
 
   if (isPreviewPlaybackReady()) return true;
@@ -2038,6 +2099,253 @@ function isTranscribeLoadingUiActive() {
   return Boolean(transcribeLoading?.classList.contains("is-active"));
 }
 
+function isSetupLoadingUiActive() {
+  return Boolean(setupLoading?.classList.contains("is-active"));
+}
+
+function shouldSuppressPreviewMediaErrorUi() {
+  return (
+    isSetupLoadingUiActive() ||
+    isTranscribeLoadingUiActive() ||
+    isAgentLongOperationActive()
+  );
+}
+
+/** @param {{ allowDuringSetup?: boolean, useTranscribeShell?: boolean }} [opts] */
+function shouldDeferPreviewMediaLoad(opts = {}) {
+  if (opts.allowDuringSetup) return false;
+  if (isSetupLoadingUiActive()) return true;
+  if (isTranscribeLoadingUiActive() && opts.useTranscribeShell !== true) return true;
+  return isAgentLongOperationActive();
+}
+
+function cancelInFlightPreviewMediaLoad() {
+  previewMediaLoadGen += 1;
+  releasePreviewMediaBlob();
+  hidePreviewMediaLoadingModal();
+}
+
+/** @param {string} p */
+function isWorkspaceMediaPath(p) {
+  const s = String(p || "").replace(/\//g, "\\");
+  return (
+    /\\ItMatZip\\auto-subtitle\\workspace\\/i.test(s) ||
+    /\\itmatzip-agent\\auto-subtitle\\workspace\\/i.test(s) ||
+    /\\auto-subtitle\\workspace\\/i.test(s)
+  );
+}
+
+/** D:\\ 등 로컬 원본 — 브라우저 sessionStorage 한글 깨짐 시 API에 쓰면 안 됨 */
+function isBrowserLocalMediaPath(p) {
+  const s = normalizeAgentMediaPath(p);
+  if (!s) return false;
+  if (!/^[A-Za-z]:\\/.test(s)) return false;
+  return !isWorkspaceMediaPath(s);
+}
+
+/** @type {Promise<string> | null} */
+let previewResolveInFlight = null;
+let previewResolveFailedAt = 0;
+const PREVIEW_RESOLVE_COOLDOWN_MS = 15_000;
+
+/** prepare-preview / resolve-preview — 에이전트 UTF-8 원본 우선 (브라우저 D:\\ 경로 제외) */
+async function resolvePreparePreviewSourcePath() {
+  const agentPaths = await fetchAgentLastMediaPaths();
+  if (agentPaths.video_path && !hasCorruptMediaPathChars(agentPaths.video_path)) {
+    return agentPaths.video_path;
+  }
+  const fromMt = normalizeAgentMediaPath(getSessionMediaTiming()?.source_media_path || "");
+  if (fromMt && !hasCorruptMediaPathChars(fromMt)) return fromMt;
+  const browser = getActiveVideoSourcePath();
+  if (browser && !hasCorruptMediaPathChars(browser) && !isBrowserLocalMediaPath(browser)) {
+    return browser;
+  }
+  return "";
+}
+
+/** 세션 media_timing / cues_json — API 없이 workspace CFR 경로 유추 */
+function discoverWorkspaceCfrFromSessionMeta() {
+  const mt = getSessionMediaTiming();
+  const p = resolveTranscribeCfrPreviewPath({
+    preview_media_path: mt?.preview_media_path,
+    media_timing: mt,
+    cues_json_path: mt?.cues_json_path,
+  });
+  if (p && isWorkspaceMediaPath(p)) {
+    setSessionPreviewMediaPath(p);
+    failedPreviewMediaPaths.delete(p);
+    return p;
+  }
+  return "";
+}
+
+/** @param {Record<string, unknown> | null | undefined} data */
+function applyPreviewResolvePayload(data) {
+  if (data?.ok && data.preview_media_path) {
+    const preview = normalizeAgentMediaPath(String(data.preview_media_path));
+    if (preview && isWorkspaceMediaPath(preview)) {
+      setSessionPreviewMediaPath(preview);
+      failedPreviewMediaPaths.delete(preview);
+      if (data.media_timing) setSessionMediaTiming(data.media_timing);
+      if (data.source_path) applyAgentSourcePathFromServer(String(data.source_path));
+      previewResolveFailedAt = 0;
+      return preview;
+    }
+  }
+  return "";
+}
+
+/**
+ * workspace CFR 복구 — Go resolve-preview / prepare-preview (단일 비행, 404 스팸 방지).
+ * @param {string} [sourcePath]
+ */
+async function fetchWorkspacePreviewFromApi(sourcePath = "") {
+  if (!agentConnected) return "";
+
+  const fromMeta = discoverWorkspaceCfrFromSessionMeta();
+  if (fromMeta) return fromMeta;
+
+  const now = Date.now();
+  if (previewResolveFailedAt && now - previewResolveFailedAt < PREVIEW_RESOLVE_COOLDOWN_MS) {
+    return "";
+  }
+
+  if (previewResolveInFlight) return previewResolveInFlight;
+
+  previewResolveInFlight = (async () => {
+    try {
+      await ensureAgentFfmpegReady();
+
+      const tryAgentPost = async (path, json) => {
+        try {
+          return await requestAgent({ path, method: "POST", json });
+        } catch {
+          return null;
+        }
+      };
+
+      let data = await tryAgentPost("/api/agent/resolve-preview-media", {});
+      let preview = applyPreviewResolvePayload(data);
+      if (preview) return preview;
+
+      const hinted = normalizeAgentMediaPath(sourcePath || "");
+      data = await tryAgentPost(`${TOOL_PREFIX}/media/resolve-preview`, hinted ? { video_path: hinted } : {});
+      preview = applyPreviewResolvePayload(data);
+      if (preview) return preview;
+
+      data = await tryAgentPost("/api/agent/prepare-preview-last", {});
+      preview = applyPreviewResolvePayload(data);
+      if (preview) return preview;
+
+      const agentPaths = await fetchAgentLastMediaPaths();
+      if (
+        agentPaths.preview_media_path &&
+        isWorkspaceMediaPath(agentPaths.preview_media_path)
+      ) {
+        setSessionPreviewMediaPath(agentPaths.preview_media_path);
+        previewResolveFailedAt = 0;
+        return agentPaths.preview_media_path;
+      }
+
+      const sources = [
+        hinted,
+        agentPaths.video_path,
+        await resolvePreparePreviewSourcePath(),
+      ].filter((s) => s && !hasCorruptMediaPathChars(s));
+
+      for (const src of [...new Set(sources)]) {
+        data = await tryAgentPost(`${TOOL_PREFIX}/media/prepare-preview`, { video_path: src });
+        preview = applyPreviewResolvePayload(data);
+        if (preview) {
+          applyAgentSourcePathFromServer(src);
+          return preview;
+        }
+      }
+
+      previewResolveFailedAt = Date.now();
+      return "";
+    } finally {
+      previewResolveInFlight = null;
+    }
+  })();
+
+  return previewResolveInFlight;
+}
+
+/** 타이밍 맞추기 — workspace CFR 우선, D:\ 원본은 probe/CFR 복구 */
+async function resolveValleyAlignMediaPath() {
+  const fromApi = await fetchWorkspacePreviewFromApi();
+  if (fromApi) return fromApi;
+
+  const ranked = [
+    normalizeAgentMediaPath(getSessionPreviewMediaPath() || ""),
+    normalizeAgentMediaPath(getActiveVideoSourcePath() || ""),
+  ].filter((p) => p && !hasCorruptMediaPathChars(p));
+  const unique = [...new Set(ranked)];
+
+  const workspace = unique.find((p) => isWorkspaceMediaPath(p));
+  if (workspace) {
+    setSessionPreviewMediaPath(workspace);
+    return workspace;
+  }
+
+  for (const p of unique) {
+    if (isBrowserLocalMediaPath(p)) continue;
+    if (await probeAgentMediaReadable(p)) {
+      const cfr = await ensureCfrPreviewFromSource(p);
+      if (cfr) {
+        setSessionPreviewMediaPath(cfr);
+        failedPreviewMediaPaths.delete(cfr);
+        return cfr;
+      }
+    }
+  }
+
+  const src = await resolvePreparePreviewSourcePath();
+  if (src) {
+    const cfr = await ensureCfrPreviewFromSource(src);
+    if (cfr) {
+      setSessionPreviewMediaPath(cfr);
+      failedPreviewMediaPaths.delete(cfr);
+      return cfr;
+    }
+  }
+
+  return "";
+}
+
+/** @param {{ preview_media_path?: string | null, cues_json_path?: string | null, media_timing?: { preview_media_path?: string | null } | null }} [transcribeMeta] */
+function resolveTranscribeCfrPreviewPath(transcribeMeta = {}) {
+  const top = normalizeAgentMediaPath(transcribeMeta.preview_media_path || "");
+  const fromMt = normalizeAgentMediaPath(
+    transcribeMeta.media_timing?.preview_media_path || "",
+  );
+  const cuesJson = normalizeAgentMediaPath(transcribeMeta.cues_json_path || "");
+  let fromJob = "";
+  if (cuesJson) {
+    const jobDir = cuesJson.replace(/[/\\]cues\.json$/i, "");
+    for (const name of ["media-cfr.mp4", "media-av-sync.mp4"]) {
+      const candidate = normalizeAgentMediaPath(`${jobDir}\\${name}`);
+      if (isWorkspaceMediaPath(candidate)) {
+        fromJob = candidate;
+        break;
+      }
+    }
+  }
+  const ranked = [top, fromMt, fromJob].filter(Boolean);
+  const workspace = ranked.find((p) => isWorkspaceMediaPath(p));
+  return workspace || ranked[0] || "";
+}
+
+/** @param {{ preview_media_path?: string | null, media_timing?: { preview_media_path?: string | null } | null }} [transcribeMeta] */
+function applyTranscribePreviewPath(transcribeMeta = {}) {
+  const p = resolveTranscribeCfrPreviewPath(transcribeMeta);
+  if (!p) return "";
+  setSessionPreviewMediaPath(p);
+  failedPreviewMediaPaths.delete(p);
+  return p;
+}
+
 /**
  * @param {{ showLoading?: boolean, force?: boolean }} [opts]
  */
@@ -2047,7 +2355,7 @@ async function refreshProgramMasterPreviewIfNeeded(opts = {}) {
     programMasterPreviewPath = "";
     return null;
   }
-  const previewPath = await ensureSessionPreviewMediaPath();
+  const previewPath = await ensureSessionPreviewMediaPath({ prepareCfr: true });
   if (!previewPath) return null;
   const clips = buildProgramClips(blocks, lastCutRanges || []);
   const programDurationSec = getProgramDurationSec(clips);
@@ -2099,23 +2407,25 @@ async function refreshProgramMasterPreviewIfNeeded(opts = {}) {
  */
 async function ensureProgramMasterAfterIngest(transcribeMeta = {}) {
   if (!subtitleHub.blocks?.length) return null;
+  applyTranscribePreviewPath(transcribeMeta);
   let cfrPath =
-    transcribeMeta.preview_media_path ||
+    (await ensureCfrPreviewFromSource()) ||
+    resolveTranscribeCfrPreviewPath(transcribeMeta) ||
     getSessionPreviewMediaPath() ||
-    transcribeMeta.media_timing?.preview_media_path ||
+    (await ensureSessionPreviewMediaPath({ prepareCfr: true })) ||
     "";
-  if (!cfrPath) {
-    cfrPath = (await ensureSessionPreviewMediaPath()) || "";
-  }
   if (!cfrPath) {
     throw new Error("CFR 미디어 경로가 없습니다. 자막 추출을 다시 실행해 주세요.");
   }
   setSessionPreviewMediaPath(cfrPath);
+  failedPreviewMediaPaths.delete(cfrPath);
   clearProgramPlaybackSession();
   clearProgramMasterCache();
   programMasterPreviewPath = "";
-  await refreshSessionMediaTimingFromAgent(cfrPath);
-  await updatePreview(cfrPath, { useTranscribeShell: isTranscribeLoadingUiActive() });
+  await updatePreview(cfrPath, {
+    useTranscribeShell: isTranscribeLoadingUiActive(),
+    requirePreviewLoad: true,
+  });
   await waitForPreviewMediaReady();
   refreshProgramSegmentTimelineFromHub({ reason: "ingest", preserveProgramSec: true });
   rebuildPlaybackSync();
@@ -2207,7 +2517,7 @@ async function enterHqPreviewMode() {
     message: "export와 동일한 program-master 준비 중…",
   });
   try {
-    const previewPath = await ensureSessionPreviewMediaPath();
+    const previewPath = await ensureSessionPreviewMediaPath({ prepareCfr: true });
     if (!previewPath) {
       alert("CFR 미디어가 없습니다. 자막 추출을 먼저 실행해 주세요.");
       return;
@@ -2347,6 +2657,7 @@ function clearSubtitleWorkspace() {
   expandedCueIndex = -1;
   expandedWordIndex = -1;
   peaksPayload = null;
+  peaksSourceMediaPath = "";
   sessionMediaDurationSec = null;
   sessionWhisperDurationSec = null;
   clearSessionMediaTiming();
@@ -2430,7 +2741,10 @@ function readSubtitleStyleFromDom() {
   const textAlpha = Number(styleTextAlpha?.value);
   const style = {
     ...DEFAULT_SUBTITLE_STYLE,
-    fontFamily: styleFontFamily?.value?.trim() || DEFAULT_SUBTITLE_STYLE.fontFamily,
+    fontFamily:
+      getActiveFontFamilySsot() ||
+      styleFontFamily?.value?.trim() ||
+      DEFAULT_SUBTITLE_STYLE.fontFamily,
     fontSize,
     textColor: hexWithAlpha(styleTextColor?.value, textAlpha),
     strokeColor: styleStrokeColor?.value || DEFAULT_SUBTITLE_STYLE.strokeColor,
@@ -2544,6 +2858,18 @@ function updatePreviewWatermark() {
   }
   const directUrl = watermarkImageUrl(path);
   if (!directUrl) return;
+
+  if (
+    directUrl === watermarkMediaDirectUrl &&
+    watermarkMediaResolvedUrl &&
+    img.src === watermarkMediaResolvedUrl
+  ) {
+    img.dataset.pos = normalizeWatermarkPosition(position);
+    if (img.complete && img.naturalWidth) {
+      layoutWatermarkPreviewImage(img, position);
+    }
+    return;
+  }
 
   const loadGen = ++watermarkMediaLoadGen;
   if (directUrl !== watermarkMediaDirectUrl) {
@@ -2662,7 +2988,7 @@ async function addWatermarkFromDialog() {
   }
   if (btnAddWatermark) btnAddWatermark.disabled = true;
   try {
-    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-image-file`, {
+    const res = await fetchAgent(`${getAgentOrigin()}${AGENT_PICK_IMAGE}`, {
       method: "POST",
       headers: { Accept: "application/json" },
     });
@@ -2693,11 +3019,23 @@ function exportPhaseStepLabel(phase, fmt) {
   return label;
 }
 
-function applySubtitleStyleFromProject(style) {
+/**
+ * @param {object} style
+ * @param {{ applyFontFamily?: boolean, forceFontFamily?: boolean }} [opts]
+ */
+function applySubtitleStyleFromProject(style, opts = {}) {
   if (!style || typeof style !== "object") return;
-  if (styleFontFamily && style.fontFamily) {
-    ensureFontSelectOption(style.fontFamily);
-    styleFontFamily.value = style.fontFamily;
+  const mayApplyFont =
+    opts.applyFontFamily !== false && (!fontChoicePinned || opts.forceFontFamily === true);
+  if (mayApplyFont && styleFontFamily && style.fontFamily) {
+    const family = String(style.fontFamily).trim();
+    if (family) {
+      const isCustom = (customFontCatalog || []).some((f) => f?.family === family);
+      ensureFontSelectOption(family, { isCustom });
+      styleFontFamily.value = family;
+      setActiveFontFamilySsot(family, { pin: opts.forceFontFamily === true });
+      syncFontSelectTitle();
+    }
   }
   if (styleFontSizeRange && style.fontSize != null) {
     styleFontSizeRange.value = String(style.fontSize);
@@ -2797,7 +3135,17 @@ function applyUserPreferences(prefs) {
 
 function loadAndApplyUserPreferences() {
   const prefs = loadUserPreferences();
+  const savedFont = prefs?.subtitleStyle?.fontFamily?.trim();
+  if (savedFont) setActiveFontFamilySsot(savedFont, { pin: true });
   if (prefs) applyUserPreferences(prefs);
+}
+
+function flushFontFamilyPreference() {
+  try {
+    localStorage.setItem(STORAGE_USER_PREFS, JSON.stringify(collectUserPreferences()));
+  } catch (err) {
+    console.warn("[auto-subtitle] flush font preference", err);
+  }
 }
 
 function attachUserPreferencesAutosave() {
@@ -2851,10 +3199,11 @@ function getMediaStreamUrl() {
       ? String(mt.source_media_path).trim()
       : "";
   const p =
-    sourceFromContract ||
-    getSessionPreviewMediaPath() ||
-    videoPathInput?.value?.trim() ||
-    sessionVideoPath;
+    (sourceFromContract && isUsablePreviewMediaPath(sourceFromContract)
+      ? sourceFromContract
+      : "") ||
+    resolveDirectPreviewMediaPath() ||
+    "";
   if (!p || !agentConnected) return null;
   return buildAgentResourceUrl(
     `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
@@ -2884,7 +3233,7 @@ function logMediaTimingAvSnapshot(tag, mt, extra = {}) {
 
 /** Go SSOT — video-axis whisper audio preprocess (AutoSubtitle 2.0). */
 async function prepareMediaForWhisper(videoPath) {
-  const p = String(videoPath || "").trim();
+  const p = normalizeAgentMediaPath(videoPath);
   if (!p || !agentConnected) return null;
   await ensureAgentFfmpegReady();
   try {
@@ -2925,7 +3274,7 @@ async function waitForAgentApiReady(timeoutMs = 90000) {
     } catch {
       /* retry */
     }
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, 250));
   }
   return false;
 }
@@ -2987,18 +3336,228 @@ async function ensureAgentFfmpegReady() {
   return agentFfmpegEnsurePromise;
 }
 
+function getActiveVideoSourcePath() {
+  const raw = String(videoPathInput?.value?.trim() || sessionVideoPath || "").trim();
+  const p = normalizeAgentMediaPath(raw);
+  if (p && hasCorruptMediaPathChars(p)) {
+    return "";
+  }
+  if (p && p !== raw) {
+    if (videoPathInput?.value === raw) videoPathInput.value = p;
+    if (sessionVideoPath === raw) sessionVideoPath = p;
+    try {
+      sessionStorage.setItem(STORAGE_VIDEO_PATH, p);
+    } catch {
+      /* ignore */
+    }
+  }
+  return p;
+}
+
+function isMissingAgentMediaError(err) {
+  const text = String(err?.message || err || "");
+  return /HTTP 400|HTTP 404|파일을 찾을 수 없|file not found/i.test(text);
+}
+
+/** @param {string} mediaPath */
+function clearStaleAgentMediaPath(mediaPath) {
+  const p = String(mediaPath || "").trim();
+  if (!p) return;
+  failedPreviewMediaPaths.add(p);
+  if (getSessionPreviewMediaPath() === p) {
+    setSessionPreviewMediaPath(null);
+  }
+}
+
+/** @param {string} filePath */
+async function probeAgentMediaReadable(filePath) {
+  const p = normalizeAgentMediaPath(filePath);
+  if (!p || !agentConnected) return false;
+  try {
+    const data = await requestAgent({
+      path: `${TOOL_PREFIX}/media/probe`,
+      method: "POST",
+      json: { video_path: p },
+    });
+    return data?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * D:\ 원본 → workspace CFR (prepare-preview). transcribe 직후 미리보기 SSOT.
+ * @param {string} [videoPath]
+ */
+async function ensureCfrPreviewFromSource(videoPath) {
+  if (!agentConnected) return "";
+
+  const agentPaths = await fetchAgentLastMediaPaths();
+  /** @type {string[]} */
+  const candidates = [
+    agentPaths.video_path,
+    normalizeAgentMediaPath(videoPath || ""),
+    getActiveVideoSourcePath(),
+  ].filter((s) => s && !hasCorruptMediaPathChars(s));
+  const unique = [...new Set(candidates)];
+
+  try {
+    await ensureAgentFfmpegReady();
+    for (const src of unique) {
+      const data = await requestAgent({
+        path: `${TOOL_PREFIX}/media/prepare-preview`,
+        method: "POST",
+        json: { video_path: src },
+      });
+      if (data?.ok && data.preview_media_path) {
+        const next = String(data.preview_media_path).trim();
+        setSessionPreviewMediaPath(next);
+        failedPreviewMediaPaths.delete(next);
+        if (data.media_timing) setSessionMediaTiming(data.media_timing);
+        applyAgentSourcePathFromServer(src);
+        return next;
+      }
+    }
+  } catch (err) {
+    mediaTimingDiagWarn("ensureCfrPreviewFromSource failed", err);
+  }
+
+  try {
+    const data = await requestAgent({
+      path: "/api/agent/prepare-preview-last",
+      method: "POST",
+    });
+    if (data?.ok && data.preview_media_path) {
+      const next = String(data.preview_media_path).trim();
+      setSessionPreviewMediaPath(next);
+      failedPreviewMediaPaths.delete(next);
+      if (data.media_timing) setSessionMediaTiming(data.media_timing);
+      return next;
+    }
+    mediaTimingDiagWarn("prepare-preview-last", data?.error || data);
+  } catch (err) {
+    mediaTimingDiagWarn("prepare-preview-last failed", err);
+  }
+  return "";
+}
+
+/** workspace CFR/program-master — API stream·peaks 전용 */
+function isWorkspacePreviewMediaPath(raw) {
+  const s = normalizeAgentMediaPath(raw);
+  if (!s || !isWorkspaceMediaPath(s)) return false;
+  if (isEphemeralBakeClipPath(s)) return false;
+  return /media-cfr\.mp4$/i.test(s) || /media-av-sync\.mp4$/i.test(s) || /media-preview\.mp4$/i.test(s) || /program-master\.mp4$/i.test(s);
+}
+
+/** 에이전트 파일 선택 시 저장한 UTF-8 경로 (sessionStorage 깨짐 회피) */
+async function fetchAgentLastMediaPaths() {
+  if (!agentConnected) {
+    return { video_path: "", preview_media_path: "" };
+  }
+  try {
+    const data = await requestAgent({
+      path: "/api/agent/last-media-paths",
+      method: "POST",
+    });
+    return {
+      video_path: normalizeAgentMediaPath(data?.video_path || ""),
+      preview_media_path: normalizeAgentMediaPath(data?.preview_media_path || ""),
+    };
+  } catch {
+    return { video_path: "", preview_media_path: "" };
+  }
+}
+
+function applyAgentSourcePathFromServer(sourcePath) {
+  const src = normalizeAgentMediaPath(sourcePath || "");
+  if (!src || hasCorruptMediaPathChars(src)) return;
+  sessionVideoPath = src;
+  if (videoPathInput) videoPathInput.value = src;
+  try {
+    sessionStorage.setItem(STORAGE_VIDEO_PATH, src);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 영상 불러오기용 — workspace CFR 우선 */
+function resolveDirectPreviewMediaPath() {
+  const mt = getSessionMediaTiming();
+  const ranked = [
+    normalizeAgentMediaPath(getSessionPreviewMediaPath() || ""),
+    resolveTranscribeCfrPreviewPath({
+      preview_media_path: mt?.preview_media_path,
+      media_timing: mt,
+    }),
+  ].filter(isUsablePreviewMediaPath);
+  const unique = [...new Set(ranked)];
+  return unique.find((p) => isWorkspacePreviewMediaPath(p)) || unique.find((p) => isWorkspaceMediaPath(p)) || "";
+}
+
+/**
+ * 미리보기·파형·번인 SSOT — workspace CFR (prepare-preview / resolve-preview 계열).
+ */
+async function resolvePreviewMediaPathSsot() {
+  const cached = resolveDirectPreviewMediaPath();
+  if (isWorkspacePreviewMediaPath(cached)) return cached;
+
+  const fromMeta = discoverWorkspaceCfrFromSessionMeta();
+  if (fromMeta) return fromMeta;
+
+  const fromApi = await fetchWorkspacePreviewFromApi();
+  if (fromApi) return fromApi;
+
+  const fromSession = await ensureSessionPreviewMediaPath({ prepareCfr: true });
+  if (fromSession && isWorkspaceMediaPath(fromSession)) return fromSession;
+
+  const aligned = await resolveValleyAlignMediaPath();
+  if (aligned && isWorkspaceMediaPath(aligned)) return aligned;
+
+  return isWorkspacePreviewMediaPath(cached) ? cached : "";
+}
+
 /** CFR preview media — prepare-preview API (VFR→CFR·A/V remux, 캐시 재사용). */
 async function ensureSessionPreviewMediaPath(opts = {}) {
+  const prepareCfr = opts.prepareCfr === true;
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
-  let preview = getSessionPreviewMediaPath();
-  if (preview) return preview;
 
-  const videoPath = videoPathInput?.value?.trim() || sessionVideoPath || "";
+  if (!prepareCfr) {
+    const direct = resolveDirectPreviewMediaPath();
+    if (direct) {
+      setSessionPreviewMediaPath(direct);
+      return direct;
+    }
+    return null;
+  }
+
+  let preview = getSessionPreviewMediaPath();
+  if (preview) {
+    if (failedPreviewMediaPaths.has(preview)) {
+      setSessionPreviewMediaPath(null);
+      preview = null;
+    } else if (!agentConnected) {
+      return preview;
+    } else if (await probeAgentMediaReadable(preview)) {
+      await refreshSessionMediaTimingFromAgent(preview);
+      return preview;
+    } else {
+      const rebuilt = await ensureCfrPreviewFromSource(await resolvePreparePreviewSourcePath());
+      if (rebuilt) return rebuilt;
+      failedPreviewMediaPaths.add(preview);
+      setSessionPreviewMediaPath(null);
+      preview = null;
+    }
+  }
+
+  const fromApi = await fetchWorkspacePreviewFromApi();
+  if (fromApi) return fromApi;
+
+  const videoPath = await resolvePreparePreviewSourcePath();
   if (!videoPath) return null;
 
   if (!agentConnected) {
-    setSessionPreviewMediaPath(videoPath);
-    return videoPath;
+    setSessionPreviewMediaPath(null);
+    return null;
   }
 
   await ensureAgentFfmpegReady();
@@ -3043,17 +3602,19 @@ async function ensureSessionPreviewMediaPath(opts = {}) {
   const probe = await refreshSessionMediaTimingFromAgent(videoPath);
   preview = getSessionPreviewMediaPath();
   if (preview) return preview;
-  if (probe?.ok && !probe.needs_vfr_normalize && !probe.vfr_suspected) {
-    preview = String(probe.source_path || videoPath).trim() || videoPath;
-    setSessionPreviewMediaPath(preview);
-    return preview;
+  if (probe?.ok && probe.preview_media_path) {
+    const fromProbe = normalizeAgentMediaPath(String(probe.preview_media_path));
+    if (fromProbe && isWorkspaceMediaPath(fromProbe)) {
+      setSessionPreviewMediaPath(fromProbe);
+      return fromProbe;
+    }
   }
   return null;
 }
 
 /** @param {string} filePath */
 async function refreshSessionMediaTimingFromAgent(filePath) {
-  const p = String(filePath || "").trim();
+  const p = normalizeAgentMediaPath(filePath);
   if (!p || !agentConnected) return null;
   await ensureAgentFfmpegReady();
   try {
@@ -3074,10 +3635,8 @@ async function refreshSessionMediaTimingFromAgent(filePath) {
       if (audioDur) sessionMediaDurationSec = audioDur;
       if (!getSessionPreviewMediaPath()) {
         const fromProbe = String(data.preview_media_path || "").trim();
-        if (fromProbe) {
+        if (fromProbe && isWorkspaceMediaPath(fromProbe)) {
           setSessionPreviewMediaPath(fromProbe);
-        } else if (!data.needs_vfr_normalize && !data.vfr_suspected) {
-          setSessionPreviewMediaPath(String(data.source_path || p).trim() || p);
         }
       }
       logMediaTimingAvSnapshot("probe", data);
@@ -3914,6 +4473,9 @@ function commitPlayheadUi({
   const highlightNeedsUpdate =
     cueChanged || wordChanged || selectionChanged || playStateChanged;
 
+  const suppressWordChipHighlight =
+    skipWordHighlight || isExpandedCueWaveformOpen();
+
   if (
     cueChanged ||
     wordChanged ||
@@ -3934,7 +4496,7 @@ function commitPlayheadUi({
   }
 
   if (mediaPlaying) {
-    if (highlightNeedsUpdate && !skipWordHighlight) {
+    if (highlightNeedsUpdate && !suppressWordChipHighlight) {
       const hl =
         typeof highlightLookupT === "number"
           ? {
@@ -3954,7 +4516,8 @@ function commitPlayheadUi({
         isPlaying: true,
         selectedCueIndex,
         activeCueIndex: ai,
-        activeWordIndex: wi,
+        activeWordIndex: suppressWordChipHighlight ? -1 : wi,
+        skipWordChipHighlight: suppressWordChipHighlight,
       });
     }
     if (scrollActiveCard && cueChanged && subtitleList && ai >= 0) {
@@ -3988,9 +4551,31 @@ function commitPlayheadUi({
   }
 
   const wall = performance.now();
-  const panelOpen = expandedCueIndex >= 0 && expandedWordIndex >= 0;
+  const panelOpen = LINE_MODE_ONLY
+    ? expandedCueIndex >= 0
+    : expandedCueIndex >= 0 && expandedWordIndex >= 0;
   if (panelOpen) {
-    if (mediaPlaying && waveformPlayRangeEndEdit != null) {
+    if (LINE_MODE_ONLY && expandedWordIndex === -1) {
+      if (mediaPlaying) {
+        syncOpenCueWaveformPanel(subtitleList, {
+          expandedCueIndex,
+          expandedWordIndex,
+          playheadEditSec: getWaveformEditSec(expandedCueIndex),
+          mediaPlaying: true,
+        });
+      } else if (
+        highlightNeedsUpdate ||
+        wall - lastExpandedPanelSyncWallMs >= EXPANDED_PANEL_SYNC_MS
+      ) {
+        lastExpandedPanelSyncWallMs = wall;
+        syncOpenCueWaveformPanel(subtitleList, {
+          expandedCueIndex,
+          expandedWordIndex,
+          mediaPlaying,
+          playheadEditSec: mediaPlaying ? getWaveformEditSec(expandedCueIndex) : undefined,
+        });
+      }
+    } else if (mediaPlaying && waveformPlayRangeEndEdit != null) {
       syncExpandedPanelPlayhead(subtitleList, {
         expandedCueIndex,
         expandedWordIndex,
@@ -4047,7 +4632,7 @@ function playbackTick() {
       return;
     }
     syncVideoFromHtmlAudioMaster(getPv(), getPa(), skipOpts);
-    if (!isHqPreviewMode() && !isListOrderSeamlessPlaybackActive()) {
+    if (!isHqPreviewMode() && !isListOrderSeamlessPlaybackActive() && waveformPlayRangeEndEdit == null) {
       syncSegmentPreviewClipBoundaryTick(skipOpts);
     }
     if (isListOrderSeamlessPlaybackActive()) {
@@ -4168,8 +4753,24 @@ function playbackTick() {
   }
 
   if (waveformPlayRangeEndEdit != null) {
+    let rangeEnd = waveformPlayRangeEndEdit;
+    if (LINE_MODE_ONLY && expandedCueIndex >= 0 && expandedWordIndex === -1) {
+      const cue = lastCues[expandedCueIndex];
+      if (cue) {
+        rangeEnd = Math.max(Number(cue.start) || 0, Number(cue.end) || rangeEnd);
+      }
+    }
     const waveformEditSec = getWaveformEditSec(expandedCueIndex);
-    if (waveformEditSec >= waveformPlayRangeEndEdit - 0.02) {
+    const rangeEndReached = waveformEditSec >= rangeEnd - 0.001;
+    if (rangeEndReached) {
+      if (isExpandedCueWaveformOpen()) {
+        syncExpandedPanelPlayhead(subtitleList, {
+          expandedCueIndex,
+          expandedWordIndex,
+          playheadEditSec: rangeEnd,
+          mediaPlaying: true,
+        });
+      }
       getPa()?.pause();
       getPv().pause();
       stopPlaybackLoop({ waveformRangeNaturalEnd: true });
@@ -4184,9 +4785,8 @@ function playbackTick() {
   }
 
   if (
-    waveformPlayRangeEndEdit != null &&
     expandedCueIndex >= 0 &&
-    expandedWordIndex >= 0
+    (isExpandedCueWaveformOpen() || waveformPlayRangeEndEdit != null)
   ) {
     syncExpandedPanelPlayhead(subtitleList, {
       expandedCueIndex,
@@ -4412,7 +5012,7 @@ function stopPlaybackLoop(opts = {}) {
     deactivateListOrderPreviewPlayback();
   }
   lastOverlayCueIndex = -1;
-  if (wasWaveformRange && expandedCueIndex >= 0 && expandedWordIndex >= 0) {
+  if (wasWaveformRange && expandedCueIndex >= 0) {
     finishExpandedPanelRangePlay(subtitleList, {
       expandedCueIndex,
       expandedWordIndex,
@@ -4440,14 +5040,42 @@ function isExpandedWordWaveformOpen() {
   return expandedCueIndex >= 0 && expandedWordIndex >= 0;
 }
 
-/** 파형 패널 cut~단어 끝 구간 재생/일시정지 */
-function toggleExpandedWordWaveformPlayback() {
-  if (!subtitleList || !isExpandedWordWaveformOpen()) return false;
+function isExpandedCueWaveformOpen() {
+  return LINE_MODE_ONLY && expandedCueIndex >= 0 && expandedWordIndex === -1;
+}
+
+/** 줄 파형 편집 진입 시 — 전역·패널 구간 재생 즉시 중지 */
+function pausePlaybackForWaveformOpen() {
+  finishExpandedPanelRangePlay(subtitleList, {
+    expandedCueIndex,
+    expandedWordIndex,
+  });
+  userRequestedPreviewPause = true;
+  stopPlaybackLoop();
+  getPv()?.pause();
+  getPa()?.pause();
+  userRequestedPreviewPause = false;
+  commitPlayheadUi();
+}
+
+function isExpandedWaveformOpen() {
+  return isExpandedWordWaveformOpen() || isExpandedCueWaveformOpen();
+}
+
+/** 파형 패널 — 줄/단어 구간 재생·일시정지 */
+function toggleExpandedWaveformPlayback() {
+  if (!subtitleList || expandedCueIndex < 0) return false;
+  if (!isExpandedWaveformOpen()) return false;
   return toggleExpandedPanelPlayFromCut(subtitleList, {
     expandedCueIndex,
     expandedWordIndex,
     playheadSec,
   });
+}
+
+/** @deprecated word-mode alias */
+function toggleExpandedWordWaveformPlayback() {
+  return toggleExpandedWaveformPlayback();
 }
 
 async function togglePreviewPlayback(opts = {}) {
@@ -4464,7 +5092,7 @@ async function togglePreviewPlayback(opts = {}) {
     return;
   }
   await previewBridge.unlockAudioOutput();
-  if (toggleExpandedWordWaveformPlayback()) {
+  if (toggleExpandedWaveformPlayback()) {
     caretPlayDiagLog("togglePlayback", caretPlayDiagSnapshot({
       action: "play",
       waveformRange: true,
@@ -4618,50 +5246,123 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function ensureFontSelectOption(name) {
+/** @type {string} 세션 글꼴 SSOT — catalog·프로젝트 스타일이 덮어쓰지 못함 */
+let activeFontFamilySsot = "";
+/** prefs 복원 또는 사용자가 드롭다운에서 직접 고른 글꼴 */
+let fontChoicePinned = false;
+
+function setActiveFontFamilySsot(family, { pin = false } = {}) {
+  const name = String(family || "").trim();
+  if (!name) return;
+  activeFontFamilySsot = name;
+  if (pin) fontChoicePinned = true;
+}
+
+function getActiveFontFamilySsot() {
+  return (
+    activeFontFamilySsot?.trim() ||
+    styleFontFamily?.value?.trim() ||
+    loadUserPreferences()?.subtitleStyle?.fontFamily?.trim() ||
+    ""
+  );
+}
+
+function getPreferredFontFamily() {
+  const fromSsot = getActiveFontFamilySsot();
+  if (fromSsot) return fromSsot;
+  const fromSelect = styleFontFamily?.value?.trim();
+  const fromPrefs = loadUserPreferences()?.subtitleStyle?.fontFamily?.trim();
+  return fromSelect || fromPrefs || "";
+}
+
+/**
+ * @param {string} preferred
+ * @param {{ pin?: boolean }} [opts]
+ */
+function restoreFontFamilySelection(preferred, opts = {}) {
+  if (!styleFontFamily) return false;
+  const name = String(preferred || "").trim();
+  if (!name) return false;
+  let has = Array.from(styleFontFamily.options).some((o) => o.value === name);
+  if (!has) {
+    const isCustom = (customFontCatalog || []).some((f) => f?.family === name);
+    ensureFontSelectOption(name, { isCustom });
+    has = Array.from(styleFontFamily.options).some((o) => o.value === name);
+  }
+  if (!has) return false;
+  styleFontFamily.value = name;
+  setActiveFontFamilySsot(name, { pin: opts.pin === true });
+  syncFontSelectTitle();
+  return true;
+}
+
+function ensureFontSelectOption(name, { isCustom = null } = {}) {
   if (!styleFontFamily) return;
   const n = String(name || "").trim();
   if (!n) return;
   const exists = Array.from(styleFontFamily.options).some((o) => o.value === n);
   if (exists) return;
+  const custom =
+    isCustom === true ||
+    (isCustom !== false && (customFontCatalog || []).some((f) => f?.family === n));
+  const group = getFontOptGroup(custom ? "custom" : "system");
+  if (!group) return;
   const opt = document.createElement("option");
   opt.value = n;
   opt.textContent = n;
-  styleFontFamily.appendChild(opt);
+  group.appendChild(opt);
 }
 
-function populateFontSelect(fontNames, { preserveValue = true } = {}) {
-  if (!styleFontFamily) return;
-  const prev = preserveValue ? styleFontFamily.value : "";
-  const merged = [];
-  const seen = new Set();
-  const add = (name) => {
-    const n = String(name || "").trim();
-    if (!n) return;
-    const key = n.toLocaleLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    merged.push(n);
-  };
-  add("Malgun Gothic");
-  SYSTEM_FONT_CANDIDATES.forEach(add);
-  (fontNames || []).forEach(add);
-  merged.sort((a, b) => a.localeCompare(b, "ko"));
-  styleFontFamily.replaceChildren();
-  for (const name of merged) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    styleFontFamily.appendChild(opt);
+/**
+ * @param {readonly string[]} systemFontNames
+ * @param {readonly { family?: string }[]} [customFonts]
+ * @param {{ preserveValue?: boolean, preferredFamily?: string, force?: boolean }} [opts]
+ * @returns {boolean} DOM updated
+ */
+function syncFontSelectCatalog(systemFontNames, customFonts = [], opts = {}) {
+  if (!styleFontFamily) return false;
+  const locked = String(opts.preferredFamily || getPreferredFontFamily() || "").trim();
+
+  const { customSorted, systemMerged, signature } = buildFontLists(systemFontNames, customFonts);
+  if (!opts.force && fontCatalogLoaded && signature === fontCatalogSignature) {
+    if (locked) restoreFontFamilySelection(locked);
+    return false;
   }
-  if (prev && merged.includes(prev)) {
-    styleFontFamily.value = prev;
-  } else if (merged.includes("Malgun Gothic")) {
-    styleFontFamily.value = "Malgun Gothic";
-  } else if (merged.length) {
-    styleFontFamily.value = merged[0];
+
+  ensureFontSelectShell();
+  syncOptGroupOptions(getFontOptGroup("custom"), customSorted, locked);
+  syncOptGroupOptions(getFontOptGroup("system"), systemMerged, locked);
+
+  fontCatalogSignature = signature;
+  fontCatalogLoaded = true;
+
+  if (locked && restoreFontFamilySelection(locked)) {
+    return true;
   }
-  syncFontSelectTitle();
+  if (locked) {
+    const isCustom =
+      customSorted.includes(locked) ||
+      (customFonts || []).some((f) => f?.family === locked);
+    ensureFontSelectOption(locked, { isCustom });
+    if (restoreFontFamilySelection(locked)) return true;
+  }
+  if (!locked) {
+    const allNames = [...customSorted, ...systemMerged];
+    if (allNames.includes("Malgun Gothic")) {
+      styleFontFamily.value = "Malgun Gothic";
+      setActiveFontFamilySsot("Malgun Gothic");
+    } else if (allNames.length) {
+      styleFontFamily.value = allNames[0];
+      setActiveFontFamilySsot(allNames[0]);
+    }
+    syncFontSelectTitle();
+  }
+  return true;
+}
+
+/** @deprecated alias */
+function populateFontSelect(systemFontNames, customFonts = [], opts = {}) {
+  return syncFontSelectCatalog(systemFontNames, customFonts, opts);
 }
 
 function syncFontSelectTitle() {
@@ -4674,6 +5375,126 @@ function syncFontSelectTitle() {
 }
 
 let customFontCatalog = [];
+let fontCatalogSignature = "";
+let fontCatalogLoaded = false;
+/** @type {Promise<void> | null} */
+let fontCatalogInflight = null;
+
+function fontCatalogSignatureOf(systemNames, customFonts) {
+  const sys = [...(systemNames || [])].sort((a, b) => a.localeCompare(b, "ko"));
+  const custom = (customFonts || [])
+    .map((f) => String(f?.family || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, "ko"));
+  return JSON.stringify({ sys, custom });
+}
+
+function ensureFontSelectShell() {
+  if (!styleFontFamily) return;
+  if (styleFontFamily.querySelector('optgroup[data-font-group="custom"]')) return;
+  styleFontFamily.replaceChildren();
+  const customGroup = document.createElement("optgroup");
+  customGroup.label = "커스텀 폰트";
+  customGroup.dataset.fontGroup = "custom";
+  const systemGroup = document.createElement("optgroup");
+  systemGroup.label = "기본 폰트";
+  systemGroup.dataset.fontGroup = "system";
+  styleFontFamily.appendChild(customGroup);
+  styleFontFamily.appendChild(systemGroup);
+}
+
+/**
+ * @param {"custom" | "system"} kind
+ * @returns {HTMLOptGroupElement | null}
+ */
+function getFontOptGroup(kind) {
+  if (!styleFontFamily) return null;
+  ensureFontSelectShell();
+  const sel = `optgroup[data-font-group="${kind}"]`;
+  let group = styleFontFamily.querySelector(sel);
+  if (!(group instanceof HTMLOptGroupElement)) {
+    group = document.createElement("optgroup");
+    group.label = kind === "custom" ? "커스텀 폰트" : "기본 폰트";
+    group.dataset.fontGroup = kind;
+    if (kind === "custom") {
+      styleFontFamily.insertBefore(group, styleFontFamily.firstChild);
+    } else {
+      styleFontFamily.appendChild(group);
+    }
+  }
+  return group;
+}
+
+/**
+ * @param {HTMLOptGroupElement | null} group
+ * @param {readonly string[]} names
+ * @param {string} [keepValue] 현재 선택 — optgroup 간 이동 시 브라우저 선택 리셋 방지
+ */
+function syncOptGroupOptions(group, names, keepValue = "") {
+  if (!(group instanceof HTMLOptGroupElement)) return;
+  const want = [...new Set((names || []).map((n) => String(n || "").trim()).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, "ko"),
+  );
+  const keep = String(keepValue || "").trim();
+  const existing = new Map();
+  for (const opt of group.querySelectorAll("option")) {
+    existing.set(opt.value, opt);
+  }
+  const wantSet = new Set(want);
+  for (const [val, opt] of existing) {
+    if (!wantSet.has(val) && val !== keep) opt.remove();
+  }
+  for (const name of want) {
+    if (existing.has(name)) continue;
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    group.appendChild(opt);
+  }
+}
+
+/**
+ * @param {readonly string[]} systemFontNames
+ * @param {readonly { family?: string }[]} customFonts
+ */
+function buildFontLists(systemFontNames, customFonts) {
+  const customFamilies = (customFonts || [])
+    .map((f) => String(f?.family || "").trim())
+    .filter(Boolean);
+  const customKeys = new Set(customFamilies.map((f) => f.toLocaleLowerCase()));
+  const customSorted = [...new Set(customFamilies)].sort((a, b) => a.localeCompare(b, "ko"));
+
+  const systemMerged = [];
+  const seen = new Set();
+  const addSystem = (name) => {
+    const n = String(name || "").trim();
+    if (!n) return;
+    const key = n.toLocaleLowerCase();
+    if (seen.has(key) || customKeys.has(key)) return;
+    seen.add(key);
+    systemMerged.push(n);
+  };
+  addSystem("Malgun Gothic");
+  SYSTEM_FONT_CANDIDATES.forEach(addSystem);
+  (systemFontNames || []).forEach(addSystem);
+  systemMerged.sort((a, b) => a.localeCompare(b, "ko"));
+
+  return {
+    customSorted,
+    systemMerged,
+    signature: fontCatalogSignatureOf(systemMerged, customFonts),
+  };
+}
+
+function bootstrapFontSelect() {
+  if (!styleFontFamily) return;
+  ensureFontSelectShell();
+  const savedFont = loadUserPreferences()?.subtitleStyle?.fontFamily?.trim();
+  if (savedFont) setActiveFontFamilySsot(savedFont, { pin: true });
+  const preferred = getPreferredFontFamily() || "Malgun Gothic";
+  syncOptGroupOptions(getFontOptGroup("system"), ["Malgun Gothic"], preferred);
+  restoreFontFamilySelection(preferred);
+}
 
 /** @type {HTMLStyleElement | null} */
 let customFontFacesEl = null;
@@ -4713,27 +5534,66 @@ async function ensureCustomFontsLoaded(customFonts, preferredFamily = "") {
   await document.fonts.ready;
 }
 
-async function loadSystemFontsFromAgent({ selectFamily = "" } = {}) {
+async function loadSystemFontsFromAgent({ selectFamily = "", force = false } = {}) {
   if (!agentConnected) return;
-  try {
-    const data = await requestAgent({ path: `${TOOL_PREFIX}/system-fonts` });
-    const fonts = Array.isArray(data?.fonts) ? data.fonts : [];
-    customFontCatalog = Array.isArray(data?.custom_fonts) ? data.custom_fonts : [];
-    await ensureCustomFontsLoaded(customFontCatalog, selectFamily || styleFontFamily?.value || "");
-    if (fonts.length) populateFontSelect(fonts);
-    if (selectFamily) {
-      ensureFontSelectOption(selectFamily);
-      if (styleFontFamily) styleFontFamily.value = selectFamily;
-      syncFontSelectTitle();
-    }
-  } catch (err) {
-    console.warn("[auto-subtitle] system-fonts", err);
-    populateFontSelect(SYSTEM_FONT_CANDIDATES);
+  if (fontCatalogInflight) {
+    await fontCatalogInflight;
+    if (selectFamily) restoreFontFamilySelection(selectFamily);
+    return;
   }
+  const preferred = String(selectFamily || getPreferredFontFamily() || "").trim();
+  fontCatalogInflight = (async () => {
+    try {
+      const data = await requestAgent({ path: `${TOOL_PREFIX}/system-fonts` });
+      const fonts = Array.isArray(data?.fonts) ? data.fonts : [];
+      customFontCatalog = Array.isArray(data?.custom_fonts) ? data.custom_fonts : [];
+      await ensureCustomFontsLoaded(customFontCatalog, preferred || styleFontFamily?.value || "");
+      syncFontSelectCatalog(fonts, customFontCatalog, { preferredFamily: preferred, force });
+    } catch (err) {
+      console.warn("[auto-subtitle] system-fonts", err);
+      if (!fontCatalogLoaded || force) {
+        syncFontSelectCatalog(SYSTEM_FONT_CANDIDATES, customFontCatalog, {
+          preferredFamily: preferred,
+          force: true,
+        });
+      } else if (preferred) {
+        restoreFontFamilySelection(preferred);
+      }
+    }
+  })();
+  try {
+    await fontCatalogInflight;
+  } finally {
+    fontCatalogInflight = null;
+  }
+}
+
+function extractDuplicateFontFamily(msg) {
+  const m = String(msg || "").match(/이미 추가된\s*글꼴입니다:\s*(.+)/i);
+  return m?.[1]?.trim() || "";
+}
+
+function isDuplicateFontError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /이미 추가된\s*글꼴/i.test(msg);
+}
+
+function duplicateFontPopupMessage(family) {
+  const name = String(family || "").trim();
+  return name ? `이미 추가된 글꼴입니다: ${name}` : "이미 추가된 글꼴입니다.";
+}
+
+function showDuplicateFontModal(family) {
+  openFontAddModal({
+    title: "폰트 추가",
+    message: duplicateFontPopupMessage(family),
+    showOk: true,
+  });
 }
 
 function formatFontInstallError(err) {
   const msg = err instanceof Error ? err.message : String(err);
+  if (isDuplicateFontError(err)) return duplicateFontPopupMessage(extractDuplicateFontFamily(msg));
   if (/권한|permission|denied|ProgramData|Font/i.test(msg)) {
     return `${msg}\n\n에이전트를 최신 버전으로 설치·재시작한 뒤 다시 시도하세요. (글꼴은 %ProgramData%\\itmatzip-agent\\Font 에 저장됩니다)`;
   }
@@ -4760,7 +5620,7 @@ async function addCustomFontFromDialog() {
       loading: true,
     });
 
-    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-font-file`, {
+    const res = await fetchAgent(`${getAgentOrigin()}${AGENT_PICK_FONT}`, {
       method: "POST",
       headers: { Accept: "application/json" },
     });
@@ -4777,6 +5637,44 @@ async function addCustomFontFromDialog() {
     if (!sourcePath || pick?.cancelled) {
       closeFontAddModal();
       return;
+    }
+
+    openFontAddModal({
+      title: "폰트 추가",
+      message: "글꼴 정보 확인 중…",
+      loading: true,
+    });
+
+    let peekFamily = "";
+    try {
+      const peek = await requestAgent({
+        path: `${TOOL_PREFIX}/custom-fonts/peek`,
+        method: "POST",
+        json: { source_path: sourcePath },
+      });
+      peekFamily = String(peek?.family || "").trim();
+      if (peek?.already_installed) {
+        showDuplicateFontModal(peekFamily);
+        return;
+      }
+    } catch (peekErr) {
+      const peekMsg = peekErr instanceof Error ? peekErr.message : String(peekErr);
+      if (isDuplicateFontError(peekErr)) {
+        showDuplicateFontModal(extractDuplicateFontFamily(peekMsg));
+        return;
+      }
+      if (!/^HTTP\s*404\b/i.test(peekMsg)) {
+        throw peekErr;
+      }
+    }
+    if (peekFamily) {
+      const catalogDup = (customFontCatalog || []).some(
+        (f) => String(f?.family || "").trim().toLocaleLowerCase() === peekFamily.toLocaleLowerCase(),
+      );
+      if (catalogDup) {
+        showDuplicateFontModal(peekFamily);
+        return;
+      }
     }
 
     openFontAddModal({
@@ -4800,8 +5698,10 @@ async function addCustomFontFromDialog() {
       });
       return;
     }
-    await loadSystemFontsFromAgent({ selectFamily: family });
+    setActiveFontFamilySsot(family, { pin: true });
+    await loadSystemFontsFromAgent({ selectFamily: family, force: true });
     updatePreviewOverlay();
+    flushFontFamilyPreference();
     scheduleSaveUserPreferences();
     openFontAddModal({
       title: "폰트 추가 완료",
@@ -4809,6 +5709,10 @@ async function addCustomFontFromDialog() {
       showOk: true,
     });
   } catch (err) {
+    if (isDuplicateFontError(err)) {
+      showDuplicateFontModal(extractDuplicateFontFamily(err instanceof Error ? err.message : String(err)));
+      return;
+    }
     openFontAddModal({
       title: "폰트 추가 실패",
       message: formatFontInstallError(err),
@@ -4913,6 +5817,8 @@ function selectCueLine(cueIndex, { scroll = true, seek = true, rerender = true, 
 }
 let preparePollTimer = null;
 let _lastPrepareProgress = -1;
+let _lastPreparePhase = "";
+let _lastPrepareSignature = "";
 let transcribePollTimer = null;
 let exportPollTimer = null;
 /** @type {{ phase: string, progress: number, at: number, lastLogAt: number } | null} */
@@ -5020,6 +5926,7 @@ function hidePreviewMediaLoadingModal() {
 
 function setPreviewMediaLoading(active, { title, step, message, showOk = false } = {}) {
   if (!previewMediaLoading) return;
+  if (active && isSetupLoadingUiActive()) return;
   if (active && isTranscribeLoadingUiActive()) {
     setTranscribeLoading(true, {
       title: TRANSCRIBE_LOADING_TITLE,
@@ -5072,7 +5979,7 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
   const wasActive = setupLoading.classList.contains("is-active");
   if (active) {
     if (!wasActive) setAgentLongOperationActive(true);
-    hidePreviewMediaLoadingModal();
+    cancelInFlightPreviewMediaLoad();
     closeGpuInstallModal();
     closeFontAddModal();
     closeWatermarkPositionModal();
@@ -5107,6 +6014,9 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
   setupLoading.classList.remove("is-active");
   setupLoading.setAttribute("aria-hidden", "true");
   syncInAppBusyShell();
+  if (!active && wasActive && agentConnected) {
+    void ensureEditorPreviewMediaIfNeeded();
+  }
 }
 
 function setTranscribeLoading(active, { title, step, message, progress } = {}) {
@@ -5148,10 +6058,49 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
 }
 
 function syncWordAlignButtonState() {
+  if (LINE_MODE_ONLY) {
+    if (btnWordValleyAlign) {
+      btnWordValleyAlign.hidden = true;
+      btnWordValleyAlign.disabled = true;
+    }
+    if (btnWordAutoAlign) {
+      btnWordAutoAlign.hidden = true;
+      btnWordAutoAlign.disabled = true;
+    }
+    if (btnLineReflow) {
+      btnLineReflow.hidden = false;
+      const hasCues = lastCues.length > 0;
+      btnLineReflow.disabled = !hasCues || lineReflowRunning || wordAlignRunning;
+      btnLineReflow.title = hasCues
+        ? "수동으로 옮긴 줄(userMoved)은 유지하고 나머지를 한 줄 최대 28자·6.5초 기준으로 묶어 재정리합니다"
+        : "자막이 있을 때 사용할 수 있습니다";
+    }
+    return;
+  }
+  if (btnLineReflow) {
+    btnLineReflow.hidden = true;
+    btnLineReflow.disabled = true;
+  }
+  const opRunning = wordAlignRunning;
+  const spokenWords = countSpokenWordsForValleyAlign(lastCues);
+  const mediaPath =
+    getSessionPreviewMediaPath() || getActiveVideoSourcePath() || "";
+  if (btnWordValleyAlign) {
+    const valleyOk =
+      spokenWords >= 2 && Boolean(mediaPath) && agentConnected && !opRunning;
+    btnWordValleyAlign.disabled = !valleyOk;
+    btnWordValleyAlign.title = !agentConnected
+      ? MSG_SUBTITLE_NEED_APP
+      : spokenWords < 2
+        ? "타이밍 맞출 말소리 단어가 2개 이상 필요합니다"
+        : !mediaPath
+          ? "영상·미리보기 경로가 필요합니다"
+          : "인접 단어 사이 파형 골(에너지가 줄었다 다시 커지는 지점)으로 start/end를 맞춥니다";
+  }
   if (!btnWordAutoAlign) return;
   const ko = isKoreanLanguageSelected(languageSelect?.value);
   const hasTargets = collectWordAlignTargetIndices(lastCues).length > 0;
-  const enabled = ko && hasTargets && agentConnected && !wordAlignRunning;
+  const enabled = ko && hasTargets && agentConnected && !opRunning;
   btnWordAutoAlign.disabled = !enabled;
   btnWordAutoAlign.title = ko
     ? hasTargets
@@ -5188,7 +6137,7 @@ function updateActionButtons() {
   }
 }
 
-function setWordAlignLoading(active, { title, step, message, progress } = {}) {
+function setWordAlignLoading(active, { title, step, message, progress, showKiwiLicense } = {}) {
   if (!wordAlignLoading) return;
   const wasActive = wordAlignLoading.classList.contains("is-active");
   if (active) {
@@ -5212,7 +6161,12 @@ function setWordAlignLoading(active, { title, step, message, progress } = {}) {
       exportLoading.hidden = true;
       exportLoading.setAttribute("aria-hidden", "true");
     }
-    if (wordAlignKiwiLink) wordAlignKiwiLink.href = KIWI_LGPL_URL;
+    if (wordAlignKiwiLink) {
+      wordAlignKiwiLink.href = KIWI_LGPL_URL;
+      const licenseRow = wordAlignKiwiLink.closest(".as-word-align-license");
+      const showLicense = showKiwiLicense !== false;
+      if (licenseRow) licenseRow.hidden = !showLicense;
+    }
     wordAlignLoading.hidden = false;
     wordAlignLoading.classList.add("is-active");
     wordAlignLoading.setAttribute("aria-hidden", "false");
@@ -5256,6 +6210,202 @@ function wordAlignFriendlyError(err) {
   return msg || "단어 자동정렬에 실패했습니다.";
 }
 
+async function onWordValleyAlignClick() {
+  if (!agentConnected) {
+    alert(MSG_SUBTITLE_NEED_APP);
+    return;
+  }
+  if (wordAlignRunning) return;
+  if (countSpokenWordsForValleyAlign(lastCues) < 2) {
+    alert("타이밍 맞출 말소리 단어가 2개 이상 필요합니다.");
+    return;
+  }
+  if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  syncCuesFromDom();
+
+  wordAlignRunning = true;
+  syncWordAlignButtonState();
+  setWordAlignLoading(true, {
+    title: "타이밍 맞추기",
+    step: "",
+    message: "미디어 경로 확인 중…",
+    progress: 0,
+    showKiwiLicense: false,
+  });
+
+  let mediaPath = "";
+  try {
+    mediaPath = await resolveValleyAlignMediaPath();
+  } catch (err) {
+    wordAlignRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+    alert(friendlyAgentError(err));
+    return;
+  }
+  if (!mediaPath) {
+    wordAlignRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+    alert(
+      "미디어 파일을 찾을 수 없습니다.\n\n「찾아보기」로 영상을 다시 선택하거나, 자막 추출을 먼저 실행해 주세요.",
+    );
+    return;
+  }
+  if (!(await probeAgentMediaReadable(mediaPath))) {
+    wordAlignRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+    alert(
+      "에이전트가 미디어 파일을 열 수 없습니다.\n\n영상 경로를 다시 선택하거나 자막 추출 후 workspace CFR 미리보기를 사용해 주세요.",
+    );
+    return;
+  }
+
+  const wasPlayingBeforeAlign = isVideoPlaying;
+  if (wasPlayingBeforeAlign) {
+    userRequestedPreviewPause = true;
+    stopPlaybackLoop();
+    getPv()?.pause();
+    userRequestedPreviewPause = false;
+  }
+
+  setWordAlignLoading(true, {
+    title: "타이밍 맞추기",
+    step: "",
+    message: "파형 골 기준으로 단어 경계를 재계산합니다…",
+    progress: 4,
+    showKiwiLicense: false,
+  });
+
+  try {
+    hubBlocksChangedOpts = {
+      reason: "valley-align",
+      preserveProgramSec: true,
+      anchorPlayhead: true,
+      rearmSeamlessPlayback: false,
+    };
+    const result = await runWordValleyAlign(
+      subtitleHub,
+      mediaPath,
+      (pct, msg) => {
+        setWordAlignLoading(true, {
+          title: "타이밍 맞추기",
+          message: msg,
+          progress: pct,
+          showKiwiLicense: false,
+        });
+      },
+    );
+    renderCuesTable(lastCues, { capturePendingEdits: false });
+    commitPlayheadUi();
+    console.info(
+      `[타이밍 맞추기] ${result.adjusted}개 경계 조정 / ${result.total}쌍 분석` +
+        (result.stats?.rate_global != null
+          ? ` · rate_global=${result.stats.rate_global}s/자`
+          : "") +
+        (result.stats?.skip_reasons
+          ? ` · 스킵: ${JSON.stringify(result.stats.skip_reasons)}`
+          : ""),
+      result.stats ?? result,
+    );
+    if (resultsMeta) {
+      const ratePart =
+        result.stats?.rate_global != null
+          ? ` · ${result.stats.rate_global}s/자`
+          : "";
+      resultsMeta.textContent = `${lastCues.length} cues · 타이밍 맞추기 (${result.adjusted}/${result.total}쌍${ratePart})`;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  } catch (err) {
+    setWordAlignLoading(true, {
+      title: "타이밍 맞추기 실패",
+      message: wordAlignFriendlyError(err),
+      progress: 0,
+      showKiwiLicense: false,
+    });
+    await new Promise((r) => setTimeout(r, 2800));
+  } finally {
+    wordAlignRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+  }
+}
+
+function restoreLineModeSnapGrid(projectLike) {
+  if (!LINE_MODE_ONLY) return;
+  const parsed = parseLineModeFromProject(projectLike);
+  if (parsed?.snapGrid) {
+    subtitleHub.setSnapGrid(parsed.snapGrid);
+    return;
+  }
+  if (peaksPayload) {
+    subtitleHub.setSnapGrid(buildSnapGridFromPeaksPayload(peaksPayload));
+  }
+}
+
+async function runLineReflow() {
+  if (!LINE_MODE_ONLY || !lastCues.length) return;
+  if (lineReflowRunning || wordAlignRunning) return;
+  if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  syncCuesFromDom();
+
+  lineReflowRunning = true;
+  syncWordAlignButtonState();
+  setWordAlignLoading(true, {
+    title: "줄 자동 정리",
+    step: "",
+    message: "가독성 기준으로 줄을 재정리합니다…",
+    progress: 35,
+    showKiwiLicense: false,
+  });
+
+  try {
+    let applied = false;
+    const payload = {
+      cues: serializeCuesForReflow(subtitleHub.cues),
+      mode: "horizontal",
+    };
+    if (agentConnected) {
+      try {
+        const res = await requestAgent({
+          path: `${TOOL_PREFIX}/reflow`,
+          method: "POST",
+          json: payload,
+        });
+        if (Array.isArray(res?.cues) && res.cues.length) {
+          subtitleHub.setCues(normalizeCuesFromAgent(res.cues), { recordHistory: true });
+          applied = true;
+        }
+      } catch (err) {
+        console.warn("[line-reflow] agent API failed — client fallback", err);
+      }
+    }
+    if (!applied) {
+      subtitleHub.reflowLineMode("horizontal", { recordHistory: true });
+    }
+    lastCues = subtitleHub.cues;
+    renderCuesTable(lastCues);
+    updateActionButtons();
+    if (resultsMeta) {
+      resultsMeta.textContent = `${lastCues.length} cues · 줄 자동 정리 완료`;
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  } catch (err) {
+    setWordAlignLoading(true, {
+      title: "줄 자동 정리 실패",
+      message: friendlyAgentError(err),
+      progress: 0,
+      showKiwiLicense: false,
+    });
+    await new Promise((r) => setTimeout(r, 2200));
+  } finally {
+    lineReflowRunning = false;
+    setWordAlignLoading(false);
+    syncWordAlignButtonState();
+  }
+}
+
 async function onWordAutoAlignClick() {
   if (!isKoreanLanguageSelected(languageSelect?.value)) return;
   if (!agentConnected) {
@@ -5279,6 +6429,7 @@ async function onWordAutoAlignClick() {
     step: "",
     message: "형태소 분석으로 줄 나눔 위치를 계산합니다…",
     progress: 0,
+    showKiwiLicense: true,
   });
 
   try {
@@ -5406,6 +6557,77 @@ function peaksLoadOpts(extra = {}) {
   };
 }
 
+function applyPreviewCueTimingUi(cueIndex, nextCue) {
+  const card = subtitleList?.querySelector(`.subtitle-card[data-cue-index="${cueIndex}"]`);
+  const times = card?.querySelector(".subtitle-card-times");
+  if (times) {
+    const start = Number(nextCue.start) || 0;
+    const end = Math.max(start, Number(nextCue.end) || start);
+    times.textContent = `미디어 ${formatTime(start)} ~ ${formatTime(end)} · ${(end - start).toFixed(2)}초`;
+  }
+}
+
+function previewCueLineEndTrim(cueIndex, lines) {
+  applyPreviewCueTimingUi(cueIndex, lines[cueIndex]);
+  const nextCi = nextSpokenCueIndex(lines, cueIndex);
+  if (nextCi >= 0) applyPreviewCueTimingUi(nextCi, lines[nextCi]);
+}
+
+function commitCueLineEndTrim(cueIndex, lines, { recordHistory = false } = {}) {
+  const before = subtitleHub.cues?.[cueIndex];
+  const linesEnd = Number(lines?.[cueIndex]?.end);
+  if (typeof window !== "undefined" && window.__LINE_END_SNAP_LOG === true) {
+    console.log("[line-end-snap] hub-commit:before", {
+      cueIndex,
+      recordHistory,
+      beforeStart: before != null ? Number(before.start) : null,
+      beforeEnd: before != null ? Number(before.end) : null,
+      linesEnd,
+      linesStart: Number(lines?.[cueIndex]?.start),
+    });
+  }
+  subtitleHub.applySubtitleChange(() => lines, { recordHistory, forceCommit: true });
+  lastCues = subtitleHub.cues;
+  const after = lastCues[cueIndex];
+  if (typeof window !== "undefined" && window.__LINE_END_SNAP_LOG === true) {
+    console.log("[line-end-snap] hub-commit:after", {
+      cueIndex,
+      afterStart: after != null ? Number(after.start) : null,
+      afterEnd: after != null ? Number(after.end) : null,
+      deltaEnd:
+        before != null && after != null
+          ? Number(after.end) - Number(before.end)
+          : null,
+      deltaFromLines:
+        after != null && Number.isFinite(linesEnd)
+          ? Number(after.end) - linesEnd
+          : null,
+    });
+  }
+  applyPreviewCueTimingUi(cueIndex, lastCues[cueIndex]);
+  const nextCi = nextSpokenCueIndex(lastCues, cueIndex);
+  if (nextCi >= 0) applyPreviewCueTimingUi(nextCi, lastCues[nextCi]);
+  refreshCueWaveformPanelAfterLineEndTrim(subtitleList, lastCues, cueIndex);
+  onProgramBlocksChanged({ reason: "cue-line-end-trim", preserveProgramSec: true });
+  updateActionButtons();
+  commitPlayheadUi();
+  if (recordHistory) updatePreviewOverlay();
+}
+
+function commitCueTimingChange(cueIndex, nextCue, { recordHistory = false } = {}) {
+  subtitleHub.applySubtitleChange(
+    (lines) => {
+      const copy = lines.slice();
+      copy[cueIndex] = nextCue;
+      return copy;
+    },
+    { recordHistory, forceCommit: true },
+  );
+  lastCues = subtitleHub.cues;
+  renderCuesTable(lastCues);
+  if (recordHistory) updatePreviewOverlay();
+}
+
 function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
   const mediaPlaying = isPreviewMediaPlaying();
   const mediaSec = mediaPlaying ? readPreviewMediaClockSec() : playheadSec;
@@ -5413,7 +6635,13 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     ? resolvePlaybackIndices(playheadSec, { mediaSec })
     : null;
   const activeCue = mediaPlaying ? playbackResolved.ai : selectedCueIndex;
-  const activeWordIndex = mediaPlaying ? playbackResolved.wi : -1;
+  const cueWaveformOpen = isExpandedCueWaveformOpen();
+  const activeWordIndex =
+    cueWaveformOpen && activeCue === expandedCueIndex
+      ? -1
+      : mediaPlaying
+        ? playbackResolved.wi
+        : -1;
   const mediaDurationSec = getMediaDurationSecHint();
   return {
     formatTime,
@@ -5438,6 +6666,8 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     scrollActiveCard: scrollActive,
     peaksData: peaksPayload,
     getPeaksData: () => peaksPayload,
+    snapGrid: subtitleHub.snapGrid,
+    getSnapGrid: () => subtitleHub.snapGrid,
     mediaDurationSec,
     getMediaDurationSec: getMediaDurationSecHint,
     video: getPv(),
@@ -5446,10 +6676,90 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     formatTimeFull: formatTime,
     getVirtualIndexForCue: (cueIndex) => subtitleHub.getVirtualIndexForBlock(cueIndex),
     getBlockDurationForCue: (cueIndex) => subtitleHub.blocks[cueIndex]?.duration,
-    ensurePeaksLoad: () => loadWaveformPeaks(),
+    ensurePeaksLoad: () => {
+      if (peaksPayload && resolvePeaksTimelineMetrics(peaksPayload, sessionMediaDurationSec)) {
+        return Promise.resolve(true);
+      }
+      return loadWaveformPeaks();
+    },
     onCardNavigate: (sec) => {
       if (getPv() && Number.isFinite(sec)) {
         seekPreviewToSourceSec(sec);
+      }
+    },
+    onApplyCueTiming: (cueIndex, nextCue) => {
+      subtitleHub.applySubtitleChange(
+        (lines) => {
+          const copy = lines.slice();
+          copy[cueIndex] = nextCue;
+          return copy;
+        },
+        { forceCommit: true },
+      );
+      lastCues = subtitleHub.cues;
+      renderCuesTable(lastCues);
+    },
+    /** 드래그 중 — SSOT 미리보기만 (리렌더 없음) */
+    onPreviewCueTiming: (cueIndex, nextCue) => {
+      applyPreviewCueTimingUi(cueIndex, nextCue);
+    },
+    onPreviewCueLineEndTrim: (cueIndex, lines) => {
+      previewCueLineEndTrim(cueIndex, lines);
+    },
+    /** 드래그 끝 — 한 번만 커밋 */
+    onCommitCueTiming: (cueIndex, nextCue) => {
+      commitCueTimingChange(cueIndex, nextCue, { recordHistory: true });
+      if (waveformPlayRangeEndEdit != null && expandedCueIndex === cueIndex) {
+        waveformPlayRangeEndEdit = Math.max(
+          Number(nextCue.start) || 0,
+          Number(nextCue.end) || waveformPlayRangeEndEdit,
+        );
+      }
+    },
+    onCommitCueLineEndTrim: (cueIndex, lines) => {
+      commitCueLineEndTrim(cueIndex, lines, { recordHistory: true });
+      if (waveformPlayRangeEndEdit != null && expandedCueIndex === cueIndex) {
+        const cue = lines[cueIndex];
+        if (cue) {
+          waveformPlayRangeEndEdit = Math.max(
+            Number(cue.start) || 0,
+            Number(cue.end) || waveformPlayRangeEndEdit,
+          );
+        }
+      }
+    },
+    onSplitCueAtPlayLine: (cueIndex, splitSec) => {
+      if (cueIndex < 0 || cueIndex >= lastCues.length) return;
+      if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+      prepareRowCaretAfterCueSplit(cueIndex);
+      subtitleHub.gapFillWhenBuildingVrew = false;
+      const splitOk = subtitleHub.splitLineCueAtMediaSec(cueIndex, splitSec);
+      if (!splitOk) return;
+      lastCues = subtitleHub.cues;
+      finalizeRowCaretAfterCueSplit(cueIndex, lastCues);
+      markCaretListStructuralMutation();
+      expandedCueIndex = cueIndex;
+      expandedWordIndex = -1;
+      selectedCueIndex = cueIndex;
+      hintActiveCaretCardIndex(cueIndex);
+      playheadSec = splitSec;
+      const upperWords = lastCues[cueIndex]?.words ?? [];
+      const endCaret = upperWords.length;
+      renderCuesTable(lastCues);
+      commitPlayheadUi();
+      if (subtitleList) {
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          cueIndex,
+          endCaret,
+        );
+      }
+    },
+    onSeekPreviewWhileTiming: (sec) => {
+      if (getPv() && Number.isFinite(sec)) {
+        seekPreviewToSourceSec(sec, { commitUi: false });
       }
     },
     onSplitSubtitleAt: (index, pos) => {
@@ -5460,11 +6770,41 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       mergeEmptySubtitleAt(subtitleHub, index);
       renderCuesTable(lastCues);
     },
+    onMergeLineBelowIntoAbove: (upperCueIndex) => {
+      if (upperCueIndex < 0 || upperCueIndex >= lastCues.length - 1) return;
+      if (subtitleList) captureTextareaForCue(subtitleList, lastCues, upperCueIndex);
+      const joinStorage = lastCues[upperCueIndex]?.words?.length ?? 0;
+      const merged = mergeLineBelowIntoAbove(subtitleHub, upperCueIndex);
+      if (!merged) return;
+      lastCues = subtitleHub.cues;
+      markCaretListStructuralMutation();
+      renderCuesTable(lastCues);
+      const mergedWords = lastCues[upperCueIndex]?.words ?? [];
+      const joinRenderable = storageCaretToRenderableCaret(
+        mergedWords,
+        Math.min(joinStorage, mergedWords.length),
+      );
+      selectedCueIndex = upperCueIndex;
+      hintActiveCaretCardIndex(upperCueIndex);
+      if (subtitleList) {
+        requestFocusCaretDeferred(
+          subtitleList,
+          lastCues,
+          buildSubtitleCardOpts(lastCues),
+          upperCueIndex,
+          joinRenderable,
+        );
+      }
+    },
     onSplitSubtitleAtWord: (index, wordIndex) => {
       if (subtitleList) captureTextareaForCue(subtitleList, lastCues, index);
       prepareRowCaretAfterCueSplit(index);
-      splitSubtitleAtWord(subtitleHub, index, wordIndex);
+      subtitleHub.gapFillWhenBuildingVrew = false;
+      const splitOk = splitSubtitleAtWord(subtitleHub, index, wordIndex);
+      if (!splitOk) return;
+      lastCues = subtitleHub.cues;
       finalizeRowCaretAfterCueSplit(index, lastCues);
+      markCaretListStructuralMutation();
       renderCuesTable(lastCues);
       const nextIndex = index + 1;
       if (lastCues[nextIndex] && !lastCues[nextIndex].is_silence) {
@@ -5474,8 +6814,6 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         if (subtitleList) patchSelectedCueHighlight(subtitleList, prev, nextIndex);
         lastOverlayCueIndex = -1;
         updatePreviewOverlay();
-        // console.log("[SPLIT-DBG] split done → selectedCueIndex=%d, previewCueIdx=%d, text=%s",
-        //   nextIndex, getPreviewCueIndex(), getPreviewCueText(lastCues[nextIndex])?.slice(0, 30));
       }
       if (subtitleList) {
         requestFocusCaretDeferred(
@@ -5649,6 +6987,23 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       expandedWordIndex = wi;
       renderCuesTable(lastCues);
     },
+    onCueWaveformToggle: (ci) => {
+      if (expandedCueIndex === ci && expandedWordIndex === -1) {
+        closeWordWaveform();
+        return;
+      }
+      pausePlaybackForWaveformOpen();
+      expandedCueIndex = ci;
+      expandedWordIndex = -1;
+      selectedCueIndex = ci;
+      renderCuesTable(lastCues);
+      if (subtitleList) {
+        scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), ci, {
+          behavior: "smooth",
+        });
+      }
+      if (!peaksPayload) void loadWaveformPeaks();
+    },
     onCloseWaveform: (opts) => closeWordWaveform(opts ?? {}),
     onPreviewLineTextInput: (cueIndex, text) => {
       if (lastCues[cueIndex]) {
@@ -5672,14 +7027,11 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       renderCuesTable(lastCues);
     },
     onSeek: (sec) => {
-      if (getPv() && Number.isFinite(sec)) {
-        const media = skipCutRangeAt(sec, getPlaybackSkipRanges());
-        caretPlayDiagLog("onSeekMedia", caretPlayDiagSnapshot({ mediaSec: sec, mappedMedia: media }));
-        if (getPa()?.src) assignMasterAudioTimelineSecIfNeeded(getPa(), media);
-        if (Math.abs(getPv().currentTime - media) > 0.002) getPv().currentTime = media;
-        playheadSec = mapPreviewMediaSecToEditSec(media);
-        commitPlayheadUi();
-      }
+      if (!Number.isFinite(sec)) return;
+      seekPreviewToSourceSec(sec, {
+        commitUi: true,
+        cueIndex: expandedCueIndex >= 0 ? expandedCueIndex : selectedCueIndex,
+      });
     },
     onSeekWord: (cue, storageWordIndex) => {
       if (!getPv()) return;
@@ -5725,7 +7077,15 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     mapEditToMediaSec: (editSec) => mapWaveformEditToMediaSec(editSec),
     mapMediaToEditSec: (mediaSec) => mapWaveformMediaToEditSec(mediaSec),
     onWaveformSpacePlay: () => {
-      if (!subtitleList || expandedCueIndex < 0 || expandedWordIndex < 0) return false;
+      if (!subtitleList || expandedCueIndex < 0) return false;
+      if (LINE_MODE_ONLY && expandedWordIndex === -1) {
+        return toggleExpandedPanelPlayFromCut(subtitleList, {
+          expandedCueIndex,
+          expandedWordIndex,
+          playheadSec,
+        });
+      }
+      if (expandedWordIndex < 0) return false;
       return toggleExpandedPanelPlayFromCut(subtitleList, {
         expandedCueIndex,
         expandedWordIndex,
@@ -5733,8 +7093,28 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       });
     },
     onApplySubtitleChange: (updater, meta) => {
+      if (LINE_MODE_ONLY && meta?.trimEdge) return;
       if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
-      subtitleHub.applySubtitleChange(updater);
+      const prevLines = subtitleHub.cues;
+      let nextLines = updater(prevLines);
+      const isTrimCommit =
+        meta &&
+        meta.cueIndex >= 0 &&
+        meta.focusWordIndex >= 0 &&
+        (meta.trimEdge === "start" || meta.trimEdge === "end");
+      if (isTrimCommit) {
+        commitCrossLineWordTrimOnHub(
+          subtitleHub,
+          nextLines,
+          meta.cueIndex,
+          meta.focusWordIndex,
+          meta.trimEdge,
+        );
+        lastCues = subtitleHub.cues;
+      } else {
+        subtitleHub.applySubtitleChange(() => nextLines);
+        lastCues = subtitleHub.cues;
+      }
       let focusAfterRender = null;
       if (meta && meta.cueIndex >= 0 && meta.focusWordIndex >= 0) {
         const ci = meta.cueIndex;
@@ -5757,6 +7137,22 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
         clearListPlayFromCaretPreferred();
         resetSpaceSeekIntent();
       }
+      if (isTrimCommit) {
+        refreshWaveformPanelAfterTrim(subtitleList, lastCues, meta);
+        updateActionButtons();
+        commitPlayheadUi();
+        if (focusAfterRender && subtitleList) {
+          requestFocusCaretDeferred(
+            subtitleList,
+            lastCues,
+            buildSubtitleCardOpts(lastCues),
+            focusAfterRender.ci,
+            focusAfterRender.wi,
+            { seek: false, armSpaceSeek: focusAfterRender.armSpaceSeek !== false },
+          );
+        }
+        return;
+      }
       renderCuesTable(lastCues);
       commitPlayheadUi();
       if (focusAfterRender && subtitleList) {
@@ -5776,8 +7172,30 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onWaveformUndo: () => {
       if (subtitleHub.undo()) handleHubHistoryRestore();
     },
+    onMicroRealign: async (cueIndex, wordIndex) => {
+      if (!agentConnected) throw new Error(MSG_SUBTITLE_NEED_APP);
+      const mediaPath = await resolveValleyAlignMediaPath();
+      if (!mediaPath) throw new Error("미디어 경로가 없습니다.");
+      const result = await runMicroRealign(subtitleHub, mediaPath, cueIndex, wordIndex);
+      lastCues = subtitleHub.cues;
+      renderCuesTable(lastCues, { capturePendingEdits: false });
+      return result;
+    },
+    onToast: (message, level = "info") => {
+      const text = String(message || "").trim();
+      if (!text) return;
+      if (level === "warn") console.warn("[micro-realign]", text);
+      else console.info("[micro-realign]", text);
+      if (resultsMeta) {
+        const prev = resultsMeta.textContent || "";
+        resultsMeta.textContent = text;
+        setTimeout(() => {
+          if (resultsMeta.textContent === text) resultsMeta.textContent = prev;
+        }, 3200);
+      }
+    },
     onPlayEditRange: (startEdit, endEdit) => {
-      if (!getPv() || !getPa() || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
+      if (!getPv() || !Number.isFinite(startEdit) || !Number.isFinite(endEdit)) return;
       const lo = Math.min(startEdit, endEdit);
       const hi = Math.max(startEdit, endEdit);
       const skips = getPlaybackSkipRanges();
@@ -5860,30 +7278,133 @@ function renderCuesTable(cues, { scrollActive = false, capturePendingEdits = fal
   if (scrollActive && opts.activeCueIndex >= 0) {
     scrollCueIntoView(subtitleList, cues, opts, opts.activeCueIndex, { behavior: "auto" });
   }
+  if (LINE_MODE_ONLY) {
+    syncOpenCueWaveformPanel(subtitleList, {
+      expandedCueIndex,
+      expandedWordIndex,
+    });
+  }
 }
 
-async function loadWaveformPeaks() {
-  const videoPath =
-    getSessionPreviewMediaPath() || videoPathInput?.value?.trim();
+/** 프로그램 bake 세그먼트 — workspace 임시 클립만 (D: 원본 _silence.mp4 제외) */
+function isEphemeralBakeClipPath(raw) {
+  const s = normalizeAgentMediaPath(raw);
+  if (!s || !isWorkspaceMediaPath(s)) return false;
+  if (/media-cfr\.mp4$/i.test(s)) return false;
+  if (/media-av-sync\.mp4$/i.test(s)) return false;
+  if (/program-master\.mp4$/i.test(s)) return false;
+  if (/\\bake[-_]/i.test(s) || /\\segments?\\/i.test(s)) return true;
+  if (/merged-\d+_silence\.mp4$/i.test(s)) return true;
+  return false;
+}
+
+function isUsablePreviewMediaPath(raw) {
+  const s = normalizeAgentMediaPath(raw);
+  if (!s) return false;
+  if (hasCorruptMediaPathChars(s)) return false;
+  if (isEphemeralBakeClipPath(s)) return false;
+  if (failedPreviewMediaPaths.has(s)) return false;
+  return true;
+}
+
+/** 파형 peaks SSOT — CFR/workspace 원본. 재생 중 세그먼트 preview 경로는 쓰지 않음 */
+/** @param {{ preview_media_path?: string | null, cues_json_path?: string | null, media_timing?: { preview_media_path?: string | null } | null }} [transcribeMeta] */
+async function resolveWaveformPeaksMediaPath(transcribeMeta = null) {
+  const ssot = await resolvePreviewMediaPathSsot();
+  if (ssot && isWorkspaceMediaPath(ssot)) return ssot;
+
+  /** @type {string[]} */
+  const ranked = [];
+  const fromPeaks = normalizeAgentMediaPath(peaksPayload?.video_path || peaksSourceMediaPath || "");
+  if (fromPeaks && !isEphemeralBakeClipPath(fromPeaks)) ranked.push(fromPeaks);
+
+  const meta = transcribeMeta || {};
+  const fromTranscribe = resolveTranscribeCfrPreviewPath(meta);
+  if (fromTranscribe && !isEphemeralBakeClipPath(fromTranscribe)) ranked.push(fromTranscribe);
+
+  const mt = getSessionMediaTiming();
+  const fromMt = resolveTranscribeCfrPreviewPath({
+    preview_media_path: mt?.preview_media_path,
+    media_timing: mt,
+    cues_json_path: mt?.cues_json_path,
+  });
+  if (fromMt && !isEphemeralBakeClipPath(fromMt)) ranked.push(fromMt);
+
+  for (const p of [
+    normalizeAgentMediaPath(getSessionPreviewMediaPath() || ""),
+  ]) {
+    if (p && !isEphemeralBakeClipPath(p)) ranked.push(p);
+  }
+
+  const unique = [...new Set(ranked.filter(Boolean))];
+  const workspace = unique.find((p) => isWorkspaceMediaPath(p) && !isEphemeralBakeClipPath(p));
+  if (workspace) return workspace;
+
+  const fromApi = await fetchWorkspacePreviewFromApi();
+  if (fromApi && !isEphemeralBakeClipPath(fromApi)) return fromApi;
+
+  const src = await resolvePreparePreviewSourcePath();
+  if (src && agentConnected) {
+    const cfr = await ensureCfrPreviewFromSource(src);
+    if (cfr && !isEphemeralBakeClipPath(cfr)) return cfr;
+  }
+
+  return "";
+}
+
+async function loadWaveformPeaks(opts = {}) {
+  const videoPath = await resolveWaveformPeaksMediaPath();
   if (!videoPath || !agentConnected || waveformLoading) return false;
+  if (!isWorkspaceMediaPath(videoPath)) {
+    console.warn(
+      "waveform-peaks",
+      "CFR 미디어 없음 — 미리보기가 준비되면 파형도 함께 로드됩니다",
+    );
+    return false;
+  }
   waveformLoading = true;
   try {
-    const result = await loadWaveformPeaksForMedia(videoPath, peaksLoadOpts());
+    const result = await loadWaveformPeaksForMedia(
+      videoPath,
+      peaksLoadOpts({ ...opts, force: opts.force === true }),
+    );
     if (!result.metrics) {
-      peaksPayload = null;
+      const cached =
+        peaksPayload && resolvePeaksTimelineMetrics(peaksPayload, sessionMediaDurationSec);
+      if (cached && !opts.force) {
+        console.warn(
+          "waveform-peaks",
+          result.error || "invalid_peaks",
+          "— 기존 파형 유지",
+        );
+        return true;
+      }
+      if (!opts.keepOnFailure) {
+        peaksPayload = null;
+        peaksSourceMediaPath = "";
+      }
       console.warn("waveform-peaks", result.error || "invalid_peaks");
       return false;
     }
     peaksPayload = result.payload;
+    peaksSourceMediaPath = videoPath;
     const metrics = resolvePeaksTimelineMetrics(result.payload, sessionMediaDurationSec);
     if (metrics?.data?.length && lastCues.length) {
       subtitleHub.reapplyExtractPostProcessWithPeaks(metrics);
     }
     renderCuesTable(lastCues);
-    await refreshSessionMediaTimingFromAgent(videoPath);
     return true;
   } catch (err) {
-    peaksPayload = null;
+    const cached =
+      peaksPayload && resolvePeaksTimelineMetrics(peaksPayload, sessionMediaDurationSec);
+    if (cached && !opts.force) {
+      console.warn("waveform-peaks", err, "— 기존 파형 유지");
+      return true;
+    }
+    if (!opts.keepOnFailure) {
+      peaksPayload = null;
+      peaksSourceMediaPath = "";
+    }
     console.warn("waveform-peaks", err);
     return false;
   } finally {
@@ -5892,7 +7413,9 @@ async function loadWaveformPeaks() {
 }
 
 async function applyLoadedProject(res) {
-  const videoPath = res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "";
+  const videoPath = normalizeAgentMediaPath(
+    res?.video_path || res?.normalized?.video_path || res?.project?.videoPath || "",
+  );
   const hasVideo = !!String(videoPath || "").trim();
 
   await beginProjectLoadUi(
@@ -5921,6 +7444,7 @@ async function applyLoadedProject(res) {
   if (videoPath && videoPathInput) {
     sessionVideoPath = videoPath;
     videoPathInput.value = videoPath;
+    failedPreviewMediaPaths.clear();
     try {
       sessionStorage.setItem(STORAGE_VIDEO_PATH, videoPath);
     } catch {
@@ -5955,6 +7479,7 @@ async function applyLoadedProject(res) {
       cutRanges: Array.isArray(cuts) ? cuts : [],
     });
   }
+  restoreLineModeSnapGrid(project ?? res?.project ?? res);
   applySubtitleStyleFromProject(style);
   applyWatermarkFromProject(project?.watermark ?? res?.watermark ?? res?.normalized?.watermark);
   scheduleSaveUserPreferences();
@@ -5988,36 +7513,21 @@ async function applyLoadedProject(res) {
 
   if (hasVideo) {
     try {
-      setPreviewMediaLoading(true, {
-        title: "프로젝트 불러오기",
-        step: "CFR 미디어",
-        message: "A/V 정규화·CFR 변환…\n(캐시 있으면 즉시 완료)",
-      });
-      await yieldToUiPaint();
-
-      const previewPath = await ensureSessionPreviewMediaPath({
-        onProgress: ({ step, message, progress }) => {
-          setPreviewMediaLoading(true, {
-            title: "프로젝트 불러오기",
-            step: step || "CFR 미디어",
-            message: message || "처리 중…",
-            progress: progress ?? 8,
-          });
-        },
-      });
-      if (!previewPath) {
-        alert(
-          "CFR 미디어 준비에 실패했습니다.\n\n" +
-            "• itmatzip-agent를 재시작하세요 (go-agent 재빌드 후)\n" +
-            "• VFR 영상이면 자막 추출을 다시 실행하세요",
-        );
-      }
-      if (subtitleHub.blocks?.length) {
-        await ensureProgramMasterAfterIngest({ preview_media_path: previewPath });
-      } else {
-        await updatePreview(previewPath || videoPath);
+      const previewPath =
+        (await resolvePreviewMediaPathSsot()) ||
+        resolveTranscribeCfrPreviewPath({ preview_media_path: videoPath });
+      if (previewPath && isWorkspaceMediaPath(previewPath)) {
+        setSessionPreviewMediaPath(previewPath);
+        if (subtitleHub.blocks?.length) {
+          await ensureProgramMasterAfterIngest({ preview_media_path: previewPath });
+        } else {
+          await updatePreview(previewPath);
+        }
       }
       await loadWaveformPeaks();
+      if (!subtitleHub.snapGrid && peaksPayload) {
+        subtitleHub.setSnapGrid(buildSnapGridFromPeaksPayload(peaksPayload));
+      }
     } finally {
       setPreviewMediaLoading(false);
     }
@@ -6066,7 +7576,7 @@ async function onLoadProjectViaAgent() {
   await beginProjectLoadUi("파일 선택", "프로젝트 파일 선택 중…");
   let pick;
   try {
-    pick = await requestAgent({ path: "/api/agent/pick-local-project-file", method: "POST" });
+    pick = await requestAgent({ path: AGENT_PICK_PROJECT, method: "POST" });
   } catch (err) {
     if (/취소|cancel/i.test(String(err))) {
       setPreviewMediaLoading(false);
@@ -6132,15 +7642,25 @@ function applyReadiness(data) {
   setComputeCapabilityBadge(data);
 }
 
+function setComputeCapabilityPending(el, text, title = "") {
+  if (!el) return;
+  el.classList.remove("is-gpu", "is-cpu", "is-warn");
+  el.classList.add("is-pending");
+  el.textContent = text;
+  el.title = title;
+}
+
 function setComputeCapabilityBadge(data) {
   const el = document.getElementById("compute-capability");
   if (!el) return;
   el.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
 
   if (!agentConnected) {
-    el.classList.add("is-pending");
-    el.textContent = "연산 장치 확인 불가";
-    el.title = "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.";
+    setComputeCapabilityPending(
+      el,
+      "연산 장치 확인 불가",
+      "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.",
+    );
     return;
   }
 
@@ -6148,9 +7668,7 @@ function setComputeCapabilityBadge(data) {
   const model = data?.model || {};
 
   if (!b.gpu_detected && !b.gpu_runtime_installed && !model.device) {
-    el.classList.add("is-pending");
-    el.textContent = "연산 장치 확인 중…";
-    el.title = "";
+    setComputeCapabilityPending(el, "연산 장치 확인 중…");
     return;
   }
 
@@ -6352,13 +7870,22 @@ function resolvePrepareModalMessage(step, detail, phase, progress) {
   return base;
 }
 
+function prepareStallPollLimitMs(phase) {
+  const p = String(phase || "").trim();
+  if (p === "installing_dependencies") return 45 * 60 * 1000;
+  if (p === "downloading_models") return 25 * 60 * 1000;
+  return 8 * 60 * 1000;
+}
+
 async function pollPrepareStatus() {
   const data = await requestAgent({ path: `${TOOL_PREFIX}/prepare/status` });
   const phase = data?.phase || "";
   const step = data?.step || phase;
   const progress = typeof data?.progress === "number" ? data.progress : undefined;
   _lastPrepareProgress = progress ?? _lastPrepareProgress;
+  _lastPreparePhase = phase;
   const detail = data?.detail || data?.message || "";
+  _lastPrepareSignature = `${phase}|${step}|${detail}`;
   if (isPrepareIdlePhase(phase)) {
     setSetupLoading(true, {
       title: "Whisper 준비",
@@ -6409,9 +7936,11 @@ async function pollPrepareStatus() {
 function waitForPrepareCompletion() {
   return new Promise((resolve) => {
     stopPreparePoll();
-    let stallCount = 0;
+    let stallMs = 0;
     let lastProgress = -1;
+    let lastSignature = "";
     let transientFailStreak = 0;
+    const pollMs = 400;
     preparePollTimer = setInterval(async () => {
       try {
         const done = await pollPrepareStatus();
@@ -6419,16 +7948,26 @@ function waitForPrepareCompletion() {
         if (done === true) resolve(true);
         if (done === false) resolve(false);
         const curProg = _lastPrepareProgress;
-        if (typeof curProg === "number" && curProg === lastProgress) {
-          stallCount++;
+        const sig = _lastPrepareSignature;
+        const progressed =
+          sig !== lastSignature ||
+          (typeof curProg === "number" && curProg > lastProgress + 0.01);
+        if (progressed) {
+          stallMs = 0;
+          lastSignature = sig;
+          if (typeof curProg === "number") lastProgress = curProg;
         } else {
-          stallCount = 0;
-          lastProgress = curProg;
+          stallMs += pollMs;
         }
-        if (stallCount > 450) {
+        const stallLimitMs = prepareStallPollLimitMs(_lastPreparePhase);
+        if (stallMs > stallLimitMs) {
           stopPreparePoll();
           setSetupLoading(false);
-          alert("환경 준비가 6분 이상 진행되지 않고 있습니다. 에이전트를 재시작하고 다시 시도해 주세요.");
+          const stallMin = Math.round(stallLimitMs / 60000);
+          alert(
+            `환경 준비가 ${stallMin}분 이상 진행 표시가 없습니다.\n` +
+              "에이전트 트레이를 완전히 종료한 뒤 다시 실행하고 「환경 준비」를 시도해 주세요.",
+          );
           resolve(false);
         }
       } catch (err) {
@@ -6559,10 +8098,15 @@ async function pollTranscribeStatus() {
       waveform_peaks: data.waveform_peaks,
       media_timing: data.media_timing,
       preview_media_path: data.preview_media_path,
+      cues_json_path: data.cues_json_path,
       program_master_path: data.program_master_path,
       program_duration_sec: data.program_duration_sec,
       program_master_probe_ok: data.program_master_probe_ok,
       bake_level: data.bake_level,
+      stable_ts_align: data.stable_ts_align,
+      stable_ts_stats: data.stable_ts_stats,
+      line_mode: data.line_mode,
+      snap_grid: data.snap_grid,
     });
     return true;
   }
@@ -6583,7 +8127,7 @@ async function pollTranscribeStatus() {
  *
  * @param {unknown[]} rawCues
  * @param {number} [durationSecHint]
- * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null, program_master_path?: string | null, program_duration_sec?: number | null, program_master_probe_ok?: boolean | null, bake_level?: string | null }} [transcribeMeta]
+ * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null, program_master_path?: string | null, program_duration_sec?: number | null, program_master_probe_ok?: boolean | null, bake_level?: string | null, snap_grid?: object | null, line_mode?: boolean | null }} [transcribeMeta]
  */
 async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}) {
   subtitleHub.gapFillWhenBuildingVrew = false;
@@ -6597,11 +8141,11 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
   });
 
   try {
+    applyTranscribePreviewPath(transcribeMeta);
     if (transcribeMeta.media_timing) {
       setSessionMediaTiming(transcribeMeta.media_timing);
       const mt = transcribeMeta.media_timing;
-      const previewPath =
-        transcribeMeta.preview_media_path || mt.preview_media_path || "";
+      const previewPath = resolveTranscribeCfrPreviewPath(transcribeMeta);
       if (previewPath) {
         setSessionPreviewMediaPath(previewPath);
       }
@@ -6645,12 +8189,14 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
     const inlinePeaks = transcribeMeta?.waveform_peaks_json;
     if (inlinePeaks && resolvePeaksTimelineMetrics(inlinePeaks, dur ?? undefined)) {
       peaksPayload = inlinePeaks;
+      peaksSourceMediaPath =
+        resolveTranscribeCfrPreviewPath(transcribeMeta) ||
+        normalizeAgentMediaPath(transcribeMeta?.preview_media_path || "") ||
+        "";
     } else {
       const videoPath =
-        getSessionPreviewMediaPath() ||
-        transcribeMeta.preview_media_path ||
-        transcribeMeta.media_timing?.preview_media_path ||
-        videoPathInput?.value?.trim();
+        resolveTranscribeCfrPreviewPath(transcribeMeta) ||
+        (await resolveWaveformPeaksMediaPath());
       if (videoPath && agentConnected) {
         try {
           const result = await loadWaveformPeaksForMedia(
@@ -6659,6 +8205,7 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
           );
           if (result.metrics) {
             peaksPayload = result.payload;
+            peaksSourceMediaPath = videoPath;
           } else {
             console.warn("waveform-peaks post-transcribe", result.error || "invalid_peaks");
           }
@@ -6705,9 +8252,13 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
         : null;
     subtitleHub.ingestFromTranscribe(rawCues, {
       gapFill: false,
+      lineMode: true,
       peaksMetrics,
       whisperDurationSec: whisperDurForScale > 0 ? whisperDurForScale : null,
       mediaTiming: transcribeMeta.media_timing ?? null,
+      snapGrid:
+        transcribeMeta.snap_grid ||
+        (peaksMetrics ? buildSnapGridFromPeaksMetrics(peaksMetrics) : buildSnapGridFromPeaksPayload(peaksPayload)),
     });
     logMediaTimingAvSnapshot("post-ingest", transcribeMeta.media_timing, {
       peaks_sec: peaksDurForScale > 0 ? peaksDurForScale : null,
@@ -6723,9 +8274,10 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
       /* ignore */
     }
     const previewPath =
-      transcribeMeta.preview_media_path || getSessionPreviewMediaPath();
+      resolveTranscribeCfrPreviewPath(transcribeMeta) || getSessionPreviewMediaPath();
     if (previewPath) {
       setSessionPreviewMediaPath(previewPath);
+      failedPreviewMediaPaths.delete(previewPath);
     }
     if (subtitleHub.blocks?.length) {
       await ensureProgramMasterAfterIngest(transcribeMeta);
@@ -6734,8 +8286,10 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
         normalized: transcribeMeta.media_timing?.normalized ?? null,
       });
     } else if (previewPath) {
-      await updatePreview(previewPath);
-      await refreshSessionMediaTimingFromAgent(previewPath);
+      await updatePreview(previewPath, {
+        useTranscribeShell: true,
+        requirePreviewLoad: true,
+      });
     } else {
       const exportPath = videoPathInput?.value?.trim();
       if (exportPath) await refreshSessionMediaTimingFromAgent(exportPath);
@@ -6743,7 +8297,10 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
     if (!isPreviewPlaybackReady() && subtitleHub.blocks?.length) {
       const recovered = await ensurePreviewPlaybackReadyAfterIngest(transcribeMeta);
       if (!recovered) {
-        throw new Error("미리보기(CFR + programClips)가 준비되지 않았습니다.");
+        mediaTimingDiagWarn("preview not ready after transcribe — cues kept", {
+          preview: getSessionPreviewMediaPath(),
+          clips: getProgramSegmentTimelineClips().length,
+        });
       }
     }
     renderCuesTable(lastCues);
@@ -6774,7 +8331,7 @@ async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMet
 }
 
 async function runTranscribe() {
-  const videoPath = videoPathInput?.value?.trim();
+  const videoPath = getActiveVideoSourcePath();
   if (!videoPath) {
     alert("영상·오디오 파일을 선택하세요.");
     return;
@@ -6820,7 +8377,9 @@ async function runTranscribe() {
         language: lang,
         beam_size: 5,
         vad_filter: true,
-        rms_vad_align: true,
+        stable_ts_align: false,
+        rms_vad_align: false,
+        line_mode: true,
         whisper_audio_path: mediaContract.whisper_audio_path,
         media_timing_contract: mediaContract,
       },
@@ -6891,7 +8450,7 @@ function buildExportPayload(fmt) {
 }
 
 function buildProjectJson() {
-  return JSON.stringify({
+  const base = {
     format: "autosubtitle-project",
     version: 2,
     videoPath: videoPathInput?.value?.trim() || null,
@@ -6901,7 +8460,11 @@ function buildProjectJson() {
     subtitleStyle: readSubtitleStyleFromDom(),
     watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     subtitles: lastCues,
-  }, null, 2);
+  };
+  if (LINE_MODE_ONLY) {
+    base.lineMode = buildLineModeProjectSection(subtitleHub.snapGrid);
+  }
+  return JSON.stringify(base, null, 2);
 }
 
 async function saveProject() {
@@ -7394,7 +8957,7 @@ async function runExport() {
       message: "CFR 미디어 확인…",
       progress: 2,
     });
-    const previewPath = await ensureSessionPreviewMediaPath();
+    const previewPath = await ensureSessionPreviewMediaPath({ prepareCfr: true });
     if (!previewPath) {
       setExportLoading(false);
       showExportError(
@@ -7524,6 +9087,9 @@ function buildDownloadReturnSnapshot(filePath, fmt) {
       hardDeletedMediaSkips: subtitleHub.hardDeletedMediaSkips || [],
       blocks: subtitleHub.blocks?.length ? subtitleHub.blocks : [],
       subtitles: lastCues,
+      ...(LINE_MODE_ONLY
+        ? { lineMode: buildLineModeProjectSection(subtitleHub.snapGrid) }
+        : {}),
     },
   };
 }
@@ -7652,16 +9218,34 @@ function detachPreviewMasterAudio() {
 }
 
 function updatePreview(videoPath, opts = {}) {
-  if (!getPv() || !previewSection) return Promise.resolve();
-  stopPlaybackLoop();
-  setPreviewPlaybackUiActive(false);
-  detachPreviewMasterAudio();
-  const p = String(videoPath || "").trim();
-  const loadGen = ++previewMediaLoadGen;
-  releasePreviewMediaBlob();
+  return updatePreviewInner(videoPath, opts);
+}
+
+async function updatePreviewInner(videoPath, opts = {}) {
+  if (!getPv() || !previewSection) return;
   const useTranscribeShell =
     opts.useTranscribeShell === true ||
     (opts.useTranscribeShell !== false && isTranscribeLoadingUiActive());
+  if (shouldDeferPreviewMediaLoad({ ...opts, useTranscribeShell })) {
+    return;
+  }
+  stopPlaybackLoop();
+  setPreviewPlaybackUiActive(false);
+  detachPreviewMasterAudio();
+
+  let p = normalizeAgentMediaPath(videoPath);
+  if (hasCorruptMediaPathChars(p) || isBrowserLocalMediaPath(p)) {
+    p = "";
+  }
+  if (!p || !isWorkspacePreviewMediaPath(p)) {
+    const stable = opts._stablePath
+      ? normalizeAgentMediaPath(opts._stablePath)
+      : await resolvePreviewMediaPathSsot();
+    if (stable) p = stable;
+  }
+
+  const loadGen = ++previewMediaLoadGen;
+  releasePreviewMediaBlob();
 
   if (!p || !agentConnected) {
     clearProgramPlaybackSession();
@@ -7675,15 +9259,23 @@ function updatePreview(videoPath, opts = {}) {
     updatePreviewOverlay();
     updatePreviewWatermark();
     updatePreviewTransportUi();
-    return Promise.resolve();
+    return;
   }
 
-  void refreshSessionMediaTimingFromAgent(getSessionPreviewMediaPath() || p);
+  if (!p || !isWorkspaceMediaPath(p)) {
+    console.warn(
+      "[auto-subtitle] 미리보기 CFR 없음 — 찾아보기로 영상을 다시 선택하거나 에이전트 재시작 후 새로고침",
+    );
+    if (!useTranscribeShell) setPreviewMediaLoading(false);
+    if (previewEmpty) {
+      previewEmpty.hidden = false;
+      previewEmpty.textContent = "미리보기 준비 실패 — 찾아보기로 영상을 다시 선택하세요.";
+    }
+    return;
+  }
 
-  const directUrl = buildAgentResourceUrl(
-    `${TOOL_PREFIX}/media/stream?video_path=${encodeURIComponent(p)}`,
-  );
-  previewMediaDirectUrl = directUrl;
+  setSessionPreviewMediaPath(p);
+  previewMediaDirectUrl = `post:${TOOL_PREFIX}:${p}`;
   if (previewEmpty) {
     previewEmpty.hidden = false;
     previewEmpty.textContent = "미디어 불러오는 중…";
@@ -7707,7 +9299,9 @@ function updatePreview(videoPath, opts = {}) {
   previewMediaLoadAbort = new AbortController();
   const { signal } = previewMediaLoadAbort;
 
-  return resolveAgentMediaObjectUrl(directUrl, {
+  return resolveAgentMediaObjectUrl("", {
+    videoPath: p,
+    toolPrefix: TOOL_PREFIX,
     signal,
     onAttempt(attempt) {
       if (attempt > 1 && !useTranscribeShell) {
@@ -7776,15 +9370,32 @@ function updatePreview(videoPath, opts = {}) {
         });
       };
     })
-    .catch((err) => {
+    .catch(async (err) => {
       if (loadGen !== previewMediaLoadGen) return;
       if (err instanceof DOMException && err.name === "AbortError") {
         if (!useTranscribeShell) setPreviewMediaLoading(false);
         return;
       }
+      if (shouldSuppressPreviewMediaErrorUi() && !opts.requirePreviewLoad) {
+        return;
+      }
+      const errText = String(err?.message || err || "");
+      const isMissingMedia = isMissingAgentMediaError(err);
+      if (isMissingMedia) {
+        clearStaleAgentMediaPath(p);
+        if (!opts._previewRecovered) {
+          try {
+            const rebuilt = await resolvePreviewMediaPathSsot();
+            if (rebuilt && rebuilt !== p && !failedPreviewMediaPaths.has(rebuilt)) {
+              return updatePreview(rebuilt, { ...opts, _previewRecovered: true });
+            }
+          } catch {
+            /* fall through to error UI */
+          }
+        }
+      }
       console.warn("[auto-subtitle] preview media load", err);
       previewBridge.clearMedia();
-      const errText = String(err?.message || err || "");
       const lenMismatch = /CONTENT_LENGTH_MISMATCH|length mismatch|미디어 파일이 비어/i.test(
         errText,
       );
@@ -7794,14 +9405,18 @@ function updatePreview(videoPath, opts = {}) {
           ? "미디어 파일이 손상되었거나 아직 생성 중입니다."
           : "미디어를 불러올 수 없습니다.";
       }
-      if (useTranscribeShell) return;
-      setPreviewMediaLoading(true, {
-        title: "미리보기 불러오기 실패",
-        message: lenMismatch
-          ? "미디어 파일이 손상되었거나 아직 생성 중입니다.\nFFmpeg 보내기가 끝난 뒤 다시 열거나, 원본 영상 경로를 다시 선택해 주세요."
-          : `${formatAgentConnectionError(err) || "미디어를 불러올 수 없습니다."}\nChrome 사이트 설정에서 「로컬 네트워크」를 허용했는지 확인해 주세요.`,
-        showOk: true,
-      });
+      if (useTranscribeShell && !opts.requirePreviewLoad) return;
+      if (!useTranscribeShell) {
+        setPreviewMediaLoading(true, {
+          title: "미리보기 불러오기 실패",
+          message: lenMismatch
+            ? "미디어 파일이 손상되었거나 아직 생성 중입니다.\nFFmpeg 보내기가 끝난 뒤 다시 열거나, 영상 경로를 다시 선택해 주세요."
+            : isMissingMedia
+              ? `에이전트가 영상 파일을 찾지 못했습니다.\n「찾아보기」로 실제 존재하는 mp4를 다시 선택해 주세요.`
+              : `${formatAgentConnectionError(err) || "미디어를 불러올 수 없습니다."}\nChrome 사이트 설정에서 「로컬 네트워크」를 허용했는지 확인해 주세요.`,
+          showOk: true,
+        });
+      }
       layoutPreviewMediaFrame();
       updatePreviewOverlay();
       updatePreviewTransportUi();
@@ -7861,7 +9476,7 @@ async function onPickLocalFile() {
   let shouldTranscribe = false;
 
   try {
-    const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-file`, {
+    const res = await fetchAgent(`${getAgentOrigin()}${AGENT_PICK_SUBTITLE_MEDIA}`, {
       method: "POST",
       headers: { Accept: "application/json" },
       signal: ctrl.signal,
@@ -7875,25 +9490,26 @@ async function onPickLocalFile() {
       return;
     }
 
-    const path =
-      data && typeof data === "object"
-        ? String(data.video_path || data.path || "").trim()
-        : "";
+    const path = normalizeAgentMediaPath(
+      data && typeof data === "object" ? data.video_path || data.path || "" : "",
+    );
     if (!path) return;
     if (!videoPathInput) return;
 
     const prev = sessionVideoPath || videoPathInput.value.trim();
-    if (path !== prev) {
+    if (path && path !== prev) {
       clearSubtitleWorkspace();
     }
-    sessionVideoPath = path;
-    videoPathInput.value = path;
-    try {
-      sessionStorage.setItem(STORAGE_VIDEO_PATH, path);
-    } catch {
-      /* ignore */
+    applyAgentSourcePathFromServer(path);
+    let previewPath = await resolvePreviewMediaPathSsot();
+    if (!previewPath && path && agentConnected) {
+      previewPath = await ensureCfrPreviewFromSource(path);
     }
-    updatePreview(path);
+    if (!previewPath) {
+      alert("미리보기 CFR 생성에 실패했습니다. 에이전트 로그를 확인하거나 영상을 다시 선택하세요.");
+      return;
+    }
+    await updatePreview(previewPath, { _stablePath: previewPath });
     updatePreviewWatermark();
     updateActionButtons();
     loadWaveformPeaks();
@@ -7924,6 +9540,16 @@ async function onPickLocalFile() {
 
 function restoreSession() {
   restoreSessionPreviewMediaPathFromStorage();
+  try {
+    const rawVp = sessionStorage.getItem(STORAGE_VIDEO_PATH) || "";
+    if (rawVp && hasCorruptMediaPathChars(rawVp)) {
+      sessionStorage.removeItem(STORAGE_VIDEO_PATH);
+      if (videoPathInput) videoPathInput.value = "";
+      sessionVideoPath = "";
+    }
+  } catch {
+    /* ignore */
+  }
   const returningFromDownload = sessionStorage.getItem(STORAGE_RETURN_FROM_DL) === "1";
   if (returningFromDownload) {
     sessionStorage.removeItem(STORAGE_RETURN_FROM_DL);
@@ -7937,11 +9563,17 @@ function restoreSession() {
       }
 
       const project = snapshot?.project;
-      const vp =
-        project?.videoPath || sessionStorage.getItem(STORAGE_VIDEO_PATH) || "";
+      const vp = normalizeAgentMediaPath(
+        project?.videoPath || sessionStorage.getItem(STORAGE_VIDEO_PATH) || "",
+      );
       if (vp) {
         if (videoPathInput) videoPathInput.value = vp;
         sessionVideoPath = vp;
+        try {
+          sessionStorage.setItem(STORAGE_VIDEO_PATH, vp);
+        } catch {
+          /* ignore */
+        }
       }
 
       const previewFromSnap = String(snapshot?.previewMediaPath || "").trim();
@@ -7995,6 +9627,10 @@ function restoreSession() {
     sessionStorage.removeItem(STORAGE_CUTS);
     sessionStorage.removeItem(STORAGE_VIDEO_PATH);
     sessionStorage.removeItem(STORAGE_DL_RESTORE);
+    setSessionPreviewMediaPath(null);
+    sessionVideoPath = "";
+    failedPreviewMediaPaths.clear();
+    if (videoPathInput) videoPathInput.value = "";
   } catch {
     /* ignore */
   }
@@ -8005,23 +9641,26 @@ function restoreSession() {
  * @returns {Promise<string | null>}
  */
 async function resolveEditorPreviewMediaPath() {
-  const cached = getSessionPreviewMediaPath();
-  if (cached) return cached;
-  if (!agentConnected || !sessionVideoPath) return null;
-  try {
-    return (await ensureSessionPreviewMediaPath()) || null;
-  } catch {
-    return null;
-  }
+  const stable = await resolvePreviewMediaPathSsot();
+  if (!stable || failedPreviewMediaPaths.has(stable)) return null;
+  setSessionPreviewMediaPath(stable);
+  failedPreviewMediaPaths.delete(stable);
+  return stable;
 }
 
 /** 에이전트 연결·세션 복원 후 CFR preview 로드 + download 복귀 playhead 적용 */
 async function ensureEditorPreviewMediaIfNeeded() {
   if (!agentConnected) return;
+  if (shouldDeferPreviewMediaLoad()) return;
   if (!getPv() || getPv().src) return;
-  if (!sessionVideoPath && !getSessionPreviewMediaPath()) return;
+  const src = getActiveVideoSourcePath();
+  const cachedPreview = getSessionPreviewMediaPath();
+  const hasBlocks = Boolean(subtitleHub.blocks?.length);
+  if (!src && !cachedPreview && !hasBlocks) return;
+  if (src && failedPreviewMediaPaths.has(src)) return;
+  if (cachedPreview && failedPreviewMediaPaths.has(cachedPreview)) return;
   const previewPath = await resolveEditorPreviewMediaPath();
-  if (!previewPath) return;
+  if (!previewPath || failedPreviewMediaPaths.has(previewPath)) return;
   await updatePreview(previewPath);
   if (downloadReturnRestorePending) {
     await completeDownloadReturnRestore();
@@ -8124,6 +9763,54 @@ btnGpuInstallRun?.addEventListener("click", (e) => {
   void runGpuRuntimeInstall();
 });
 
+const subtitleFindReplace = initSubtitleFindReplace({
+  getCues: () => lastCues,
+  hasCues: () => lastCues.length > 0,
+  getListContainer: () => subtitleList,
+  captureEdits: () => {
+    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+  },
+  applyChange: (updater) => {
+    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
+    subtitleHub.applySubtitleChange(updater);
+    renderCuesTable(lastCues);
+    updatePreviewOverlay();
+  },
+  focusMatch: (match) => {
+    const cueIndex = match.cueIndex;
+    const cue = lastCues[cueIndex];
+    selectCueLine(cueIndex, { scroll: false, seek: false, rerender: false });
+    if (subtitleList) {
+      scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), cueIndex, {
+        behavior: "smooth",
+      });
+      const card = subtitleList.querySelector(`.subtitle-card[data-cue-index="${cueIndex}"]`);
+      const ta = card?.querySelector(".subtitle-card-textarea");
+      if (ta instanceof HTMLTextAreaElement) {
+        ta.focus();
+        const end = match.pos + match.len;
+        ta.setSelectionRange(match.pos, end);
+        const lineH = parseInt(getComputedStyle(ta).lineHeight, 10) || 20;
+        const before = ta.value.slice(0, match.pos);
+        const lines = before.split("\n").length - 1;
+        ta.scrollTop = Math.max(0, lines * lineH - ta.clientHeight * 0.3);
+        const layer = card.querySelector(".subtitle-find-text-layer");
+        if (layer instanceof HTMLElement) {
+          syncFindHighlightLayerToTextarea(layer, ta);
+        }
+      }
+    }
+    if (cue && getPv() && Number.isFinite(cue.start)) {
+      seekPreviewToSourceSec(Number(cue.start), { commitUi: false });
+    }
+    commitPlayheadUi();
+    if (subtitleList) {
+      patchSelectedCueHighlight(subtitleList, selectedCueIndex, cueIndex);
+    }
+    selectedCueIndex = cueIndex;
+  },
+});
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && subtitleFindReplace.handleEscape()) return;
   if (e.key !== "Escape") return;
@@ -8149,7 +9836,7 @@ document.addEventListener("keydown", (e) => {
   //   target?.tagName ?? "null", e.timeStamp, performance.now());
   e.preventDefault();
   if (!getPv()) return;
-  if (toggleExpandedWordWaveformPlayback()) return;
+  if (toggleExpandedWaveformPlayback()) return;
   togglePreviewPlayback();
 });
 
@@ -8189,6 +9876,14 @@ btnFindReplace?.addEventListener("click", () => {
   subtitleFindReplace.open();
 });
 
+btnLineReflow?.addEventListener("click", () => {
+  void runLineReflow();
+});
+
+btnWordValleyAlign?.addEventListener("click", () => {
+  void onWordValleyAlignClick();
+});
+
 btnWordAutoAlign?.addEventListener("click", () => {
   void onWordAutoAlignClick();
 });
@@ -8206,7 +9901,8 @@ btnDownloadResult?.addEventListener("click", () => openDownload(lastExportPath))
 btnShowExportFolder?.addEventListener("click", () => showExportResultInFolder(lastExportPath));
 
 videoPathInput?.addEventListener("input", () => {
-  const p = videoPathInput?.value?.trim() || "";
+  const p = normalizeAgentMediaPath(videoPathInput?.value || "");
+  failedPreviewMediaPaths.delete(p);
   if (p !== sessionVideoPath) {
     if (sessionVideoPath || lastCues.length) clearSubtitleWorkspace();
     sessionVideoPath = p;
@@ -8217,7 +9913,10 @@ videoPathInput?.addEventListener("input", () => {
       /* ignore */
     }
   }
-  updatePreview(p);
+  void (async () => {
+    const stable = await resolvePreviewMediaPathSsot();
+    if (stable) await updatePreview(stable);
+  })();
   updatePreviewWatermark();
   updateActionButtons();
 });
@@ -8305,9 +10004,12 @@ wirePreviewStackAudioEvents(previewAudioEl);
 wirePreviewStackAudioEvents(document.getElementById("preview-audio-b"));
 
 styleFontFamily?.addEventListener("change", () => {
+  const family = styleFontFamily?.value?.trim();
+  if (family) setActiveFontFamilySsot(family, { pin: true });
   syncFontSelectTitle();
-  void ensureCustomFontsLoaded(customFontCatalog, styleFontFamily?.value || "");
+  void ensureCustomFontsLoaded(customFontCatalog, family || "");
   updatePreviewOverlay();
+  flushFontFamilyPreference();
 });
 
 bindStyleControl("style-font-size-range", styleFontSizeOut, (el) => `${el.value}px`);
@@ -8323,7 +10025,7 @@ styleBgColor?.addEventListener("input", () => updatePreviewOverlay());
 
 attachUserPreferencesAutosave();
 
-populateFontSelect(SYSTEM_FONT_CANDIDATES);
+bootstrapFontSelect();
 loadAndApplyUserPreferences();
 syncWordAlignButtonState();
 
@@ -8334,30 +10036,72 @@ updatePreviewOverlay();
 updatePreviewWatermark();
 updatePreviewTransportUi();
 
-startConnectionMonitor({
-  onChange: async (connected, detail) => {
+let agentFontCatalogHydrated = false;
+
+const connectionMonitor = startConnectionMonitor({
+  intervalMs: 1500,
+  onChange: (connected, detail) => {
     const longOp = isAgentLongOperationActive();
     const apiReady = detail?.apiReady !== false;
+    const fastapiState = detail?.fastapiState || "";
+    const fastapiError = detail?.fastapiError || "";
+    const wasConnected = agentConnected;
     agentConnected = connected && (apiReady || longOp);
     const connEl = document.getElementById("connection-status");
     applyConnectionStatusDot(connEl, connected, { ...detail, longOp });
     connEl?.classList.toggle("is-connected", agentConnected);
+    const computeEl = document.getElementById("compute-capability");
+    if (connected && !apiReady && !longOp) {
+      const pendingLabel =
+        fastapiState === "failed"
+          ? "API 시작 실패"
+          : fastapiState === "warming"
+            ? "API 로딩 중…"
+            : "API 준비 중…";
+      const pendingTitle = fastapiError
+        ? fastapiError
+        : fastapiState === "failed"
+          ? "트레이에서 에이전트를 재시작하세요. (로그: ProgramData\\itmatzip-agent\\logs)"
+          : "FastAPI가 시작 중입니다. 자동 재시도 중…";
+      setComputeCapabilityPending(computeEl, pendingLabel, pendingTitle);
+    } else if (!connected) {
+      setComputeCapabilityPending(
+        computeEl,
+        "연산 장치 확인 불가",
+        "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.",
+      );
+    }
+    if (!agentConnected) {
+      agentFontCatalogHydrated = false;
+    }
     if (agentConnected) {
-      await fetchReadiness();
-      await loadSystemFontsFromAgent();
-      await ensureEditorPreviewMediaIfNeeded();
-    } else {
-      toolReady = false;
-      if (binReadiness) {
-        binReadiness.textContent = connected && !apiReady
-          ? (longOp ? "Auto Subtitle · 작업 중…" : "Auto Subtitle · API 준비 중…")
-          : `${LOCAL_HELPER_NAME} 연결 필요`;
-      }
+      const shouldHydrateFonts = !agentFontCatalogHydrated || (!wasConnected && agentConnected);
+      void (async () => {
+        await fetchReadiness();
+        if (shouldHydrateFonts) {
+          await loadSystemFontsFromAgent();
+          agentFontCatalogHydrated = true;
+        }
+        await ensureEditorPreviewMediaIfNeeded();
+        updateActionButtons();
+      })();
+      return;
+    }
+    toolReady = false;
+    if (binReadiness) {
+      binReadiness.textContent = connected && !apiReady
+        ? (longOp ? "Auto Subtitle · 작업 중…" : "Auto Subtitle · API 준비 중…")
+        : `${LOCAL_HELPER_NAME} 연결 필요`;
     }
     updateActionButtons();
   },
   autoShowInstallDialog: true,
   installDialogOptions: installDialogOpts(),
+});
+
+window.addEventListener("focus", () => void connectionMonitor.refresh());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void connectionMonitor.refresh();
 });
 
 startAgentEventStream({
@@ -8396,54 +10140,6 @@ previewVideoEl?.addEventListener("loadeddata", () => {
 
 void showAdSense("editorBelowExport", "#editor-ad-preview-pane");
 void showAdSense("editorAboveWorkspace", "#editor-ad-subtitle-pane");
-
-const subtitleFindReplace = initSubtitleFindReplace({
-  getCues: () => lastCues,
-  hasCues: () => lastCues.length > 0,
-  getListContainer: () => subtitleList,
-  captureEdits: () => {
-    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
-  },
-  applyChange: (updater) => {
-    if (subtitleList) captureTextareaEditsIntoCues(subtitleList, lastCues);
-    subtitleHub.applySubtitleChange(updater);
-    renderCuesTable(lastCues);
-    updatePreviewOverlay();
-  },
-  focusMatch: (match) => {
-    const cueIndex = match.cueIndex;
-    const cue = lastCues[cueIndex];
-    selectCueLine(cueIndex, { scroll: false, seek: false, rerender: false });
-    if (subtitleList) {
-      scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), cueIndex, {
-        behavior: "smooth",
-      });
-      const card = subtitleList.querySelector(`.subtitle-card[data-cue-index="${cueIndex}"]`);
-      const ta = card?.querySelector(".subtitle-card-textarea");
-      if (ta instanceof HTMLTextAreaElement) {
-        ta.focus();
-        const end = match.pos + match.len;
-        ta.setSelectionRange(match.pos, end);
-        const lineH = parseInt(getComputedStyle(ta).lineHeight, 10) || 20;
-        const before = ta.value.slice(0, match.pos);
-        const lines = before.split("\n").length - 1;
-        ta.scrollTop = Math.max(0, lines * lineH - ta.clientHeight * 0.3);
-        const layer = card.querySelector(".subtitle-find-text-layer");
-        if (layer instanceof HTMLElement) {
-          syncFindHighlightLayerToTextarea(layer, ta);
-        }
-      }
-    }
-    if (cue && getPv() && Number.isFinite(cue.start)) {
-      seekPreviewToSourceSec(Number(cue.start), { commitUi: false });
-    }
-    commitPlayheadUi();
-    if (subtitleList) {
-      patchSelectedCueHighlight(subtitleList, selectedCueIndex, cueIndex);
-    }
-    selectedCueIndex = cueIndex;
-  },
-});
 
 document.addEventListener(
   "pointerdown",
@@ -8610,6 +10306,9 @@ function autoSubtitleDownloadDiagLogs(filename, opts = {}) {
     } catch {
       extra.burnInPipeline = null;
     }
+  }
+  if (typeof window !== "undefined" && window.__lastValleyAlign) {
+    extra.lastValleyAlign = window.__lastValleyAlign;
   }
   const name =
     filename ||

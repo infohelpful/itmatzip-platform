@@ -16,10 +16,10 @@ import {
   normalizeCuesFromAgent,
   applyLeadingSilenceSplitOnly,
   repairCueLinesWordTimelines,
-} from "../shared/cues-ssot.js?v=39";
+} from "../shared/cues-ssot.js?v=40";
 import { anchorSourceTimesIfMissing } from "../shared/dual-axis.js?v=1";
 import { commitSubtitleLinesThroughTimeline } from "../shared/sentence-token-timeline-adapter.js?v=4";
-import { syncAllSubtitleLinesFromWords } from "../shared/subtitles.js?v=24";
+import { syncAllSubtitleLinesFromWords, syncSubtitleLineFromWords } from "../shared/subtitles.js?v=24";
 import { reconcileAllCuesWordsToLineText } from "../subtitle-words.js?v=24";
 import {
   blocksMeaningfullyChanged,
@@ -37,6 +37,8 @@ import {
   applySoftDeleteWordRangeOnBlocks,
   mergeBlocksAt as spliceMergeBlocksAt,
 } from "../shared/block-word-edit-ops.js?v=2";
+import { splitCueByEnter, splitCueAtMediaSec } from "../shared/line-mode/cue-ops.js?v=7";
+import { reflowCuesSkipUserMoved } from "../shared/line-mode/reflow.js?v=2";
 import {
   mergeEmptyBlockWithPrevious,
   spliceSplitBlockAtTextCursor,
@@ -120,6 +122,8 @@ export class SubtitleAppHub {
     this.gapFillWhenBuildingVrew = false;
     /** @type {number | null} transcribe Whisper info.duration — pcm timeline_sec 와 비교용 */
     this.transcribeWhisperDurationSec = null;
+    /** @type {import("../shared/line-mode/snap-engine.js").ReturnType<import("../shared/line-mode/snap-engine.js").buildSnapGridFromPeaks> | null} */
+    this.snapGrid = null;
     /** @type {SubtitleHistoryEntry[]} */
     this._undoStack = [];
     /** @type {SubtitleHistoryEntry[]} */
@@ -362,6 +366,73 @@ export class SubtitleAppHub {
   }
 
   /**
+   * Line Mode v4 — Enter 분할 (hint midpoint, userMoved=false).
+   * @param {number} blockIndex
+   * @param {number} wordIndex
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  splitLineCueAtWordIndex(blockIndex, wordIndex, opts = {}) {
+    let didSplit = false;
+    this.applySubtitleChange(
+      (lines) => {
+        const cue = lines[blockIndex];
+        if (!cue) return lines;
+        const parts = splitCueByEnter(cue, wordIndex);
+        if (parts.length < 2) return lines;
+        didSplit = true;
+        const next = lines.slice();
+        next.splice(
+          blockIndex,
+          1,
+          ...parts.map((part) => syncSubtitleLineFromWords(part)),
+        );
+        return next;
+      },
+      { ...opts, forceCommit: true },
+    );
+    return didSplit;
+  }
+
+  /**
+   * Line Mode — 재생 라인 시각에서 줄 분할.
+   * @param {number} blockIndex
+   * @param {number} splitMediaSec
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  splitLineCueAtMediaSec(blockIndex, splitMediaSec, opts = {}) {
+    let didSplit = false;
+    this.applySubtitleChange(
+      (lines) => {
+        const cue = lines[blockIndex];
+        if (!cue) return lines;
+        const parts = splitCueAtMediaSec(cue, splitMediaSec);
+        if (parts.length < 2) return lines;
+        didSplit = true;
+        const next = lines.slice();
+        next.splice(
+          blockIndex,
+          1,
+          ...parts.map((part) => syncSubtitleLineFromWords(part)),
+        );
+        return next;
+      },
+      { ...opts, forceCommit: true },
+    );
+    return didSplit;
+  }
+
+  /**
+   * Line Mode Phase C — userMoved cue 유지 후 줄 재정리.
+   * @param {"horizontal" | "vertical"} [mode]
+   * @param {{ recordHistory?: boolean }} [opts]
+   */
+  reflowLineMode(mode = "horizontal", opts = {}) {
+    const next = reflowCuesSkipUserMoved(this.cues, mode);
+    this.setCues(next, opts);
+    return true;
+  }
+
+  /**
    * @param {number} blockIndex
    * @param {readonly number[]} breakAfterStorageIndices
    * @param {{ recordHistory?: boolean }} [opts]
@@ -523,14 +594,14 @@ export class SubtitleAppHub {
   /**
    * A) Mutating
    * @param {(prev: import("../shared/subtitles.js").SubtitleLine[]) => import("../shared/subtitles.js").SubtitleLine[]} updater
-   * @param {{ recordHistory?: boolean, afterCommit?: (hub: SubtitleAppHub) => void }} [opts]
+   * @param {{ recordHistory?: boolean, afterCommit?: (hub: SubtitleAppHub) => void, forceCommit?: boolean }} [opts]
    */
   applySubtitleChange(updater, opts = {}) {
     const recordHistory = opts.recordHistory !== false;
     const prev = this._snapshot();
     const prevLines = this.cues;
     const next = updater(prevLines);
-    if (!cuesMeaningfullyChanged(prevLines, next)) return;
+    if (!opts.forceCommit && !cuesMeaningfullyChanged(prevLines, next)) return;
     const nextLines = this._commitLines(next);
     const nextBlocks = subtitleLinesToBlocks(nextLines, { preserveIds: this.blocks });
     this._commitBlocks(nextBlocks);
@@ -572,7 +643,7 @@ export class SubtitleAppHub {
 
   /**
    * @param {unknown} raw
-   * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null }} [opts]
+   * @param {{ gapFill?: boolean, lineMode?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null, snapGrid?: object | null }} [opts]
    */
   ingestFromTranscribe(raw, opts = {}) {
     this.cutRanges = [];
@@ -581,6 +652,9 @@ export class SubtitleAppHub {
     this.gapFillWhenBuildingVrew = false;
     this._undoStack = [];
     this._redoStack = [];
+    if (opts.snapGrid) {
+      this.snapGrid = opts.snapGrid;
+    }
     const gapFill = opts.gapFill === true;
     const whisperDur =
       opts.whisperDurationSec != null && Number(opts.whisperDurationSec) > 0
@@ -589,11 +663,20 @@ export class SubtitleAppHub {
     this.transcribeWhisperDurationSec = whisperDur;
     const lines = postProcessCuesAfterTranscribe(normalizeCuesFromAgent(raw), {
       gapFill,
+      lineMode: opts.lineMode,
       peaksMetrics: opts.peaksMetrics ?? null,
       whisperDurationSec: whisperDur,
       mediaTiming: opts.mediaTiming ?? null,
     });
     this.setCues(lines, { recordHistory: false });
+  }
+
+  /**
+   * @param {object | null} grid
+   */
+  setSnapGrid(grid) {
+    this.snapGrid = grid;
+    this._notify();
   }
 
   /**
@@ -628,6 +711,9 @@ export class SubtitleAppHub {
       this._derivedCues = null;
       this.cutRanges = cutRanges;
       this.hardDeletedMediaSkips = JSON.parse(JSON.stringify(hardSkips));
+      if (doc.lineMode?.snapGrid) {
+        this.snapGrid = JSON.parse(JSON.stringify(doc.lineMode.snapGrid));
+      }
       this._syncVirtualTimelineDeleted();
       this._notify();
       return;
@@ -680,6 +766,7 @@ export class SubtitleAppHub {
     this.hardDeletedMediaSkips = [];
     this._undoStack = [];
     this._redoStack = [];
+    this.snapGrid = null;
     this._notify();
   }
 

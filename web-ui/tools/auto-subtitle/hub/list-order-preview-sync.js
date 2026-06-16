@@ -5,7 +5,7 @@
 import {
   getPreviewMediaBridge,
   isListOrderTransitionLocked,
-} from "./seamless-preview-stack.js?v=37";
+} from "./seamless-preview-stack.js?v=38";
 import { skipCutRangeAt } from "../playback.js?v=28";
 import { isProgramPlaybackTimeline } from "../shared/media-timing-ssot.js?v=7";
 import { programSecFromAudioSlave } from "../shared/program-clip-boundary-ssot.js";

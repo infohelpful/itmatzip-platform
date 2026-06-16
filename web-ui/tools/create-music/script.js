@@ -2,6 +2,7 @@
  * Create-Music — ACE-Step 1.5 AI 음악 생성 UI
  */
 import * as Bridge from "../common/bridge.js?v=lna15";
+import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { createMusicWaveformPlayer } from "./waveform-player.js";
@@ -527,7 +528,7 @@ async function pickAudioFile() {
   }
   const origin = Bridge.getAgentOrigin();
   try {
-    const res = await Bridge.fetchAgent(`${origin}/api/agent/pick-local-audio-file`, {
+    const res = await Bridge.fetchAgent(`${origin}${AGENT_PICK_AUDIO}`, {
       method: "POST",
       headers: { Accept: "application/json" },
     });

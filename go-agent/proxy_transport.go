@@ -10,10 +10,15 @@ import (
 )
 
 const (
-	proxyReadyCacheTTL    = 2 * time.Second
-	healthStickyMaxStreak = 120
-	watchdogBusyMinStreak = 120
-	watchdogTickInterval  = 30 * time.Second
+	proxyReadyCacheTTL        = 4 * time.Second
+	healthReportPingTimeout   = 700 * time.Millisecond
+	sidecarStartupPingTimeout = 1200 * time.Millisecond
+	sidecarStartupDeadline    = 180 * time.Second
+	watchdogTickInterval      = 30 * time.Second
+	watchdogFastTickInterval  = 3 * time.Second
+	healthStickyMaxStreak     = 120
+	sidecarStallRestart       = 90 * time.Second
+	watchdogRestartStreak     = 8
 )
 
 var defaultProxyDialer = &net.Dialer{

@@ -289,6 +289,43 @@ def _merge_aligned_segments_into_cues(
     return out
 
 
+def stable_align_delta_stats(
+    before: dict[tuple[int, int], tuple[float, float]],
+    after: list[dict[str, Any]],
+    *,
+    min_delta_sec: float = 0.008,
+) -> dict[str, Any]:
+    """align 전후 단어 시각 차이 — 체감 없음 진단용."""
+    changed = 0
+    total = len(before)
+    max_delta = 0.0
+    sum_delta = 0.0
+    for (ci, wi), (bs, be) in before.items():
+        try:
+            cue = after[ci]
+            words = cue.get("words") if isinstance(cue, dict) else None
+            if not isinstance(words, list) or wi >= len(words):
+                continue
+            w = words[wi]
+            if not isinstance(w, dict):
+                continue
+            ns = float(w.get("start", bs))
+            ne = float(w.get("end", be))
+        except (TypeError, ValueError, IndexError):
+            continue
+        delta = max(abs(ns - bs), abs(ne - be))
+        if delta >= min_delta_sec:
+            changed += 1
+            sum_delta += delta
+            max_delta = max(max_delta, delta)
+    return {
+        "words_total": total,
+        "words_changed": changed,
+        "max_delta_ms": round(max_delta * 1000.0, 1),
+        "mean_delta_ms": round((sum_delta / changed * 1000.0) if changed else 0.0, 1),
+    }
+
+
 def apply_stable_align_words(
     cues: list[dict[str, Any]],
     audio_path: str,
@@ -297,24 +334,26 @@ def apply_stable_align_words(
     language: str | None,
     model_path: str,
     failure_threshold: float = FAILURE_THRESHOLD,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
     stable-ts align_words — soft fallback: import/런타임 실패 시 cues 그대로 반환.
     """
+    skipped: dict[str, Any] = {"applied": False, "skipped": True, "words_total": 0, "words_changed": 0}
     if not cues:
-        return cues
+        return cues, skipped
     if fw_model is None:
         logger.warning("stable-ts align skipped: whisper model not loaded")
-        return cues
+        return cues, {**skipped, "reason": "no_model"}
     if not is_stable_ts_installed():
         logger.warning("stable-ts align skipped: package not installed")
-        return cues
+        return cues, {**skipped, "reason": "not_installed"}
 
     cue_indices, segments = _cues_to_align_segments(cues)
     if not segments:
-        return cues
+        return cues, {**skipped, "reason": "no_segments"}
 
     original_times = _snapshot_word_times(cues)
+    skipped["words_total"] = len(original_times)
 
     try:
         wrapped = wrap_faster_whisper_for_stable(fw_model, model_path)
@@ -338,19 +377,25 @@ def apply_stable_align_words(
             aligned_segments = aligned
         else:
             logger.warning("stable-ts align returned unexpected type: %s", type(aligned))
-            return cues
+            return cues, {**skipped, "reason": "bad_response"}
     except Exception as exc:
         logger.error(
             "stable-ts align_words failed (soft fallback to whisper TS): %s",
             exc,
             exc_info=True,
         )
-        return cues
+        return cues, {**skipped, "reason": "exception", "error": str(exc)[:200]}
 
     merged = _merge_aligned_segments_into_cues(cues, aligned_segments, cue_indices, original_times)
-    logger.debug(
-        "stable-ts align_words: segments=%d cues=%d",
+    stats = stable_align_delta_stats(original_times, merged)
+    stats["applied"] = True
+    stats["skipped"] = False
+    logger.info(
+        "stable-ts align_words: segments=%d cues=%d words_changed=%d/%d max_delta_ms=%.1f",
         len(aligned_segments),
         len(cue_indices),
+        stats["words_changed"],
+        stats["words_total"],
+        stats["max_delta_ms"],
     )
-    return merged
+    return merged, stats

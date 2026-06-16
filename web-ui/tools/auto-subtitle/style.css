@@ -321,6 +321,21 @@ body.as-app {
   max-width: 100%;
 }
 
+.as-select--font optgroup {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #141a26;
+}
+
+.as-select--font option {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: #e2e8f0;
+  background: #1a2233;
+  padding: 0.2rem 0;
+}
+
 /* Workspace 4:6 */
 .as-workspace {
   flex: 1;
@@ -849,6 +864,19 @@ body.as-app {
   overflow: hidden;
 }
 
+.subwave-snap-guides {
+  display: none;
+}
+
+.subwave-snap-guide-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  margin-left: -0.5px;
+  border-left: 1px dashed rgba(255, 255, 255, 0.42);
+}
+
 /* 자르기 시간·▽ — 파형 위 전용 줄 (단어 칩으로 올라가지 않음) */
 .subwave-cut-rail {
   position: relative;
@@ -869,18 +897,60 @@ body.as-app {
   bottom: 0;
   width: 0;
   margin-left: -1px;
-  border-left: 2px dashed rgb(56, 189, 248);
+  border-left: 2px dashed rgba(56, 189, 248, 0.3);
   pointer-events: none;
   z-index: 60;
-  transition: opacity 75ms ease;
+  transition: border-color 75ms ease;
 }
 
 .subwave-cut-line.is-snapping-home {
-  transition: left 0.22s ease, opacity 75ms ease;
+  transition: left 0.22s ease, border-color 75ms ease;
 }
 
 .subwave-cut-line.is-dragging {
-  opacity: 0.25;
+  opacity: 1;
+  border-left-color: rgba(56, 189, 248, 0.45);
+  background: transparent;
+  box-shadow: none;
+}
+
+.subwave-cut-line.is-dragging::before,
+.subwave-cut-line.is-dragging::after {
+  display: none;
+}
+
+/* 줄 파형 — 파란 재생 라인 직접 드래그 */
+.subwave-chrome > .subwave-cut-line[data-play-slider] {
+  pointer-events: auto;
+  cursor: ew-resize;
+  z-index: 65;
+  touch-action: none;
+}
+
+.subwave-chrome > .subwave-cut-line[data-play-slider]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -14px;
+  width: 28px;
+}
+
+.subwave-cut-rail--play-only {
+  pointer-events: none;
+}
+
+.subwave-cut-rail--play-only .subwave-cut-grip,
+.subwave-cut-rail--play-only .subwave-cut-label {
+  pointer-events: auto;
+}
+
+.subtitle-card.has-waveform-open .subtitle-word-chip--active {
+  border-color: #3a465d !important;
+  background: #141a26 !important;
+  color: #c8d4e9 !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35) !important;
+  opacity: inherit;
 }
 
 .subwave-cut-grip {
@@ -898,7 +968,11 @@ body.as-app {
 }
 
 .subwave-cut-grip.is-dragging {
-  opacity: 0.45;
+  opacity: 1;
+}
+
+.subwave-cut-label.is-dragging {
+  opacity: 1;
 }
 
 .subwave-cut-grip::before {
@@ -942,7 +1016,7 @@ body.as-app {
 .subwave-cut-label.is-playing-motion,
 .subwave-cut-grip.is-playing-motion,
 .subwave-cut-line.is-playing-motion {
-  transition: none;
+  transition: left 0.1s linear;
 }
 
 .subwave-canvas-wrap {
@@ -967,16 +1041,42 @@ body.as-app {
   z-index: 45;
 }
 
+.subwave-trim-handle--locked {
+  pointer-events: none;
+  cursor: default;
+  opacity: 0.28;
+}
+
+.subwave-trim-handle--locked::after {
+  opacity: 0.35;
+}
+
 .subwave-trim-handle {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
   margin-left: -1px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.55);
   pointer-events: auto;
   cursor: ew-resize;
   z-index: 46;
+  transition: background-color 75ms ease;
+}
+
+.subwave-trim-handle.is-dragging {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: none;
+}
+
+.subwave-trim-handle.is-dragging::before {
+  display: none;
+}
+
+.subwave-trim-handle.is-dragging::after {
+  opacity: 0;
+  visibility: hidden;
 }
 
 .subwave-trim-handle::after {
@@ -1006,8 +1106,34 @@ body.as-app {
 .subwave-actions {
   display: flex;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.15rem;
+}
+
+.subwave-tail-offset-group {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.subwave-btn--tail-offset {
+  width: 2.35rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.subwave-btn--tail-offset.is-active {
+  border-color: #facc15;
+  background: rgba(250, 204, 21, 0.32);
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35);
+}
+
+.subwave-btn--tail-offset.is-active:hover {
+  border-color: #fde047;
+  background: rgba(250, 204, 21, 0.42);
 }
 
 .subwave-btn {
@@ -1024,6 +1150,11 @@ body.as-app {
 .subwave-btn:hover {
   border-color: #5b9fd4;
   background: #243049;
+}
+
+.subwave-btn.is-busy {
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .subwave-btn--close {
@@ -1224,6 +1355,7 @@ body.as-app {
 }
 
 .subtitle-line-drop-indicator {
+  display: none !important;
   position: absolute;
   left: 0;
   right: 0;
@@ -1234,12 +1366,11 @@ body.as-app {
   box-shadow: 0 0 10px rgba(250, 204, 21, 0.85);
   pointer-events: none;
   z-index: 30;
-  opacity: 0;
-  transition: opacity 0.08s ease;
+  opacity: 0 !important;
 }
 
 .subtitle-line-drop-indicator.is-visible {
-  opacity: 1;
+  opacity: 0 !important;
 }
 
 /* Word rail — compact (Electron timelineLayoutThisRow = false) */
@@ -1525,6 +1656,7 @@ body.as-app {
 }
 
 .subtitle-card-line-checkbox {
+  display: none;
   width: 1rem;
   height: 1rem;
   margin: 0;
@@ -1533,7 +1665,7 @@ body.as-app {
 }
 
 .subtitle-card-line-drag-handle {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   width: 1.35rem;
@@ -1598,7 +1730,92 @@ body.as-app {
   font-size: 0.72rem;
   color: #9aaec8;
   font-variant-numeric: tabular-nums;
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.subtitle-cue-timing {
+  margin-bottom: 0.55rem;
+  user-select: none;
+}
+
+.subtitle-cue-timing-hint {
+  margin-bottom: 0.3rem;
+  font-size: 0.65rem;
+  color: #6d819c;
+  letter-spacing: -0.01em;
+}
+
+.subtitle-cue-timing-track {
+  position: relative;
+  height: 28px;
+  border-radius: 8px;
+  background: #141b28;
+  border: 1px solid #334155;
+  overflow: visible;
+}
+
+.subtitle-cue-timing-block {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  min-width: 24px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, #5b8fd4 0%, #3d6ea8 100%);
+  box-shadow: 0 0 0 1px rgba(120, 170, 230, 0.35);
+  display: flex;
+  align-items: stretch;
+  cursor: grab;
+}
+
+.subtitle-cue-timing-block:active {
+  cursor: grabbing;
+}
+
+.subtitle-cue-timing-body {
+  flex: 1;
+  min-width: 8px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.subtitle-cue-timing-handle {
+  position: relative;
+  width: 14px;
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+
+.subtitle-cue-timing-handle::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #e8f1ff;
+  border: 2px solid #2f5f96;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+.subtitle-cue-timing-handle--start::before {
+  margin-left: -2px;
+}
+
+.subtitle-cue-timing-handle--end::before {
+  margin-left: 2px;
+}
+
+.subtitle-cue-timing-label {
+  margin-top: 0.3rem;
+  font-size: 0.7rem;
+  color: #8fa8c4;
+  font-variant-numeric: tabular-nums;
 }
 
 .subtitle-word-row {
@@ -1661,7 +1878,7 @@ body.as-app {
 
 .inline-wf-canvas-wrap {
   position: relative;
-  height: 72px;
+  height: 88px;
   border-radius: 8px;
   overflow: hidden;
   background: #0b0e15;
@@ -1753,6 +1970,27 @@ body.as-app {
 .as-btn-sm {
   padding: 5px 10px;
   font-size: 0.78rem;
+}
+
+.line-cue-waveform {
+  padding: 0.2rem 0 0.35rem;
+}
+
+.line-cue-waveform__meta {
+  font-size: 0.72rem;
+  color: #9eb0c8;
+  margin-bottom: 0.35rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.line-cue-waveform__canvas-wrap {
+  cursor: crosshair;
+}
+
+.subtitle-word-row--line-mode-hint .subtitle-word-row-tracks--compact {
+  cursor: pointer;
 }
 
 /* Footer */

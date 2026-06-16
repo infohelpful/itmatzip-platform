@@ -77,9 +77,17 @@ class AutoSubtitleTranscribeBody(BaseModel):
     language: str | None = Field(None, description="ISO 언어 코드 (미지정 시 자동)")
     beam_size: int = Field(5, ge=1, le=20)
     vad_filter: bool = True
+    stable_ts_align: bool = Field(
+        False,
+        description="전사 후 stable-ts align_words (기본 off — 패키지 미설치)",
+    )
     rms_vad_align: bool = Field(
         False,
         description="전사 후 PCM RMS/VAD 단어 타임스탬프 정렬 (기본 off — Whisper word SSOT)",
+    )
+    line_mode: bool = Field(
+        True,
+        description="Line Mode v4 — 줄 단위 reflow + snap (on 시 stable-ts/RMS-VAD 스킵)",
     )
     whisper_audio_path: str | None = Field(
         None,
@@ -110,6 +118,15 @@ class AutoSubtitleTranscribeStatus(BaseModel):
     program_duration_sec: float | None = None
     program_master_probe_ok: bool | None = None
     bake_level: str | None = None
+    stable_ts_align: bool | None = None
+    stable_ts_stats: dict[str, Any] | None = None
+    line_mode: bool | None = None
+    snap_grid: dict[str, Any] | None = None
+
+
+class AutoSubtitleReflowBody(BaseModel):
+    cues: list[dict[str, Any]] = Field(default_factory=list)
+    mode: str = Field("horizontal", description="horizontal | vertical")
 
 
 class CutRangeModel(BaseModel):
@@ -530,6 +547,10 @@ def _transcribe_status_payload(job: auto_subtitle.TranscribeJobStatus) -> AutoSu
         if job.phase == "completed"
         else None,
         bake_level=result.get("bake_level") if job.phase == "completed" else None,
+        stable_ts_align=result.get("stable_ts_align") if job.phase == "completed" else None,
+        stable_ts_stats=result.get("stable_ts_stats") if job.phase == "completed" else None,
+        line_mode=result.get("line_mode") if job.phase == "completed" else None,
+        snap_grid=result.get("snap_grid") if job.phase == "completed" else None,
     )
 
 
@@ -550,6 +571,7 @@ def _build_readiness_payload() -> dict[str, object]:
             "ffmpeg": _ffmpeg_available(),
             "ffprobe": _ffprobe_available(),
             "faster_whisper": auto_subtitle.is_faster_whisper_installed(),
+            "stable_ts": auto_subtitle.is_stable_ts_installed(),
             "model_present": auto_subtitle.is_model_present(),
             "model_loaded": auto_subtitle.is_model_loaded(),
             "gpu_detected": auto_subtitle.has_nvidia_gpu(),
@@ -582,6 +604,17 @@ async def get_system_fonts() -> dict[str, object]:
 
 class InstallCustomFontBody(BaseModel):
     source_path: str = Field(..., min_length=1, description="로컬 글꼴 파일 경로 (.ttf/.otf/.ttc)")
+
+
+@router.post("/custom-fonts/peek")
+async def post_custom_font_peek(body: InstallCustomFontBody) -> dict[str, object]:
+    """설치 전 글꼴 패밀리 이름·중복 여부 확인."""
+    try:
+        return await run_sync(custom_fonts.peek_custom_font_install, body.source_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/custom-fonts/install")
@@ -777,6 +810,113 @@ def post_words_auto_align(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+class AutoSubtitleValleyAlignCueBody(BaseModel):
+    start: float = Field(0.0, ge=0.0)
+    end: float = Field(0.0, ge=0.0)
+    text: str = ""
+    words: list[AutoSubtitleWordChip] = Field(default_factory=list)
+
+
+class AutoSubtitleValleyAlignRequest(BaseModel):
+    video_path: str = Field(..., description="미리보기/원본 미디어 절대 경로")
+    cues: list[AutoSubtitleValleyAlignCueBody] = Field(default_factory=list)
+
+
+class AutoSubtitleValleyAlignResponse(BaseModel):
+    ok: bool = True
+    cues: list[dict[str, Any]] = Field(default_factory=list)
+    patches: list[dict[str, Any]] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/words/valley-align", response_model=AutoSubtitleValleyAlignResponse)
+def post_words_valley_align(
+    body: AutoSubtitleValleyAlignRequest,
+    _: AutoSubtitleFfmpeg,
+) -> AutoSubtitleValleyAlignResponse:
+    if not body.cues:
+        raise HTTPException(status_code=400, detail="cues가 비어 있습니다.")
+    media = _validate_media_path(body.video_path)
+    try:
+        from engines import auto_subtitle_valley_align
+
+        cues_in = [
+            {
+                "start": cue.start,
+                "end": cue.end,
+                "text": cue.text,
+                "words": [w.model_dump() for w in cue.words],
+            }
+            for cue in body.cues
+        ]
+        cues_out, stats = auto_subtitle_valley_align.apply_valley_word_align(
+            cues_in,
+            str(media.resolve()),
+            str(FFMPEG_EXE) if FFMPEG_EXE else None,
+        )
+        patches = stats.get("patches") if isinstance(stats.get("patches"), list) else []
+        return AutoSubtitleValleyAlignResponse(
+            ok=True,
+            cues=cues_out,
+            patches=patches,
+            stats=stats,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("words/valley-align failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class AutoSubtitleMicroRealignWordBody(BaseModel):
+    cue_index: int = Field(..., ge=0)
+    word_index: int = Field(..., ge=0)
+    start: float = Field(..., ge=0.0)
+    end: float = Field(..., ge=0.0)
+    text: str = ""
+
+
+class AutoSubtitleMicroRealignRequest(BaseModel):
+    video_path: str = Field(..., description="미리보기/원본 미디어 절대 경로")
+    target: AutoSubtitleMicroRealignWordBody
+    prev: AutoSubtitleMicroRealignWordBody | None = None
+    next: AutoSubtitleMicroRealignWordBody | None = None
+
+
+class AutoSubtitleMicroRealignResponse(BaseModel):
+    ok: bool = True
+    applied: bool = False
+    new_start: float = 0.0
+    new_end: float = 0.0
+    reason: str | None = None
+    boundary_patches: list[dict[str, Any]] = Field(default_factory=list)
+    stats: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/words/micro-realign", response_model=AutoSubtitleMicroRealignResponse)
+def post_words_micro_realign(
+    body: AutoSubtitleMicroRealignRequest,
+    _: AutoSubtitleFfmpeg,
+) -> AutoSubtitleMicroRealignResponse:
+    media = _validate_media_path(body.video_path)
+    try:
+        from engines.auto_subtitle_micro_realign import apply_micro_realign
+
+        result = apply_micro_realign(
+            media_path=str(media.resolve()),
+            target=body.target.model_dump(),
+            prev_word=body.prev.model_dump() if body.prev else None,
+            next_word=body.next.model_dump() if body.next else None,
+            ffmpeg_exe=str(FFMPEG_EXE) if FFMPEG_EXE else None,
+        )
+        return AutoSubtitleMicroRealignResponse(**result)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("words/micro-realign failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @router.post("/transcribe", response_model=AutoSubtitleTranscribeStatus)
 def post_transcribe(
     body: AutoSubtitleTranscribeBody,
@@ -805,7 +945,9 @@ def post_transcribe(
             language=lang,
             beam_size=body.beam_size,
             vad_filter=body.vad_filter,
+            stable_ts_align=body.stable_ts_align,
             rms_vad_align=body.rms_vad_align,
+            line_mode=body.line_mode,
             whisper_audio_path=whisper_audio,
             media_timing_contract=contract,
         )
@@ -823,6 +965,16 @@ def post_transcribe(
 @router.get("/transcribe/status", response_model=AutoSubtitleTranscribeStatus)
 def get_transcribe_status() -> AutoSubtitleTranscribeStatus:
     return _transcribe_status_payload(auto_subtitle.get_transcribe_job_status())
+
+
+@router.post("/reflow")
+def post_reflow(body: AutoSubtitleReflowBody) -> dict[str, Any]:
+    """Line Mode Phase C — userMoved cue 스킵 후 줄 재정리."""
+    from engines.line_mode_reflow import reflow_cues_skip_user_moved
+
+    mode = "vertical" if str(body.mode).strip().lower() == "vertical" else "horizontal"
+    cues = reflow_cues_skip_user_moved(body.cues, mode=mode)
+    return {"ok": True, "cues": cues, "mode": mode}
 
 
 def _export_status_payload(job: auto_subtitle_export.ExportJobStatus) -> AutoSubtitleExportStatus:
@@ -1019,16 +1171,23 @@ async def post_media_probe(
     _: AutoSubtitleFfmpeg,
 ) -> dict[str, Any]:
     """ffprobe A/V duration·fps — 재생 word clock 보정용."""
-    media = _validate_media_path(body.video_path)
+    norm = auto_subtitle.normalize_media_path(body.video_path)
+    resolved = auto_subtitle.resolve_existing_file(norm)
+    if resolved is None:
+        return {
+            "ok": False,
+            "error": f"file not found: {norm}",
+            "source_path": norm,
+        }
     from engines.auto_subtitle_media_probe import probe_media_timing
 
     try:
-        return await run_sync(lambda: probe_media_timing(media, unify_ssot=True))
+        return await run_sync(lambda: probe_media_timing(resolved, unify_ssot=True))
     except Exception as exc:
-        logger.exception("media/probe failed for %s", media)
+        logger.exception("media/probe failed for %s", resolved)
         return {
             "ok": False,
-            "source_path": str(media),
+            "source_path": str(resolved),
             "error": str(exc),
         }
 
@@ -1094,7 +1253,122 @@ def get_media_stream(
     video_path: str = Query(..., description="로컬 미디어 절대 경로"),
 ) -> FileResponse:
     """브라우저 <video> 미리보기 — Range 요청 지원."""
-    media = _validate_media_path(video_path)
+    return _serve_media_stream(video_path)
+
+
+class AutoSubtitleMediaStreamBody(BaseModel):
+    video_path: str = Field(..., description="로컬 미디어 절대 경로")
+
+
+@router.post("/media/stream")
+def post_media_stream(body: AutoSubtitleMediaStreamBody) -> FileResponse:
+    """한글 경로 — query string 대신 JSON UTF-8 본문."""
+    return _serve_media_stream(body.video_path)
+
+
+def _find_latest_workspace_preview_media() -> Path | None:
+    root = auto_subtitle.ensure_workspace()
+    latest: Path | None = None
+    latest_mtime = 0.0
+    for job_dir in root.iterdir():
+        if not job_dir.is_dir():
+            continue
+        for name in ("media-cfr.mp4", "media-av-sync.mp4", "media-preview.mp4"):
+            candidate = job_dir / name
+            if not candidate.is_file():
+                continue
+            mtime = candidate.stat().st_mtime
+            if mtime >= latest_mtime:
+                latest_mtime = mtime
+                latest = candidate.resolve()
+    return latest
+
+
+def _find_latest_workspace_source_media() -> Path | None:
+    """workspace media_timing_contract.json — UTF-8 원본 (CFR 삭제·브라우저 경로 깨짐 복구)."""
+    root = auto_subtitle.ensure_workspace()
+    latest: Path | None = None
+    latest_mtime = 0.0
+    for job_dir in root.rglob("media_timing_contract.json"):
+        if not job_dir.is_file():
+            continue
+        try:
+            contract = json.loads(job_dir.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        raw = str(contract.get("source_media_path") or contract.get("source_path") or "").strip()
+        if not raw:
+            continue
+        try:
+            media = _validate_media_path(raw)
+        except HTTPException:
+            continue
+        mtime = job_dir.stat().st_mtime
+        if mtime >= latest_mtime:
+            latest_mtime = mtime
+            latest = media
+    return latest
+
+
+class AutoSubtitleResolvePreviewBody(BaseModel):
+    video_path: str | None = Field(
+        None,
+        description="원본 경로(에이전트 UTF-8). 비우면 workspace 최신 CFR만 탐색",
+    )
+
+
+@router.post("/media/resolve-preview")
+async def post_resolve_preview_media(
+    _: AutoSubtitleFfmpeg,
+    body: AutoSubtitleResolvePreviewBody | None = None,
+) -> dict[str, Any]:
+    """
+    미리보기·파형 SSOT — workspace media-cfr 우선.
+    브라우저 sessionStorage 한글 경로 깨짐 시 workspace 스캔으로 복구.
+    """
+    body = body or AutoSubtitleResolvePreviewBody()
+    raw_source = str(body.video_path or "").strip()
+    if raw_source:
+        try:
+            media = _validate_media_path(raw_source)
+            return await run_sync(lambda: auto_subtitle.build_preview_media_ssot(media))
+        except HTTPException:
+            pass
+
+    latest = _find_latest_workspace_preview_media()
+    if latest is not None:
+        return {
+            "ok": True,
+            "preview_media_path": str(latest),
+            "resolved_from": "workspace_scan",
+            "source_path": raw_source or None,
+        }
+
+    contract_src = _find_latest_workspace_source_media()
+    if contract_src is not None:
+        result = await run_sync(lambda: auto_subtitle.build_preview_media_ssot(contract_src))
+        if isinstance(result, dict):
+            result.setdefault("resolved_from", "workspace_contract_rebuild")
+        return result
+
+    if raw_source:
+        try:
+            media = _validate_media_path(raw_source)
+            return await run_sync(lambda: auto_subtitle.build_preview_media_ssot(media))
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"preview media not found: {exc.detail}",
+            ) from exc
+
+    raise HTTPException(
+        status_code=404,
+        detail="workspace에 media-cfr.mp4가 없고 복구할 원본 경로도 없습니다",
+    )
+
+
+def _serve_media_stream(raw_path: str) -> FileResponse:
+    media = _validate_media_path(raw_path)
     st = _stat_media_ready_for_stream(media)
     suffix = media.suffix.lower()
     media_types = {

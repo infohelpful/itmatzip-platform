@@ -23,7 +23,7 @@
    ├─ /api/tools/vocal-remover/status
    ├─ /api/tools/vocal-remover/prepare
    ├─ /api/tools/vocal-remover/separate
-   ├─ /api/tools/vocal-remover/pick-local-file
+   ├─ /api/agent/pick-local-audio-file  (브라우저; Python 레거시 /pick-local-file 아님)
    └─ Demucs 및 모델 캐시 관리
         │
         ▼
@@ -86,8 +86,7 @@
 
 - `GET /api/tools/vocal-remover/status`
   - `agent_installed`, `demucs_installed`, `model_ready`, `supported_formats`
-- `POST /api/tools/vocal-remover/pick-local-file`
-  - `selection` UI 재사용
+- `POST /api/agent/pick-local-audio-file` (브라우저; `agent-pick-endpoints.js` → `AGENT_PICK_AUDIO`)
 - `POST /api/tools/vocal-remover/prepare`
   - Demucs 라이브러리 / 모델 다운로드 시작
 - `GET /api/tools/vocal-remover/prepare/status`

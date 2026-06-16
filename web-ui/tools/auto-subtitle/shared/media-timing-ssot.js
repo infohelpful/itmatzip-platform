@@ -26,12 +26,73 @@ export const DURATION_RATIO_SCALE_THRESHOLD = 0.0005;
 
 const STORAGE_PREVIEW_PATH = "auto-subtitle:preview-media-path";
 
+/** Windows 로컬 경로 — ₩/¥ 백슬래시·NFC (agent normalize_media_path 와 동일 목적) */
+export function normalizeAgentMediaPath(raw) {
+  let p = String(raw ?? "").trim();
+  if (!p) return "";
+  p = p.replace(/^["']|["']$/g, "");
+  try {
+    p = p.normalize("NFC");
+  } catch {
+    /* ignore */
+  }
+  p = p.replace(/\u00A5/g, "\\").replace(/\u20A9/g, "\\");
+  p = p.replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, "");
+  p = p.replace(/^[\\/]+([A-Za-z]:[\\/])/i, "$1");
+  p = p.replace(/^([A-Za-z])[\\/](?![\\/])/, "$1:\\");
+  if (/^[A-Za-z]:/.test(p)) {
+    const drive = p.slice(0, 2);
+    const rest = p.slice(2).replace(/[/\\]+/g, "\\");
+    p = drive + rest;
+  }
+  return p;
+}
+
+/** U+FFFD — sessionStorage/URL 왕복 후 한글 경로 깨짐 */
+export function hasCorruptMediaPathChars(raw) {
+  const p = String(raw ?? "");
+  if (!p) return false;
+  if (/\uFFFD/.test(p)) return true;
+  try {
+    if (/%EF%BF%BD/i.test(encodeURIComponent(p))) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+/** 미리보기 session — workspace CFR만 (D:\\ 원본은 브라우저 한글 깨짐) */
+function isWorkspacePreviewStoragePath(raw) {
+  const s = String(raw || "").replace(/\//g, "\\");
+  return /\\auto-subtitle\\workspace\\/i.test(s);
+}
+
 /** @type {MediaTimingProbe | null} */
 let sessionMediaTiming = null;
 /** @type {string | null} */
 let sessionPreviewMediaPath = null;
 /** program-master.mp4 재생 — video.currentTime = program 축 */
 let programPlaybackActive = false;
+
+/** @param {string | null | undefined} path */
+export function setSessionPreviewMediaPath(path) {
+  const p = normalizeAgentMediaPath(path);
+  if (p && hasCorruptMediaPathChars(p)) {
+    mediaTimingDiagWarn("setSessionPreviewMediaPath", "corrupt path ignored");
+    return;
+  }
+  if (p && !isWorkspacePreviewStoragePath(p)) {
+    mediaTimingDiagWarn("setSessionPreviewMediaPath", "non-workspace preview ignored");
+    return;
+  }
+  sessionPreviewMediaPath = p || null;
+  try {
+    if (p) sessionStorage.setItem(STORAGE_PREVIEW_PATH, p);
+    else sessionStorage.removeItem(STORAGE_PREVIEW_PATH);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** V5 — program-master 프리뷰 재생 (word lookup은 source↔program 변환) */
 export function isProgramPlaybackTimeline() {
@@ -62,29 +123,31 @@ export function getSessionMediaTiming() {
   return sessionMediaTiming;
 }
 
-/** @param {string | null | undefined} path */
-export function setSessionPreviewMediaPath(path) {
-  const p = String(path || "").trim();
-  sessionPreviewMediaPath = p || null;
-  try {
-    if (p) sessionStorage.setItem(STORAGE_PREVIEW_PATH, p);
-    else sessionStorage.removeItem(STORAGE_PREVIEW_PATH);
-  } catch {
-    /* ignore */
-  }
-}
-
 export function restoreSessionPreviewMediaPathFromStorage() {
   try {
-    const p = String(sessionStorage.getItem(STORAGE_PREVIEW_PATH) || "").trim();
-    if (p) sessionPreviewMediaPath = p;
+    const raw = sessionStorage.getItem(STORAGE_PREVIEW_PATH) || "";
+    const p = normalizeAgentMediaPath(raw);
+    if (p && hasCorruptMediaPathChars(p)) {
+      sessionStorage.removeItem(STORAGE_PREVIEW_PATH);
+      return;
+    }
+    if (p && !isWorkspacePreviewStoragePath(p)) {
+      sessionStorage.removeItem(STORAGE_PREVIEW_PATH);
+      return;
+    }
+    if (p) {
+      sessionPreviewMediaPath = p;
+      if (p !== String(raw).trim()) {
+        sessionStorage.setItem(STORAGE_PREVIEW_PATH, p);
+      }
+    }
   } catch {
     /* ignore */
   }
 }
 
 export function clearSessionPreviewMediaPath() {
-  sessionPreviewMediaPath = null;
+  setSessionPreviewMediaPath(null);
 }
 
 export function getSessionPreviewMediaPath() {

@@ -12,6 +12,7 @@ import {
   visibleWordStorageIndices,
 } from "../shared/subtitle-word-caret-map.js";
 import { getCueWords } from "../subtitle-words.js";
+import { LINE_MODE_ONLY } from "../shared/line-mode/config.js?v=1";
 
 /** @typedef {{
  *   storageCaret: number,
@@ -309,13 +310,20 @@ export function clearListPlayFromCaretPreferred() {
 function isWaveformExpandedOnCard(opts, cardIndex) {
   const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
   const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
-  return ci === cardIndex && wi >= 0;
+  if (ci !== cardIndex) return false;
+  if (LINE_MODE_ONLY) return ci >= 0 && wi === -1;
+  return wi >= 0;
 }
 
 function tryWaveformSpaceWhenExpanded(opts) {
   const ci = typeof opts.getExpandedCueIndex === "function" ? opts.getExpandedCueIndex() : -1;
   const wi = typeof opts.getExpandedWordIndex === "function" ? opts.getExpandedWordIndex() : -1;
-  if (ci < 0 || wi < 0) return false;
+  if (ci < 0) return false;
+  if (LINE_MODE_ONLY) {
+    if (wi !== -1) return false;
+    return opts.onWaveformSpacePlay?.() === true;
+  }
+  if (wi < 0) return false;
   return opts.onWaveformSpacePlay?.() === true;
 }
 
@@ -1357,9 +1365,7 @@ export function tryHandleCaretSpaceKey(e, container, cues, opts) {
   if (
     typeof opts.getExpandedCueIndex === "function" &&
     typeof opts.getExpandedWordIndex === "function" &&
-    opts.getExpandedCueIndex() >= 0 &&
-    opts.getExpandedWordIndex() >= 0 &&
-    opts.onWaveformSpacePlay?.() === true
+    tryWaveformSpaceWhenExpanded(opts)
   ) {
     return true;
   }
@@ -1583,10 +1589,25 @@ function onCaretKeyDown(e, renderableCi, cardIndex, words, cues, container, opts
     }
     return;
   }
-  if (e.key === "Enter" && opts.onSplitSubtitleAtWord) {
+  if (e.key === "Enter") {
     e.preventDefault();
     clearSelection();
-    opts.onSplitSubtitleAtWord(cardIndex, ci);
+    if (LINE_MODE_ONLY) {
+      const splitIndex = nearestValidStorageCaret(words, ci);
+      const canSplit = splitIndex > 0 && splitIndex < words.length;
+      if (canSplit && opts.onSplitSubtitleAtWord) {
+        opts.onSplitSubtitleAtWord(cardIndex, splitIndex);
+        return;
+      }
+      if (cardIndex + 1 < cues.length) {
+        requestFocusCaret(container, cues, opts, cardIndex + 1, 0, { seek: false });
+        return;
+      }
+      return;
+    }
+    if (opts.onSplitSubtitleAtWord) {
+      opts.onSplitSubtitleAtWord(cardIndex, ci);
+    }
     return;
   }
   if (e.key === "Backspace") {

@@ -48,6 +48,12 @@ if (-not $SkipServiceRestart) {
     $h = Invoke-RestMethod "http://127.0.0.1:19876/health" -TimeoutSec 10
     Write-Host ($h | ConvertTo-Json -Compress) -ForegroundColor Green
     if (-not $h.fastapi_ready) {
-        Write-Warning "fastapi_ready is still false — check C:\ProgramData\itmatzip-agent\logs\service.log"
+        Write-Warning "fastapi_ready is still false — check logs:"
+        Write-Warning "  C:\ProgramData\itmatzip-agent\logs\service.log"
+        Write-Warning "  C:\ProgramData\itmatzip-agent\logs\fastapi-sidecar.log"
+        try {
+            $st = Invoke-RestMethod "http://127.0.0.1:19876/status" -TimeoutSec 8
+            if ($st.fastapi) { Write-Host ("fastapi: " + ($st.fastapi | ConvertTo-Json -Compress)) -ForegroundColor Yellow }
+        } catch {}
     }
 }

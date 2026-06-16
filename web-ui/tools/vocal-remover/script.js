@@ -11,6 +11,7 @@ import {
   startAgentEventStream,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
+import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna20";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp2";
@@ -728,7 +729,7 @@ async function pickLocalFile() {
         signal: ctrl.signal,
       });
 
-    const res = await req("/api/agent/pick-local-audio-file");
+    const res = await req(AGENT_PICK_AUDIO);
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {

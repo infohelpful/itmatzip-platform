@@ -147,3 +147,73 @@ export function ensureConnectorOverlayHost(articleEl) {
   articleEl.insertBefore(host, articleEl.firstChild);
   return host;
 }
+
+/**
+ * @param {HTMLElement} anchorEl
+ * @returns {{ left: number, right: number, bottom: number } | null}
+ */
+function cueLineChipSpanRect(anchorEl) {
+  const chips = [...anchorEl.querySelectorAll(".subtitle-word-chip")].filter((el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0.5 && r.height > 0.5;
+  });
+  if (!chips.length) return null;
+  const first = chips[0].getBoundingClientRect();
+  const last = chips[chips.length - 1].getBoundingClientRect();
+  return {
+    left: first.left,
+    right: last.right,
+    bottom: Math.max(first.bottom, last.bottom),
+  };
+}
+
+/**
+ * Line Mode — 줄 rail 안 첫·마지막 단어칩 하단 ↔ 파형 트림 핸들 연결선.
+ *
+ * @param {HTMLElement} articleEl
+ * @param {HTMLElement} waveBoxEl
+ * @param {HTMLElement} anchorEl `.subtitle-word-rail` 등
+ * @param {{ startPct: number, endPct: number }} trimHandlePct
+ */
+export function computeConnectorGeomForRail(articleEl, waveBoxEl, anchorEl, trimHandlePct) {
+  if (!articleEl || !waveBoxEl || !anchorEl || !trimHandlePct) return null;
+
+  const articleRect = articleEl.getBoundingClientRect();
+  const waveRect = waveBoxEl.getBoundingClientRect();
+  if (articleRect.width <= 0 || waveRect.width <= 0) return null;
+
+  const chipSpan = cueLineChipSpanRect(anchorEl);
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const spanLeft = chipSpan?.left ?? anchorRect.left;
+  const spanRight = chipSpan?.right ?? anchorRect.right;
+  const spanBottom = chipSpan?.bottom ?? anchorRect.bottom;
+  if (spanRight - spanLeft <= 0) return null;
+
+  return {
+    svgW: articleRect.width,
+    svgH: articleRect.height,
+    fromL: {
+      x: spanLeft - articleRect.left,
+      y: spanBottom - articleRect.top,
+    },
+    fromR: {
+      x: spanRight - articleRect.left,
+      y: spanBottom - articleRect.top,
+    },
+    toL: {
+      x:
+        waveRect.left -
+        articleRect.left +
+        (waveRect.width * trimHandlePct.startPct) / 100,
+      y: waveRect.top - articleRect.top,
+    },
+    toR: {
+      x:
+        waveRect.left -
+        articleRect.left +
+        (waveRect.width * trimHandlePct.endPct) / 100,
+      y: waveRect.top - articleRect.top,
+    },
+  };
+}

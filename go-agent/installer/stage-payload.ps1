@@ -1,4 +1,4 @@
-﻿# Stage MSI payload: Go exe, Python venv (engine), python_worker scripts
+# Stage MSI payload: Go exe, Python venv (engine), python_worker scripts
 param(
     [switch]$SkipEngine,
     [switch]$SkipAgent,
@@ -8,6 +8,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+. (Join-Path $PSScriptRoot "archive-compat.ps1")
 $Root = Split-Path -Parent $PSScriptRoot
 $Staging = Join-Path $Root "dist\staging"
 $EngineDir = Join-Path $Staging "engine"
@@ -44,7 +46,7 @@ function Install-EmbeddableEngine {
     if (Test-Path $TargetDir) {
         Remove-Item -Recurse -Force $TargetDir
     }
-    Expand-Archive -Path $zipPath -DestinationPath $TargetDir
+    Expand-ArchiveCompat -Path $zipPath -DestinationPath $TargetDir
 
     $pthFiles = Get-ChildItem -Path $TargetDir -Filter "python*._pth"
     foreach ($pth in $pthFiles) {
@@ -119,7 +121,7 @@ function Build-DiffqVendorWheel {
     $extractDir = Join-Path $CacheDir "wheel-zip-extract"
     if (-not (Test-Path (Join-Path $extractDir "diffq-0.2.4.tar.gz"))) {
         if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
-        Expand-Archive $wheelZip $extractDir -Force
+        Expand-ArchiveCompat -Path $wheelZip -DestinationPath $extractDir -Force
     }
     $diffqTar = Get-ChildItem $extractDir -Recurse -Filter "diffq-*.tar.gz" | Select-Object -First 1
     if (-not $diffqTar) {

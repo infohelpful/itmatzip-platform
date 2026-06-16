@@ -20,7 +20,18 @@
 | POST | `/workspace/cleanup` |
 | GET | `/download`, `/media/stream` |
 
-파일 선택: `POST /api/agent/pick-local-file`
+파일 선택 (Go 에이전트):
+
+| 용도 | Path |
+|------|------|
+| 영상·오디오 원본 | `POST /api/agent/pick-local-subtitle-media` |
+| 프로젝트 (.autosub) | `POST /api/agent/pick-local-project-file` |
+| 자막 폰트 | `POST /api/agent/pick-local-font-file` |
+| 워터마크 이미지 | `POST /api/agent/pick-local-image-file` |
+
+CFR 미리보기: `POST /api/tools/auto-subtitle/media/prepare-preview` (pick 응답과 분리)
+
+웹 UI 상수: `web-ui/tools/common/agent-pick-endpoints.js`
 
 ## 작업·메모리
 

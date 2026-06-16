@@ -29,6 +29,100 @@ def resolve_ffmpeg(explicit: str | None = None) -> str:
     return str(get_ffmpeg_executable())
 
 
+def decode_mono_f32_16k_segment(
+    media_path: str | Path,
+    t_start_sec: float,
+    t_duration_sec: float,
+    *,
+    pad_sec: float = 0.15,
+    ffmpeg_exe: str | None = None,
+) -> tuple[np.ndarray, float]:
+    """미디어 구간만 16k mono f32 decode. 반환 (samples, segment_t0_sec)."""
+    ff = resolve_ffmpeg(ffmpeg_exe)
+    t0 = max(0.0, float(t_start_sec) - float(pad_sec))
+    dur = max(SEGMENT_MIN_SEC, float(t_duration_sec) + float(pad_sec) * 2.0)
+    cflags = no_window_creationflags()
+    r = subprocess.run(
+        [
+            ff,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{t0:.6f}",
+            "-t",
+            f"{dur:.6f}",
+            "-i",
+            str(media_path),
+            "-ac",
+            "1",
+            "-ar",
+            str(SR),
+            "-f",
+            "f32le",
+            "-",
+        ],
+        capture_output=True,
+        timeout=120,
+        creationflags=cflags,
+    )
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", errors="replace")
+        raise RuntimeError(err.strip() or f"ffmpeg segment decode exit {r.returncode}")
+    raw = r.stdout or b""
+    if len(raw) < 4:
+        raise RuntimeError("ffmpeg segment produced empty audio")
+    n = len(raw) // 4
+    return np.frombuffer(raw[: n * 4], dtype=np.float32).copy(), t0
+
+
+def extract_segment_wav(
+    media_path: str | Path,
+    t_start_sec: float,
+    t_duration_sec: float,
+    dest_wav: str | Path,
+    *,
+    pad_sec: float = 0.15,
+    ffmpeg_exe: str | None = None,
+) -> float:
+    """구간 wav 추출. 반환 segment_t0_sec (pad 적용)."""
+    ff = resolve_ffmpeg(ffmpeg_exe)
+    t0 = max(0.0, float(t_start_sec) - float(pad_sec))
+    dur = max(SEGMENT_MIN_SEC, float(t_duration_sec) + float(pad_sec) * 2.0)
+    cflags = no_window_creationflags()
+    r = subprocess.run(
+        [
+            ff,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{t0:.6f}",
+            "-t",
+            f"{dur:.6f}",
+            "-i",
+            str(media_path),
+            "-ac",
+            "1",
+            "-ar",
+            str(SR),
+            "-y",
+            str(dest_wav),
+        ],
+        capture_output=True,
+        timeout=120,
+        creationflags=cflags,
+    )
+    if r.returncode != 0:
+        err = (r.stderr or b"").decode("utf-8", errors="replace")
+        raise RuntimeError(err.strip() or f"ffmpeg segment wav exit {r.returncode}")
+    if not Path(dest_wav).is_file():
+        raise RuntimeError("ffmpeg segment wav missing")
+    return t0
+
+
 def decode_mono_f32_16k(media_path: str | Path, ffmpeg_exe: str | None = None) -> np.ndarray:
     ff = resolve_ffmpeg(ffmpeg_exe)
     cflags = no_window_creationflags()

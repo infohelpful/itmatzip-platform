@@ -9,10 +9,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,13 +21,13 @@ import (
 )
 
 const (
-	defaultHost         = "127.0.0.1"
-	defaultPort         = 19876
-	defaultGRPCPort     = 50051
-	defaultFastAPIPort  = 19877
-	wsPath              = "/ws"
-	healthPath          = "/health"
-	statusPath          = "/status"
+	defaultHost        = "127.0.0.1"
+	defaultPort        = 19876
+	defaultGRPCPort    = 50051
+	defaultFastAPIPort = 19877
+	wsPath             = "/ws"
+	healthPath         = "/health"
+	statusPath         = "/status"
 )
 
 type wsEvent struct {
@@ -145,14 +145,23 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	mux := http.NewServeMux()
 	mux.HandleFunc(wsPath, hub.serveWS)
 	mux.HandleFunc(healthPath, func(w http.ResponseWriter, r *http.Request) {
+		fastapiSnap := map[string]any(nil)
+		fastapiReady := false
+		if sidecar != nil {
+			fastapiSnap = sidecar.HealthSnapshot()
+			if v, ok := fastapiSnap["ready"].(bool); ok {
+				fastapiReady = v
+			}
+		}
 		payload := map[string]any{
 			"status":        "ok",
 			"service":       "itmatzip-agent",
 			"agent_version": readAgentVersion(),
 			"go_controller": true,
-			"fastapi_ready": sidecar != nil && sidecar.IsReady(),
+			"fastapi_ready": fastapiReady,
+			"fastapi":       fastapiSnap,
 		}
-		if sidecar != nil && sidecar.IsReady() {
+		if sidecar != nil && fastapiReady {
 			if faHealth := fetchFastAPIHealth(sidecar.baseURL); faHealth != nil {
 				if version, ok := faHealth["agent_version"]; ok {
 					payload["agent_version"] = version
@@ -177,7 +186,12 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		status := wm.collectStatus(reqCtx)
 		if sidecar != nil {
 			status["fastapi_port"] = sidecar.port
-			status["fastapi_ready"] = sidecar.IsReady()
+			status["fastapi"] = sidecar.HealthSnapshot()
+			if snap, ok := status["fastapi"].(map[string]any); ok {
+				if v, ok := snap["ready"].(bool); ok {
+					status["fastapi_ready"] = v
+				}
+			}
 			status["fastapi_url"] = sidecar.baseURL
 		}
 		_ = json.NewEncoder(w).Encode(status)
@@ -215,6 +229,9 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 
 	mux.HandleFunc(serviceRestartPath, handleServiceRestart)
+	mux.HandleFunc("/api/agent/fastapi/restart", func(w http.ResponseWriter, r *http.Request) {
+		handleFastAPIRestart(w, r, sidecar, wm)
+	})
 	mux.HandleFunc("/api/agent/pick-local-file", func(w http.ResponseWriter, r *http.Request) {
 		handlePickLocalFile(w, r, false, false, false, false)
 	})
@@ -332,8 +349,12 @@ func runAgent(port int, grpcPort int, fastapiPort int, startGRPC bool, startFast
 	var sidecar *fastapiSidecar
 	if startFastAPI {
 		sidecar = newFastAPISidecar(fastapiPort)
-		startFastAPISidecarWithRetry(ctx, sidecar, mgr)
-		startFastAPISidecarWatchdog(ctx, sidecar, mgr)
+		go func() {
+			// gRPC·FastAPI 동시 import 시 Windows에서 uvicorn 기동이 멈추는 경우 방지
+			time.Sleep(2 * time.Second)
+			startFastAPISidecarWithRetry(ctx, sidecar, mgr)
+			startFastAPISidecarWatchdog(ctx, sidecar, mgr)
+		}()
 	}
 
 	return startHTTPServer(ctx, hub, mgr, port, sidecar)
@@ -450,6 +471,8 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 		writeAgentPickJSON(w, http.StatusOK, map[string]any{"path": "", "cancelled": true})
 		return
 	}
+
+	// 공용 pick: 경로만 즉시 반환. CFR·미리보기·툴 session은 툴 전용 API에서 처리.
 	if imageOnly {
 		payload := map[string]any{"path": path}
 		if strings.TrimSpace(path) != "" {

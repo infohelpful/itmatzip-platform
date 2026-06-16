@@ -101,19 +101,6 @@ def list_installed_font_families() -> list[str]:
         seen.add(key)
         merged.append(name)
 
-    try:
-        from engines import custom_fonts
-
-        custom_fonts.register_all_custom_fonts()
-        for name in custom_fonts.list_custom_font_families():
-            key = name.casefold()
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(name)
-    except Exception:
-        pass
-
     if not merged:
         return list(_FALLBACK_FONTS)
     return sorted(merged, key=str.casefold)

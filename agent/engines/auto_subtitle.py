@@ -71,6 +71,8 @@ ALLOWED_IMAGE_SUFFIXES = {
 _whisper_model: Any | None = None
 _model_device: str | None = None
 _prepare_progress_max: float = -1.0
+_last_prepare_emit_step: str = ""
+_last_prepare_emit_detail: str = ""
 
 
 def _agent_data_root() -> Path:
@@ -258,11 +260,22 @@ def _prepare_import_smoke_map() -> dict[str, tuple[str, ...]]:
     return {import_name: smoke for import_name, _, _, smoke in _PREPARE_PYTHON_PACKAGES if smoke}
 
 
-def _scan_prepare_python_packages() -> tuple[list[str], list[str]]:
+def _scan_prepare_python_packages(
+    on_progress: PrepareProgressCallback | None = None,
+) -> tuple[list[str], list[str]]:
     """누락·손상 pip spec 과 purge 대상 prefix."""
     missing_specs: list[str] = []
     purge_prefixes: list[str] = []
-    for import_name, pip_spec, purge, smoke in _PREPARE_PYTHON_PACKAGES:
+    total = len(_PREPARE_PYTHON_PACKAGES)
+    for idx, (import_name, pip_spec, purge, smoke) in enumerate(_PREPARE_PYTHON_PACKAGES):
+        if on_progress is not None:
+            pct = 5.0 + (idx / max(total, 1)) * 2.5
+            _emit_prepare_progress(
+                on_progress,
+                pct,
+                "Python 패키지",
+                f"{import_name} 확인 중… ({idx + 1}/{total})",
+            )
         present = tool_has_module(RUNTIME_TOOL_ID, import_name)
         if not present:
             missing_specs.append(pip_spec)
@@ -304,6 +317,8 @@ def _run_prepare_pip_install(
     on_progress: PrepareProgressCallback | None,
     batch: bool = False,
 ) -> None:
+    import threading
+
     from common.runtime_site_packages import (
         ensure_runtime_tree_acl,
         finalize_runtime_pip,
@@ -331,24 +346,46 @@ def _run_prepare_pip_install(
         lines_seen = 0
         last_line = ""
         output_tail: list[str] = []
-        while True:
-            line = proc.stdout.readline()  # type: ignore[union-attr]
-            if not line and proc.poll() is not None:
-                break
-            if not line:
-                continue
-            lines_seen += 1
-            stripped = line.strip()
-            if stripped:
-                last_line = stripped
-                output_tail.append(stripped)
-                if len(output_tail) > 40:
-                    output_tail.pop(0)
-            label = batch_specs[0] if len(batch_specs) == 1 else f"{len(batch_specs)} packages"
-            if on_progress is not None and lines_seen % 3 == 0:
-                pct = min(17.0, 7.0 + lines_seen * 0.1)
-                short = last_line[:80] if last_line else f"{label} 설치 중…"
-                _emit_prepare_progress(on_progress, pct, "Python 패키지 설치", short)
+        pip_pct_floor = 6.0
+        stop_heartbeat = threading.Event()
+
+        def _pip_install_heartbeat() -> None:
+            nonlocal pip_pct_floor
+            while not stop_heartbeat.wait(20.0):
+                if on_progress is None:
+                    continue
+                pip_pct_floor = min(27.5, pip_pct_floor + 0.35)
+                detail = "패키지 다운로드 중…"
+                if last_line:
+                    detail = f"{last_line[:72]} — {detail}"
+                _emit_prepare_progress(on_progress, pip_pct_floor, "Python 패키지 설치", detail)
+
+        heartbeat = threading.Thread(target=_pip_install_heartbeat, daemon=True)
+        heartbeat.start()
+        try:
+            while True:
+                line = proc.stdout.readline()  # type: ignore[union-attr]
+                if not line and proc.poll() is not None:
+                    break
+                if not line:
+                    continue
+                lines_seen += 1
+                stripped = line.strip()
+                if stripped:
+                    last_line = stripped
+                    output_tail.append(stripped)
+                    if len(output_tail) > 40:
+                        output_tail.pop(0)
+                label = batch_specs[0] if len(batch_specs) == 1 else f"{len(batch_specs)} packages"
+                if on_progress is not None and lines_seen % 2 == 0:
+                    pip_pct_floor = max(
+                        pip_pct_floor,
+                        min(28.0, 6.0 + lines_seen * 0.12),
+                    )
+                    short = last_line[:80] if last_line else f"{label} 설치 중…"
+                    _emit_prepare_progress(on_progress, pip_pct_floor, "Python 패키지 설치", short)
+        finally:
+            stop_heartbeat.set()
         proc.wait()
         combined = "\n".join(output_tail)
         if proc.returncode != 0 and "Successfully installed" not in combined:
@@ -508,19 +545,29 @@ def _emit_prepare_progress(
     step: str,
     detail: str = "",
 ) -> None:
-    global _prepare_progress_max
+    global _prepare_progress_max, _last_prepare_emit_step, _last_prepare_emit_detail
     capped = max(0.0, min(100.0, float(value)))
     v = max(_prepare_progress_max, capped) if _prepare_progress_max >= 0 else capped
-    if _prepare_progress_max >= 0 and v <= _prepare_progress_max + 0.02 and v < 99.98:
+    if (
+        _prepare_progress_max >= 0
+        and v <= _prepare_progress_max + 0.02
+        and v < 99.98
+        and step == _last_prepare_emit_step
+        and detail == _last_prepare_emit_detail
+    ):
         return
     _prepare_progress_max = v
+    _last_prepare_emit_step = step
+    _last_prepare_emit_detail = detail
     if on_progress is not None:
         on_progress(v, step, detail)
 
 
 def _reset_prepare_progress() -> None:
-    global _prepare_progress_max
+    global _prepare_progress_max, _last_prepare_emit_step, _last_prepare_emit_detail
     _prepare_progress_max = -1.0
+    _last_prepare_emit_step = ""
+    _last_prepare_emit_detail = ""
 
 
 def _release_model_download_lock() -> None:
@@ -663,7 +710,8 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
             "ItMatZip Agent MSI(engine Python)를 사용하세요."
         )
 
-    missing_specs, purge_prefixes = _scan_prepare_python_packages()
+    _emit_prepare_progress(on_progress, 5.2, "Python 패키지", "설치 상태 확인 중…")
+    missing_specs, purge_prefixes = _scan_prepare_python_packages(on_progress)
     full_reinstall = bool(purge_prefixes)
     if full_reinstall and _native_extension_modules_loaded():
         raise RuntimeError(
@@ -674,7 +722,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
     if full_reinstall:
         _emit_prepare_progress(
             on_progress,
-            5.0,
+            7.5,
             "Python 패키지",
             "손상된 runtime 패키지 정리 중… (잠시만 기다려 주세요)",
         )
@@ -701,6 +749,7 @@ def install_python_dependencies(on_progress: PrepareProgressCallback | None = No
         _emit_prepare_progress(on_progress, 12.0, "Python 패키지", "faster-whisper 이미 설치됨")
 
     activate_runtime_site_packages(RUNTIME_TOOL_ID)
+    _emit_prepare_progress(on_progress, 14.0, "Python 패키지", "import 검증 중…")
     verify_importable(
         RUNTIME_TOOL_ID,
         "faster_whisper",
@@ -857,7 +906,12 @@ def load_whisper_model(on_progress: PrepareProgressCallback | None = None) -> di
 
     path = str(model_dir.resolve())
     prepend_cuda_runtime_dll_dirs()
-    _emit_prepare_progress(on_progress, 90.0, "모델 로드", "GPU(CUDA) 시도…")
+    _emit_prepare_progress(
+        on_progress,
+        90.0,
+        "모델 로드",
+        "Whisper 모델을 메모리에 올리는 중… (GPU·CPU에 따라 1~3분)",
+    )
 
     if cuda_runtime_ready():
         try:
@@ -1446,7 +1500,9 @@ def _run_transcribe(
     language: str | None,
     beam_size: int,
     vad_filter: bool,
+    stable_ts_align: bool,
     rms_vad_align: bool,
+    line_mode: bool = True,
     job_dir: Path,
     whisper_audio_path: Path | None = None,
     media_timing_contract: dict[str, Any] | None = None,
@@ -1612,7 +1668,48 @@ def _run_transcribe(
 
     subtitles = smooth_boundaries(subtitles)
 
-    if rms_vad_align:
+    line_mode_applied = False
+    if line_mode:
+        _set_transcribe_job("running", 88.0, "줄 자동 정리 (Line Mode)…")
+        try:
+            from engines.line_mode_reflow import apply_line_mode_reflow
+
+            subtitles = apply_line_mode_reflow(subtitles, mode="horizontal")
+            line_mode_applied = True
+        except Exception as e:
+            logger.error("Line Mode reflow failed (soft fallback): %s", e, exc_info=True)
+
+    stable_ts_applied = False
+    stable_ts_stats: dict[str, Any] = {"applied": False, "skipped": True}
+    if stable_ts_align and not line_mode:
+        _set_transcribe_job("running", 90.0, "단어 타임스탬프 정렬 (stable-ts)…")
+        try:
+            from engines.auto_subtitle_stable_align import (
+                apply_stable_align_words,
+                is_stable_ts_installed,
+            )
+
+            if is_stable_ts_installed():
+                align_lang = language or getattr(info, "language", None)
+                model_path = str(resolve_model_dir().resolve())
+                subtitles, stable_ts_stats = apply_stable_align_words(
+                    subtitles,
+                    audio_path,
+                    _whisper_model,
+                    language=align_lang,
+                    model_path=model_path,
+                )
+                stable_ts_applied = bool(stable_ts_stats.get("applied"))
+            else:
+                stable_ts_stats = {"applied": False, "skipped": True, "reason": "not_installed"}
+                logger.warning(
+                    "stable-ts align skipped: package not installed (prepare 재실행 필요)"
+                )
+        except Exception as e:
+            stable_ts_stats = {"applied": False, "skipped": True, "reason": "exception", "error": str(e)[:200]}
+            logger.error("stable-ts align_words failed (soft fallback): %s", e, exc_info=True)
+
+    if rms_vad_align and not line_mode:
         _set_transcribe_job("running", 92.0, "단어 타임스탬프 정렬 (RMS/VAD)…")
         try:
             from engines.auto_subtitle_rms_vad import apply_rms_vad_word_align
@@ -1654,6 +1751,15 @@ def _run_transcribe(
     except Exception as exc:  # noqa: BLE001
         waveform_peaks = {"ok": False, "path": None, "reason": str(exc)}
 
+    snap_grid: dict[str, Any] | None = None
+    if line_mode and isinstance(waveform_peaks_json, dict):
+        try:
+            from engines.line_mode_snap_grid import build_snap_grid_from_peaks_payload
+
+            snap_grid = build_snap_grid_from_peaks_payload(waveform_peaks_json)
+        except Exception as e:
+            logger.error("Line Mode snap grid build failed: %s", e, exc_info=True)
+
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -1671,6 +1777,8 @@ def _run_transcribe(
         "duration_sec": total_dur if total_dur > 0 else whisper_dur,
         "device": _model_device,
         "fallback_to_cpu": did_fallback,
+        "stable_ts_align": stable_ts_applied,
+        "stable_ts_stats": stable_ts_stats,
         "transcribe_ms": elapsed_ms,
         "cues_json_path": str(cues_path.resolve()),
         "srt_path": str(srt_path.resolve()),
@@ -1679,6 +1787,8 @@ def _run_transcribe(
         "media_timing": media_timing,
         "waveform_peaks": waveform_peaks,
         "waveform_peaks_json": waveform_peaks_json,
+        "line_mode": line_mode_applied,
+        "snap_grid": snap_grid,
     }
     _set_transcribe_job("completed", 100.0, "자막 추출이 완료되었습니다.", result=result)
 
@@ -1689,7 +1799,9 @@ def start_transcribe_job(
     language: str | None = None,
     beam_size: int = 5,
     vad_filter: bool = True,
+    stable_ts_align: bool = False,
     rms_vad_align: bool = False,
+    line_mode: bool = True,
     whisper_audio_path: Path | None = None,
     media_timing_contract: dict[str, Any] | None = None,
 ) -> TranscribeJobStatus:
@@ -1720,7 +1832,9 @@ def start_transcribe_job(
                     language=language,
                     beam_size=beam_size,
                     vad_filter=vad_filter,
+                    stable_ts_align=stable_ts_align,
                     rms_vad_align=rms_vad_align,
+                    line_mode=line_mode,
                     job_dir=job_dir,
                     whisper_audio_path=whisper_audio_path,
                     media_timing_contract=media_timing_contract,

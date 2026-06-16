@@ -136,13 +136,7 @@
             </div>
           </div>
         </section>
-        <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true">
-          <div class="media-workspace-loading__panel" role="status" aria-live="polite">
-            <div class="media-workspace-loading__spinner" aria-hidden="true"></div>
-            <p class="media-workspace-loading__title" id="probe-loading-title">영상 불러오는 중</p>
-            <p class="media-workspace-loading__desc" id="probe-loading-desc"></p>
-          </div>
-        </div>
+        <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true" aria-live="polite"></div>
       </div>
       <div class="action-center">
         <button id="btn-analyze" class="btn-main">무음 구간 분석</button>
@@ -164,6 +158,13 @@
       <p class="mobile-only-desc">Silence Detector는 데스톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
     </div>
   </div>
+  <dialog id="probe-loading-dialog" class="probe-loading-dialog" aria-labelledby="probe-loading-title">
+    <div class="probe-loading-inner">
+      <div class="probe-loading-spinner" aria-hidden="true"></div>
+      <h2 id="probe-loading-title" class="probe-loading-title">영상 불러오는 중</h2>
+      <p id="probe-loading-desc" class="probe-loading-desc"></p>
+    </div>
+  </dialog>
   <div id="analyze-overlay-root" class="analyze-overlay-root" hidden aria-hidden="true" aria-live="polite">
     <div class="analyze-overlay-backdrop" aria-hidden="true"></div>
     <div class="analyze-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="analyze-overlay-status">
@@ -178,6 +179,6 @@
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=11"></script>
   <script src="mobile-only.js?v=2"></script>
-  <script type="module" src="script.js?v=lna45"></script>
+  <script type="module" src="script.js?v=lna46"></script>
 </body>
 </html>

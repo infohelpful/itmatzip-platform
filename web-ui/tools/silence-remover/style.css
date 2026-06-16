@@ -389,9 +389,16 @@ body.analyze-overlay-open {
 .analyze-overlay-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(8, 12, 10, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(8, 12, 10, 0.36);
+  pointer-events: none;
+}
+
+/* 분석 중에는 광고를 제외한 편집 영역만 블러 처리 */
+body.analyze-overlay-open .main-content > .app-header,
+body.analyze-overlay-open .main-content > .drop-zone,
+body.analyze-overlay-open .main-content > .media-workspace,
+body.analyze-overlay-open .main-content > .action-center > :not(#editor-ad-below-export) {
+  filter: blur(6px);
 }
 
 .analyze-overlay-panel {
@@ -1081,7 +1088,52 @@ body.analyze-overlay-open {
   padding: 24px 28px 28px;
 }
 
-/* 영상 로드: 옵션·요약·파형 인라인 로딩 */
+/* 영상 로드: 중앙 모달 (경로 확정 직후 표시) */
+.probe-loading-dialog {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0;
+  background: var(--panel-bg);
+  color: var(--text-main);
+  max-width: min(440px, calc(100vw - 32px));
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+.probe-loading-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(2px);
+}
+
+.probe-loading-inner {
+  padding: 28px 32px 32px;
+  text-align: center;
+}
+
+.probe-loading-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 18px 0 10px;
+  line-height: 1.3;
+}
+
+.probe-loading-desc {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+  line-height: 1.55;
+}
+
+.probe-loading-spinner {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: probe-spin 0.8s linear infinite;
+}
+
+/* 워크스페이스 인라인 dim (모달 보조) */
 .media-workspace-loading {
   position: absolute;
   inset: 0;

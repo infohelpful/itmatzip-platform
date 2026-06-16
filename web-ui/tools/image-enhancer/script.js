@@ -11,6 +11,7 @@ import {
   setAgentLongOperationActive,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
+import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
@@ -1115,7 +1116,7 @@ async function checkReadiness(knownOk) {
 }
 
 async function pickLocalImage() {
-  const res = await fetchAgent(`${getAgentOrigin()}/api/agent/pick-local-image-file`, {
+  const res = await fetchAgent(`${getAgentOrigin()}${AGENT_PICK_IMAGE}`, {
     method: "POST",
     headers: { Accept: "application/json" },
   });

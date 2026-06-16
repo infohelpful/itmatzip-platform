@@ -18,7 +18,12 @@ func mountAutoSubtitleMediaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/tools/auto-subtitle/media/probe", handleAutoSubtitleMediaProbe)
 	mux.HandleFunc("/api/tools/auto-subtitle/media/prepare-for-whisper", handleAutoSubtitlePrepareForWhisper)
 	mux.HandleFunc("/api/tools/auto-subtitle/media/prepare-preview", handleAutoSubtitlePreparePreview)
+	mux.HandleFunc("/api/tools/auto-subtitle/media/resolve-preview", handleAutoSubtitleResolvePreview)
 	mux.HandleFunc("/api/tools/auto-subtitle/export/plain-burn-in", handleAutoSubtitlePlainBurnIn) // deprecated: use Python V41 export
+	mux.HandleFunc("/api/agent/pick-local-subtitle-media", handlePickLocalSubtitleMedia)
+	mux.HandleFunc("/api/agent/last-media-paths", handleAgentLastMediaPaths)
+	mux.HandleFunc("/api/agent/prepare-preview-last", handleAgentPreparePreviewLast)
+	mux.HandleFunc("/api/agent/resolve-preview-media", handleAgentResolvePreviewMedia)
 }
 
 type mediaPathBody struct {
@@ -51,19 +56,7 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func validateReadableMediaPath(raw string) (string, error) {
-	p := strings.TrimSpace(raw)
-	if p == "" {
-		return "", errMediaPathEmpty
-	}
-	clean := filepath.Clean(p)
-	info, err := os.Stat(clean)
-	if err != nil {
-		return "", err
-	}
-	if info.IsDir() {
-		return "", errMediaPathIsDir
-	}
-	return clean, nil
+	return resolveReadableMediaPath(raw)
 }
 
 var (
@@ -78,9 +71,18 @@ func handleAutoSubtitleMediaProbe(w http.ResponseWriter, r *http.Request) {
 	}
 	path, err := validateReadableMediaPath(body.VideoPath)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"ok":    false,
-			"error": "file not found: " + strings.TrimSpace(body.VideoPath),
+		if contract, pyErr := probeMediaTimingViaPython(body.VideoPath); pyErr == nil && contract != nil {
+			status := http.StatusOK
+			if okVal, _ := contract["ok"].(bool); !okVal {
+				status = http.StatusOK
+			}
+			writeJSON(w, status, contract)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":          false,
+			"error":       "file not found: " + strings.TrimSpace(body.VideoPath),
+			"source_path": strings.TrimSpace(body.VideoPath),
 		})
 		return
 	}
@@ -142,39 +144,231 @@ func handleAutoSubtitlePreparePreview(w http.ResponseWriter, r *http.Request) {
 	if !readJSONBody(w, r, &body) {
 		return
 	}
-	mediaPath, err := validateReadableMediaPath(body.VideoPath)
-	if err != nil {
+	rawPath := strings.TrimSpace(body.VideoPath)
+	if rawPath == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"ok":    false,
-			"error": "file not found: " + strings.TrimSpace(body.VideoPath),
+			"error": "video_path is required",
+		})
+		return
+	}
+	setMediaPathSessionSource(rawPath)
+
+	payload, err := runPreparePreviewPython(rawPath)
+	if err != nil {
+		tail := err.Error()
+		if len(tail) > 2000 {
+			tail = tail[len(tail)-2000:]
+		}
+		log.Printf("prepare-preview python failed: %s", tail)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":          false,
+			"error":       tail,
+			"source_path": rawPath,
 		})
 		return
 	}
 
-	agentDir, ok := resolveAgentDir()
-	if !ok {
+	if okVal, _ := payload["ok"].(bool); okVal {
+		if pmp, _ := payload["preview_media_path"].(string); strings.TrimSpace(pmp) != "" {
+			setMediaPathSessionPreview(pmp)
+		}
+	}
+
+	status := http.StatusOK
+	if okVal, _ := payload["ok"].(bool); !okVal {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, payload)
+}
+
+// Auto Subtitle 전용: 대화상자 → UTF-8 경로 session + video_path (CFR·media_timing 없음).
+func handlePickLocalSubtitleMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"detail":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	if !isCurrentProcessInteractive() {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"ok":    false,
-			"error": "agent directory not found",
+			"detail": "파일 선택 창을 띄울 수 없습니다. 작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.",
 		})
 		return
+	}
+	path, err := pickFileViaUserDialog(false, false, false, false)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"detail": fmt.Sprintf("파일 대화상자 오류: %v", err),
+		})
+		return
+	}
+	if strings.TrimSpace(path) == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"path": "", "cancelled": true})
+		return
+	}
+	setMediaPathSessionSource(path)
+	writeJSON(w, http.StatusOK, map[string]any{"video_path": path})
+}
+
+func handleAgentLastMediaPaths(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		http.Error(w, `{"detail":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	src, preview := getMediaPathSession()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":                 src != "" || preview != "",
+		"video_path":         src,
+		"preview_media_path": preview,
+	})
+}
+
+func handleAgentPreparePreviewLast(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"detail":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	src, _ := getMediaPathSession()
+	src = strings.TrimSpace(src)
+	if src == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"ok":    false,
+			"error": "last picked media path is empty",
+		})
+		return
+	}
+	payload, err := runPreparePreviewPython(src)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"ok":          false,
+			"error":       err.Error(),
+			"source_path": src,
+		})
+		return
+	}
+	if okVal, _ := payload["ok"].(bool); okVal {
+		if pmp, _ := payload["preview_media_path"].(string); strings.TrimSpace(pmp) != "" {
+			setMediaPathSessionPreview(pmp)
+		}
+	}
+	status := http.StatusOK
+	if okVal, _ := payload["ok"].(bool); !okVal {
+		status = http.StatusUnprocessableEntity
+	}
+	writeJSON(w, status, payload)
+}
+
+func handleAgentResolvePreviewMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"detail":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	resolvePreviewMediaSSOT(w, "")
+}
+
+type resolvePreviewBody struct {
+	VideoPath string `json:"video_path"`
+}
+
+func handleAutoSubtitleResolvePreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"detail":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+	var body resolvePreviewBody
+	if r.Body != nil {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		_ = dec.Decode(&body)
+	}
+	resolvePreviewMediaSSOT(w, strings.TrimSpace(body.VideoPath))
+}
+
+func resolvePreviewMediaSSOT(w http.ResponseWriter, rawSource string) {
+	_, cachedPreview := getMediaPathSession()
+	if statReadableFile(cachedPreview) && strings.Contains(strings.ToLower(cachedPreview), `\auto-subtitle\workspace\`) {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                 true,
+			"preview_media_path": cachedPreview,
+			"resolved_from":      "session_cache",
+		})
+		return
+	}
+
+	if latest := findLatestWorkspaceCfrPreview(); latest != "" {
+		setMediaPathSessionPreview(latest)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":                 true,
+			"preview_media_path": latest,
+			"resolved_from":      "workspace_scan",
+		})
+		return
+	}
+
+	src := strings.TrimSpace(rawSource)
+	if contractSrc := findLatestWorkspaceSourceMediaPath(); contractSrc != "" {
+		src = contractSrc
+		setMediaPathSessionSource(src)
+	} else if src == "" {
+		src, _ = getMediaPathSession()
+		src = strings.TrimSpace(src)
+	}
+	if src != "" && !statReadableFile(src) {
+		if contractSrc := findLatestWorkspaceSourceMediaPath(); contractSrc != "" {
+			src = contractSrc
+			setMediaPathSessionSource(src)
+		}
+	}
+	if src != "" {
+		payload, err := runPreparePreviewPython(src)
+		if err == nil && payload != nil {
+			if okVal, _ := payload["ok"].(bool); okVal {
+				if pmp, _ := payload["preview_media_path"].(string); strings.TrimSpace(pmp) != "" {
+					setMediaPathSessionPreview(pmp)
+				}
+			}
+			if rawSource != "" {
+				payload["resolved_from"] = "prepare_source"
+			} else {
+				payload["resolved_from"] = "prepare_last_source"
+			}
+			status := http.StatusOK
+			if okVal, _ := payload["ok"].(bool); !okVal {
+				status = http.StatusUnprocessableEntity
+			}
+			writeJSON(w, status, payload)
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusNotFound, map[string]any{
+		"ok":    false,
+		"error": "preview media not found",
+	})
+}
+
+func runPreparePreviewPython(rawPath string) (map[string]any, error) {
+	agentDir, ok := resolveAgentDir()
+	if !ok {
+		return nil, fmt.Errorf("agent directory not found")
 	}
 
 	pythonPath := resolveFastAPIPython(agentDir)
-	pathJSON, _ := json.Marshal(mediaPath)
+	pathJSON, _ := json.Marshal(rawPath)
 	agentJSON, _ := json.Marshal(agentDir)
 	script := fmt.Sprintf(
-		"import json, sys; sys.path.insert(0, %s); from pathlib import Path; from engines.auto_subtitle import build_preview_media_ssot; print(json.dumps(build_preview_media_ssot(Path(%s)), ensure_ascii=False))",
+		"import json, sys; sys.path.insert(0, %s); from pathlib import Path; from engines.auto_subtitle import normalize_media_path, resolve_existing_file, build_preview_media_ssot; raw=normalize_media_path(%s); p=resolve_existing_file(raw); print(json.dumps(build_preview_media_ssot(p if p else Path(raw)), ensure_ascii=False))",
 		string(agentJSON),
 		string(pathJSON),
 	)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, pythonPath, "-c", script)
 	cmd.Dir = agentDir
 	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("ITMATZIP_AGENT_INSTALL_ROOT=%s", installRootPath),
+		fmt.Sprintf("ITMATZIP_AGENT_DATA=%s", settingsRootPath),
 		fmt.Sprintf("ITMATZIP_AGENT_DIR=%s", agentDir),
 		fmt.Sprintf("PYTHONPATH=%s", prependPathEnv(os.Getenv("PYTHONPATH"), agentDir)),
 		"PYTHONNOUSERSITE=1",
@@ -188,16 +382,10 @@ func handleAutoSubtitlePreparePreview(w http.ResponseWriter, r *http.Request) {
 		if tail == "" {
 			tail = strings.TrimSpace(string(out))
 		}
-		if len(tail) > 2000 {
-			tail = tail[len(tail)-2000:]
+		if tail == "" {
+			tail = err.Error()
 		}
-		log.Printf("prepare-preview python failed: %v: %s", err, tail)
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":          false,
-			"error":       tail,
-			"source_path": mediaPath,
-		})
-		return
+		return nil, fmt.Errorf("%s", tail)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -208,23 +396,10 @@ func handleAutoSubtitlePreparePreview(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if json.Unmarshal([]byte(line), &payload) == nil {
-			break
+			return payload, nil
 		}
 	}
-	if payload == nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{
-			"ok":    false,
-			"error": "invalid python response",
-			"raw":   string(out),
-		})
-		return
-	}
-
-	status := http.StatusOK
-	if okVal, _ := payload["ok"].(bool); !okVal {
-		status = http.StatusUnprocessableEntity
-	}
-	writeJSON(w, status, payload)
+	return nil, fmt.Errorf("invalid python response: %s", string(out))
 }
 
 func handleAutoSubtitlePlainBurnIn(w http.ResponseWriter, r *http.Request) {

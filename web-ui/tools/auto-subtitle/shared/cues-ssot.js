@@ -19,6 +19,9 @@ import {
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
 } from "./subtitles.js?v=27";
+import { mapWhisperWords } from "./line-mode/word-hints.js?v=1";
+import { LINE_MODE_ONLY } from "./line-mode/config.js?v=1";
+import { normalizeTextSSOT } from "./line-mode/text-ssot.js?v=1";
 
 /** 추출 직후 gap-fill 기본값 (Electron gapFillWhenBuildingVrew 기본 false) */
 export const DEFAULT_GAP_FILL_ON_EXTRACT = false;
@@ -39,6 +42,9 @@ export function normalizeCuesFromAgent(raw) {
  * @param {{ gapFill?: boolean, peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null }} [opts]
  */
 export function postProcessCuesAfterTranscribe(lines, opts = {}) {
+  if (opts.lineMode === true || (LINE_MODE_ONLY && opts.lineMode !== false)) {
+    return postProcessCuesLineMode(lines, opts);
+  }
   const gapFill = opts.gapFill === true;
   let working = pruneInvalidSubtitleWords(lines || []);
 
@@ -84,6 +90,56 @@ export function postProcessCuesAfterTranscribe(lines, opts = {}) {
   });
   const repaired = repairCueLinesWordTimelines(out, opts.peaksMetrics ?? null);
   const synced = commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(repaired));
+  return anchorSourceTimesIfMissing(synced);
+}
+
+/**
+ * Line Mode v4 — peaks 비율 보정 + hint 매핑 (단어별 gap/valley 후처리 없음).
+ *
+ * @param {import("./subtitles.js").SubtitleLine[]} lines
+ * @param {{ peaksMetrics?: import("../peaks-metrics.js").PeaksTimelineMetrics | null, whisperDurationSec?: number | null, mediaTiming?: object | null }} [opts]
+ */
+export function postProcessCuesLineMode(lines, opts = {}) {
+  let working = pruneInvalidSubtitleWords(lines || []);
+
+  const peaksDur = opts.peaksMetrics?.durationSec;
+  const mt = opts.mediaTiming;
+  const mtDur =
+    mt?.playback_duration_sec ?? mt?.word_timeline_duration_sec ?? mt?.video_duration_sec;
+  const whisperDur = (() => {
+    const fromMt = Number(mtDur);
+    if (Number.isFinite(fromMt) && fromMt > 0) return fromMt;
+    return Number(opts.whisperDurationSec);
+  })();
+  if (peaksDur > 0 && whisperDur > 0) {
+    const ratio = peaksDur / whisperDur;
+    if (Math.abs(ratio - 1) > 0.004) {
+      working = scaleSubtitleLinesTimes(working, ratio);
+    }
+  }
+
+  const out = working.map((line) => {
+    if (line.is_silence || line.isSilence) return line;
+    const mapped = mapWhisperWords(line.words || []);
+    const words = mapped.map((w) => ({
+      word: w.word,
+      start: w.hintStart,
+      end: w.hintEnd,
+      hintStart: w.hintStart,
+      hintEnd: w.hintEnd,
+    }));
+    const flags = line.flags || { userMoved: false, autoReflow: false };
+    return syncSubtitleLineFromWords({
+      ...line,
+      start: Number(line.start) || words[0]?.hintStart || 0,
+      end: Number(line.end) || words[words.length - 1]?.hintEnd || 0,
+      text: normalizeTextSSOT(words),
+      words,
+      flags,
+    });
+  });
+
+  const synced = commitSubtitleLinesThroughTimeline(syncAllSubtitleLinesFromWords(out));
   return anchorSourceTimesIfMissing(synced);
 }
 

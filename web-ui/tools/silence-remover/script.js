@@ -10,6 +10,7 @@ import {
   showInstallAgentDialog,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna15";
+import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna20";
 import {
@@ -125,6 +126,28 @@ function mediaPathsEqual(a, b) {
 /** @param {string} p */
 function looksLikeFullPath(p) {
   return p.length > 4 && (/[/\\]/.test(p) || /^[a-zA-Z]:\\/.test(p));
+}
+
+/** Windows 로컬 경로 정규화 (agent normalize_media_path 와 동일 목적) */
+function normalizeAgentMediaPath(raw) {
+  let p = String(raw ?? "").trim();
+  if (!p) return "";
+  p = p.replace(/^["']|["']$/g, "");
+  try {
+    p = p.normalize("NFC");
+  } catch {
+    /* ignore */
+  }
+  p = p.replace(/\u00A5/g, "\\").replace(/\u20A9/g, "\\");
+  p = p.replace(/[\u200b-\u200f\u202a-\u202e\ufeff]/g, "");
+  p = p.replace(/^[\\/]+([A-Za-z]:[\\/])/i, "$1");
+  p = p.replace(/^([A-Za-z])[\\/](?![\\/])/, "$1:\\");
+  if (/^[A-Za-z]:/.test(p)) {
+    const drive = p.slice(0, 2);
+    const rest = p.slice(2).replace(/[/\\]+/g, "\\");
+    p = drive + rest;
+  }
+  return p;
 }
 
 function getRemoveSilentForEdlExport() {
@@ -385,6 +408,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const exportXmlLink = document.getElementById("export-xml-link");
   const mediaWorkspace = document.getElementById("media-workspace");
   const mediaWorkspaceLoading = document.getElementById("media-workspace-loading");
+  const probeLoadingDlg = /** @type {HTMLDialogElement | null} */ (
+    document.getElementById("probe-loading-dialog")
+  );
   const probeTitleEl = document.getElementById("probe-loading-title");
   const probeDescEl = document.getElementById("probe-loading-desc");
 
@@ -411,6 +437,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function hideMediaWorkspaceLoading() {
+    if (probeLoadingDlg?.open) probeLoadingDlg.close();
     if (!mediaWorkspaceLoading) return;
     mediaWorkspaceLoading.classList.remove("is-active");
     mediaWorkspaceLoading.hidden = true;
@@ -422,13 +449,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function showMediaWorkspaceLoading() {
     if (analyzeInProgress) return;
-    if (!mediaWorkspaceLoading) return;
     resetMediaWorkspaceLoadingCopy();
     if (mediaWorkspace) mediaWorkspace.setAttribute("aria-busy", "true");
     setMediaWorkspaceInteractionLocked(true);
-    mediaWorkspaceLoading.hidden = false;
-    mediaWorkspaceLoading.setAttribute("aria-hidden", "false");
-    mediaWorkspaceLoading.classList.add("is-active");
+    if (probeLoadingDlg && typeof probeLoadingDlg.showModal === "function") {
+      if (!probeLoadingDlg.open) probeLoadingDlg.showModal();
+    }
+    if (mediaWorkspaceLoading) {
+      mediaWorkspaceLoading.hidden = false;
+      mediaWorkspaceLoading.setAttribute("aria-hidden", "false");
+      mediaWorkspaceLoading.classList.add("is-active");
+    }
   }
 
   /** 짧은 연속 입력으로 프로브가 겹쳐도 로딩이 깜빡이지 않도록 깊이 + 지연 표시 */
@@ -438,14 +469,15 @@ document.addEventListener("DOMContentLoaded", () => {
   /** 분석 중에는 프로브 전체 로딩이 프로그레스 UI를 덮지 않도록 */
   let analyzeInProgress = false;
 
-  function bumpProbeLoading() {
+  function bumpProbeLoading(immediate = false) {
     if (analyzeInProgress) return;
     probeBusyDepth += 1;
     if (probeBusyDepth === 1) {
       window.clearTimeout(probeShowTimer);
+      const delay = immediate ? 0 : PROBE_LOADING_DELAY_MS;
       probeShowTimer = window.setTimeout(() => {
         if (probeBusyDepth > 0) showMediaWorkspaceLoading();
-      }, PROBE_LOADING_DELAY_MS);
+      }, delay);
     }
   }
 
@@ -532,24 +564,27 @@ document.addEventListener("DOMContentLoaded", () => {
    * @param {{ freshSelection?: boolean }} [opts] freshSelection: 찾아보기로 고른 파일(항상 이전 작업 초기화)
    */
   function applyVideoPathToInput(trimmed, opts = {}) {
+    const path = normalizeAgentMediaPath(trimmed);
+    if (!path) return;
     if (opts.freshSelection) {
       beginNewMediaWorkflow();
     } else {
       prepareMediaPathChange(
-        trimmed,
+        path,
         pathInput.value.trim() || getAnalysisBoundVideoPath() || "",
       );
     }
-    pathInput.value = trimmed;
+    pathInput.value = path;
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
-    pathInput.setSelectionRange(trimmed.length, trimmed.length);
+    pathInput.setSelectionRange(path.length, path.length);
     pathInput.style.borderColor = "#3b82f6";
     pathInput.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
-    const base = trimmed.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
+    const base = path.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
     if (base) sessionStorage.setItem(STORAGE_NAME, base);
-    sessionStorage.setItem(STORAGE_VIDEO_PATH, trimmed);
+    sessionStorage.setItem(STORAGE_VIDEO_PATH, path);
     window.clearTimeout(probeTimer);
+    bumpProbeLoading(true);
     void probeMediaFromPath();
   }
 
@@ -604,7 +639,7 @@ document.addEventListener("DOMContentLoaded", () => {
           signal: ctrl.signal,
         });
 
-      const res = await req("/api/agent/pick-local-file");
+      const res = await req(AGENT_PICK_VIDEO);
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
@@ -632,7 +667,7 @@ document.addEventListener("DOMContentLoaded", () => {
         data && typeof data === "object"
           ? data.video_path || data.audio_path || data.path
           : "";
-      const vp = typeof vpRaw === "string" ? vpRaw.trim() : "";
+      const vp = normalizeAgentMediaPath(vpRaw);
       if (!vp) {
         alert("에이전트가 경로를 반환하지 않았습니다.");
         return;
@@ -2183,13 +2218,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   async function probeMediaFromPath() {
-    const p = pathInput.value.trim();
+    const p = normalizeAgentMediaPath(pathInput.value.trim());
     if (!looksLikeFullPath(p)) {
       clearWaveformPreview();
+      if (probeBusyDepth > 0) releaseProbeLoading();
       return;
     }
     const agent = await checkAgentConnection();
     if (!agent.ok) {
+      if (probeBusyDepth > 0) releaseProbeLoading();
       alert(
         `에이전트에 연결할 수 없습니다. 로컬 에이전트를 실행한 뒤 다시 시도해 주세요.\n\n${agent.error || ""}`,
       );
@@ -2202,7 +2239,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setWaveformCanvasHidden(true);
 
-    bumpProbeLoading();
+    if (probeBusyDepth === 0) bumpProbeLoading();
     const probeCtrl = new AbortController();
     const probeTimeoutId = window.setTimeout(() => probeCtrl.abort(), 180000);
     try {

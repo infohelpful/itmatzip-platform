@@ -2,6 +2,8 @@
  * AutoSubtitle App.tsx ??deleteWordAt, splitSubtitleAtWord, backspaceWordAt, ??
  */
 
+import { LINE_MODE_ONLY } from "./line-mode/config.js?v=1";
+
 import {
   displayTextFromSubtitleWords,
   lineTextIsUserLocked,
@@ -188,7 +190,30 @@ export function applyCueWordAutoAlign(hub, cueIndex, breakAfterStorageIndices) {
 }
 
 export function splitSubtitleAtWord(hub, index, wordIndex) {
-  hub.splitBlockAtWordIndex(index, wordIndex);
+  if (LINE_MODE_ONLY) {
+    return hub.splitLineCueAtWordIndex(index, wordIndex);
+  }
+  return hub.splitBlockAtWordIndex(index, wordIndex);
+}
+
+/**
+ * Line Mode — 아래 줄을 위 줄로 합침 (단어칩 삭제 없음).
+ *
+ * @param {import("../hub/app-hub.js").SubtitleAppHub} hub
+ * @param {number} upperCueIndex
+ */
+export function mergeLineBelowIntoAbove(hub, upperCueIndex) {
+  if (upperCueIndex < 0 || upperCueIndex >= hub.cues.length - 1) return false;
+  const cur = hub.cues[upperCueIndex];
+  const nextLine = hub.cues[upperCueIndex + 1];
+  if (!cur || !nextLine) return false;
+  timelineEditLog("merge-line-below", { upperCueIndex });
+  const mergedText =
+    lineTextIsUserLocked(cur) || lineTextIsUserLocked(nextLine)
+      ? mergeLockedLineTexts(cur, nextLine)
+      : undefined;
+  hub.mergeBlocksAt(upperCueIndex, upperCueIndex + 1, mergedText);
+  return true;
 }
 
 /**

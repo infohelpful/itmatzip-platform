@@ -29,8 +29,6 @@ _AGENT_ROOT = agent_root()
 if str(_AGENT_ROOT) not in sys.path:
     sys.path.insert(0, str(_AGENT_ROOT))
 
-ensure_runtime_directories()
-
 from common.auto_update import get_update_status_snapshot, schedule_background_update_checks  # noqa: E402
 from engines import silence_remover as silence_remover_engine  # noqa: E402
 from routers import auto_subtitle as auto_subtitle_router  # noqa: E402
@@ -41,17 +39,31 @@ from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
 
 
+def _warmup_background() -> None:
+    """기동 직후 /health 가 먼저 응답하도록 무거운 초기화는 백그라운드에서."""
+    import threading
+
+    def _run() -> None:
+        try:
+            ensure_runtime_directories()
+        except Exception:
+            pass
+        silence_remover_engine.schedule_disk_cache_purge()
+        schedule_background_update_checks()
+        _schedule_ffmpeg_bootstrap()
+        try:
+            from engines import custom_fonts
+
+            custom_fonts.register_all_custom_fonts()
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True, name="agent-warmup").start()
+
+
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
-    silence_remover_engine.schedule_disk_cache_purge()
-    schedule_background_update_checks()
-    _schedule_ffmpeg_bootstrap()
-    try:
-        from engines import custom_fonts
-
-        custom_fonts.register_all_custom_fonts()
-    except Exception:
-        pass
+    _warmup_background()
     yield
 
 

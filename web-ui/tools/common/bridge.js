@@ -600,15 +600,34 @@ export function applyConnectionStatusDot(el, ok, detail) {
       detail && "agentVersion" in detail && detail.agentVersion
         ? ` v${detail.agentVersion}`
         : "";
+    const state =
+      detail && typeof detail === "object" && "fastapiState" in detail
+        ? String(detail.fastapiState || "starting")
+        : "starting";
+    const err =
+      detail && typeof detail === "object" && "fastapiError" in detail
+        ? String(detail.fastapiError || "")
+        : "";
+    if (state === "failed") {
+      el.textContent = `에이전트 API 시작 실패${ver}`;
+      el.style.color = "#ef4444";
+      el.title =
+        err ||
+        "FastAPI가 시작되지 않았습니다. 트레이에서 에이전트를 재시작하거나 ProgramData\\itmatzip-agent\\logs 를 확인하세요.";
+      return;
+    }
     if (longOp) {
       el.textContent = `에이전트 작업 중${ver}`;
       el.style.color = "#f59e0b";
       el.title = "긴 작업 중입니다. FastAPI 응답이 느려질 수 있으나 연결은 유지됩니다.";
       return;
     }
-    el.textContent = `에이전트 API 준비 중${ver}`;
+    el.textContent =
+      state === "warming" ? `에이전트 API 로딩 중${ver}` : `에이전트 API 준비 중${ver}`;
     el.style.color = "#f59e0b";
-    el.title = "FastAPI가 재시작 중입니다. 10~30초 후 자동으로 복구됩니다.";
+    el.title = err
+      ? `FastAPI: ${err}`
+      : "FastAPI가 시작 중입니다. 20초 이상 지속되면 자동 재시작을 시도합니다.";
     return;
   }
   if (ok) {
@@ -678,6 +697,37 @@ export function needsAgentMediaFetchProxy(url) {
  * @returns {Promise<string>}
  */
 export async function resolveAgentMediaObjectUrl(directUrl, opts = {}) {
+  const videoPath = String(opts.videoPath || "").trim();
+  const toolPrefix = String(opts.toolPrefix || "").trim();
+
+  if (videoPath && toolPrefix) {
+    const key = postMediaCacheKey(toolPrefix, videoPath);
+    const cached = _mediaBlobByDirectUrl.get(key);
+    if (cached) return cached;
+
+    await primeLocalNetworkAccess();
+
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      opts.onAttempt?.(attempt + 1);
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      try {
+        const blob = await fetchAgentMediaStreamBlob(toolPrefix, videoPath, {
+          signal: opts.signal,
+        });
+        const objUrl = URL.createObjectURL(blob);
+        _mediaBlobByDirectUrl.set(key, objUrl);
+        return objUrl;
+      } catch (err) {
+        lastErr = err;
+        if (opts.signal?.aborted) throw err;
+      }
+    }
+    throw lastErr ?? new Error("미디어 로드 실패");
+  }
+
   const key = String(directUrl || "").trim();
   if (!key) throw new Error("미디어 URL이 비어 있습니다.");
   if (!needsAgentMediaFetchProxy(key)) return key;
@@ -722,9 +772,54 @@ export function revokeAgentMediaObjectUrl(directUrl) {
   const key = String(directUrl || "").trim();
   if (!key) return;
   const objUrl = _mediaBlobByDirectUrl.get(key);
-  if (!objUrl) return;
-  URL.revokeObjectURL(objUrl);
-  _mediaBlobByDirectUrl.delete(key);
+  if (objUrl) {
+    URL.revokeObjectURL(objUrl);
+    _mediaBlobByDirectUrl.delete(key);
+    return;
+  }
+  for (const [k, url] of _mediaBlobByDirectUrl.entries()) {
+    if (k === key || k.endsWith(`:${key}`)) {
+      URL.revokeObjectURL(url);
+      _mediaBlobByDirectUrl.delete(k);
+    }
+  }
+}
+
+/**
+ * 한글 경로 — GET query 대신 POST JSON UTF-8 (auto-subtitle media/stream).
+ * @param {string} toolPrefix e.g. `/api/tools/auto-subtitle`
+ * @param {string} videoPath
+ * @param {{ signal?: AbortSignal }} [opts]
+ */
+export async function fetchAgentMediaStreamBlob(toolPrefix, videoPath, opts = {}) {
+  const p = String(videoPath || "").trim();
+  if (!p) throw new Error("미디어 경로가 비어 있습니다.");
+  const prefix = String(toolPrefix || "").replace(/\/+$/, "");
+  const url = `${_origin}${prefix}/media/stream`;
+  await primeLocalNetworkAccess();
+  const res = await fetchAgent(url, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      Accept: "*/*",
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({ video_path: p }),
+    signal: opts.signal,
+  });
+  if (!res.ok) {
+    throw new Error(`미디어 로드 실패 (HTTP ${res.status})`);
+  }
+  const blob = await res.blob();
+  if (!blob.size) {
+    throw new Error("미디어 파일이 비어 있습니다.");
+  }
+  return blob;
+}
+
+/** @param {string} toolPrefix @param {string} videoPath */
+function postMediaCacheKey(toolPrefix, videoPath) {
+  return `post:${toolPrefix}:${videoPath}`;
 }
 
 /** @param {string} [err] */
@@ -787,13 +882,49 @@ function isItmatzipHealthPayload(data) {
   );
 }
 
+function parseFastapiHealthDetail(body) {
+  const fa = body?.fastapi;
+  if (!fa || typeof fa !== "object") {
+    return {
+      fastapiState: body?.fastapi_ready === false ? "starting" : "ready",
+      fastapiError: "",
+      fastapiStallSeconds: 0,
+      fastapiPortListening: false,
+    };
+  }
+  return {
+    fastapiState: typeof fa.state === "string" ? fa.state : "unknown",
+    fastapiError: typeof fa.last_error === "string" ? fa.last_error : "",
+    fastapiStallSeconds: Number(fa.stall_seconds) || 0,
+    fastapiPortListening: fa.port_listening === true,
+  };
+}
+
+let _apiStalledSince = 0;
+let _lastFastapiRestartAt = 0;
+
+/** FastAPI 사이드카 수동 재시작 (Go :19876) */
+export async function requestFastAPIRestart(origin = _origin) {
+  const base = String(origin || _origin || "").replace(/\/+$/, "");
+  if (!base) return false;
+  try {
+    const res = await fetchAgent(`${base}/api/agent/fastapi/restart`, {
+      method: "POST",
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function pingAgentOrigin(origin, signal) {
   const url = `${origin.replace(/\/+$/, "")}${_healthPath}`;
   const ctrl = new AbortController();
   const longOp = isAgentLongOperationActive();
   const healthTimeoutMs = longOp
     ? Math.min(15_000, _connectTimeoutMs)
-    : Math.min(4500, _connectTimeoutMs);
+    : Math.min(2200, _connectTimeoutMs);
   const t = setTimeout(() => ctrl.abort(), healthTimeoutMs);
   const merged = mergeSignals(signal, ctrl.signal);
   const started = performance.now();
@@ -829,6 +960,7 @@ async function pingAgentOrigin(origin, signal) {
         origin,
       };
     }
+    const fastapiDetail = parseFastapiHealthDetail(body);
     return {
       ok: true,
       status: res.status,
@@ -836,6 +968,7 @@ async function pingAgentOrigin(origin, signal) {
       origin,
       agentVersion: body.agent_version,
       apiReady: body.fastapi_ready !== false,
+      ...fastapiDetail,
     };
   } catch (e) {
     const latencyMs = Math.round(performance.now() - started);
@@ -853,12 +986,13 @@ export async function checkAgentConnection(signal) {
   const candidates = pageOrigin
     ? [...new Set([pageOrigin, _origin, ..._originFallbacks])]
     : [...new Set([_origin, ..._originFallbacks])];
-  /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string } | null} */
+  /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string, failureKind?: AgentFailureKind } | null} */
   let lastFail = null;
 
+  const pings = await Promise.all(candidates.map((origin) => pingAgentOrigin(origin, signal)));
   for (let i = 0; i < candidates.length; i++) {
     const origin = candidates[i];
-    const detail = await pingAgentOrigin(origin, signal);
+    const detail = pings[i];
     if (detail.ok) {
       _origin = (pageOrigin ?? origin).replace(/\/+$/, "");
       recordCircuitSuccess();
@@ -973,14 +1107,20 @@ export function startConnectionMonitor(opts = {}) {
   let timeoutId = 0;
 
   function nextDelayMs() {
+    if (lastOk !== true) {
+      return Math.min(1200, baseIntervalMs);
+    }
     if (failStreak <= 0) return baseIntervalMs;
     return Math.min(60_000, baseIntervalMs * 2 ** Math.min(failStreak - 1, 3));
   }
 
-  function scheduleNext() {
+  /** @param {number} [overrideMs] */
+  function scheduleNext(overrideMs) {
     if (stopped) return;
     globalThis.clearTimeout(timeoutId);
-    timeoutId = globalThis.setTimeout(() => void tick(), nextDelayMs());
+    const delay =
+      typeof overrideMs === "number" && overrideMs > 0 ? overrideMs : nextDelayMs();
+    timeoutId = globalThis.setTimeout(() => void tick(), delay);
   }
 
   async function tick() {
@@ -1011,6 +1151,23 @@ export function startConnectionMonitor(opts = {}) {
       if (_installDialog && !_installDialog.hasAttribute("hidden")) dismissInstallAgentDialog();
       void connectAgentWebSocket();
       lastOk = true;
+      opts.onChange?.(true, { ...detail, ok: true });
+      if (detail.apiReady === false) {
+        if (!_apiStalledSince) _apiStalledSince = Date.now();
+        const stalledMs = Date.now() - _apiStalledSince;
+        const state = detail.fastapiState || "starting";
+        if (
+          stalledMs > 20_000 &&
+          Date.now() - _lastFastapiRestartAt > 45_000 &&
+          (state === "failed" || state === "warming" || stalledMs > 35_000)
+        ) {
+          _lastFastapiRestartAt = Date.now();
+          void requestFastAPIRestart(detail.origin || _origin);
+        }
+        scheduleNext(350);
+        return;
+      }
+      _apiStalledSince = 0;
     } else if (!isAgentLongOperationActive()) {
       failStreak += 1;
       recordCircuitFailure();
@@ -1022,7 +1179,9 @@ export function startConnectionMonitor(opts = {}) {
     const changed = prevReportOk !== reportOk;
     if (firstTick) firstTick = false;
 
-    opts.onChange?.(reportOk, { ...detail, ok: reportOk });
+    if (!(detail.ok && detail.apiReady === false)) {
+      opts.onChange?.(reportOk, { ...detail, ok: reportOk });
+    }
 
     if (!reportOk) {
       if (changed) opts.onDisconnected?.(detail);
@@ -1682,6 +1841,7 @@ const Bridge = {
   fetchAgent,
   needsAgentMediaFetchProxy,
   resolveAgentMediaObjectUrl,
+  fetchAgentMediaStreamBlob,
   revokeAgentMediaObjectUrl,
   extractAgentErrorMessage,
   classifyAgentConnectionFailure,
@@ -1689,6 +1849,7 @@ const Bridge = {
   applyConnectionStatusDot,
   primeLocalNetworkAccess,
   checkAgentConnection,
+  requestFastAPIRestart,
   startConnectionMonitor,
   showInstallAgentDialog,
   dismissInstallAgentDialog,

@@ -6,6 +6,31 @@ import { computeWordContextWindow } from "../line-zoom-window.js";
 import { buildEdlSkipMapping } from "./edl-skip-mapping.js";
 
 export const PANEL_MAX_PX = 448;
+/** Line Mode cue 파형 — 마운트 왼쪽 최소 여백 */
+export const CUE_WAVE_MOUNT_LEFT_PAD_RATIO = 0.03;
+
+/**
+ * @param {HTMLElement} anchorEl
+ * @param {number} mountLeft viewport left of mount
+ */
+export function cueLineChipSpanFromMount(anchorEl, mountLeft) {
+  const chips = [...anchorEl.querySelectorAll(".subtitle-word-chip")].filter((el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0.5 && r.height > 0.5;
+  });
+  if (chips.length) {
+    const first = chips[0].getBoundingClientRect();
+    const last = chips[chips.length - 1].getBoundingClientRect();
+    const left = first.left - mountLeft;
+    const right = last.right - mountLeft;
+    return { left, right, center: (left + right) / 2 };
+  }
+  const ar = anchorEl.getBoundingClientRect();
+  const left = ar.left - mountLeft;
+  const right = ar.right - mountLeft;
+  return { left, right, center: (left + right) / 2 };
+}
 
 /**
  * @param {number} v
@@ -136,6 +161,56 @@ export function computeFirstBoxLayoutPx({ mount, card, chipEl, activeWord, ctxWi
 }
 
 /**
+ * 줄(rail) — 첫·마지막 단어칩 중앙 ↔ 활성 구간 시간 중앙, 왼쪽 3% 여백.
+ *
+ * @param {{
+ *   mount: HTMLElement,
+ *   anchorEl: HTMLElement,
+ *   activeSpan: { start: number, end: number },
+ *   ctxWin: { windowStart: number, windowEnd: number },
+ *   skipRanges: { start: number, end: number }[],
+ * }} params
+ */
+export function computeFirstBoxLayoutPxForAnchor({
+  mount,
+  anchorEl,
+  activeSpan,
+  ctxWin,
+  skipRanges,
+}) {
+  const mountRect = mount.getBoundingClientRect();
+  const mountW = mountRect.width;
+  const mountLeft = mountRect.left;
+  if (mountW <= 0) return null;
+
+  const boxWidth0 = Math.max(1, Math.min(mountW, PANEL_MAX_PX));
+  const futureMap = buildEdlSkipMapping(
+    { start: ctxWin.windowStart, end: ctxWin.windowEnd },
+    skipRanges,
+  );
+  const activeSpanSec = Math.max(futureMap.activeSpanSec, 1e-6);
+  const pps = boxWidth0 / activeSpanSec;
+
+  const wa = Math.min(activeSpan.start, activeSpan.end);
+  const wb = Math.max(activeSpan.start, activeSpan.end);
+  const wMid = (wa + wb) / 2;
+
+  const chipSpan = cueLineChipSpanFromMount(anchorEl, mountLeft);
+  const wMidPxOnBox = futureMap.mediaSecToActiveSec(wMid) * pps;
+  const idealLeft = chipSpan.center - wMidPxOnBox;
+  const minLeft = mountW * CUE_WAVE_MOUNT_LEFT_PAD_RATIO;
+  const maxLeft = Math.max(minLeft, mountW - boxWidth0);
+  const left = clampPx(idealLeft, minLeft, maxLeft);
+
+  return {
+    left,
+    width: boxWidth0,
+    pps,
+    viewWin: { start: ctxWin.windowStart, end: ctxWin.windowEnd },
+  };
+}
+
+/**
  * 흡수 commit 후 re-lock.
  *
  * @param {{
@@ -154,13 +229,18 @@ export function computeRelockBoxLayoutPx({
   pps,
   ctxWin,
   skipRanges,
+  crossLineCoupled = false,
 }) {
   let nextStart = prevWin.start;
   let nextEnd = prevWin.end;
   if (dir === "end") {
-    nextEnd = Math.max(prevWin.end, ctxWin.windowEnd);
+    nextEnd = crossLineCoupled
+      ? ctxWin.windowEnd
+      : Math.max(prevWin.end, ctxWin.windowEnd);
   } else {
-    nextStart = Math.min(prevWin.start, ctxWin.windowStart);
+    nextStart = crossLineCoupled
+      ? ctxWin.windowStart
+      : Math.min(prevWin.start, ctxWin.windowStart);
   }
   const newMap = buildEdlSkipMapping({ start: nextStart, end: nextEnd }, skipRanges);
   const newWidth = pps * Math.max(newMap.activeSpanSec, 1e-6);
@@ -174,22 +254,24 @@ export function computeRelockBoxLayoutPx({
 }
 
 /**
- * 카드 좌우 1% 패딩 안으로 스트립 marginLeft 미세 보정.
+ * 카드 좌우 패딩 안으로 스트립 marginLeft 미세 보정.
  *
  * @param {{ left: number, width: number }} boxLayoutPx
  * @param {HTMLElement} card
  * @param {HTMLElement} stripEl
+ * @param {{ leftPadRatio?: number, rightPadRatio?: number }} [opts]
  */
-export function cardBoundsDeltaForStrip(boxLayoutPx, card, stripEl) {
+export function cardBoundsDeltaForStrip(boxLayoutPx, card, stripEl, opts = {}) {
   const ar = card.getBoundingClientRect();
   const sr = stripEl.getBoundingClientRect();
   const Wwave = sr.width;
   const Wcard = ar.width;
   if (!(Wcard > 1)) return 0;
-  const pad = Wcard * 0.01;
-  if (Wwave > Wcard - 2 * pad + 0.75) return 0;
-  const lo = ar.left + pad - sr.left;
-  const hi = ar.right - pad - sr.right;
+  const leftPad = Wcard * (opts.leftPadRatio ?? 0.01);
+  const rightPad = Wcard * (opts.rightPadRatio ?? 0.01);
+  if (Wwave > Wcard - leftPad - rightPad + 0.75) return 0;
+  const lo = ar.left + leftPad - sr.left;
+  const hi = ar.right - rightPad - sr.right;
   if (lo > hi + 0.5) return 0;
   const delta = Math.max(lo, Math.min(hi, 0));
   if (Math.abs(delta) < 0.25) return 0;

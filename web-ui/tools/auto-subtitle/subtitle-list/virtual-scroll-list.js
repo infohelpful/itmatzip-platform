@@ -15,7 +15,7 @@ import {
   WORD_ONSET_LEAD_SEC,
 } from "../playback.js?v=32";
 import { syncFindHighlightLayerToTextarea } from "../subtitle-find-replace-highlight.js?v=2";
-import { LineWaveformPanel } from "../line-waveform-panel.js?v=8";
+import { LineWaveformPanel } from "../line-waveform-panel.js?v=14";
 import { disposeAllWaveformPanels } from "../waveform-panel-registry.js";
 import {
   applySubwavePanelLeftPx,
@@ -26,6 +26,14 @@ import { subtitleLinesToVrewRows } from "../shared/vrew-subtitle-adapter.js";
 import { wordIsDeleted } from "../shared/subtitles.js?v=20";
 import { normalizePreviewSubtitleText } from "../shared/subtitle-box-chrome.js?v=25";
 import { listableCueIndices } from "../shared/subtitle-list-indices.js?v=5";
+import { LINE_MODE_ONLY } from "../shared/line-mode/config.js?v=1";
+import { LineModeCueWaveformPanel } from "../line-mode/cue-waveform-panel.js?v=35";
+import {
+  firstSpokenStorageIndex,
+  lastSpokenStorageIndex,
+  nextSpokenCueIndex,
+  prevSpokenCueIndex,
+} from "../shared/cross-cue-boundary-sync.js?v=8";
 import {
   buildWordChipsAndCarets,
   clearAllRowCaretState,
@@ -37,7 +45,7 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=60";
+} from "./word-caret-ui.js?v=63";
 import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=5";
 import { wireSubtitleListLineDrag } from "./subtitle-line-drag-ui.js?v=3";
 import { formatVrewBlockTimecode } from "../shared/block-timeline-adapter.js?v=2";
@@ -51,6 +59,12 @@ export { listableCueIndices };
  * @param {(sec: number) => string} formatFull
  */
 function buildCardTimeLabel(cue, cueIndex, opts, formatFull) {
+  if (LINE_MODE_ONLY) {
+    const start = Number(cue.start) || 0;
+    const end = Math.max(start, Number(cue.end) || start);
+    const dur = end - start;
+    return `미디어 ${formatFull(start)} ~ ${formatFull(end)} · ${dur.toFixed(2)}초`;
+  }
   const entry =
     typeof opts.getVirtualIndexForCue === "function" ? opts.getVirtualIndexForCue(cueIndex) : null;
   const duration =
@@ -219,8 +233,9 @@ function renderAllCards(container, cues, opts) {
     card.dataset.cueIndex = String(i);
     card.dataset.listPos = String(listPos);
 
-    const isExpanded =
-      opts.expandedCueIndex === i && opts.expandedWordIndex != null && opts.expandedWordIndex >= 0;
+    const isExpanded = LINE_MODE_ONLY
+      ? opts.expandedCueIndex === i && opts.expandedCueIndex >= 0 && opts.expandedWordIndex === -1
+      : opts.expandedCueIndex === i && opts.expandedWordIndex != null && opts.expandedWordIndex >= 0;
     const isCardActive = activeCue === i || opts.selectedCueIndex === i;
     if (isCardActive) card.classList.add("is-active");
     if (opts.isCueLineChecked?.(i)) card.classList.add("is-line-checked");
@@ -255,7 +270,9 @@ function renderAllCards(container, cues, opts) {
     }
 
     const rail = document.createElement("div");
-    rail.className = "subtitle-word-rail subtitle-word-row--wave-seamless";
+    rail.className = LINE_MODE_ONLY
+      ? "subtitle-word-rail subtitle-word-row--wave-seamless subtitle-word-row--line-mode-hint"
+      : "subtitle-word-rail subtitle-word-row--wave-seamless";
     rail.setAttribute("role", "group");
     rail.setAttribute("aria-label", "\uB2E8\uC5B4 \uD0C0\uC784\uB77C\uC778");
 
@@ -265,8 +282,11 @@ function renderAllCards(container, cues, opts) {
     const tracks = document.createElement("div");
     tracks.className = "subtitle-word-row-tracks subtitle-word-row-tracks--compact";
 
-    const activeWord =
-      playing && activeCue === i
+    const cueLineWaveOpen =
+      LINE_MODE_ONLY && isExpanded && opts.expandedWordIndex === -1;
+    const activeWord = cueLineWaveOpen
+      ? -1
+      : playing && activeCue === i
         ? typeof opts.activeWordIndex === "number" && opts.activeWordIndex >= 0
           ? opts.activeWordIndex
           : pickActiveWordIndexForHighlight(
@@ -294,6 +314,21 @@ function renderAllCards(container, cues, opts) {
     inner.appendChild(tracks);
     rail.appendChild(inner);
     body.appendChild(rail);
+
+    if (LINE_MODE_ONLY) {
+      rail.title = "빈 곳 더블클릭: 줄 싱크 파형";
+      rail.addEventListener("dblclick", (e) => {
+        if (
+          e.target instanceof Element &&
+          e.target.closest(".subtitle-word-chip, .subtitle-word-caret, .subtitle-word-caret--overlay")
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        opts.onCueWaveformToggle?.(i);
+      });
+    }
 
     const accordion = document.createElement("div");
     accordion.className = "subtitle-waveform-accordion";
@@ -363,12 +398,19 @@ function renderAllCards(container, cues, opts) {
     body.appendChild(stack);
     card.appendChild(body);
 
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (e) => {
+      if (e.target instanceof HTMLElement && e.target.closest(".subtitle-cue-timing")) return;
       opts.onSelectCue?.(i, { scroll: false, rerender: false });
     });
     wireSubtitleCardCaretHost(card, i, words, cues, container, opts);
 
-    if (isExpanded) mountWordRail(mount, card, i, opts.expandedWordIndex, cues, opts);
+    if (isExpanded) {
+      if (LINE_MODE_ONLY) {
+        mountCueWaveformRail(mount, card, i, cues, opts);
+      } else {
+        mountWordRail(mount, card, i, opts.expandedWordIndex, cues, opts);
+      }
+    }
 
     listRoot.appendChild(card);
   });
@@ -468,6 +510,12 @@ export function updatePlaybackHighlights(container, cues, opts) {
     return;
   }
 
+  if (opts.skipWordChipHighlight) {
+    lastPlayingWordEl?.classList.remove("subtitle-word-chip--active");
+    lastPlayingWordEl = null;
+    return;
+  }
+
   const storageWi =
     typeof opts.activeWordIndex === "number" ? opts.activeWordIndex : -1;
   if (storageWi >= 0) {
@@ -527,13 +575,28 @@ export function syncExpandedPanelPlayhead(container, opts = {}) {
   if (!container) return;
   const expandedCue = opts.expandedCueIndex ?? -1;
   const expandedWord = opts.expandedWordIndex ?? -1;
-  if (expandedCue < 0 || expandedWord < 0) return;
+  if (expandedCue < 0) return;
 
   const card = queryCardByCueIndex(container, expandedCue);
   const mount = card?.querySelector(".subtitle-card-media-rail");
   if (!mount) return;
   const panel = panelByCard.get(mount);
   if (!panel) return;
+
+  if (LINE_MODE_ONLY && expandedWord === -1) {
+    if (
+      opts.playheadEditSec != null &&
+      Number.isFinite(opts.playheadEditSec) &&
+      opts.mediaPlaying
+    ) {
+      panel.syncPlayheadFromEditSec?.(opts.playheadEditSec);
+      return;
+    }
+    panel.syncPlayhead?.();
+    return;
+  }
+
+  if (expandedWord < 0) return;
 
   if (
     opts.playheadEditSec != null &&
@@ -550,7 +613,8 @@ export function finishExpandedPanelRangePlay(container, opts = {}) {
   if (!container) return;
   const expandedCue = opts.expandedCueIndex ?? -1;
   const expandedWord = opts.expandedWordIndex ?? -1;
-  if (expandedCue < 0 || expandedWord < 0) return;
+  if (expandedCue < 0) return;
+  if (!LINE_MODE_ONLY && expandedWord < 0) return;
   const card = queryCardByCueIndex(container, expandedCue);
   const mount = card?.querySelector(".subtitle-card-media-rail");
   panelByCard.get(mount)?.finishRangePlay?.(true, {
@@ -565,7 +629,7 @@ export function getExpandedPanelCutEditSec(container, expandedCue) {
   const card = queryCardByCueIndex(container, expandedCue);
   const mount = card?.querySelector(".subtitle-card-media-rail");
   const panel = mount ? panelByCard.get(mount) : null;
-  const cut = panel?.cutSec;
+  const cut = panel?.cutSec ?? panel?.playSec;
   return Number.isFinite(cut) ? cut : null;
 }
 
@@ -573,7 +637,8 @@ export function toggleExpandedPanelPlayFromCut(container, opts = {}) {
   if (!container) return false;
   const expandedCue = opts.expandedCueIndex ?? -1;
   const expandedWord = opts.expandedWordIndex ?? -1;
-  if (expandedCue < 0 || expandedWord < 0) return false;
+  if (expandedCue < 0) return false;
+  if (!LINE_MODE_ONLY && expandedWord < 0) return false;
   const card = queryCardByCueIndex(container, expandedCue);
   const mount = card?.querySelector(".subtitle-card-media-rail");
   const panel = panelByCard.get(mount);
@@ -583,6 +648,7 @@ export function toggleExpandedPanelPlayFromCut(container, opts = {}) {
 }
 
 function openWordRail(card, cueIndex, storageWordIndex, cues, opts) {
+  if (LINE_MODE_ONLY) return;
   const mount = card.querySelector(".subtitle-card-media-rail");
   const accordion = card.querySelector(".subtitle-waveform-accordion");
   if (!mount || !accordion) return;
@@ -592,7 +658,63 @@ function openWordRail(card, cueIndex, storageWordIndex, cues, opts) {
   opts.onWordExpand?.(cueIndex, storageWordIndex);
 }
 
+function mountCueWaveformRail(mount, card, cueIndex, cues, opts) {
+  const getCues = opts.getCues || (() => cues);
+  card?.querySelectorAll(".subtitle-word-chip--active").forEach((el) => {
+    el.classList.remove("subtitle-word-chip--active");
+  });
+  let panel = panelByCard.get(mount);
+  if (panel && panel.cueIndex === cueIndex && panel.root?.querySelector("[data-subwave-flow]")) {
+    panel.sync?.();
+    return;
+  }
+  mount.innerHTML = "";
+  if (panel) {
+    panel.hide?.();
+    panel.destroy?.();
+    panelByCard.delete(mount);
+  }
+  panel = new LineModeCueWaveformPanel(mount, {
+    getCues,
+    getCard: () => card,
+    getPeaksData: opts.getPeaksData || (() => opts.peaksData ?? null),
+    getMediaDurationSec: opts.getMediaDurationSec || (() => opts.mediaDurationSec ?? null),
+    getSnapGrid: opts.getSnapGrid || (() => opts.snapGrid ?? null),
+    getPlaybackSkipRanges: () => opts.getPlaybackSkipRanges?.() ?? [],
+    formatTime: opts.formatTimeFull || opts.formatTime,
+    getPlayheadSec: () =>
+      typeof opts.getPlayheadSec === "function" ? opts.getPlayheadSec() : opts.playheadSec,
+    getPlayheadEditSec: () =>
+      typeof opts.getPlayheadSec === "function" ? opts.getPlayheadSec() : opts.playheadSec,
+    onPreviewCueTiming: (ci, nextCue) => opts.onPreviewCueTiming?.(ci, nextCue),
+    onPreviewCueLineEndTrim: (ci, lines) => opts.onPreviewCueLineEndTrim?.(ci, lines),
+    onCommitCueTiming: (ci, nextCue) => opts.onCommitCueTiming?.(ci, nextCue),
+    onCommitCueLineEndTrim: (ci, lines) => opts.onCommitCueLineEndTrim?.(ci, lines),
+    onSeek: (sec) => opts.onSeek?.(sec),
+    onPlayEditRange: (s, e) => opts.onPlayEditRange?.(s, e),
+    onPausePlayback: () => opts.onPausePlayback?.(),
+    isPlaying: () => opts.getIsPlaying?.() ?? Boolean(opts.isPlaying),
+    isWaveformPanelActive: () => {
+      const ci =
+        typeof opts.getExpandedCueIndex === "function"
+          ? opts.getExpandedCueIndex()
+          : (opts.expandedCueIndex ?? -1);
+      const wi =
+        typeof opts.getExpandedWordIndex === "function"
+          ? opts.getExpandedWordIndex()
+          : (opts.expandedWordIndex ?? -1);
+      return ci >= 0 && wi === -1;
+    },
+    onClose: () => opts.onCloseWaveform?.(),
+    onSplitCueAtPlayLine: (ci, sec) => opts.onSplitCueAtPlayLine?.(ci, sec),
+    ensurePeaksLoad: opts.ensurePeaksLoad,
+  });
+  panelByCard.set(mount, panel);
+  panel.show(cueIndex);
+}
+
 function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
+  if (LINE_MODE_ONLY) return;
   const getCues = opts.getCues || (() => cues);
 
   let panel = panelByCard.get(mount);
@@ -636,6 +758,8 @@ function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
         return ci >= 0 && wi >= 0;
       },
       onUndo: () => opts.onWaveformUndo?.(),
+      onMicroRealign: (ci, wi) => opts.onMicroRealign?.(ci, wi),
+      onToast: (msg, level) => opts.onToast?.(msg, level),
       onSeek: (sec) => opts.onSeek?.(sec),
       onFocusWordAfterSplit: (ci, wi, wordId) => opts.onWaveformFocusWord?.(ci, wi, wordId),
       onClose: () => opts.onCloseWaveform?.(),
@@ -650,6 +774,121 @@ function mountWordRail(mount, card, cueIndex, wordIndex, cues, opts) {
     applySubwavePanelLeftPx(mount, card, wordId);
     panel.show(cueIndex, wordIndex);
   }
+}
+
+/**
+ * 파형 트림 commit — 카드·패널만 갱신 (전체 리스트 리렌더 생략).
+ *
+ * @param {HTMLElement | null} container
+ * @param {import("../shared/subtitles.js").SubtitleLine[]} cues
+ * @param {{ cueIndex: number, focusWordIndex: number, trimEdge?: 'start' | 'end' }} meta
+ */
+export function syncOpenCueWaveformPanel(container, opts = {}) {
+  if (!LINE_MODE_ONLY || !container) return;
+  const expandedCue = opts.expandedCueIndex ?? -1;
+  if (expandedCue < 0 || (opts.expandedWordIndex ?? -1) !== -1) return;
+  const card = queryCardByCueIndex(container, expandedCue);
+  const mount = card?.querySelector(".subtitle-card-media-rail");
+  const panel = mount ? panelByCard.get(mount) : null;
+  if (!panel) return;
+  if (opts.mediaPlaying && Number.isFinite(opts.playheadEditSec)) {
+    panel.syncPlayheadFromEditSec?.(opts.playheadEditSec);
+    return;
+  }
+  panel.sync?.();
+}
+
+export function refreshCueWaveformPanelAfterLineEndTrim(container, cues, cueIndex) {
+  if (!LINE_MODE_ONLY || !container || !cues?.length || cueIndex < 0) return;
+
+  /** @param {number} ci @param {number[]} indices */
+  const patchWordTimes = (ci, indices) => {
+    const card = queryCardByCueIndex(container, ci);
+    const cue = cues[ci];
+    if (!card || !cue?.words) return;
+    for (const wi of indices) {
+      if (wi < 0) continue;
+      const w = cue.words[wi];
+      if (!w) continue;
+      const pill = card.querySelector(`.subtitle-word-chip[data-word-index="${wi}"]`);
+      if (!pill) continue;
+      pill.dataset.wordStart = String(w.start);
+      pill.dataset.wordEnd = String(w.end);
+    }
+  };
+
+  const lwi = lastSpokenStorageIndex(cues[cueIndex]);
+  if (lwi >= 0) patchWordTimes(cueIndex, [lwi]);
+
+  const nextCi = nextSpokenCueIndex(cues, cueIndex);
+  if (nextCi >= 0) {
+    const rwi = firstSpokenStorageIndex(cues[nextCi]);
+    if (rwi >= 0) patchWordTimes(nextCi, [rwi]);
+  }
+
+  const card = queryCardByCueIndex(container, cueIndex);
+  const mount = card?.querySelector(".subtitle-card-media-rail");
+  const panel = mount ? panelByCard.get(mount) : null;
+  panel?.syncFromLineEndTrim?.(cues);
+  refreshExpandedPanelSkipRanges(container);
+}
+
+export function refreshWaveformPanelAfterTrim(container, cues, meta) {
+  if (!container || !cues?.length || !meta) return;
+  const { cueIndex, focusWordIndex, trimEdge } = meta;
+  if (cueIndex < 0 || focusWordIndex < 0) return;
+
+  /** @param {HTMLElement | null} card @param {import("../shared/subtitles.js").SubtitleLine} line @param {number[]} indices */
+  const patchIndices = (card, line, indices) => {
+    if (!card || !line?.words) return;
+    for (const wi of indices) {
+      if (wi < 0) continue;
+      const w = line.words[wi];
+      if (!w) continue;
+      const pill = card.querySelector(`.subtitle-word-chip[data-word-index="${wi}"]`);
+      if (!pill) continue;
+      pill.dataset.wordStart = String(w.start);
+      pill.dataset.wordEnd = String(w.end);
+    }
+  };
+
+  /** @param {number} cueIdx @param {number} wordIdx */
+  const refreshOpenPanelAt = (cueIdx, wordIdx) => {
+    if (cueIdx < 0 || wordIdx < 0) return;
+    const card = queryCardByCueIndex(container, cueIdx);
+    if (!card?.classList.contains("has-waveform-open")) return;
+    const mount = card.querySelector(".subtitle-card-media-rail");
+    const panel = mount ? panelByCard.get(mount) : null;
+    panel?.syncFromCuesAfterTrim?.(cueIdx, wordIdx);
+  };
+
+  const card = queryCardByCueIndex(container, cueIndex);
+  const cue = cues[cueIndex];
+  if (card && cue) {
+    patchIndices(card, cue, [focusWordIndex]);
+    if (trimEdge === "end") {
+      const nextCi = nextSpokenCueIndex(cues, cueIndex);
+      const nextCue = nextCi >= 0 ? cues[nextCi] : null;
+      const rwi = firstSpokenStorageIndex(nextCue);
+      const nextCard = nextCi >= 0 ? queryCardByCueIndex(container, nextCi) : null;
+      if (nextCard && nextCue && rwi >= 0) {
+        patchIndices(nextCard, nextCue, [rwi]);
+        refreshOpenPanelAt(nextCi, rwi);
+      }
+    } else if (trimEdge === "start") {
+      const prevCi = prevSpokenCueIndex(cues, cueIndex);
+      const prevCue = prevCi >= 0 ? cues[prevCi] : null;
+      const lwi = lastSpokenStorageIndex(prevCue);
+      const prevCard = prevCi >= 0 ? queryCardByCueIndex(container, prevCi) : null;
+      if (prevCard && prevCue && lwi >= 0) {
+        patchIndices(prevCard, prevCue, [lwi]);
+        refreshOpenPanelAt(prevCi, lwi);
+      }
+    }
+  }
+
+  refreshOpenPanelAt(cueIndex, focusWordIndex);
+  refreshExpandedPanelSkipRanges(container);
 }
 
 export function captureTextareaEditsIntoCues(container, cues) {
