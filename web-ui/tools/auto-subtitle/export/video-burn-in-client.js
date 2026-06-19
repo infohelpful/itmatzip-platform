@@ -3,8 +3,11 @@
  */
 
 import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
-import { buildOverlayCaptureSchedule, isProgramExportTimeAxis } from "../shared/overlay-capture-schedule.js?v=4";
-import { createOverlayTimingContext } from "../shared/overlay-timing-ssot.js?v=2";
+import { buildOverlayCaptureSchedule, isProgramExportTimeAxis } from "../shared/overlay-capture-schedule.js?v=6";
+import {
+  createOverlayTimingContext,
+  createProgramBurnInOverlayContext,
+} from "../shared/overlay-timing-ssot.js?v=4";
 import { runExportParityGate, runProgramMapParityGate } from "../shared/overlay-timing-parity.js?v=2";
 import {
   analyzeBurnInPipelineHandoff,
@@ -18,10 +21,12 @@ import {
 } from "../shared/burn-in-pipeline-diagnostics.js?v=3";
 import {
   buildBurnInMediaContract,
+  buildProgramDurationScaleMap,
   buildProgramToBurninMapFromVirtualAudioMap,
   DEFAULT_TARGET_NTSC_FPS,
   ntscFpsFractionsEqual,
-} from "../shared/media-timing-ssot.js?v=6";
+  remapScheduleToBurninAxis,
+} from "../shared/media-timing-ssot.js?v=12";
 import { bindExportStyleVideoNative } from "../shared/export-render-scale.js?v=1";
 import { captureSubtitleFrameSequence } from "./subtitle-bgra-capture.js?v=7";
 
@@ -245,16 +250,26 @@ export async function runVideoBurnInExport({
     );
   }
 
-  const overlayCtx = createOverlayTimingContext({
-    cues: lastCues,
-    blocks,
-    virtualIndex,
-    cutRanges: scheduleCutRanges,
-    playbackMode: "time",
-    exportTimeAxis: axis,
-    requiresConcat: stitched,
-    programClips,
-  });
+  const overlayCtx = useProgramSchedule
+    ? createProgramBurnInOverlayContext({
+        cues: lastCues,
+        blocks,
+        virtualIndex,
+        programClips,
+        exportTimeAxis: axis,
+        requiresConcat: stitched,
+        actualDuration,
+      })
+    : createOverlayTimingContext({
+        cues: lastCues,
+        blocks,
+        virtualIndex,
+        cutRanges: scheduleCutRanges,
+        playbackMode: "time",
+        exportTimeAxis: axis,
+        requiresConcat: stitched,
+        programClips,
+      });
   const parity = runExportParityGate(overlayCtx);
   burnInConsoleLog("overlay_parity", {
     ok: parity.ok,
@@ -395,6 +410,19 @@ export async function runVideoBurnInExport({
   burnInPipelineDiagLog("prepare_done", prepHandoff);
   const renderW = prep.render_width;
   const renderH = prep.render_height;
+
+  let captureSchedule = schedule;
+  if (isV5Program && prep.duration_sec > 0 && schedule.length > 0) {
+    const scaleMap = buildProgramDurationScaleMap(scheduleEnd, prep.duration_sec);
+    if (scaleMap) {
+      captureSchedule = remapScheduleToBurninAxis(schedule, scaleMap);
+      burnInConsoleLog("program_duration_scale", {
+        programEnd: scheduleEnd,
+        burninMediaDur: prep.duration_sec,
+      });
+    }
+  }
+
   const exportStyle = bindExportStyleVideoNative(
     style,
     prep.full_width || style.videoWidth,
@@ -403,7 +431,7 @@ export async function runVideoBurnInExport({
 
   onUiProgress?.({ progress: 8, step: "영상 · 캡처", message: "자막 프레임 생성…" });
   const frames = await captureSubtitleFrameSequence(
-    schedule,
+    captureSchedule,
     exportStyle,
     renderW,
     renderH,

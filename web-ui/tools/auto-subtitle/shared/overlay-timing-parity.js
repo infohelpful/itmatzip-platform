@@ -8,7 +8,7 @@ import {
   generateCaptureSchedule,
   resolveCueAtTime,
   scheduleSegmentAtTime,
-} from "./overlay-timing-ssot.js?v=1";
+} from "./overlay-timing-ssot.js?v=4";
 import {
   assertProgramToBurninMapMonotonic,
   mapProgramTimeToBurnInPts,

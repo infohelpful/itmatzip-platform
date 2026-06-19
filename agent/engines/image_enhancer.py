@@ -478,6 +478,7 @@ def _run_codeformer_subprocess(
         "creationflags": no_window_creationflags(),
     }
     codeformer_runtime.patch_basicsr_torchvision_compat(VENDOR_ROOT)
+    codeformer_runtime.patch_vendor_unicode_imread(VENDOR_ROOT)
 
     proc = subprocess.Popen(command, **kwargs)  # noqa: S603
     last_pct = 15.0
@@ -548,7 +549,8 @@ def enhance_image(
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    staged_input = input_dir / input_path.name
+    # CodeFormer/OpenCV imread cannot open non-ASCII paths on Windows.
+    staged_input = input_dir / f"input{input_path.suffix.lower()}"
     shutil.copy2(input_path, staged_input)
 
     upscale_resolved = normalize_enhance_upscale(upscale, background_enhance=background_enhance)

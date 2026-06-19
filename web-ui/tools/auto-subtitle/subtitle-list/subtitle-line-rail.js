@@ -201,6 +201,7 @@ export function buildSubtitleLineRail(cueIndex, displayIdx, getOpts) {
   cb.className = "subtitle-card-line-checkbox";
   cb.checked = Boolean(opts.isCueLineChecked?.(cueIndex));
   cb.setAttribute("aria-label", `자막 ${displayIdx}번 줄 선택`);
+  cb.title = "선택 후 Delete 키로 줄 삭제";
   cb.addEventListener("change", (e) => {
     e.stopPropagation();
     getOpts().onToggleCueLineCheck?.(cueIndex, cb.checked);

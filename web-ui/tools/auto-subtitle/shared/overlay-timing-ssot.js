@@ -5,7 +5,7 @@
 
 import { buildExportCueLines } from "./export-cue-pipeline.js?v=4";
 import { normalizePreviewSubtitleText } from "./subtitle-box-chrome.js?v=25";
-import { subtitleLineEditDisplayText, visibleSubtitleWords } from "./subtitles.js?v=28";
+import { subtitleLineEditAreaText, visibleSubtitleWords } from "./subtitles.js?v=29";
 import {
   blocksToExportSegments,
   blocksToOverlayProgramSegments,
@@ -37,14 +37,14 @@ export function isProgramExportTimeAxis(axis) {
 }
 
 /**
- * DOM 비의존 — getPreviewCueText 정규화 파이프라인과 동치.
+ * DOM 비의존 — 자막 편집 영역(cue.text) 기준. 단어칩 폴백 없음.
  *
  * @param {object | null | undefined} cue
  */
 export function resolveExportCueText(cue) {
   if (!cue) return "";
   if (cue.is_silence || cue.isSilence) return "";
-  const text = normalizePreviewSubtitleText(subtitleLineEditDisplayText(cue));
+  const text = normalizePreviewSubtitleText(subtitleLineEditAreaText(cue));
   if (!text || text === "[--]") return "";
   return text;
 }
@@ -124,6 +124,39 @@ export function createOverlayTimingContext(opts) {
 /** @param {OverlayTimingContext | null | undefined} ctx */
 export function invalidateOverlayTimingCache(ctx) {
   if (ctx) ctx._scheduleCache = null;
+}
+
+/**
+ * 프리뷰·번인이 동일한 program 축 overlay schedule을 쓰도록 하는 공통 context.
+ *
+ * @param {{
+ *   cues: readonly object[],
+ *   blocks?: readonly object[],
+ *   virtualIndex?: readonly object[],
+ *   programClips?: readonly import("./program-clips-ssot.js").ProgramClip[],
+ *   clips?: readonly import("./timeline-mapping.js").TimelineClip[],
+ *   exportTimeAxis?: string,
+ *   requiresConcat?: boolean,
+ *   actualDuration?: number,
+ * }} opts
+ * @returns {OverlayTimingContext}
+ */
+export function createProgramBurnInOverlayContext(opts) {
+  const exportTimeAxis = opts.exportTimeAxis || "program";
+  return createOverlayTimingContext({
+    cues: opts.cues,
+    blocks: opts.blocks,
+    virtualIndex: opts.virtualIndex,
+    cutRanges: [],
+    playbackMode: "time",
+    exportTimeAxis,
+    requiresConcat: !!opts.requiresConcat,
+    programClips: opts.programClips?.length ? opts.programClips : undefined,
+    clips: opts.clips || [],
+    actualDuration: opts.actualDuration,
+    isMediaPlaying: false,
+    listPlaybackClipPos: -1,
+  });
 }
 
 /**

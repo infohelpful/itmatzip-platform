@@ -509,6 +509,28 @@ export function buildProgramToBurninMapFromVirtualAudioMap(
   return rows;
 }
 
+/**
+ * Program master 실제 길이 ≠ clips programEnd 일 때 선형 스케일 맵.
+ *
+ * @param {number} programEnd
+ * @param {number} burninMediaDuration
+ */
+export function buildProgramDurationScaleMap(programEnd, burninMediaDuration) {
+  const pe = Number(programEnd);
+  const ad = Number(burninMediaDuration);
+  if (!Number.isFinite(pe) || pe <= 0 || !Number.isFinite(ad) || ad <= 0) return null;
+  if (Math.abs(pe - ad) < 0.05) return null;
+  return [
+    {
+      index: 0,
+      editStart: 0,
+      editEnd: pe,
+      ptsStartActual: 0,
+      ptsEndActual: ad,
+    },
+  ];
+}
+
 export function remapScheduleToBurninAxis(schedule, map) {
   assertProgramToBurninMapMonotonic(map);
   const minSeg = 0.01;

@@ -61,7 +61,7 @@ import {
   getFocusedSubtitleCardIndex,
   setPreviewOverlaySyncHook,
   markCaretListStructuralMutation,
-} from "./subtitle-list/word-caret-ui.js?v=63";
+} from "./subtitle-list/word-caret-ui.js?v=64";
 import {
   nearestValidStorageCaret,
   storageCaretToRenderableCaret,
@@ -71,12 +71,13 @@ import {
   syncAllCuesFromWords,
   ensureCueWords,
   subtitleLineEditDisplayText,
+  subtitleLineEditAreaText,
   rebuildWordsFromLineText,
   markLineTextUserEdited,
   lineTextIsUserLocked,
   MIN_WORD_SPAN_SEC,
   getCueWords,
-} from "./subtitle-words.js?v=24";
+} from "./subtitle-words.js?v=25";
 import { wordVisibleInWordChipRail } from "./shared/subtitles.js?v=28";
 import {
   pickActiveCueIndex,
@@ -115,7 +116,7 @@ import {
   burnInConsoleLog,
   isVideoBurnInNotFoundError,
   runVideoBurnInExport,
-} from "./export/video-burn-in-client.js?v=19";
+} from "./export/video-burn-in-client.js?v=21";
 import {
   normalizeCuesFromAgent,
   postProcessCuesAfterTranscribe,
@@ -144,9 +145,11 @@ import {
 } from "./shared/media-timing-ssot.js?v=11";
 import {
   createOverlayTimingContext,
+  createProgramBurnInOverlayContext,
   invalidateOverlayTimingCache,
+  isProgramExportTimeAxis,
   resolveCueAtTime,
-} from "./shared/overlay-timing-ssot.js?v=2";
+} from "./shared/overlay-timing-ssot.js?v=4";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 import {
   applySubtitleOverlayTextLayout,
@@ -1015,6 +1018,8 @@ let hotReorderDragWasPlaying = false;
 let lastPlaybackSegmentFingerprint = "";
 let lastOverlayCueIndex = -1;
 let lastOverlayDisplayText = "";
+/** @type {Map<number, string>} 리렌더·단어칩 포커스 후에도 프리뷰가 편집 영역 텍스트를 유지 */
+const lineEditPreviewTextByCueIndex = new Map();
 /** @type {import("./shared/overlay-timing-ssot.js").OverlayTimingContext | null} */
 let overlayTimingCtx = null;
 /** @type {{ path: string, position: string }} */
@@ -1910,7 +1915,7 @@ async function applyRestoredPlaybackSnapshot() {
 
 function handleHubHistoryRestore() {
   void applyRestoredPlaybackSnapshot().then(() => {
-    renderCuesTable(lastCues);
+    renderCuesTableAfterStructuralEdit(lastCues);
   });
 }
 
@@ -2572,6 +2577,19 @@ function refreshOverlayTimingContext() {
   const exportTimeAxis = useBlocks ? "program" : "media";
   const scheduleCutRanges = useBlocks ? [] : cutRanges;
 
+  if (useBlocks) {
+    overlayTimingCtx = createProgramBurnInOverlayContext({
+      cues: lastCues,
+      blocks,
+      virtualIndex,
+      programClips: getActiveProgramClips(),
+      clips: getProgramSegmentTimelineClips(),
+    });
+    overlayTimingCtx.isMediaPlaying = isPreviewMediaPlaying();
+    overlayTimingCtx.listPlaybackClipPos = listPlaybackClipPos;
+    return;
+  }
+
   overlayTimingCtx = createOverlayTimingContext({
     cues: lastCues,
     blocks,
@@ -2639,6 +2657,7 @@ function persistCues() {
 
 /** 자막·파형·컷만 비움 (영상 경로는 유지). 새 영상 / 경로 변경 시 호출 */
 function clearSubtitleWorkspace() {
+  invalidateTranscribeSession();
   subtitleHub.reset();
   lastCues = [];
   lastCutRanges = [];
@@ -2652,6 +2671,8 @@ function clearSubtitleWorkspace() {
   hqPreviewMode = false;
   downloadReturnRestorePending = false;
   downloadReturnRestoreMeta = null;
+  programMasterPreviewPath = "";
+  clearProgramMasterCache();
   invalidateOverlayTimingCache(overlayTimingCtx);
   overlayTimingCtx = null;
   expandedCueIndex = -1;
@@ -2661,6 +2682,8 @@ function clearSubtitleWorkspace() {
   sessionMediaDurationSec = null;
   sessionWhisperDurationSec = null;
   clearSessionMediaTiming();
+  lastOverlayDisplayText = "";
+  clearLineEditPreviewTextCache();
   try {
     sessionStorage.removeItem(STORAGE_CUES);
     sessionStorage.removeItem(STORAGE_CUTS);
@@ -2671,8 +2694,13 @@ function clearSubtitleWorkspace() {
     /* ignore */
   }
   if (subtitleList) subtitleList.innerHTML = "";
+  if (resultsMeta) {
+    resultsMeta.textContent = "";
+    resultsMeta.hidden = true;
+  }
   stopPlaybackLoop();
   commitPlayheadUi();
+  updatePreviewOverlay();
   updateActionButtons();
 }
 
@@ -3679,26 +3707,101 @@ function getActiveCueForPreview() {
   return ai >= 0 ? lastCues[ai] : null;
 }
 
-function getPreviewCueText(cue) {
-  if (!cue) return "";
-  const previewIdx = getPreviewCueIndex();
-  if (previewIdx >= 0 && subtitleList) {
+function rememberLineEditPreviewText(cueIndex, text) {
+  if (cueIndex < 0) return;
+  lineEditPreviewTextByCueIndex.set(cueIndex, String(text ?? ""));
+}
+
+function clearLineEditPreviewTextCache() {
+  lineEditPreviewTextByCueIndex.clear();
+}
+
+function rebuildLineEditPreviewCacheFromCues(cues = lastCues) {
+  lineEditPreviewTextByCueIndex.clear();
+  (cues || []).forEach((cue, i) => {
+    if (cue && !cue.is_silence) {
+      rememberLineEditPreviewText(i, subtitleLineEditAreaText(cue));
+    }
+  });
+}
+
+/** 줄 분할·삭제·재정렬 등 — DOM textarea가 cue 배열과 어긋난 뒤 캡처하면 인덱스 밀림 */
+function renderCuesTableAfterStructuralEdit(cues, { scrollActive = false } = {}) {
+  clearLineEditPreviewTextCache();
+  renderCuesTable(cues, { scrollActive, capturePendingEdits: false });
+  rebuildLineEditPreviewCacheFromCues(cues);
+}
+
+function prepareOverlayTimingCtxForResolve() {
+  if (!overlayTimingCtx) refreshOverlayTimingContext();
+  if (!overlayTimingCtx) return null;
+  overlayTimingCtx.isMediaPlaying = isPreviewMediaPlaying();
+  overlayTimingCtx.listPlaybackClipPos = listPlaybackClipPos;
+  overlayTimingCtx.playbackMode =
+    isProgramExportTimeAxis(overlayTimingCtx.exportTimeAxis)
+      ? "time"
+      : useListIndexPlayback()
+        ? "list-order"
+        : "time";
+  return overlayTimingCtx;
+}
+
+/**
+ * 재생 시각 기준 활성 cue index — Overlay Timing SSOT.
+ *
+ * @param {number} editSec
+ */
+function resolveOverlayCueIndexAt(editSec) {
+  const ctx = prepareOverlayTimingCtxForResolve();
+  if (!ctx) return -1;
+  const hit = resolveCueAtTime(ctx, editSec);
+  return hit && hit.cueIndex >= 0 ? hit.cueIndex : -1;
+}
+
+function resolvePreviewOverlayCueIndex() {
+  if (isPreviewMediaPlaying()) return resolveOverlayCueIndexAt(playheadSec);
+  return getPreviewCueIndex();
+}
+
+/**
+ * 프리뷰 오버레이 — 항상 자막 편집 영역(textarea / cue.text). 단어칩 텍스트 폴백 금지.
+ *
+ * @param {number} cueIndex
+ */
+function getCueLineEditTextForPreview(cueIndex) {
+  if (cueIndex < 0 || !lastCues[cueIndex]) return "";
+  const cue = lastCues[cueIndex];
+  if (cue.is_silence) return "";
+
+  if (subtitleList) {
     const ta = subtitleList.querySelector(
-      `.subtitle-card[data-cue-index="${previewIdx}"] .subtitle-card-textarea`,
+      `.subtitle-card[data-cue-index="${cueIndex}"] .subtitle-card-textarea`,
     );
     if (ta instanceof HTMLTextAreaElement) {
-      if (ta.dataset.lineTextUserEdited === "1" || lineTextIsUserLocked(cue)) {
-        return normalizePreviewSubtitleText(ta.value);
-      }
-      const live = normalizePreviewSubtitleText(ta.value);
-      if (live) return live;
+      const fromDom = normalizePreviewSubtitleText(ta.value);
+      rememberLineEditPreviewText(cueIndex, fromDom);
+      return fromDom;
     }
   }
-  if (lineTextIsUserLocked(cue)) {
-    return normalizePreviewSubtitleText(String(cue.text ?? ""));
+
+  if (lineEditPreviewTextByCueIndex.has(cueIndex)) {
+    return normalizePreviewSubtitleText(lineEditPreviewTextByCueIndex.get(cueIndex));
   }
-  ensureCueWords(cue);
-  return normalizePreviewSubtitleText(subtitleLineEditDisplayText(cue));
+
+  return normalizePreviewSubtitleText(subtitleLineEditAreaText(cue));
+}
+
+/**
+ * @param {object | number | null | undefined} cueOrIndex
+ */
+function getPreviewCueText(cueOrIndex) {
+  const cueIndex =
+    typeof cueOrIndex === "number"
+      ? cueOrIndex
+      : cueOrIndex
+        ? lastCues.indexOf(cueOrIndex)
+        : getPreviewCueIndex();
+  return getCueLineEditTextForPreview(cueIndex >= 0 ? cueIndex : getPreviewCueIndex());
 }
 
 /**
@@ -3707,15 +3810,8 @@ function getPreviewCueText(cue) {
  * @param {number} editSec
  */
 function resolveOverlayDisplayTextAt(editSec) {
-  if (!overlayTimingCtx) refreshOverlayTimingContext();
-  if (!overlayTimingCtx) return "";
-
-  overlayTimingCtx.isMediaPlaying = isPreviewMediaPlaying();
-  overlayTimingCtx.listPlaybackClipPos = listPlaybackClipPos;
-  overlayTimingCtx.playbackMode = useListIndexPlayback() ? "list-order" : "time";
-
-  const hit = resolveCueAtTime(overlayTimingCtx, editSec);
-  return hit?.text ?? "";
+  const cueIndex = resolveOverlayCueIndexAt(editSec);
+  return cueIndex >= 0 ? getCueLineEditTextForPreview(cueIndex) : "";
 }
 
 function armDeleteGuard(ms = 280) {
@@ -4459,12 +4555,9 @@ function commitPlayheadUi({
   lastPlaybackCueIndex = ai;
   lastPlaybackWordIndex = wi;
 
-  const previewIdx = getPreviewCueIndex();
-  const overlayText = mediaPlaying
-    ? resolveOverlayDisplayTextAt(t)
-    : previewIdx >= 0
-      ? getPreviewCueText(lastCues[previewIdx])
-      : "";
+  const previewIdx = mediaPlaying ? resolveOverlayCueIndexAt(t) : getPreviewCueIndex();
+  const overlayText =
+    previewIdx >= 0 ? getCueLineEditTextForPreview(previewIdx) : "";
   if (overlayText !== lastOverlayDisplayText || previewIdx !== lastOverlayCueIndex) {
     updatePreviewOverlay();
     lastOverlayCueIndex = previewIdx;
@@ -5182,10 +5275,9 @@ function updatePreviewOverlay() {
   layoutPreviewMediaFrame();
   const style = readSubtitleStyleFromDom();
   const scale = getPreviewOverlayScale(style);
+  const cueIndex = resolvePreviewOverlayCueIndex();
   const previewText = normalizePreviewSubtitleText(
-    isPreviewMediaPlaying()
-      ? resolveOverlayDisplayTextAt(playheadSec)
-      : getPreviewCueText(getActiveCueForPreview()),
+    cueIndex >= 0 ? getCueLineEditTextForPreview(cueIndex) : "",
   );
 
   if (!previewText) {
@@ -5764,6 +5856,14 @@ function adjustEditorIndicesAfterCueRemovals(removedSortedDesc) {
   if (expandedCueIndex < 0) expandedWordIndex = -1;
 }
 
+/** 삭제·단어 shrink 등 blocks 구조 변경 시 program-master 캐시 무효화 (번인 = 프리뷰 타임라인) */
+function invalidateProgramMasterAfterStructuralEdit() {
+  clearProgramMasterCache();
+  programMasterPreviewPath = "";
+  invalidateOverlayTimingCache(overlayTimingCtx);
+  overlayTimingCtx = null;
+}
+
 function deleteSelectedSubtitleLines() {
   const targets =
     checkedCueIndices.size > 0
@@ -5778,10 +5878,12 @@ function deleteSelectedSubtitleLines() {
   deleteSubtitleLinesAt(subtitleHub, sorted);
   adjustEditorIndicesAfterCueRemovals(sorted);
   if (selectedCueIndex < 0) checkedCueIndices.clear();
+  invalidateProgramMasterAfterStructuralEdit();
   snapPlayheadToCueClipStart(selectedCueIndex);
   armDeleteGuard();
-  renderCuesTable(lastCues);
+  renderCuesTableAfterStructuralEdit(lastCues);
   applyDeletePlaybackSync();
+  refreshOverlayTimingContext();
   commitPlayheadUi();
 }
 
@@ -5820,6 +5922,10 @@ let _lastPrepareProgress = -1;
 let _lastPreparePhase = "";
 let _lastPrepareSignature = "";
 let transcribePollTimer = null;
+/** 새 영상·워크스페이스 초기화 시 증가 — 지연된 transcribe 완료 무시 */
+let transcribeSessionGen = 0;
+/** @type {string} */
+let activeTranscribeSourcePath = "";
 let exportPollTimer = null;
 /** @type {{ phase: string, progress: number, at: number, lastLogAt: number } | null} */
 let burnInPollDiag = null;
@@ -6385,7 +6491,7 @@ async function runLineReflow() {
       subtitleHub.reflowLineMode("horizontal", { recordHistory: true });
     }
     lastCues = subtitleHub.cues;
-    renderCuesTable(lastCues);
+    renderCuesTableAfterStructuralEdit(lastCues);
     updateActionButtons();
     if (resultsMeta) {
       resultsMeta.textContent = `${lastCues.length} cues · 줄 자동 정리 완료`;
@@ -6764,11 +6870,11 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     },
     onSplitSubtitleAt: (index, pos) => {
       splitSubtitleAt(subtitleHub, index, pos);
-      renderCuesTable(lastCues);
+      renderCuesTableAfterStructuralEdit(lastCues);
     },
     onMergeEmptySubtitleAt: (index) => {
       mergeEmptySubtitleAt(subtitleHub, index);
-      renderCuesTable(lastCues);
+      renderCuesTableAfterStructuralEdit(lastCues);
     },
     onMergeLineBelowIntoAbove: (upperCueIndex) => {
       if (upperCueIndex < 0 || upperCueIndex >= lastCues.length - 1) return;
@@ -6778,7 +6884,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (!merged) return;
       lastCues = subtitleHub.cues;
       markCaretListStructuralMutation();
-      renderCuesTable(lastCues);
+      renderCuesTableAfterStructuralEdit(lastCues);
       const mergedWords = lastCues[upperCueIndex]?.words ?? [];
       const joinRenderable = storageCaretToRenderableCaret(
         mergedWords,
@@ -6805,7 +6911,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       lastCues = subtitleHub.cues;
       finalizeRowCaretAfterCueSplit(index, lastCues);
       markCaretListStructuralMutation();
-      renderCuesTable(lastCues);
+      renderCuesTableAfterStructuralEdit(lastCues);
       const nextIndex = index + 1;
       if (lastCues[nextIndex] && !lastCues[nextIndex].is_silence) {
         const prev = selectedCueIndex;
@@ -6828,9 +6934,12 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onBackspaceWordAt: (cardIndex, wordIndex) => {
       if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
+      hubBlocksChangedOpts = { reason: "word-delete", anchorPlayhead: true };
       backspaceWordAt(subtitleHub, cardIndex, wordIndex);
-      renderCuesTable(lastCues);
+      invalidateProgramMasterAfterStructuralEdit();
+      renderCuesTableAfterStructuralEdit(lastCues);
       applyDeletePlaybackSync();
+      refreshOverlayTimingContext();
       if (subtitleList) {
         const focusIdx =
           cardIndex < lastCues.length && lastCues[cardIndex]
@@ -6851,9 +6960,12 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onDeleteWordAt: (cardIndex, caretIndex) => {
       if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
+      hubBlocksChangedOpts = { reason: "word-delete", anchorPlayhead: true };
       deleteWordAt(subtitleHub, cardIndex, caretIndex);
-      renderCuesTable(lastCues);
+      invalidateProgramMasterAfterStructuralEdit();
+      renderCuesTableAfterStructuralEdit(lastCues);
       applyDeletePlaybackSync();
+      refreshOverlayTimingContext();
       commitPlayheadUi();
       if (subtitleList && lastCues.length) {
         const focusIdx =
@@ -6874,9 +6986,12 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
     onDeleteWordRangeAt: (cardIndex, from, to) => {
       if (subtitleList) captureTextareaForCue(subtitleList, lastCues, cardIndex);
       armDeleteGuard();
+      hubBlocksChangedOpts = { reason: "word-delete", anchorPlayhead: true };
       deleteWordRangeAt(subtitleHub, cardIndex, from, to);
-      renderCuesTable(lastCues);
+      invalidateProgramMasterAfterStructuralEdit();
+      renderCuesTableAfterStructuralEdit(lastCues);
       applyDeletePlaybackSync();
+      refreshOverlayTimingContext();
       commitPlayheadUi();
       if (subtitleList && lastCues.length) {
         const focusIdx =
@@ -6944,7 +7059,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (wasExpanded) expandedCueIndex = newCueIndex;
       subtitleLineDragActive = false;
       void applyReorderPlaybackSync(newCueIndex, hotSnap).then(() => {
-        renderCuesTable(lastCues);
+        renderCuesTableAfterStructuralEdit(lastCues);
         /** render 후 카드 DOM 재생성 — 선택 CSS 비교값만 초기화 */
         lastHighlightSelectedCue = -1;
         if (isVideoPlaying && isPreviewMediaPlaying()) {
@@ -6985,7 +7100,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
       expandedCueIndex = ci;
       expandedWordIndex = wi;
-      renderCuesTable(lastCues);
+      renderCuesTable(lastCues, { capturePendingEdits: true });
     },
     onCueWaveformToggle: (ci) => {
       if (expandedCueIndex === ci && expandedWordIndex === -1) {
@@ -6996,7 +7111,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       expandedCueIndex = ci;
       expandedWordIndex = -1;
       selectedCueIndex = ci;
-      renderCuesTable(lastCues);
+      renderCuesTable(lastCues, { capturePendingEdits: true });
       if (subtitleList) {
         scrollCueIntoView(subtitleList, lastCues, buildSubtitleCardOpts(lastCues), ci, {
           behavior: "smooth",
@@ -7009,6 +7124,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (lastCues[cueIndex]) {
         markLineTextUserEdited(lastCues[cueIndex]);
         lastCues[cueIndex].text = text;
+        rememberLineEditPreviewText(cueIndex, text);
         updatePreviewOverlay();
       }
     },
@@ -7016,6 +7132,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (subtitleFindReplace.isOpen()) subtitleFindReplace.refreshHighlights();
     },
     onSubtitleTextCommit: (cueIndex, text) => {
+      rememberLineEditPreviewText(cueIndex, text);
       subtitleHub.applySubtitleChange((cues) => {
         const next = [...cues];
         const cue = { ...next[cueIndex], text };
@@ -7070,7 +7187,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       }
       if (!isActiveChip) {
         expandedWordIndex = storageWi;
-        renderCuesTable(lastCues);
+        renderCuesTable(lastCues, { capturePendingEdits: true });
       }
     },
     onPlayAtCaret: (cardIndex, storageCaret) => playAtSubtitleCaret(cardIndex, storageCaret),
@@ -7271,6 +7388,7 @@ function renderCuesTable(cues, { scrollActive = false, capturePendingEdits = fal
   bumpListableCueIndicesCache();
   if (capturePendingEdits) {
     captureTextareaEditsIntoCues(subtitleList, lastCues);
+    rebuildLineEditPreviewCacheFromCues(lastCues);
   }
   const opts = buildSubtitleCardOpts(cues, { scrollActive });
   renderSubtitleCards(subtitleList, cues, opts);
@@ -7825,6 +7943,23 @@ function stopTranscribePoll() {
   }
 }
 
+function invalidateTranscribeSession() {
+  transcribeSessionGen += 1;
+  activeTranscribeSourcePath = "";
+  stopTranscribePoll();
+}
+
+/**
+ * @param {{ sessionGen?: number, sourcePath?: string }} [ctx]
+ */
+function isStaleTranscribeSession(ctx = {}) {
+  if (ctx.sessionGen != null && ctx.sessionGen !== transcribeSessionGen) return true;
+  const expected = normalizeAgentMediaPath(ctx.sourcePath || activeTranscribeSourcePath || "");
+  const current = getActiveVideoSourcePath();
+  if (expected && current && expected !== current) return true;
+  return false;
+}
+
 function isPrepareIdlePhase(phase) {
   const p = String(phase || "").trim();
   return !p || p === "not_started" || p === "idle";
@@ -8080,8 +8215,12 @@ async function ensurePrepared() {
 const TRANSCRIBE_LOADING_TITLE = "자막 추출 중…";
 const TRANSCRIBE_LOADING_START_MSG = "자막 추출을 시작합니다.";
 
-async function pollTranscribeStatus() {
+async function pollTranscribeStatus(ctx = {}) {
+  if (isStaleTranscribeSession(ctx)) return null;
+
   const data = await requestAgent({ path: `${TOOL_PREFIX}/transcribe/status` });
+  if (isStaleTranscribeSession(ctx)) return null;
+
   const phase = data?.phase || "";
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
@@ -8092,22 +8231,31 @@ async function pollTranscribeStatus() {
 
   if (phase === "completed") {
     stopTranscribePoll();
+    if (isStaleTranscribeSession(ctx)) {
+      setTranscribeLoading(false);
+      return true;
+    }
     lastExportPath = data.srt_path || null;
-    await finalizeTranscribeResults(data.cues || [], data.duration_sec, {
-      waveform_peaks_json: data.waveform_peaks_json,
-      waveform_peaks: data.waveform_peaks,
-      media_timing: data.media_timing,
-      preview_media_path: data.preview_media_path,
-      cues_json_path: data.cues_json_path,
-      program_master_path: data.program_master_path,
-      program_duration_sec: data.program_duration_sec,
-      program_master_probe_ok: data.program_master_probe_ok,
-      bake_level: data.bake_level,
-      stable_ts_align: data.stable_ts_align,
-      stable_ts_stats: data.stable_ts_stats,
-      line_mode: data.line_mode,
-      snap_grid: data.snap_grid,
-    });
+    await finalizeTranscribeResults(
+      data.cues || [],
+      data.duration_sec,
+      {
+        waveform_peaks_json: data.waveform_peaks_json,
+        waveform_peaks: data.waveform_peaks,
+        media_timing: data.media_timing,
+        preview_media_path: data.preview_media_path,
+        cues_json_path: data.cues_json_path,
+        program_master_path: data.program_master_path,
+        program_duration_sec: data.program_duration_sec,
+        program_master_probe_ok: data.program_master_probe_ok,
+        bake_level: data.bake_level,
+        stable_ts_align: data.stable_ts_align,
+        stable_ts_stats: data.stable_ts_stats,
+        line_mode: data.line_mode,
+        snap_grid: data.snap_grid,
+      },
+      ctx,
+    );
     return true;
   }
 
@@ -8128,8 +8276,18 @@ async function pollTranscribeStatus() {
  * @param {unknown[]} rawCues
  * @param {number} [durationSecHint]
  * @param {{ waveform_peaks_json?: object | null, waveform_peaks?: object | null, media_timing?: object | null, preview_media_path?: string | null, program_master_path?: string | null, program_duration_sec?: number | null, program_master_probe_ok?: boolean | null, bake_level?: string | null, snap_grid?: object | null, line_mode?: boolean | null }} [transcribeMeta]
+ * @param {{ sessionGen?: number, sourcePath?: string }} [sessionCtx]
  */
-async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}) {
+async function finalizeTranscribeResults(rawCues, durationSecHint, transcribeMeta = {}, sessionCtx = {}) {
+  if (isStaleTranscribeSession(sessionCtx)) {
+    mediaTimingDiagWarn("transcribe stale session ignored", {
+      sessionGen: sessionCtx.sessionGen,
+      expectedPath: sessionCtx.sourcePath || activeTranscribeSourcePath,
+      currentPath: getActiveVideoSourcePath(),
+    });
+    setTranscribeLoading(false);
+    return;
+  }
   subtitleHub.gapFillWhenBuildingVrew = false;
   clearProgramMasterCache();
   programMasterPreviewPath = "";
@@ -8337,8 +8495,16 @@ async function runTranscribe() {
     return;
   }
 
+  stopTranscribePoll();
+  transcribeSessionGen += 1;
+  const sessionGen = transcribeSessionGen;
+  activeTranscribeSourcePath = videoPath;
+  const pollCtx = { sessionGen, sourcePath: videoPath };
+
   const prepared = await ensurePrepared();
   if (!prepared) return;
+
+  if (isStaleTranscribeSession(pollCtx)) return false;
 
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
@@ -8359,6 +8525,8 @@ async function runTranscribe() {
     );
     return false;
   }
+
+  if (isStaleTranscribeSession(pollCtx)) return false;
 
   setTranscribeLoading(true, {
     title: TRANSCRIBE_LOADING_TITLE,
@@ -8391,11 +8559,13 @@ async function runTranscribe() {
     return false;
   }
 
+  if (isStaleTranscribeSession(pollCtx)) return false;
+
   return new Promise((resolve) => {
     stopTranscribePoll();
     const tick = async () => {
       try {
-        const done = await pollTranscribeStatus();
+        const done = await pollTranscribeStatus(pollCtx);
         if (done === true) resolve(true);
         if (done === false) resolve(false);
       } catch (err) {
@@ -8533,6 +8703,7 @@ function animateSmoothProgress(setFn) {
 }
 
 async function runAwaitingFramesPngBurnIn(statusData) {
+  syncCuesFromDom();
   const burnPath = String(statusData?.burnin_media_path || "").trim();
   if (!burnPath) {
     throw new Error("burnin_media_path가 없습니다. export를 다시 시도해 주세요.");
@@ -8651,7 +8822,7 @@ async function runAwaitingFramesPngBurnIn(statusData) {
     virtualAudioMap: pngPayload.virtual_audio_map || [],
     blocks: subtitleHub.blocks,
     virtualIndex: subtitleHub._virtualIndex,
-    programClips: buildProgramClips(subtitleHub.blocks, lastCutRanges || []),
+    programClips: getActiveProgramClips(),
     style: readSubtitleStyleFromDom(),
     watermark: watermarkConfig.path ? { ...watermarkConfig } : null,
     onUiProgress: ({ progress, step, message }) => {
@@ -9193,7 +9364,7 @@ function openDownload(filePath) {
 
 function resetJob() {
   stopPreparePoll();
-  stopTranscribePoll();
+  invalidateTranscribeSession();
   stopExportPoll();
   stopGpuInstallPoll();
   setSetupLoading(false);
@@ -9469,6 +9640,7 @@ async function onPickLocalFile() {
   stopPlaybackLoop();
   getPv()?.pause();
   detachPreviewMasterAudio();
+  invalidateTranscribeSession();
 
   setPickBusy(true);
   const ctrl = new AbortController();
@@ -9496,10 +9668,7 @@ async function onPickLocalFile() {
     if (!path) return;
     if (!videoPathInput) return;
 
-    const prev = sessionVideoPath || videoPathInput.value.trim();
-    if (path && path !== prev) {
-      clearSubtitleWorkspace();
-    }
+    clearSubtitleWorkspace();
     applyAgentSourcePathFromServer(path);
     let previewPath = await resolvePreviewMediaPathSsot();
     if (!previewPath && path && agentConnected) {
@@ -9850,8 +10019,14 @@ document.addEventListener("keydown", (e) => {
   if (e.isComposing || e.defaultPrevented) return;
   if (!subtitleList || !lastCues.length) return;
   const target = e.target;
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+  if (target instanceof HTMLTextAreaElement) return;
   if (target instanceof HTMLSelectElement) return;
+  if (
+    target instanceof HTMLInputElement &&
+    target.type !== "checkbox"
+  ) {
+    return;
+  }
   if (isWordCaretKeyboardFocus()) return;
   if (checkedCueIndices.size === 0 && selectedCueIndex < 0) return;
   e.preventDefault();

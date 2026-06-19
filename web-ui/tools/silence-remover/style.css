@@ -40,6 +40,7 @@ body {
   display: block;
   overflow: hidden;
   line-height: 0;
+  isolation: isolate;
 }
 
 .editor-ad .adsbygoogle {
@@ -72,6 +73,17 @@ body {
 #editor-ad-below-export {
   margin-top: var(--editor-block-gap);
   margin-bottom: 0;
+}
+
+/* 팝업(분석·로드·사이트 모달) 표시 중에도 광고 슬롯은 가리거나 블러하지 않음 */
+body.analyze-overlay-open .editor-ad,
+body.itz-modal-visible .editor-ad,
+body.probe-loading-open .editor-ad {
+  position: relative;
+  z-index: 2147483646 !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+  pointer-events: auto !important;
 }
 
 .media-workspace {
@@ -371,6 +383,7 @@ body {
   justify-content: center;
   padding: 24px;
   box-sizing: border-box;
+  pointer-events: none;
 }
 
 .analyze-overlay-root.is-active {
@@ -397,13 +410,18 @@ body.analyze-overlay-open {
 body.analyze-overlay-open .main-content > .app-header,
 body.analyze-overlay-open .main-content > .drop-zone,
 body.analyze-overlay-open .main-content > .media-workspace,
-body.analyze-overlay-open .main-content > .action-center > :not(#editor-ad-below-export) {
+body.analyze-overlay-open .main-content > .action-center > :not(.editor-ad) {
   filter: blur(6px);
+}
+
+body.analyze-overlay-open .main-content > .editor-ad {
+  filter: none !important;
 }
 
 .analyze-overlay-panel {
   position: relative;
   z-index: 1;
+  pointer-events: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1099,9 +1117,19 @@ body.analyze-overlay-open .main-content > .action-center > :not(#editor-ad-below
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
 }
 
+.probe-loading-dialog[open] {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 50000;
+  margin: 0;
+}
+
 .probe-loading-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.58);
-  backdrop-filter: blur(2px);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .probe-loading-inner {

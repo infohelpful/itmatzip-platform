@@ -1834,10 +1834,10 @@ export function buildWordChipsAndCarets(
       if (rowHasWaveform && opts.onWaveformChipClick) {
         const isActiveChip = liveExpandedWi === storageWi;
         const playing = isPlaybackActive(opts);
+        if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
         opts.onWaveformChipClick(cardIndex, vi, storageWi, isActiveChip, e.detail);
         activateCaretAt(cardIndex, words, storageWi, true, false);
         onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
-        if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
         seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
         refreshCaretRowUi(listContainer, cardIndex, words, opts);
         focusCaretButtonSync(cardIndex, words, storageWi);
@@ -1853,9 +1853,9 @@ export function buildWordChipsAndCarets(
         opts.onCloseWaveform?.({ restoreFocus: false });
       }
       const playing = isPlaybackActive(opts);
+      if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
       activateCaretAt(cardIndex, words, storageWi, true, !playing);
       onSelectCue?.(cardIndex, { seek: false, scroll: false, rerender: false });
-      if (playing) pausePlaybackKeepingUserCaret(cardIndex, opts);
       seekWordFromChipOpts(opts, cues[cardIndex], storageWi, w.start);
       requestFocusCaret(listContainer, cues, opts, cardIndex, storageWi, { seek: false });
       focusCaretButtonSync(cardIndex, words, storageWi);

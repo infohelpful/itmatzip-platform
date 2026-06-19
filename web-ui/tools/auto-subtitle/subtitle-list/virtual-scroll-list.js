@@ -45,8 +45,8 @@ import {
   setCaretRerenderHook,
   wireSubtitleCardCaretHost,
   wireTextareaCaretNavigation,
-} from "./word-caret-ui.js?v=63";
-import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=5";
+} from "./word-caret-ui.js?v=64";
+import { buildSubtitleLineRail, wireSubtitleLineDrag } from "./subtitle-line-rail.js?v=6";
 import { wireSubtitleListLineDrag } from "./subtitle-line-drag-ui.js?v=3";
 import { formatVrewBlockTimecode } from "../shared/block-timeline-adapter.js?v=2";
 
@@ -368,8 +368,23 @@ function renderAllCards(container, cues, opts) {
       opts.onPreviewLineTextInput?.(i, ta.value);
       opts.onFindReplaceTextInput?.();
     });
-    ta.addEventListener("blur", () => {
+    ta.addEventListener("blur", (e) => {
       const cur = ta.value;
+      const related = e.relatedTarget;
+      const focusToWordUi =
+        related instanceof HTMLElement &&
+        related.closest(
+          ".subtitle-word-chip, .subtitle-word-caret, .subtitle-word-caret-btn, .subtitle-word-carets-overlay",
+        );
+      if (focusToWordUi) {
+        cue.text = cur;
+        if (cur.trim()) {
+          markLineTextUserEdited(cue);
+          ta.dataset.lineTextUserEdited = "1";
+        }
+        opts.onPreviewLineTextInput?.(i, cur);
+        return;
+      }
       const prev = String(cue.text ?? "");
       if (cur !== prev) {
         cue.text = cur;

@@ -9,13 +9,14 @@ import {
   parseSubtitleLines,
   storageWordIndexFromVisibleNonDeletedIndex,
   subtitleLineEditDisplayText,
+  subtitleLineEditAreaText,
   subtitleLineTextDiffersFromWords,
   syncAllSubtitleLinesFromWords,
   syncSubtitleLineFromWords,
   visibleSubtitleWords,
   wordIsDeleted,
   wordIsSilence,
-} from "./shared/subtitles.js?v=24";
+} from "./shared/subtitles.js?v=29";
 import { applyWordEdgeDrag, MIN_WORD_DURATION_SEC } from "./shared/subtitle-word-edge-drag.js?v=25";
 import { syncAllCueWordSourcesFromEdit } from "./shared/dual-axis.js?v=2";
 import { SILENCE_PLACEHOLDER_TEXT } from "./shared/word-contract.js";
@@ -75,7 +76,7 @@ export function displayTextFromWords(words) {
   return displayTextFromSubtitleWords(words);
 }
 
-export { subtitleLineEditDisplayText, storageWordIndexFromVisibleNonDeletedIndex, parseSubtitleLines, markLineTextUserEdited, lineTextIsUserLocked };
+export { subtitleLineEditDisplayText, subtitleLineEditAreaText, storageWordIndexFromVisibleNonDeletedIndex, parseSubtitleLines, markLineTextUserEdited, lineTextIsUserLocked };
 
 /**
  * @param {SubtitleCue} cue

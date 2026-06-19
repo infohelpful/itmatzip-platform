@@ -59,9 +59,17 @@ body.mobile-only-active {
   touch-action: none;
 }
 
-body.mobile-only-active .app-container,
-body.mobile-only-active .dl-page {
+body.mobile-only-active .app-container > .main-content > :not(.editor-ad),
+body.mobile-only-active .dl-page > :not(.dl-ad) {
   filter: blur(6px);
   pointer-events: none;
   user-select: none;
+}
+
+body.mobile-only-active .editor-ad,
+body.mobile-only-active .dl-ad {
+  position: relative;
+  z-index: 20001 !important;
+  filter: none !important;
+  pointer-events: auto;
 }

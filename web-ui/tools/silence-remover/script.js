@@ -437,6 +437,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function hideMediaWorkspaceLoading() {
+    document.body.classList.remove("probe-loading-open");
     if (probeLoadingDlg?.open) probeLoadingDlg.close();
     if (!mediaWorkspaceLoading) return;
     mediaWorkspaceLoading.classList.remove("is-active");
@@ -452,8 +453,13 @@ document.addEventListener("DOMContentLoaded", () => {
     resetMediaWorkspaceLoadingCopy();
     if (mediaWorkspace) mediaWorkspace.setAttribute("aria-busy", "true");
     setMediaWorkspaceInteractionLocked(true);
-    if (probeLoadingDlg && typeof probeLoadingDlg.showModal === "function") {
-      if (!probeLoadingDlg.open) probeLoadingDlg.showModal();
+    if (probeLoadingDlg && !probeLoadingDlg.open) {
+      document.body.classList.add("probe-loading-open");
+      if (typeof probeLoadingDlg.show === "function") {
+        probeLoadingDlg.show();
+      } else if (typeof probeLoadingDlg.showModal === "function") {
+        probeLoadingDlg.showModal();
+      }
     }
     if (mediaWorkspaceLoading) {
       mediaWorkspaceLoading.hidden = false;

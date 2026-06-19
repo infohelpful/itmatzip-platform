@@ -547,6 +547,52 @@ def _patch_basicsr_degradations_file(target: Path) -> bool:
     return True
 
 
+def _patch_face_restoration_unicode_imread(target: Path) -> bool:
+    """Windows: cv2.imread fails on non-ASCII paths — np.fromfile + imdecode fallback."""
+    if not target.is_file():
+        return False
+    text = target.read_text(encoding="utf-8")
+    marker = "# patched by itmatzip-agent: unicode imread"
+    if marker in text:
+        return True
+    old = (
+        "        if isinstance(img, str):\n"
+        "            img = cv2.imread(img)\n"
+        "\n"
+        "        if np.max(img) > 256:  # 16-bit image"
+    )
+    new = (
+        "        if isinstance(img, str):\n"
+        "            img = cv2.imread(img)\n"
+        "            if img is None:\n"
+        "                try:\n"
+        "                    img_array = np.fromfile(img, dtype=np.uint8)\n"
+        "                    img = cv2.imdecode(img_array, cv2.IMREAD_UNCHANGED)\n"
+        "                except Exception:\n"
+        "                    img = None\n"
+        f"        {marker}\n"
+        "\n"
+        "        if img is None:\n"
+        "            raise FileNotFoundError(f'Cannot read image: {img!r}' if isinstance(img, str) else 'Cannot read image')\n"
+        "\n"
+        "        if np.max(img) > 256:  # 16-bit image"
+    )
+    if old not in text:
+        return "np.fromfile(img, dtype=np.uint8)" in text
+    target.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return True
+
+
+def patch_vendor_unicode_imread(vendor_root: Path | None = None) -> bool:
+    if vendor_root is None:
+        return False
+    target = vendor_root / "facelib" / "utils" / "face_restoration_helper.py"
+    if _patch_face_restoration_unicode_imread(target):
+        logger.info("patched face_restoration_helper.py for unicode paths")
+        return True
+    return False
+
+
 def patch_basicsr_torchvision_compat(vendor_root: Path | None = None) -> bool:
     """basicsr + torchvision 0.21+ 호환 (functional_tensor 제거 대응)."""
     ok = False
@@ -575,6 +621,7 @@ def patch_vendor_basicsr_package(vendor_root: Path) -> None:
         if old in text:
             init_py.write_text(text.replace(old, new, 1), encoding="utf-8")
     patch_basicsr_torchvision_compat(vendor_root)
+    patch_vendor_unicode_imread(vendor_root)
 
 
 def configure_vendor_basicsr(

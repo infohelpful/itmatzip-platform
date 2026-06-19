@@ -124,6 +124,17 @@ export function subtitleLineEditDisplayText(line) {
   return fromWords;
 }
 
+/**
+ * 자막 편집 영역(textarea / cue.text) 전용 — 단어칩 합성 텍스트 폴백 없음.
+ * 프리뷰·번인 오버레이 SSOT.
+ *
+ * @param {{ text?: string, words?: readonly SubtitleWord[] } | null | undefined} line
+ */
+export function subtitleLineEditAreaText(line) {
+  if (!line) return "";
+  return sanitizeLineEditText(line.text);
+}
+
 /** @param {{ text?: string, words?: readonly SubtitleWord[] }} line */
 export function subtitleLineTextDiffersFromWords(line) {
   const fromWords = line.words?.length ? displayTextFromSubtitleWords(line.words) : "";
