@@ -27,5 +27,5 @@ export const AGENT_PICK_PROJECT = "/api/agent/pick-local-project-file";
 /** Auto Subtitle 자막 폰트 */
 export const AGENT_PICK_FONT = "/api/agent/pick-local-font-file";
 
-/** Image Enhancer, Auto Subtitle 워터마크 이미지 */
+/** Image Enhancer, Auto Subtitle 워터마크 이미지, Magic Canvas */
 export const AGENT_PICK_IMAGE = "/api/agent/pick-local-image-file";

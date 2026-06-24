@@ -1,0 +1,16 @@
+.download-page {
+  max-width: 480px;
+  margin: 80px auto;
+  padding: 24px;
+  text-align: center;
+}
+
+.download-page .btn-secondary {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 10px 16px;
+  color: #e2e8f0;
+  text-decoration: none;
+  border: 1px solid #2d333f;
+  border-radius: 8px;
+}

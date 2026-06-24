@@ -62,6 +62,11 @@ func ensureRuntimeSitePackagesDir() {
 		imageEnhancerRoot := filepath.Join(appData, "ItMatZip", "image-enhancer")
 		ensureDirWritable(imageEnhancerRoot)
 		ensureDirWritable(filepath.Join(imageEnhancerRoot, ".venv-codeformer"))
+		magicCanvasRoot := filepath.Join(appData, "ItMatZip", "magic-canvas")
+		ensureDirWritable(magicCanvasRoot)
+		ensureDirWritable(filepath.Join(magicCanvasRoot, ".venv-magiccanvas"))
+		ensureDirWritable(filepath.Join(magicCanvasRoot, "models"))
+		ensureDirWritable(filepath.Join(magicCanvasRoot, "workspace"))
 	}
 
 	if settingsRootPath != "" {

@@ -22,6 +22,7 @@ TOOL_VOCAL_REMOVER = "vocal-remover"
 TOOL_AUTO_SUBTITLE = "auto-subtitle"
 TOOL_IMAGE_ENHANCER = "image-enhancer"
 TOOL_CREATE_MUSIC = "create-music"
+TOOL_MAGIC_CANVAS = "magic-canvas"
 
 # MSI embeddable Python(3.14) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
@@ -34,6 +35,7 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
 VENV_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_IMAGE_ENHANCER,
     TOOL_CREATE_MUSIC,
+    TOOL_MAGIC_CANVAS,
 )
 
 ALL_RUNTIME_TOOL_IDS: tuple[str, ...] = ENGINE_RUNTIME_TOOL_IDS + VENV_RUNTIME_TOOL_IDS
@@ -73,6 +75,8 @@ def tool_venv_data_root(tool_id: str) -> Path:
         return _appdata_root() / TOOL_IMAGE_ENHANCER
     if tid == TOOL_CREATE_MUSIC:
         return agent_data_root() / TOOL_CREATE_MUSIC
+    if tid == TOOL_MAGIC_CANVAS:
+        return _appdata_root() / TOOL_MAGIC_CANVAS
     raise ValueError(f"venv runtime tool_id 가 아닙니다: {tid}")
 
 
@@ -248,6 +252,8 @@ def ensure_runtime_directories() -> None:
             (root / ".venv-codeformer").mkdir(parents=True, exist_ok=True)
         elif tid == TOOL_CREATE_MUSIC:
             (root / ".venv-acestep").mkdir(parents=True, exist_ok=True)
+        elif tid == TOOL_MAGIC_CANVAS:
+            (root / ".venv-magiccanvas").mkdir(parents=True, exist_ok=True)
 
 
 def engine_site_packages_dir() -> Path:

@@ -1,5 +1,5 @@
 import { showAdSense } from "../common/adsense.js";
-import { TOOLS } from "./tools-registry.js";
+import { TOOLS } from "./tools-registry.js?v=3";
 
 const gridEl = document.getElementById("hub-tool-grid");
 const searchEl = document.getElementById("hub-search");
