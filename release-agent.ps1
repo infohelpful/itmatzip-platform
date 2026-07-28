@@ -276,7 +276,8 @@ if (-not $SkipPush) {
         foreach ($p in $paths) {
             $full = Join-Path $Root $p
             if (Test-Path $full) {
-                git add -- $p 2>$null
+                # git may write CRLF warnings to stderr; do not treat as fatal under $ErrorActionPreference Stop
+                cmd /c "git add -- `"$p`" 2>nul"
             }
         }
 
