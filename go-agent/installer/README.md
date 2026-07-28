@@ -67,7 +67,9 @@ $env:PATH = "C:\Program Files (x86)\WiX Toolset v3.14\bin;$env:PATH"
 
 ## Cross-machine venv note
 
-**권장:** MSI 빌드 시 `-UseEmbeddable`로 Python 3.14 embeddable + pip + grpc를 `engine/`에 번들.
+**권장:** MSI 빌드 시 `-UseEmbeddable`로 Python **3.12.10** embeddable + pip + grpc를 `engine/`에 번들.
+
+빌드 PC에는 동일 메이저의 full Python(헤더 포함)이 있어야 `diffq` cp312 vendor wheel을 만들 수 있습니다 (`ITMATZIP_BUILD_PYTHON` 또는 기본 설치 경로).
 
 venv `--copies` 모드는 `pyvenv.cfg home`이 빌드 PC Python 경로를 참조합니다.
 

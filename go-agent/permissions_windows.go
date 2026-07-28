@@ -49,7 +49,7 @@ func grantUsersModifyRecursive(dir string) {
 }
 
 func ensureRuntimeSitePackagesDir() {
-	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python pip --target
+	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
 	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {

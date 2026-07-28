@@ -16,7 +16,7 @@ Base URL: `https://github.com/infohelpful/library-hub/releases/download/image-en
 
 | 구성 | Python | 경로 |
 |------|--------|------|
-| FastAPI 사이카 | **3.14** | `engine\python.exe` (MSI) |
+| FastAPI 사이드카 | **3.12** | `engine\python.exe` (MSI embeddable) |
 | CodeFormer | **3.12 venv** | `%APPDATA%\ItMatZip\image-enhancer\.venv-codeformer` |
 
 **환경 준비** 시: venv 생성 → GPU/CPU wheel zip에서 **torch/torchvision** 설치 → zip에 없는 패키지(basicsr, opencv 등)는 **PyPI로 자동 보완** → 소스·모델 다운로드.

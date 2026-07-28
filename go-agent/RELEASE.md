@@ -53,8 +53,10 @@ cd ..
 |------|------|
 | WiX | XML 주석 `--` 제거, 설치 후 `--tray`만 실행 |
 | FFmpeg | MSI에 **포함 안 함** — `ProgramData\bin`에 첫 사용 시 `ensure_ffmpeg()` 다운로드 |
-| Python engine | embeddable **3.14.3** (GitHub v1.0.4 wheel·wheels_gpu cp314와 동일) |
-| Vocal Remover | `v1.0.4` wheel 다운로드 · **diffq cp314 wheel은 MSI `engine/vendor-wheels`에 내장** (embeddable은 Python.h 없어 sdist 빌드 불가) |
+| Python engine | embeddable **3.12.10** (Vocal Remover wheel·wheels_gpu는 **cp312** win_amd64와 동일 ABI) |
+| Vocal Remover | wheel 다운로드 · **diffq cp312 wheel은 MSI `engine/vendor-wheels`에 내장** (embeddable은 Python.h 없어 sdist 빌드 불가) |
+
+> **마이그레이션:** 엔진을 3.14→3.12로 올린 뒤에는 library-hub `VocalRemover-Lib` wheel 번들도 **cp312** 로 재배포해야 합니다. 기존 cp314 zip만 있으면 prepare가 ABI 필터에서 torch를 건너뜁니다.
 | pip | `PYTHONNOUSERSITE=1` — 서비스 계정 user-site와 engine site-packages 분리 |
 | 트레이 | 「서비스 재시작」= Windows SCM stop/start (HTTP reload는 권한 없을 때만 폴백) |
 | 설치/업그레이드 | `installService`가 **이미 설치된 경우에도** `sc sdset` ACL 적용 |

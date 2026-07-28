@@ -1,4 +1,4 @@
-"""ACE-Step 1.5 전용 Python 3.12 런타임 (에이전트 3.14와 분리)."""
+"""ACE-Step 1.5 전용 Python 3.12 런타임 (FastAPI engine site-packages와 분리)."""
 from __future__ import annotations
 
 import json

@@ -22,6 +22,8 @@ if (-not (Test-Path $AgentDst)) {
 $files = @(
     @{ Src = Join-Path $AgentSrc "runtime_paths.py"; Dst = Join-Path $AgentDst "runtime_paths.py" },
     @{ Src = Join-Path $AgentSrc "common\bin_manager.py"; Dst = Join-Path $AgentDst "common\bin_manager.py" },
+    @{ Src = Join-Path $AgentSrc "common\runtime_site_packages.py"; Dst = Join-Path $AgentDst "common\runtime_site_packages.py" },
+    @{ Src = Join-Path $AgentSrc "common\subprocess_util.py"; Dst = Join-Path $AgentDst "common\subprocess_util.py" },
     @{ Src = Join-Path $AgentSrc "engines\demucs_runner.py"; Dst = Join-Path $AgentDst "engines\demucs_runner.py" },
     @{ Src = Join-Path $AgentSrc "engines\vocal_remover.py"; Dst = Join-Path $AgentDst "engines\vocal_remover.py" },
     @{ Src = Join-Path $AgentSrc "engines\silence_remover.py"; Dst = Join-Path $AgentDst "engines\silence_remover.py" },

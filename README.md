@@ -241,15 +241,15 @@ GitHub **manifest JSON** 기반.
 - 자동 선택: `nvidia-smi`로 GPU가 보이면 GPU 번들, 아니면 CPU 번들.
 - 강제 지정: 환경 변수 `ITMATZIP_WHEEL_VARIANT=cpu` 또는 `gpu` (기본 `auto`).
 
-`wheel.zip`(CPU)에는 예를 들어 다음이 포함됩니다:
-  - `lameenc-1.8.2-cp314-cp314-win_amd64.whl`
-  - `numpy-2.4.6-cp314-cp314-win_amd64.whl`
-  - `torch-2.12.0-cp314-cp314-win_amd64.whl`
-  - `torchaudio-2.11.0-cp314-cp314-win_amd64.whl`
-  - `torchcodec-0.12.0-cp314-cp314-win_amd64.whl`
-  - `demucs-4.0.1.tar.gz`
-  - `diffq-0.2.4.tar.gz`
+`wheel.zip`(CPU)에는 **에이전트 Python ABI와 맞는** wheel이 포함되어야 합니다 (현재 엔진 **cp312**). 예:
+  - `lameenc-*-cp312-cp312-win_amd64.whl`
+  - `numpy-*-cp312-cp312-win_amd64.whl`
+  - `torch-*-cp312-cp312-win_amd64.whl`
+  - `torchaudio-*-cp312-cp312-win_amd64.whl`
+  - `torchcodec-*-cp312-cp312-win_amd64.whl`
+  - `demucs-*.tar.gz` / `diffq-*.tar.gz` (또는 미리 빌드된 `diffq-*-cp312-*.whl`)
 - GPU 번들(`wheels_gpu`)에는 CUDA 빌드 torch 등이 포함됩니다 (용량이 커 GitHub 2GB 제한으로 2분할).
+- **주의:** 예전 cp314 전용 번들은 Python 3.12 엔진에서 설치되지 않습니다. library-hub VocalRemover-Lib 를 **cp312** 로 다시 패킹·배포해야 합니다.
 - 설치 흐름(에이전트 자동):
   1. 번들 선택 (CPU / GPU 분할)
   2. 다운로드 (GPU는 `.001`, `.002` 병합)

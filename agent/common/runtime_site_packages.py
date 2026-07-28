@@ -24,14 +24,14 @@ TOOL_IMAGE_ENHANCER = "image-enhancer"
 TOOL_CREATE_MUSIC = "create-music"
 TOOL_MAGIC_CANVAS = "magic-canvas"
 
-# MSI embeddable Python(3.14) — pip --target per tool
+# MSI embeddable Python(3.12) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_SILENCE_REMOVER,
     TOOL_VOCAL_REMOVER,
     TOOL_AUTO_SUBTITLE,
 )
 
-# Python 3.12 dedicated venv per tool (CodeFormer / ACE-Step)
+# Dedicated venv per tool (CodeFormer / ACE-Step / Magic Canvas) — same 3.12 major, isolated envs
 VENV_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_IMAGE_ENHANCER,
     TOOL_CREATE_MUSIC,
@@ -315,18 +315,42 @@ def activate_runtime_site_packages(tool_id: str) -> None:
     sys.path.insert(0, path)
 
 
+def _runtime_site_has_package_tree(site: Path, module_name: str) -> bool:
+    """find_spec 이 engine·다른 경로를 가리켜도 runtime site 실제 설치를 인정."""
+    pkg_dir = site / module_name.replace(".", os.sep)
+    if pkg_dir.is_dir():
+        return True
+    slug = module_name.replace("_", "-").lower()
+    return any(
+        p.is_dir() and slug in p.name.lower()
+        for p in site.glob("*.dist-info")
+    )
+
+
+def assert_runtime_packages_on_disk(tool_id: str, *module_names: str) -> None:
+    """pip 직후 import 프로브 없이 runtime site 에 패키지 트리·dist-info 존재만 확인."""
+    site = runtime_site_packages_dir(tool_id).resolve()
+    missing: list[str] = []
+    for name in module_names:
+        if not _runtime_site_has_package_tree(site, name):
+            missing.append(name)
+    if missing:
+        raise RuntimeError(
+            f"{', '.join(missing)} 패키지가 runtime에 없습니다 — site-packages: {site}"
+        )
+
+
 def tool_has_module(tool_id: str, module_name: str) -> bool:
     """해당 툴 runtime 에만 설치된 모듈인지 확인 (다른 툴·engine 과 혼동 방지)."""
     if not _uses_runtime_site_packages(tool_id):
         return importlib.util.find_spec(module_name) is not None
     activate_runtime_site_packages(tool_id)
     site = runtime_site_packages_dir(tool_id).resolve()
+    if _runtime_site_has_package_tree(site, module_name):
+        return True
     spec = importlib.util.find_spec(module_name)
     if spec is None or not spec.origin or spec.origin == "namespace":
-        pkg_dir = site / module_name.replace(".", os.sep)
-        if pkg_dir.is_dir():
-            return True
-        return any(site.glob(f"{module_name.replace('_', '-')}*.dist-info"))
+        return False
     try:
         return Path(spec.origin).resolve().is_relative_to(site)
     except ValueError:
@@ -359,9 +383,6 @@ def probe_runtime_import(
     """별도 Python 프로세스에서 import 검증 (PyO3/numpy 이중 로드 방지)."""
     from common.subprocess_util import no_window_creationflags
 
-    if not tool_has_module(tool_id, import_name):
-        return False
-
     lines = [
         "import importlib",
         f"m = importlib.import_module({import_name!r})",
@@ -387,11 +408,20 @@ def verify_importable(
     smoke_by_module: dict[str, tuple[str, ...]] | None = None,
 ) -> None:
     """pip --target 설치 직후, 해당 툴 runtime 에서 import 가능한지 확인."""
+    import time
+
     smoke_map = smoke_by_module or {}
     missing: list[str] = []
     for name in module_names:
         smoke = smoke_map.get(name, ())
-        if not probe_runtime_import(tool_id, name, smoke):
+        ok = False
+        for attempt in range(3):
+            if probe_runtime_import(tool_id, name, smoke):
+                ok = True
+                break
+            if attempt < 2:
+                time.sleep(0.4)
+        if not ok:
             missing.append(name)
     if missing:
         raise RuntimeError(

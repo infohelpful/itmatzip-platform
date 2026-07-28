@@ -4,7 +4,7 @@ param(
     [switch]$SkipAgent,
     [switch]$UseEmbeddable,
     [string]$Python = "python",
-    [string]$EmbeddableVersion = "3.14.3"
+    [string]$EmbeddableVersion = "3.12.10"
 )
 
 $ErrorActionPreference = "Stop"
@@ -107,7 +107,7 @@ function Build-DiffqVendorWheel {
     $buildPython = Resolve-BuildPython -EmbeddableVersion $EmbeddableVersion
     if (-not $buildPython) {
         throw (
-            "Full Python $EmbeddableVersion is required to build the diffq cp314 wheel (embeddable Python has no Python.h)." + [char]10 +
+            "Full Python $EmbeddableVersion is required to build the diffq cp312 wheel (embeddable Python has no Python.h)." + [char]10 +
             "  - Install Python $EmbeddableVersion and rebuild, or" + [char]10 +
             "  - Set env var ITMATZIP_BUILD_PYTHON to python.exe (e.g. C:\Path\To\python.exe)"
         )
@@ -128,7 +128,7 @@ function Build-DiffqVendorWheel {
         throw "diffq tar.gz not found inside v1.0.4 wheel.zip"
     }
 
-    Write-Step "Building diffq vendor wheel with $buildPython (MSI runtime용 cp314 win_amd64)"
+    Write-Step "Building diffq vendor wheel with $buildPython (MSI runtime용 cp312 win_amd64)"
     $env:PYTHONNOUSERSITE = "1"
     & $buildPython -m pip wheel $diffqTar.FullName -w $vendorDir --no-deps
     Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue

@@ -41,10 +41,12 @@ from common.bin_manager import (
 from common.runtime_site_packages import (
     TOOL_VOCAL_REMOVER,
     activate_runtime_site_packages,
+    assert_runtime_packages_on_disk,
     engine_python_c_prefix,
     pip_install_cmd,
     prepend_runtime_pythonpath,
     purge_runtime_site_entries,
+    run_runtime_pip,
     tool_has_module,
     use_runtime_site_packages,
     verify_importable,
@@ -708,12 +710,46 @@ def _run_with_heartbeat(
 
 
 def _runtime_abi_tag() -> str:
-    """현재 에이전트 Python(예: 3.14 embeddable → cp314)."""
+    """현재 에이전트 Python ABI (예: 3.12 embeddable → cp312)."""
     return f"cp{sys.version_info.major}{sys.version_info.minor}"
 
 
+def _pip_subprocess_env() -> dict[str, str]:
+    return {"ITMATZIP_RUNTIME_TOOL": RUNTIME_TOOL_ID}
+
+
+def _run_pip_hidden(
+    cmd: list[str],
+    *,
+    timeout: float = 600,
+) -> subprocess.CompletedProcess:
+    return run_hidden(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=_pip_subprocess_env(),
+    )
+
+
+def _wheel_matches_runtime_or_pure(filename: str) -> bool:
+    lowered = filename.lower()
+    if "py2.py3" in lowered and "none-any" in lowered:
+        return True
+    return _wheel_filename_matches_runtime(filename)
+
+
+def _find_build_prereq_wheel(wheel_dir: Path, name_prefix: str) -> Path | None:
+    wheels = sorted(
+        p
+        for p in wheel_dir.glob(f"{name_prefix}-*.whl")
+        if p.is_file() and _wheel_matches_runtime_or_pure(p.name)
+    )
+    return wheels[-1] if wheels else None
+
+
 def _wheel_filename_matches_runtime(filename: str) -> bool:
-    """다른 Python용 wheel(cp314 등)을 pip에 넘기지 않도록 필터."""
+    """다른 Python용 wheel(비-cp312 등)을 pip에 넘기지 않도록 필터."""
     lowered = filename.lower()
     if sys.platform == "win32" and "win_amd64" not in lowered:
         return False
@@ -851,7 +887,7 @@ def _pip_install_torch_runtime_deps() -> subprocess.CompletedProcess:
     """torch wheel 의존성은 PyPI에서 설치 (torch 패키지 자체는 제외)."""
     cmd = pip_install_cmd(RUNTIME_TOOL_ID)
     cmd.extend(TORCH_PIP_RUNTIME_DEPS)
-    return run_hidden(cmd, capture_output=True, text=True, timeout=600)
+    return _run_pip_hidden(cmd, timeout=600)
 
 
 def _pip_install_torch_stack_from_wheels(
@@ -868,7 +904,7 @@ def _pip_install_torch_stack_from_wheels(
         return deps_proc
     cmd = pip_install_cmd(RUNTIME_TOOL_ID, force_reinstall=True)
     cmd.extend(["--no-deps", *[str(path) for path in wheel_paths]])
-    proc = run_hidden(cmd, capture_output=True, text=True, timeout=3600)
+    proc = _run_pip_hidden(cmd, timeout=3600)
     _invalidate_torch_import_cache()
     return proc
 
@@ -949,24 +985,38 @@ def _bundle_sdist_artifacts(wheel_dir: Path) -> tuple[Path, Path]:
 
 def _pip_install_demucs_diffq_build_prereqs(wheel_dir: Path) -> None:
     """GitHub wheel 번들의 demucs/diffq는 tar.gz(sdist) — Cython·numpy 선설치."""
-    cmd = pip_install_cmd(RUNTIME_TOOL_ID, upgrade=True)
-    numpy_wheels = sorted(
-        p
-        for p in wheel_dir.glob("numpy-*.whl")
-        if p.is_file() and _wheel_filename_matches_runtime(p.name)
-    )
-    if numpy_wheels:
-        cmd.append(str(numpy_wheels[-1]))
+    try:
+        assert_runtime_packages_on_disk(RUNTIME_TOOL_ID, "Cython", "numpy")
+        return
+    except RuntimeError:
+        pass
+
+    specs: list[str] = []
+    numpy_wheel = _find_build_prereq_wheel(wheel_dir, "numpy")
+    if numpy_wheel is not None:
+        specs.append(str(numpy_wheel))
     else:
-        cmd.append("numpy")
-    cmd.extend(["Cython>=3.0", "setuptools>=69", "wheel"])
-    proc = run_hidden(cmd, capture_output=True, text=True, timeout=600)
+        specs.append("numpy")
+    cython_wheel = _find_build_prereq_wheel(wheel_dir, "Cython")
+    if cython_wheel is not None:
+        specs.append(str(cython_wheel))
+    else:
+        specs.append("Cython>=3.0")
+    for prefix, fallback in (
+        ("setuptools", "setuptools>=69"),
+        ("wheel", "wheel"),
+    ):
+        local = _find_build_prereq_wheel(wheel_dir, prefix)
+        specs.append(str(local) if local is not None else fallback)
+
+    proc = run_runtime_pip(RUNTIME_TOOL_ID, *specs, upgrade=True, timeout=600)
     if proc.returncode != 0:
         raise RuntimeError(
             "demucs/diffq 빌드 준비(Cython·numpy) 실패: "
             + (proc.stderr or proc.stdout or "unknown")
         )
-    verify_importable(RUNTIME_TOOL_ID, "Cython", "numpy")
+    # pip 성공 + runtime 폴더에 패키지 존재 확인 (import 프로브 오탐 방지)
+    assert_runtime_packages_on_disk(RUNTIME_TOOL_ID, "Cython", "numpy")
 
 
 def _pip_install_demucs_diffq_from_bundle(
@@ -990,7 +1040,7 @@ def _pip_install_demucs_diffq_from_bundle(
     if lameenc:
         cmd.append(str(lameenc[-1]))
     cmd.extend([str(diffq_pkg), str(demucs_tgz)])
-    return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
+    return run_hidden(cmd, capture_output=True, text=True, timeout=3600, env=_pip_subprocess_env())
 
 
 def _pip_install_other_packages_from_wheel_dir(
@@ -1004,7 +1054,7 @@ def _pip_install_other_packages_from_wheel_dir(
         return _pip_install_demucs_diffq_from_bundle(wheel_dir, force_reinstall=force_reinstall)
     cmd = pip_install_cmd(RUNTIME_TOOL_ID, force_reinstall=force_reinstall, upgrade=True)
     cmd.extend([*_pip_find_links_args(wheel_dir), "--prefer-binary", *packages])
-    return run_hidden(cmd, capture_output=True, text=True, timeout=3600)
+    return run_hidden(cmd, capture_output=True, text=True, timeout=3600, env=_pip_subprocess_env())
 
 
 def _pip_install_from_wheel_dir(
