@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.1",
+    "version":  "1.5.2",
     "published_at":  "2026-07-29",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.1/itmatzip-agent.msi",
-    "sha256":  "44d2f96906b6dbd84425d4d2cc8317ec13ef44feea9078dc7d53ef03f28dd823",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.2/itmatzip-agent.msi",
+    "sha256":  "02d223609767d3a851162372a6a8ddcff0af549e1c06b5a0a094dcfaf99b9b94",
     "mandatory":  false,
-    "release_notes":  "Python 3.12.10 embeddable engine; cp312 runtime alignment; release automation",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.1/itmatzip-agent.msi",
-    "msi_sha256":  "44d2f96906b6dbd84425d4d2cc8317ec13ef44feea9078dc7d53ef03f28dd823"
+    "release_notes":  "VocalRemover 오류 수정",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.2/itmatzip-agent.msi",
+    "msi_sha256":  "02d223609767d3a851162372a6a8ddcff0af549e1c06b5a0a094dcfaf99b9b94"
 }

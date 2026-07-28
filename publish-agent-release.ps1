@@ -82,15 +82,48 @@ if ($PackageType -eq "msi") {
 }
 
 $json = $manifest | ConvertTo-Json -Depth 4
-[System.IO.File]::WriteAllText($ManifestPath, $json + "`n", [System.Text.UTF8Encoding]::new($false))
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($ManifestPath, $json + "`n", $utf8)
+
+# 웹 UI 설치 팝업은 assets 사본을 우선 조회하므로 릴리즈 시 동기화 필수
+$WebUiManifestPath = Join-Path $Root "web-ui\tools\assets\agent-update-manifest.json"
+$webUiDir = Split-Path $WebUiManifestPath -Parent
+if (-not (Test-Path $webUiDir)) {
+    New-Item -ItemType Directory -Force -Path $webUiDir | Out-Null
+}
+[System.IO.File]::WriteAllText($WebUiManifestPath, $json + "`n", $utf8)
+
+# agent-install-ui.js FALLBACK_RELEASE (manifest 전부 실패 시 버튼 문구·URL)
+$InstallUiJs = Join-Path $Root "web-ui\tools\common\agent-install-ui.js"
+if (Test-Path $InstallUiJs) {
+    $js = [System.IO.File]::ReadAllText($InstallUiJs, $utf8)
+    $dl = $DownloadUrl.Trim()
+    $fallback = @"
+const FALLBACK_RELEASE = {
+  version: "$Version",
+  download_url:
+    "$dl",
+  package_type: "$PackageType",
+};
+"@
+    $pattern = '(?s)const FALLBACK_RELEASE = \{.*?\};'
+    if ($js -notmatch $pattern) {
+        Write-Warning "FALLBACK_RELEASE block not found in $InstallUiJs — skipped"
+    } else {
+        $js2 = [regex]::Replace($js, $pattern, $fallback.TrimEnd())
+        [System.IO.File]::WriteAllText($InstallUiJs, $js2, $utf8)
+        Write-Host "FALLBACK_RELEASE → v$Version" -ForegroundColor Green
+    }
+}
 
 Write-Host ""
 Write-Host "manifest 저장: $ManifestPath" -ForegroundColor Green
+Write-Host "web-ui assets: $WebUiManifestPath" -ForegroundColor Green
 Write-Host "package_type: $PackageType"
 Write-Host "version: $($manifest.version)"
 Write-Host "sha256:  $($manifest.sha256)"
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1) Upload $artifactPath to GitHub Release v$Version"
-Write-Host "  2) git add agent/agent-update-manifest.json && git commit && git push"
+Write-Host "  2) git add agent/agent-update-manifest.json web-ui/tools/assets/agent-update-manifest.json web-ui/tools/common/agent-install-ui.js && git commit && git push"
 Write-Host "  3) Installed MSI agents poll manifest and auto-upgrade via msiexec"

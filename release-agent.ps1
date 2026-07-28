@@ -256,7 +256,10 @@ if (-not $SkipPush) {
         $paths = @(
             "agent/version.py",
             "agent/agent-update-manifest.json",
-            "go-agent/installer/product.wxs"
+            "go-agent/installer/product.wxs",
+            # 설치 팝업 버튼명(에이전트 다운로드 vX.Y.Z) — assets 우선 조회
+            "web-ui/tools/assets/agent-update-manifest.json",
+            "web-ui/tools/common/agent-install-ui.js"
         )
         if ($IncludeWorkingTree) {
             # 3.12 마이그레이션 등 관련 변경을 같이 올릴 때
@@ -303,7 +306,7 @@ $ReleaseNotes
 } else {
     Write-Step "5–6/6 Git commit/push skipped"
     Write-Host "Manual:" -ForegroundColor Yellow
-    Write-Host "  git add agent/version.py agent/agent-update-manifest.json go-agent/installer/product.wxs"
+    Write-Host "  git add agent/version.py agent/agent-update-manifest.json go-agent/installer/product.wxs web-ui/tools/assets/agent-update-manifest.json web-ui/tools/common/agent-install-ui.js"
     Write-Host "  git commit -m `"Release agent $Version`""
     Write-Host "  git push origin $Branch"
 }
