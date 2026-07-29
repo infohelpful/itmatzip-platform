@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -59,9 +59,12 @@ func ensureRuntimeSitePackagesDir() {
 			siteDir := filepath.Join(runtimeRoot, toolID, "Lib", "site-packages")
 			ensureDirWritable(siteDir)
 		}
+		// models / vendor / wheels-cache (packages are under engine-runtime/image-enhancer)
 		imageEnhancerRoot := filepath.Join(appData, "ItMatZip", "image-enhancer")
 		ensureDirWritable(imageEnhancerRoot)
-		ensureDirWritable(filepath.Join(imageEnhancerRoot, ".venv-codeformer"))
+		ensureDirWritable(filepath.Join(imageEnhancerRoot, "models"))
+		ensureDirWritable(filepath.Join(imageEnhancerRoot, "vendor"))
+		ensureDirWritable(filepath.Join(imageEnhancerRoot, "wheels-cache"))
 		magicCanvasRoot := filepath.Join(appData, "ItMatZip", "magic-canvas")
 		ensureDirWritable(magicCanvasRoot)
 		ensureDirWritable(filepath.Join(magicCanvasRoot, ".venv-magiccanvas"))
@@ -115,7 +118,7 @@ func ensureEngineSitePackagesWritable() {
 	hideExec(cmd)
 	if out, icaclsErr := cmd.CombinedOutput(); icaclsErr != nil {
 		log.Printf(
-			"engine site-packages not writable (%s); runtime pip uses per-tool dirs (engine-runtime/<tool>, image-enhancer/.venv, create-music/.venv): %v (%s)",
+			"engine site-packages not writable (%s); runtime pip uses per-tool dirs (engine-runtime/<tool>, create-music/.venv): %v (%s)",
 			siteDir, icaclsErr, string(out),
 		)
 	} else {

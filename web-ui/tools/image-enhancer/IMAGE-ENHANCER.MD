@@ -17,9 +17,10 @@ Base URL: `https://github.com/infohelpful/library-hub/releases/download/image-en
 | 구성 | Python | 경로 |
 |------|--------|------|
 | FastAPI 사이드카 | **3.12** | `engine\python.exe` (MSI embeddable) |
-| CodeFormer | **3.12 venv** | `%APPDATA%\ItMatZip\image-enhancer\.venv-codeformer` |
+| CodeFormer 패키지 | **3.12 engine-runtime** | `%APPDATA%\ItMatZip\engine-runtime\image-enhancer` |
+| 모델·vendor·wheels | (데이터) | `%APPDATA%\ItMatZip\image-enhancer\` |
 
-**환경 준비** 시: venv 생성 → GPU/CPU wheel zip에서 **torch/torchvision** 설치 → zip에 없는 패키지(basicsr, opencv 등)는 **PyPI로 자동 보완** → 소스·모델 다운로드.
+**환경 준비** 시: engine-runtime에 GPU/CPU wheel zip에서 **torch/torchvision** 설치 → zip에 없는 패키지(facexlib, opencv 등)는 **PyPI로 자동 보완** → 소스·모델 다운로드. (구 `.venv-codeformer`는 prepare 시 삭제)
 
 GPU zip에 `torch`·`torchvision`만 있어도 동작합니다. 완전 오프라인이면 `codeformer-wheels.zip`에 전체 의존성 wheel을 넣어야 합니다.
 
@@ -27,7 +28,7 @@ Vocal Remover `wheel.zip` / Create Music `wheels_create_music` 과 **별도** �
 
 ## prepare 순서
 
-1. Python 3.12 venv
+1. `engine-runtime\image-enhancer` (MSI engine python)
 2. `codeformer-wheels.zip` (CPU) 또는 `codeformer-wheels_gpu.zip.001/002` (GPU)
 3. `CodeFormer-master.zip` → vendor
 4. `codeformer.pth`, `RealESRGAN_x2plus.pth`

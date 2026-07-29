@@ -23,10 +23,11 @@ def main() -> int:
     from engines import codeformer_runtime
 
     try:
-        print("python312:", codeformer_runtime.find_python312())
+        print("python:", codeformer_runtime.codeformer_python())
     except Exception as exc:
-        print("python312: MISSING", exc)
-    print("venv_dir:", codeformer_runtime.codeformer_venv_dir())
+        print("python: MISSING", exc)
+    print("site_packages:", codeformer_runtime.codeformer_site_packages())
+    print("legacy_venv_dir:", codeformer_runtime.legacy_codeformer_venv_dir())
     try:
         from runtime_paths import codeformer_python_executable
 

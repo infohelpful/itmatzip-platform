@@ -1,4 +1,4 @@
-"""CodeFormer 전용 Python 3.12 venv — library-hub image-enhancer-lib wheel 번들."""
+"""CodeFormer — MSI engine Python 3.12 + engine-runtime/image-enhancer (library-hub wheels)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -15,7 +16,15 @@ from pathlib import Path
 from typing import Any, Callable
 
 from common.subprocess_util import no_window_creationflags, run_hidden
-from common.runtime_site_packages import TOOL_IMAGE_ENHANCER
+from common.runtime_site_packages import (
+    TOOL_IMAGE_ENHANCER,
+    ensure_runtime_tree_acl,
+    finalize_runtime_pip,
+    pip_subprocess_env,
+    pip_target_args,
+    purge_runtime_site_entries,
+    runtime_site_packages_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +98,27 @@ def image_enhancer_root() -> Path:
     return Path(os.environ.get("APPDATA", Path.home() / ".itmatzip")) / "ItMatZip" / "image-enhancer"
 
 
+def codeformer_site_packages() -> Path:
+    """pip --target / 추론 site-packages (engine-runtime)."""
+    return runtime_site_packages_dir(TOOL_IMAGE_ENHANCER)
+
+
 def codeformer_venv_dir() -> Path:
+    """레거시 경로 (구 .venv-codeformer). 신규 패키지는 codeformer_site_packages()."""
     return (image_enhancer_root() / ".venv-codeformer").resolve()
 
+
+def legacy_codeformer_venv_dir() -> Path:
+    return codeformer_venv_dir()
+
+
+def purge_legacy_codeformer_venv(on_progress: PrepareProgressCallback | None = None) -> None:
+    """엔진 3.12 이전용 venv 잔여물 삭제 (디스크 확보)."""
+    legacy = legacy_codeformer_venv_dir()
+    if not legacy.exists():
+        return
+    _emit(on_progress, 6.0, "정리", "구 .venv-codeformer 삭제 중")
+    shutil.rmtree(legacy, ignore_errors=True)
 
 def wheels_cache_dir() -> Path:
     p = image_enhancer_root() / "wheels-cache"
@@ -375,6 +402,9 @@ def _pip_uninstall_torch_stack() -> None:
         ["uninstall", "-y", "torch", "torchvision", "torchaudio"],
         timeout=600,
     )
+    purge_runtime_site_entries(
+        TOOL_IMAGE_ENHANCER, "torch", "torchvision", "torchaudio", "functorch"
+    )
 
 
 def _package_name_from_spec(spec: str) -> str:
@@ -596,7 +626,7 @@ def patch_vendor_unicode_imread(vendor_root: Path | None = None) -> bool:
 def patch_basicsr_torchvision_compat(vendor_root: Path | None = None) -> bool:
     """basicsr + torchvision 0.21+ 호환 (functional_tensor 제거 대응)."""
     ok = False
-    site = codeformer_venv_dir() / "Lib" / "site-packages" / "basicsr" / "data" / "degradations.py"
+    site = codeformer_site_packages() / "basicsr" / "data" / "degradations.py"
     if _patch_basicsr_degradations_file(site):
         ok = True
     if vendor_root is not None:
@@ -639,11 +669,12 @@ def codeformer_inference_env(
     *,
     agent_package_root: Path | None = None,
 ) -> dict[str, str]:
-    """추론 subprocess — vendor basicsr + venv site-packages (cwd shadow 방지)."""
+    """추론 subprocess — vendor basicsr + engine-runtime site-packages."""
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
     env["PYTHONSAFEPATH"] = "1"
-    site = codeformer_venv_dir() / "Lib" / "site-packages"
+    env["ITMATZIP_RUNTIME_TOOL"] = TOOL_IMAGE_ENHANCER
+    site = codeformer_site_packages()
     parts: list[str] = [str(vendor_root.resolve())]
     if site.is_dir():
         parts.append(str(site))
@@ -681,9 +712,9 @@ def install_runtime_dependencies(
     *,
     bundle: str | None = None,
 ) -> str:
-    """venv + wheel(기본) 또는 온라인 pip."""
+    """engine-runtime + wheel(기본) 또는 온라인 pip."""
     bundle = bundle or select_torch_bundle()
-    ensure_venv(on_progress)
+    ensure_runtime(on_progress)
 
     if _use_offline_wheels():
         wheel_dir = ensure_wheels_bundle_extracted(bundle, on_progress=on_progress)
@@ -726,6 +757,7 @@ def install_runtime_dependencies(
 
 
 def _python312_candidates() -> tuple[str, ...]:
+    """Magic Canvas 등 레거시 venv 부트스트랩용 (Image Enhancer는 엔진 python 사용)."""
     local = os.environ.get("LOCALAPPDATA", "")
     program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
     candidates: list[str] = ["py -3.12"]
@@ -737,6 +769,20 @@ def _python312_candidates() -> tuple[str, ...]:
 
 
 def find_python312() -> str:
+    """엔진 python 우선, 없으면 시스템 3.12 (Magic Canvas venv 생성용)."""
+    exe = Path(sys.executable)
+    if exe.is_file():
+        try:
+            proc = run_hidden(
+                [str(exe), "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            if proc.returncode == 0 and (proc.stdout or "").strip().startswith("3.12"):
+                return str(exe.resolve())
+        except Exception:
+            pass
     for cand in _python312_candidates():
         if cand.startswith("py "):
             try:
@@ -747,38 +793,67 @@ def find_python312() -> str:
                     timeout=30,
                 )
                 if proc.returncode == 0:
-                    exe = (proc.stdout or "").strip().splitlines()[-1].strip()
-                    if exe and Path(exe).is_file():
-                        return exe
+                    found = (proc.stdout or "").strip().splitlines()[-1].strip()
+                    if found and Path(found).is_file():
+                        return found
             except Exception:
                 continue
         elif Path(cand).is_file():
             return cand
     raise RuntimeError(
-        "Python 3.12가 필요합니다. https://www.python.org/downloads/ 에서 3.12를 설치하거나 "
-        "'py -3.12'가 동작하는지 확인하세요."
+        "Python 3.12가 필요합니다. MSI 에이전트(engine) 또는 python.org 3.12를 설치하세요."
     )
 
 
-def venv_python() -> Path:
+def codeformer_python() -> Path:
+    """추론·probe용 실행 파일 — MSI/엔진 python (3.12)."""
     explicit = os.environ.get("ITMATZIP_CODEFORMER_PYTHON", "").strip()
     if explicit:
         p = Path(explicit)
         if p.is_file():
             return p.resolve()
-    py = codeformer_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
-        raise RuntimeError(
-            "CodeFormer 가상환경이 없습니다. Image Enhancer에서 '환경 준비'를 먼저 실행하세요."
-        )
-    return py
+    return Path(sys.executable).resolve()
 
 
-def _venv_env() -> dict[str, str]:
+def venv_python() -> Path:
+    """하위 호환 alias → codeformer_python()."""
+    return codeformer_python()
+
+
+def _runtime_env() -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
     env["ITMATZIP_RUNTIME_TOOL"] = TOOL_IMAGE_ENHANCER
     return env
+
+
+def _run_codeformer_python(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: float = 3600.0,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
+    from common.runtime_site_packages import engine_python_c_prefix
+
+    merged = _runtime_env()
+    if env:
+        merged.update(env)
+    cmd_args = list(args)
+    # Embeddable Python: PYTHONPATH 무시 → -c 앞에 runtime path 주입
+    if cmd_args[:1] == ["-c"] and len(cmd_args) >= 2:
+        prefix = engine_python_c_prefix(TOOL_IMAGE_ENHANCER)
+        if prefix and not str(cmd_args[1]).startswith("import sys; _rt="):
+            cmd_args[1] = prefix + str(cmd_args[1])
+    return run_hidden(
+        [str(codeformer_python()), *cmd_args],
+        cwd=str(cwd) if cwd else None,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        creationflags=no_window_creationflags(),
+        env=merged,
+    )
 
 
 def _run_venv_python(
@@ -787,19 +862,81 @@ def _run_venv_python(
     cwd: Path | None = None,
     timeout: float = 3600.0,
 ) -> subprocess.CompletedProcess:
-    return run_hidden(
-        [str(venv_python()), *args],
-        cwd=str(cwd) if cwd else None,
+    """하위 호환 alias."""
+    return _run_codeformer_python(args, cwd=cwd, timeout=timeout)
+
+
+def _insert_pip_target(cmd: list[str]) -> list[str]:
+    """`python -m pip install …` 에 `--target` 삽입."""
+    if "install" not in cmd or "--target" in cmd:
+        return cmd
+    out = list(cmd)
+    i = out.index("install") + 1
+    flags_with_value = {
+        "--find-links",
+        "-f",
+        "--index-url",
+        "-i",
+        "--extra-index-url",
+        "--constraint",
+        "-c",
+        "--requirement",
+        "-r",
+        "--src",
+        "--root",
+        "--prefix",
+        "--no-binary",
+        "--only-binary",
+        "--use-feature",
+        "--report",
+        "--config-settings",
+        "--hash",
+        "--global-option",
+        "--compile",
+    }
+    while i < len(out):
+        a = out[i]
+        if a in flags_with_value and i + 1 < len(out):
+            i += 2
+            continue
+        if a.startswith("-"):
+            i += 1
+            continue
+        break
+    for arg in reversed(pip_target_args(TOOL_IMAGE_ENHANCER)):
+        out.insert(i, arg)
+    return out
+
+
+def _run_pip(pip_args: list[str], *, timeout: float = 3600.0) -> subprocess.CompletedProcess:
+    ensure_runtime_tree_acl(TOOL_IMAGE_ENHANCER)
+    env = pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": TOOL_IMAGE_ENHANCER})
+    if pip_args and pip_args[0] == "uninstall":
+        pkgs = [a for a in pip_args[1:] if not a.startswith("-") and a != "-y"]
+        proc = run_hidden(
+            [sys.executable, "-m", "pip", *pip_args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=no_window_creationflags(),
+            env=env,
+        )
+        if pkgs:
+            purge_runtime_site_entries(TOOL_IMAGE_ENHANCER, *pkgs)
+        finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
+        return proc
+
+    cmd = _insert_pip_target([sys.executable, "-m", "pip", *pip_args])
+    proc = run_hidden(
+        cmd,
         capture_output=True,
         text=True,
         timeout=timeout,
         creationflags=no_window_creationflags(),
-        env=_venv_env(),
+        env=env,
     )
-
-
-def _run_pip(pip_args: list[str], *, timeout: float = 3600.0) -> subprocess.CompletedProcess:
-    return _run_venv_python(["-m", "pip", *pip_args], timeout=timeout)
+    finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
+    return proc
 
 
 def _emit(on_progress: PrepareProgressCallback | None, pct: float, step: str, detail: str = "") -> None:
@@ -831,7 +968,7 @@ def select_torch_bundle() -> str:
 
 def probe_torch(timeout: float = 90.0) -> dict[str, object]:
     try:
-        proc = _run_venv_python(["-c", _TORCH_PROBE_SCRIPT], timeout=timeout)
+        proc = _run_codeformer_python(["-c", _TORCH_PROBE_SCRIPT], timeout=timeout)
     except (OSError, subprocess.TimeoutExpired, RuntimeError) as exc:
         return {"error": str(exc)}
     if proc.returncode != 0:
@@ -859,37 +996,31 @@ def invalidate_torch_probe_cache() -> None:
     _torch_probe_cache = None
 
 
-def is_venv_ready_fast() -> bool:
-    py = codeformer_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
-        return False
-    site = codeformer_venv_dir() / "Lib" / "site-packages"
+def is_runtime_ready_fast() -> bool:
+    site = codeformer_site_packages()
     if not site.is_dir():
         return False
     return (site / "torch").is_dir() or any(site.glob("torch*"))
 
 
+def is_venv_ready_fast() -> bool:
+    """하위 호환 alias → is_runtime_ready_fast()."""
+    return is_runtime_ready_fast()
+
+
 def codeformer_importable(module_name: str, *, vendor_root: Path | None = None) -> bool:
     if module_name == "basicsr" and vendor_root is not None:
         patch_basicsr_torchvision_compat(vendor_root)
-    env = _venv_env()
-    extra: list[str] = ["-P", "-c", f"import {module_name}"]
+    env = _runtime_env()
+    extra: list[str] = ["-c", f"import {module_name}"]
     if vendor_root is not None and vendor_root.is_dir():
         env = codeformer_inference_env(vendor_root)
-        extra = ["-P", "-c", f"import {module_name}"]
-    proc = run_hidden(
-        [str(venv_python()), *extra],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        creationflags=no_window_creationflags(),
-        env=env,
-    )
+    proc = _run_codeformer_python(extra, timeout=120, env=env)
     return proc.returncode == 0
 
 
 def is_torch_installed() -> bool:
-    if not is_venv_ready_fast():
+    if not is_runtime_ready_fast():
         return False
     probe = _probe_torch_cached()
     return not probe.get("error") and bool(probe.get("version"))
@@ -908,14 +1039,14 @@ def installed_torch_variant() -> str | None:
 
 
 def is_cuda_available() -> bool:
-    if not is_venv_ready_fast():
+    if not is_runtime_ready_fast():
         return False
     return bool(_probe_torch_cached().get("cuda_available"))
 
 
 def is_cuda_available_fast() -> bool:
     """readiness용 — 캐시된 torch probe만 사용 (없으면 False)."""
-    if not is_venv_ready_fast():
+    if not is_runtime_ready_fast():
         return False
     probe = _probe_torch_cached(max_age_sec=120.0)
     if probe.get("error") or not probe.get("version"):
@@ -925,9 +1056,9 @@ def is_cuda_available_fast() -> bool:
 
 def is_pip_stack_ready_fast(*, vendor_root: Path | None = None) -> bool:
     """readiness용 — subprocess import 없이 디스크만 확인."""
-    if not is_venv_ready_fast():
+    if not is_runtime_ready_fast():
         return False
-    site = codeformer_venv_dir() / "Lib" / "site-packages"
+    site = codeformer_site_packages()
     if not site.is_dir():
         return False
     has_basicsr = bool(vendor_root and (vendor_root / "basicsr").is_dir())
@@ -939,7 +1070,7 @@ def is_pip_stack_ready_fast(*, vendor_root: Path | None = None) -> bool:
 
 
 def is_pip_stack_ready(*, vendor_root: Path | None = None) -> bool:
-    if not is_venv_ready_fast():
+    if not is_runtime_ready_fast():
         return False
     if is_pip_stack_ready_fast() and vendor_root is None:
         return True
@@ -954,37 +1085,31 @@ def is_pip_stack_ready(*, vendor_root: Path | None = None) -> bool:
         return False
 
 
-def is_venv_ready(*, vendor_root: Path | None = None) -> bool:
+def is_runtime_ready(*, vendor_root: Path | None = None) -> bool:
     return is_torch_installed() and is_pip_stack_ready(vendor_root=vendor_root)
 
 
-def ensure_venv(on_progress: PrepareProgressCallback | None = None) -> None:
-    venv = codeformer_venv_dir()
-    py_exe = venv / "Scripts" / "python.exe"
-    if py_exe.is_file() and is_venv_ready_fast():
-        _emit(on_progress, 12.0, "가상환경", "이미 존재함")
+def is_venv_ready(*, vendor_root: Path | None = None) -> bool:
+    """하위 호환 alias → is_runtime_ready()."""
+    return is_runtime_ready(vendor_root=vendor_root)
+
+
+def ensure_runtime(on_progress: PrepareProgressCallback | None = None) -> None:
+    """engine-runtime/image-enhancer 준비 (+ 구 venv 정리)."""
+    purge_legacy_codeformer_venv(on_progress)
+    image_enhancer_root().mkdir(parents=True, exist_ok=True)
+    site = codeformer_site_packages()
+    ensure_runtime_tree_acl(TOOL_IMAGE_ENHANCER)
+    _emit(on_progress, 10.0, "런타임", f"engine-runtime · {site}")
+    if is_runtime_ready_fast():
+        _emit(on_progress, 12.0, "런타임", "이미 준비됨")
         return
+    _emit(on_progress, 11.0, "런타임", str(codeformer_python()))
 
-    py312 = find_python312()
-    _emit(on_progress, 8.0, "Python 3.12", py312)
-    venv.parent.mkdir(parents=True, exist_ok=True)
-    if venv.exists():
-        shutil.rmtree(venv, ignore_errors=True)
 
-    _emit(on_progress, 10.0, "가상환경", "venv 생성 중…")
-    proc = run_hidden(
-        [py312, "-m", "venv", str(venv)],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "venv 생성 실패")[-800:])
-
-    _emit(on_progress, 11.0, "pip", "pip · setuptools · wheel")
-    proc = _run_pip(["install", "--upgrade", "pip", "setuptools", "wheel"])
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "pip bootstrap 실패")[-800:])
+def ensure_venv(on_progress: PrepareProgressCallback | None = None) -> None:
+    """하위 호환 alias → ensure_runtime()."""
+    ensure_runtime(on_progress)
 
 
 def install_pytorch(on_progress: PrepareProgressCallback | None = None, *, bundle: str | None = None) -> str:
@@ -1024,24 +1149,21 @@ def install_basicsr_develop(vendor_root: Path, on_progress: PrepareProgressCallb
 
 
 def runtime_status_fast() -> dict[str, Any]:
-    py312 = ""
-    py_err = ""
-    try:
-        py312 = find_python312()
-    except Exception as exc:
-        py_err = str(exc)
-
+    site = codeformer_site_packages()
     bundle = select_torch_bundle()
-    venv_fast = is_venv_ready_fast()
+    ready_fast = is_runtime_ready_fast()
     return {
-        "venv_dir": str(codeformer_venv_dir()),
-        "python312": py312,
-        "python312_error": py_err,
-        "venv_ready": venv_fast,
-        "torch_ready": venv_fast,
-        "pip_stack_ready": is_pip_stack_ready_fast() if venv_fast else False,
-        "runtime": "codeformer-3.12-venv",
-        "msi_python_bundle": False,
+        "site_packages": str(site),
+        "venv_dir": str(legacy_codeformer_venv_dir()),  # legacy field
+        "python": str(codeformer_python()),
+        "python312": str(codeformer_python()),
+        "python312_error": "",
+        "venv_ready": ready_fast,
+        "runtime_ready": ready_fast,
+        "torch_ready": ready_fast,
+        "pip_stack_ready": is_pip_stack_ready_fast() if ready_fast else False,
+        "runtime": "codeformer-engine-runtime",
+        "msi_python_bundle": True,
         "library_hub_base": IMAGE_ENHANCER_LIB_BASE,
         "wheels_cpu_url": _wheels_cpu_url(),
         "wheels_gpu_part_urls": list(_wheels_gpu_part_urls()),

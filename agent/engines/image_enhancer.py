@@ -88,7 +88,7 @@ def ensure_workspace() -> None:
 
 def codeformer_python_version() -> str:
     try:
-        py = codeformer_runtime.venv_python()
+        py = codeformer_runtime.codeformer_python()
     except RuntimeError:
         return ""
     proc = run_hidden(
@@ -361,7 +361,7 @@ def install_dependencies(on_progress: PrepareProgressCallback | None = None) -> 
         on_progress,
         12.0,
         "CodeFormer Python",
-        str(codeformer_runtime.venv_python()),
+        str(codeformer_runtime.codeformer_python()),
     )
     _ensure_codeformer_vendor(on_progress)
     codeformer_runtime.configure_vendor_basicsr(VENDOR_ROOT, on_progress)
@@ -442,6 +442,7 @@ def _run_codeformer_subprocess(
     env["ITMATZIP_CODEFORMER_ROOT"] = str(VENDOR_ROOT.resolve())
     env["ITMATZIP_CODEFORMER_PYTHON"] = str(cf_python)
     env["ITMATZIP_AGENT_PACKAGE_ROOT"] = str(pkg)
+    env["ITMATZIP_RUNTIME_TOOL"] = "image-enhancer"
     env["ITMATZIP_CODEFORMER_TIMEOUT"] = str(timeout_sec)
 
     command = [

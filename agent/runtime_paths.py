@@ -111,13 +111,12 @@ def magic_canvas_python_executable() -> Path:
 
 def codeformer_python_executable() -> Path:
     """
-    CodeFormer 추론·prepare 전용 Python 3.12 venv.
-    %APPDATA%\\ItMatZip\\image-enhancer\\.venv-codeformer (환경 준비 시 생성).
-    FastAPI sidecar engine(3.12)와 분리됩니다 (동일 메이저, 툴 전용 venv).
+    CodeFormer 추론·prepare용 Python — MSI/엔진 python (3.12).
+    패키지는 %APPDATA%\\ItMatZip\\engine-runtime\\image-enhancer.
     """
-    from engines.codeformer_runtime import venv_python
+    from engines.codeformer_runtime import codeformer_python
 
-    return venv_python()
+    return codeformer_python()
 
 
 def pick_script_path() -> Path:

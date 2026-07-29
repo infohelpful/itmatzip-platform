@@ -1,4 +1,4 @@
-﻿"""Magic Canvas 전용 Python 3.12 venv — SDXL + rembg."""
+"""Magic Canvas 전용 Python 3.12 venv — SDXL + rembg."""
 
 from __future__ import annotations
 
@@ -21,7 +21,6 @@ from common.subprocess_util import no_window_creationflags, run_hidden
 from engines.codeformer_runtime import (
     _merge_split_zip_parts,
     _verify_zip_archive,
-    codeformer_venv_dir,
     find_python312,
 )
 
@@ -530,9 +529,15 @@ def _base_python_for_venv() -> str:
         p = Path(explicit)
         if p.is_file():
             return str(p.resolve())
-    codeformer_py = codeformer_venv_dir() / "Scripts" / "python.exe"
-    if codeformer_py.is_file():
-        return str(codeformer_py.resolve())
+    # Image Enhancer는 이제 엔진 python — Magic Canvas venv도 동일 인터프리터로 생성
+    try:
+        from engines.codeformer_runtime import codeformer_python
+
+        py = codeformer_python()
+        if py.is_file():
+            return str(py)
+    except Exception:
+        pass
     return find_python312()
 
 

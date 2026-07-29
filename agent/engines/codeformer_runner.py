@@ -1,4 +1,4 @@
-"""CodeFormer inference subprocess entry (MSI engine python → script path)."""
+"""CodeFormer inference subprocess entry (MSI engine python → vendor script)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,27 @@ import traceback
 from pathlib import Path
 
 
+def _bootstrap_import_paths() -> None:
+    """MSI embeddable Python 은 PYTHONPATH 를 무시 — agent·runtime 경로를 직접 삽입."""
+    agent = os.environ.get("ITMATZIP_AGENT_DIR", "").strip()
+    if not agent:
+        install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+        if install:
+            agent = str(Path(install) / "agent")
+    if agent and agent not in sys.path:
+        sys.path.insert(0, agent)
+    try:
+        from common.runtime_site_packages import TOOL_IMAGE_ENHANCER, activate_runtime_site_packages
+
+        os.environ.setdefault("ITMATZIP_RUNTIME_TOOL", TOOL_IMAGE_ENHANCER)
+        activate_runtime_site_packages(TOOL_IMAGE_ENHANCER)
+    except Exception as exc:
+        print(f"warning: runtime site-packages bootstrap failed: {exc}", file=sys.stderr)
+
+
+_bootstrap_import_paths()
+
+
 def _vendor_root() -> Path:
     raw = os.environ.get("ITMATZIP_CODEFORMER_ROOT", "").strip()
     if not raw:
@@ -18,6 +39,16 @@ def _vendor_root() -> Path:
     if not root.is_dir():
         raise RuntimeError(f"CodeFormer vendor directory not found: {root}")
     return root
+
+
+def _site_packages() -> Path | None:
+    try:
+        from engines.codeformer_runtime import codeformer_site_packages
+
+        site = codeformer_site_packages()
+        return site if site.is_dir() else None
+    except Exception:
+        return None
 
 
 def _inference_env(vendor: Path) -> dict[str, str]:
@@ -61,10 +92,7 @@ def main() -> int:
     input_folder = input_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd: list[str] = [
-        sys.executable,
-        "-P",
-        "-u",
+    infer_argv = [
         str(script),
         "--input_path",
         str(input_folder),
@@ -76,15 +104,15 @@ def main() -> int:
         str(max(1, min(4, int(args.upscale)))),
     ]
     if args.face_upsample:
-        cmd.append("--face_upsample")
+        infer_argv.append("--face_upsample")
     if args.only_center_face:
-        cmd.append("--only_center_face")
+        infer_argv.append("--only_center_face")
     if args.background_enhance:
-        cmd.append("--bg_upsampler")
-        cmd.append("realesrgan")
+        infer_argv.append("--bg_upsampler")
+        infer_argv.append("realesrgan")
         tile = max(128, min(1024, int(args.bg_tile)))
-        cmd.append("--bg_tile")
-        cmd.append(str(tile))
+        infer_argv.append("--bg_tile")
+        infer_argv.append(str(tile))
 
     env = _inference_env(vendor)
     env["ITMATZIP_CODEFORMER_ROOT"] = str(vendor)
@@ -98,7 +126,25 @@ def main() -> int:
         except Exception as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
-    cmd[0] = py
+
+    # Embeddable Python ignores PYTHONPATH — bootstrap paths then runpy.
+    site = _site_packages()
+    path_inserts: list[str] = [str(vendor)]
+    if site is not None:
+        path_inserts.append(str(site))
+    pkg = os.environ.get("ITMATZIP_AGENT_PACKAGE_ROOT", "").strip()
+    if pkg:
+        path_inserts.append(pkg)
+
+    boot = (
+        "import runpy, sys\n"
+        f"for _p in {path_inserts!r}:\n"
+        "    if _p and _p not in sys.path:\n"
+        "        sys.path.insert(0, _p)\n"
+        f"sys.argv = {infer_argv!r}\n"
+        f"runpy.run_path({str(script)!r}, run_name='__main__')\n"
+    )
+    cmd = [py, "-c", boot]
 
     try:
         proc = subprocess.run(
