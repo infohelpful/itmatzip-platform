@@ -27,8 +27,12 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "engines\demucs_runner.py"; Dst = Join-Path $AgentDst "engines\demucs_runner.py" },
     @{ Src = Join-Path $AgentSrc "engines\vocal_remover.py"; Dst = Join-Path $AgentDst "engines\vocal_remover.py" },
     @{ Src = Join-Path $AgentSrc "engines\silence_remover.py"; Dst = Join-Path $AgentDst "engines\silence_remover.py" },
+    @{ Src = Join-Path $AgentSrc "engines\codeformer_runtime.py"; Dst = Join-Path $AgentDst "engines\codeformer_runtime.py" },
+    @{ Src = Join-Path $AgentSrc "engines\codeformer_runner.py"; Dst = Join-Path $AgentDst "engines\codeformer_runner.py" },
+    @{ Src = Join-Path $AgentSrc "engines\image_enhancer.py"; Dst = Join-Path $AgentDst "engines\image_enhancer.py" },
     @{ Src = Join-Path $AgentSrc "engines\__init__.py"; Dst = Join-Path $AgentDst "engines\__init__.py" },
-    @{ Src = Join-Path $AgentSrc "routers\silence_remover.py"; Dst = Join-Path $AgentDst "routers\silence_remover.py" }
+    @{ Src = Join-Path $AgentSrc "routers\silence_remover.py"; Dst = Join-Path $AgentDst "routers\silence_remover.py" },
+    @{ Src = Join-Path $AgentSrc "routers\image_enhancer.py"; Dst = Join-Path $AgentDst "routers\image_enhancer.py" }
 )
 
 foreach ($f in $files) {

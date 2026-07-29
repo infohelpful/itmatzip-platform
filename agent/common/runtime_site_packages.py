@@ -234,11 +234,14 @@ def runtime_site_packages_readable(tool_id: str) -> bool:
 def ensure_runtime_directories() -> None:
     """모든 툴 runtime 디렉터리를 미리 생성 (MSI·첫 prepare 전)."""
     if _is_windows_admin():
-        _log.warning(
-            "에이전트가 관리자 권한으로 실행 중입니다. "
-            "%APPDATA%\\ItMatZip\\engine-runtime pip/ACL 이 꼬일 수 있으니 "
-            "트레이는 일반 사용자로 실행하세요."
-        )
+        # 매 호출마다 로그하면 sidecar 로그가 도배되어 장애 진단이 어려움
+        if not getattr(ensure_runtime_directories, "_admin_warned", False):
+            ensure_runtime_directories._admin_warned = True  # type: ignore[attr-defined]
+            _log.warning(
+                "에이전트가 관리자 권한으로 실행 중입니다. "
+                "%APPDATA%\\ItMatZip\\engine-runtime pip/ACL 이 꼬일 수 있으니 "
+                "트레이는 일반 사용자로 실행하세요."
+            )
     for tid in ENGINE_RUNTIME_TOOL_IDS:
         runtime_site_packages_dir(tid)
         if not runtime_site_packages_readable(tid):

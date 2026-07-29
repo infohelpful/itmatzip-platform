@@ -838,14 +838,20 @@ export function primeLocalNetworkAccess() {
     try {
       if (navigator.permissions?.query) {
         try {
-          const perm = await navigator.permissions.query(
-            /** @type {PermissionDescriptor} */ (
-              /** @type {unknown} */ ({ name: "local-network-access" })
+          // permissions.query 가 일부 Chromium에서 영원히 pending → 연결 확인이 멈춤
+          const perm = await Promise.race([
+            navigator.permissions.query(
+              /** @type {PermissionDescriptor} */ (
+                /** @type {unknown} */ ({ name: "local-network-access" })
+              ),
             ),
-          );
-          if (perm.state === "granted") return;
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("lna-perm-timeout")), 800),
+            ),
+          ]);
+          if (perm && /** @type {{ state?: string }} */ (perm).state === "granted") return;
         } catch {
-          /* 미지원 브라우저 */
+          /* 미지원·타임아웃 */
         }
       }
       const origin = _originFallbacks[0] ?? `http://127.0.0.1:${AGENT_PORT}`;

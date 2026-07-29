@@ -297,7 +297,11 @@ def post_enhance(body: ImageEnhancerEnhanceBody) -> ImageEnhancerEnhanceStatus:
     if not image_enhancer.is_model_ready():
         raise HTTPException(
             status_code=503,
-            detail="CodeFormer 환경이 준비되지 않았습니다. 먼저 /prepare를 호출하세요.",
+            detail=(
+                "CodeFormer 환경이 준비되지 않았습니다. "
+                "페이지에서 「환경 준비」를 완료한 뒤 다시 시도하세요. "
+                "(PyTorch + facexlib/opencv 등 pip 패키지 + 모델)"
+            ),
         )
 
     job = image_enhancer.start_enhance_job(

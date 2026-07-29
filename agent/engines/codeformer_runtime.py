@@ -162,6 +162,10 @@ def _use_offline_wheels() -> bool:
     )
 
 
+# Cache invalidation when hub assets are replaced (same filenames).
+CODEFORMER_WHEELS_BUNDLE_REVISION = "cp312-complete-v2"
+
+
 def _wheels_cpu_url() -> str:
     raw = os.environ.get("ITMATZIP_CODEFORMER_WHEELS_CPU_URL", "").strip()
     if raw:
@@ -286,15 +290,27 @@ def _prune_incompatible_wheels(wheel_dir: Path) -> list[str]:
     return removed
 
 
+def _wheel_bundle_marker_payload(bundle: str) -> str:
+    """URL + revision — hub 파일이 같은 이름이어도 교체 시 캐시 무효화."""
+    body = _wheels_cpu_url() if bundle == "cpu" else "\n".join(_wheels_gpu_part_urls())
+    return f"{CODEFORMER_WHEELS_BUNDLE_REVISION}\n{body}"
+
+
 def _wheel_bundle_cache_valid(bundle: str) -> bool:
     wheel_dir = wheels_extract_dir(bundle)
     marker = _wheel_bundle_marker_path(bundle)
     if not marker.is_file():
         return False
-    expected = _wheels_cpu_url() if bundle == "cpu" else "\n".join(_wheels_gpu_part_urls())
-    if marker.read_text(encoding="utf-8").strip() != expected:
+    if marker.read_text(encoding="utf-8").strip() != _wheel_bundle_marker_payload(bundle).strip():
         return False
-    return any(wheel_dir.glob("*.whl"))
+    # 완전 번들 최소 검증 (facexlib + opencv + numpy)
+    if not _has_wheel_for_package(wheel_dir, "facexlib"):
+        return False
+    if not _opencv_wheel_in_bundle(wheel_dir):
+        return False
+    if not _has_wheel_for_package(wheel_dir, "numpy"):
+        return False
+    return True
 
 
 def ensure_wheels_bundle_extracted(
@@ -329,7 +345,9 @@ def ensure_wheels_bundle_extracted(
         wheel_dir.mkdir(parents=True, exist_ok=True)
         msg("wheel 압축 해제 중…")
         _extract_wheel_archive(zip_path, wheel_dir)
-        _wheel_bundle_marker_path(bundle).write_text(url, encoding="utf-8")
+        _wheel_bundle_marker_path(bundle).write_text(
+            _wheel_bundle_marker_payload(bundle), encoding="utf-8"
+        )
     else:
         parts_dir = cache / "parts"
         parts_dir.mkdir(parents=True, exist_ok=True)
@@ -351,7 +369,9 @@ def ensure_wheels_bundle_extracted(
         wheel_dir.mkdir(parents=True, exist_ok=True)
         msg("wheel 압축 해제 중…")
         _extract_wheel_archive(merged, wheel_dir)
-        _wheel_bundle_marker_path(bundle).write_text("\n".join(urls), encoding="utf-8")
+        _wheel_bundle_marker_path(bundle).write_text(
+            _wheel_bundle_marker_payload(bundle), encoding="utf-8"
+        )
 
     pruned = _prune_incompatible_wheels(wheel_dir)
     if pruned:
@@ -390,10 +410,40 @@ def _find_wheel_file(
 TORCH_RUNTIME_DEPS = (
     "typing_extensions",
     "sympy",
+    "mpmath",
     "networkx",
     "jinja2",
+    "markupsafe",
     "fsspec",
     "filelock",
+)
+
+# facexlib / opencv / scipy 재귀 의존 (완전 오프라인 번들용)
+CODEFORMER_BUNDLE_EXTRA_DEPS = (
+    "filterpy",
+    "numba",
+    "llvmlite",
+    "imageio",
+    "tifffile",
+    "lazy-loader",
+    "packaging",
+    "platformdirs",
+    "contourpy",
+    "cycler",
+    "fonttools",
+    "kiwisolver",
+    "pyparsing",
+    "python-dateutil",
+    "six",
+    "matplotlib",
+    "charset-normalizer",
+    "idna",
+    "urllib3",
+    "certifi",
+    "soupsieve",
+    "beautifulsoup4",
+    "filelock",  # gdown
+    "colorama",
 )
 
 
@@ -424,7 +474,8 @@ CODEFORMER_PIP_PACKAGES_NO_BASICSR = tuple(
 def _has_wheel_for_package(wheel_dir: Path, package: str) -> bool:
     pkg = package.lower().replace("_", "-")
     return any(
-        p.name.lower().startswith(f"{pkg}-") and _wheel_matches_py312_win(p.name)
+        p.name.lower().replace("_", "-").startswith(f"{pkg}-")
+        and _wheel_matches_py312_win(p.name)
         for p in wheel_dir.glob("*.whl")
     )
 
@@ -435,54 +486,104 @@ def _opencv_wheel_in_bundle(wheel_dir: Path) -> bool:
     )
 
 
+def _extract_wheel_into_site(wheel_path: Path, site: Path) -> None:
+    """pip 없이 .whl → site-packages 직접 해제 (Vocal Remover와 동일)."""
+    if not wheel_path.is_file():
+        raise FileNotFoundError(str(wheel_path))
+    site.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel_path, "r") as zf:
+        zf.extractall(site)
+
+
+def _pick_best_wheel(wheel_dir: Path, package: str) -> Path | None:
+    """패키지명에 맞는 cp312/pure wheel 중 최신(이름 정렬 마지막) 선택."""
+    pkg = package.lower().replace("_", "-").replace(".", "-")
+    # opencv aliases
+    aliases = [pkg]
+    if pkg == "opencv-python-headless":
+        aliases.extend(["opencv-python-headless", "opencv_python_headless"])
+    if pkg == "pillow":
+        aliases.extend(["pillow", "pil"])
+    if pkg == "pyyaml":
+        aliases.extend(["pyyaml", "yaml"])
+    if pkg == "scikit-image":
+        aliases.extend(["scikit-image", "scikit_image", "skimage"])
+
+    candidates: list[Path] = []
+    for whl in wheel_dir.glob("*.whl"):
+        if not _wheel_matches_py312_win(whl.name):
+            continue
+        lowered = whl.name.lower().replace("_", "-")
+        for alias in aliases:
+            a = alias.replace("_", "-")
+            if lowered.startswith(a + "-"):
+                candidates.append(whl)
+                break
+    if not candidates:
+        return None
+    candidates.sort(key=lambda p: p.name)
+    return candidates[-1]
+
+
+def _install_named_wheels_into_site(
+    wheel_dir: Path,
+    packages: tuple[str, ...],
+    *,
+    on_progress: PrepareProgressCallback | None = None,
+    progress_pct: float = 40.0,
+    label: str = "패키지",
+) -> None:
+    site = codeformer_site_packages()
+    missing: list[str] = []
+    for pkg in packages:
+        whl = _pick_best_wheel(wheel_dir, pkg)
+        if whl is None:
+            missing.append(pkg)
+            continue
+        _emit(on_progress, progress_pct, label, whl.name)
+        _extract_wheel_into_site(whl, site)
+    if missing:
+        raise RuntimeError(
+            "wheel 번들에 필수 패키지가 없습니다: "
+            + ", ".join(missing)
+            + f". library-hub image-enhancer-lib 의 codeformer-wheels 번들을 갱신하세요. (dir={wheel_dir})"
+        )
+    finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
+
+
 def _install_torch_runtime_deps_from_wheels(
     wheel_dir: Path,
     on_progress: PrepareProgressCallback | None = None,
 ) -> None:
-    """torch --no-deps 설치 뒤 typing_extensions 등 보완."""
+    """torch --no-deps 설치 뒤 typing_extensions 등 — 번들 wheel만 사용."""
     _emit(on_progress, 24.0, "PyTorch", "런타임 의존성 (typing_extensions 등)")
-    failed: list[str] = []
-    for pkg in TORCH_RUNTIME_DEPS:
-        in_bundle = _has_wheel_for_package(wheel_dir, pkg)
-        try:
-            # zip에 없으면 PyPI로 보완 (torch/vision 본체만 wheel 고정)
-            _pip_install_one(
-                pkg,
-                wheel_dir=wheel_dir,
-                allow_online_fallback=not in_bundle,
-            )
-        except RuntimeError as exc:
-            logger.warning("torch dep install failed for %s: %s", pkg, exc)
-            failed.append(pkg)
-    if "typing_extensions" in failed:
-        raise RuntimeError(
-            "typing_extensions 설치 실패. wheel zip에 포함하거나 인터넷 연결 후 "
-            "환경 준비를 다시 실행하세요."
-        )
+    _install_named_wheels_into_site(
+        wheel_dir,
+        TORCH_RUNTIME_DEPS,
+        on_progress=on_progress,
+        progress_pct=24.0,
+        label="PyTorch deps",
+    )
 
 
 def _pip_install_one(
     package: str,
     *,
     wheel_dir: Path | None = None,
-    allow_online_fallback: bool = True,
+    allow_online_fallback: bool = False,
 ) -> None:
-    attempts: list[list[str]] = []
-    if wheel_dir and any(wheel_dir.glob("*.whl")):
-        attempts.append(["install", "--no-index", "--find-links", str(wheel_dir), package])
-        attempts.append(["install", "--no-cache-dir", "--find-links", str(wheel_dir), package])
-    if allow_online_fallback:
-        attempts.append(["install", "--no-cache-dir", package])
-
-    last_exc: RuntimeError | None = None
-    for args in attempts:
-        proc = _run_pip(args)
-        if proc.returncode == 0:
-            return
-        last_exc = RuntimeError((proc.stderr or proc.stdout or "pip failed")[-1200:])
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError(f"pip install failed: {package}")
+    """하위 호환 — 기본은 오프라인 wheel 해제."""
+    del allow_online_fallback
+    if wheel_dir is None:
+        raise RuntimeError(f"wheel_dir 없이 pip 설치 불가: {package}")
+    name = _package_name_from_spec(package)
+    whl = _pick_best_wheel(wheel_dir, name)
+    if whl is None and name == "opencv-python-headless":
+        whl = _pick_best_wheel(wheel_dir, "opencv-python")
+    if whl is None:
+        raise RuntimeError(f"번들에 wheel 없음: {package}")
+    _extract_wheel_into_site(whl, codeformer_site_packages())
+    finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
 
 
 def install_pytorch_from_wheels(
@@ -493,7 +594,7 @@ def install_pytorch_from_wheels(
 ) -> None:
     bundle = bundle if bundle in {"cpu", "gpu"} else select_torch_bundle()
     label = "GPU(CUDA)" if bundle == "gpu" else "CPU"
-    _emit(on_progress, 20.0, "PyTorch", f"library-hub wheel · {label}")
+    _emit(on_progress, 20.0, "PyTorch", f"library-hub wheel 해제 · {label}")
 
     if bundle == "gpu":
         torch_whl = _find_wheel_file(wheel_dir, "torch", must_contain=("+cu",))
@@ -511,20 +612,17 @@ def install_pytorch_from_wheels(
         )
 
     _pip_uninstall_torch_stack()
-    proc = _run_pip(
-        [
-            "install",
-            "--no-index",
-            "--force-reinstall",
-            "--no-deps",
-            str(torch_whl),
-            str(vision_whl),
-        ],
+    site = codeformer_site_packages()
+    t0 = time.monotonic()
+    _extract_wheel_into_site(torch_whl, site)
+    _extract_wheel_into_site(vision_whl, site)
+    finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
+    logger.info(
+        "extracted torch stack in %.1fs (%s, %s)",
+        time.monotonic() - t0,
+        torch_whl.name,
+        vision_whl.name,
     )
-    if proc.returncode != 0:
-        raise RuntimeError(
-            "PyTorch wheel 설치 실패: " + (proc.stderr or proc.stdout or "")[-1500:]
-        )
     _install_torch_runtime_deps_from_wheels(wheel_dir, on_progress)
     invalidate_torch_probe_cache()
     probe = probe_torch()
@@ -538,24 +636,121 @@ def install_pytorch_from_wheels(
 
 
 def _pip_install_codeformer_package(spec: str, wheel_dir: Path) -> None:
-    """wheel zip에 있으면 오프라인, 없으면 PyPI 보완 (GPU zip은 torch 위주)."""
+    """번들 wheel만 사용 (온라인 보완 없음)."""
     name = _package_name_from_spec(spec)
-    if name == "opencv-python-headless":
-        in_bundle = _opencv_wheel_in_bundle(wheel_dir)
-    else:
-        in_bundle = _has_wheel_for_package(wheel_dir, name)
-    allow_online = not in_bundle
-    try:
-        _pip_install_one(spec, wheel_dir=wheel_dir, allow_online_fallback=allow_online)
-    except RuntimeError:
-        if name != "opencv-python-headless":
-            raise
-        # headless wheel 없을 때 일반 opencv-python 허용
-        _pip_install_one(
-            "opencv-python>=4.8.0",
-            wheel_dir=wheel_dir,
-            allow_online_fallback=True,
+    if name == "opencv-python-headless" and not _opencv_wheel_in_bundle(wheel_dir):
+        raise RuntimeError("번들에 opencv-python-headless / opencv-python wheel 없음")
+    _pip_install_one(spec, wheel_dir=wheel_dir, allow_online_fallback=False)
+
+
+def install_pip_packages_from_wheels(
+    wheel_dir: Path,
+    on_progress: PrepareProgressCallback | None = None,
+) -> None:
+    """library-hub 완전 wheel 세트 → site-packages 직접 해제 (오프라인).
+
+    필수 패키지 존재 검증 후, 번들 안의 호환 .whl 전부 해제
+    (torch/torchvision/torchaudio·basicsr 제외 — torch는 별도, basicsr는 vendor).
+    """
+    _emit(on_progress, 38.0, "pip 패키지", "library-hub wheel 해제 (오프라인)")
+    required = tuple(_package_name_from_spec(p) for p in CODEFORMER_PIP_PACKAGES_NO_BASICSR)
+    missing: list[str] = []
+    for name in required:
+        if name == "opencv-python-headless":
+            if not _opencv_wheel_in_bundle(wheel_dir):
+                missing.append(name)
+            continue
+        if not _has_wheel_for_package(wheel_dir, name):
+            missing.append(name)
+    for name in TORCH_RUNTIME_DEPS:
+        if not _has_wheel_for_package(wheel_dir, name):
+            missing.append(name)
+    if missing:
+        raise RuntimeError(
+            "불완전한 wheel 번들 — 누락: "
+            + ", ".join(sorted(set(missing)))
+            + ". library-hub image-enhancer-lib 의 codeformer-wheels 를 완전 세트로 교체하세요."
         )
+
+    site = codeformer_site_packages()
+    skip_prefixes = (
+        "torch-",
+        "torchvision-",
+        "torchaudio-",
+        "basicsr-",
+        "tb-nightly-",
+        "tb_nightly-",
+        "tensorboard-",
+        "tensorboard_data_server-",
+        "grpcio-",
+        "protobuf-",
+        "absl-py-",
+        "absl_py-",
+        "markdown-",
+        "werkzeug-",
+    )
+    # 패키지당 최신 wheel 1개만 (numpy 중복 등)
+    best: dict[str, Path] = {}
+    for whl in sorted(wheel_dir.glob("*.whl"), key=lambda p: p.name):
+        if not _wheel_matches_py312_win(whl.name):
+            continue
+        lowered = whl.name.lower().replace("_", "-")
+        if any(lowered.startswith(p.replace("_", "-")) for p in skip_prefixes):
+            continue
+        pkg_key = lowered.split("-", 1)[0]
+        best[pkg_key] = whl
+
+    total = len(best)
+    for i, (pkg_key, whl) in enumerate(sorted(best.items()), start=1):
+        pct = 38.0 + (12.0 * i / max(total, 1))
+        _emit(on_progress, pct, "wheel 해제", f"{i}/{total} {whl.name}")
+        _extract_wheel_into_site(whl, site)
+
+    finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
+
+
+def install_runtime_dependencies(
+    on_progress: PrepareProgressCallback | None = None,
+    *,
+    bundle: str | None = None,
+) -> str:
+    """engine-runtime + library-hub 완전 wheel 번들 (오프라인)."""
+    bundle = bundle or select_torch_bundle()
+    ensure_runtime(on_progress)
+
+    if not _use_offline_wheels():
+        raise RuntimeError(
+            "CodeFormer는 library-hub wheel 번들 설치만 지원합니다. "
+            "ITMATZIP_CODEFORMER_SKIP_WHEELS 를 끄세요."
+        )
+
+    wheel_dir = ensure_wheels_bundle_extracted(bundle, on_progress=on_progress)
+    variant = installed_torch_variant()
+    need_torch = not is_torch_installed()
+    if bundle == "gpu":
+        need_torch = need_torch or not is_cuda_available()
+    if variant and variant != bundle:
+        need_torch = True
+    if need_torch:
+        if variant and variant != bundle:
+            _emit(on_progress, 22.0, "PyTorch", f"번들 전환 ({variant}→{bundle})")
+        install_pytorch_from_wheels(wheel_dir, on_progress, bundle=bundle)
+    else:
+        _emit(
+            on_progress,
+            28.0,
+            "PyTorch",
+            f"이미 설치됨 · {installed_torch_version() or '?'}",
+        )
+
+    site = codeformer_site_packages()
+    has_facexlib = (site / "facexlib").is_dir() or any(site.glob("facexlib*"))
+    has_cv2 = (site / "cv2").is_dir() or any(site.glob("cv2*"))
+    if not (has_facexlib and has_cv2):
+        install_pip_packages_from_wheels(wheel_dir, on_progress)
+    else:
+        _emit(on_progress, 45.0, "pip 패키지", "facexlib · opencv 이미 설치됨")
+    return bundle
 
 
 def _patch_basicsr_degradations_file(target: Path) -> bool:
@@ -685,75 +880,6 @@ def codeformer_inference_env(
         parts.append(prev)
     env["PYTHONPATH"] = os.pathsep.join(parts)
     return env
-
-
-def install_pip_packages_from_wheels(
-    wheel_dir: Path,
-    on_progress: PrepareProgressCallback | None = None,
-) -> None:
-    _emit(on_progress, 38.0, "pip 패키지", "library-hub wheel · PyPI 보완")
-    failed: list[str] = []
-    for pkg in CODEFORMER_PIP_PACKAGES_NO_BASICSR:
-        try:
-            _pip_install_codeformer_package(pkg, wheel_dir)
-        except RuntimeError as exc:
-            logger.warning("pip install failed for %s: %s", pkg, exc)
-            failed.append(pkg)
-    if failed:
-        raise RuntimeError(
-            "일부 패키지 설치 실패: " + ", ".join(failed[:6])
-            + (" …" if len(failed) > 6 else "")
-            + ". 인터넷 연결을 확인하거나 codeformer-wheels.zip에 해당 wheel을 추가하세요."
-        )
-
-
-def install_runtime_dependencies(
-    on_progress: PrepareProgressCallback | None = None,
-    *,
-    bundle: str | None = None,
-) -> str:
-    """engine-runtime + wheel(기본) 또는 온라인 pip."""
-    bundle = bundle or select_torch_bundle()
-    ensure_runtime(on_progress)
-
-    if _use_offline_wheels():
-        wheel_dir = ensure_wheels_bundle_extracted(bundle, on_progress=on_progress)
-        variant = installed_torch_variant()
-        need_torch = not is_torch_installed()
-        if bundle == "gpu":
-            need_torch = need_torch or not is_cuda_available()
-        if variant and variant != bundle:
-            need_torch = True
-        if need_torch:
-            if variant and variant != bundle:
-                _emit(on_progress, 22.0, "PyTorch", f"번들 전환 ({variant}→{bundle})")
-            install_pytorch_from_wheels(wheel_dir, on_progress, bundle=bundle)
-        else:
-            _emit(
-                on_progress,
-                28.0,
-                "PyTorch",
-                f"이미 설치됨 · {installed_torch_version() or '?'}",
-            )
-        if not is_pip_stack_ready():
-            install_pip_packages_from_wheels(wheel_dir, on_progress)
-        else:
-            _emit(on_progress, 45.0, "pip 패키지", "basicsr · facexlib 이미 설치됨")
-    else:
-        if not is_torch_installed():
-            install_pytorch(on_progress, bundle=bundle)
-        else:
-            _emit(
-                on_progress,
-                28.0,
-                "PyTorch",
-                f"이미 설치됨 · {installed_torch_version() or '?'}",
-            )
-        if not is_pip_stack_ready():
-            install_pip_packages(on_progress)
-        else:
-            _emit(on_progress, 45.0, "pip 패키지", "basicsr · facexlib 이미 설치됨")
-    return bundle
 
 
 def _python312_candidates() -> tuple[str, ...]:
@@ -909,24 +1035,26 @@ def _insert_pip_target(cmd: list[str]) -> list[str]:
 
 
 def _run_pip(pip_args: list[str], *, timeout: float = 3600.0) -> subprocess.CompletedProcess:
+    """항상 engine-runtime --target. uninstall 은 engine site-packages 를 건드리지 않음."""
     ensure_runtime_tree_acl(TOOL_IMAGE_ENHANCER)
     env = pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": TOOL_IMAGE_ENHANCER})
     if pip_args and pip_args[0] == "uninstall":
+        # MSI engine 의 pip uninstall 은 Program Files site-packages 를 건드려
+        # 사이드카(stdlib)까지 망가뜨릴 수 있음 → runtime purge 만 수행
         pkgs = [a for a in pip_args[1:] if not a.startswith("-") and a != "-y"]
-        proc = run_hidden(
-            [sys.executable, "-m", "pip", *pip_args],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            creationflags=no_window_creationflags(),
-            env=env,
-        )
         if pkgs:
             purge_runtime_site_entries(TOOL_IMAGE_ENHANCER, *pkgs)
         finalize_runtime_pip(TOOL_IMAGE_ENHANCER)
-        return proc
+        return subprocess.CompletedProcess(
+            args=[sys.executable, "-m", "pip", *pip_args],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
 
     cmd = _insert_pip_target([sys.executable, "-m", "pip", *pip_args])
+    if "--target" not in cmd:
+        raise RuntimeError("CodeFormer pip install 에 --target 이 없습니다 (engine 오염 방지)")
     proc = run_hidden(
         cmd,
         capture_output=True,
@@ -1012,10 +1140,17 @@ def codeformer_importable(module_name: str, *, vendor_root: Path | None = None) 
     if module_name == "basicsr" and vendor_root is not None:
         patch_basicsr_torchvision_compat(vendor_root)
     env = _runtime_env()
-    extra: list[str] = ["-c", f"import {module_name}"]
+    # Embeddable Python ignores PYTHONPATH — inject vendor (+ site) into -c.
+    boot = ""
     if vendor_root is not None and vendor_root.is_dir():
         env = codeformer_inference_env(vendor_root)
-    proc = _run_codeformer_python(extra, timeout=120, env=env)
+        boot = (
+            "import sys; "
+            f"_v={str(vendor_root.resolve())!r}; "
+            "sys.path.insert(0, _v) if _v not in sys.path else None; "
+        )
+    code = f"{boot}import {module_name}"
+    proc = _run_codeformer_python(["-c", code], timeout=120, env=env)
     return proc.returncode == 0
 
 

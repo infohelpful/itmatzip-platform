@@ -10,10 +10,8 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna15";
+} from "../common/bridge.js?v=lna21";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
-import { showAdSense } from "../common/adsense.js";
-import { initGptRewardedAds, requestRewardedAd } from "../common/gpt-rewarded-ads.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna20";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp2";
 
@@ -1006,7 +1004,7 @@ function syncNewJobButton() {
 }
 audioPathInput?.addEventListener("input", updateActionButtons);
 audioPathInput?.addEventListener("change", updateActionButtons);
-btnStartSeparation?.addEventListener("click", () => void requestRewardedAd());
+btnStartSeparation?.addEventListener("click", () => void startAnalysis());
 exportLink?.addEventListener("click", (e) => {
   if (exportLink.classList.contains("is-disabled")) {
     e.preventDefault();
@@ -1059,15 +1057,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 const pathHint = document.getElementById("path-hint");
-
-void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
-void showAdSense("editorBelowExport", "#editor-ad-below-export");
-
-void initGptRewardedAds({
-  onRewardGranted: () => {
-    void startAnalysis();
-  },
-});
 
 void (async () => {
   const agent = await checkAgentConnection();

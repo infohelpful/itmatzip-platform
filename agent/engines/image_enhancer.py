@@ -130,10 +130,12 @@ def is_model_ready() -> bool:
 
 
 def is_model_ready_fast() -> bool:
+    """readiness/UI용 — torch만 있고 facexlib/cv2 없으면 enhance가 바로 실패하므로 pip 스택도 본다."""
     if not codeformer_runtime.is_venv_ready_fast():
         return False
+    if not codeformer_runtime.is_pip_stack_ready_fast(vendor_root=VENDOR_ROOT):
+        return False
     return is_codeformer_vendor_ready() and is_model_weight_ready()
-
 
 def has_nvidia_gpu() -> bool:
     return codeformer_runtime.has_nvidia_gpu()
@@ -535,7 +537,10 @@ def enhance_image(
             on_progress(pct, msg)
 
     if not is_model_ready():
-        raise RuntimeError("CodeFormer 환경이 준비되지 않았습니다. 먼저 /prepare를 호출하세요.")
+        raise RuntimeError(
+            "CodeFormer 환경이 준비되지 않았습니다. "
+            "환경 준비(prepare)로 PyTorch·facexlib/opencv·모델을 설치한 뒤 다시 시도하세요."
+        )
     if output_format.lower() not in SUPPORTED_OUTPUT_FORMATS:
         raise ValueError(f"지원되지 않는 출력 포맷: {output_format}")
     if not is_allowed_input_path(input_path):

@@ -21,18 +21,39 @@ const GPT_SCRIPT_SRC =
   "https://securepubads.g.doubleclick.net/tag/js/gpt.js";
 
 /**
- * 테스트 중: 구글 공식 보상형 테스트 유닛 (계정 정지 방지)
- * 실전 전환 시 아래 PRODUCTION 값으로 교체하거나 configureGptRewardedAds({ adUnitPath }) 사용
+ * 웹 보상형 GPT 공식 데모 유닛 (로컬·개발 테스트 권장)
+ * 실전 전환: configureGptRewardedAds({ adUnitPath: "/23358308038/rewarded_ai_tools" })
  */
-const DEFAULT_REWARDED_AD_UNIT = "/21775744923/example/rewarded";
-/** @type {string} 실전: Ad Manager 보상형 슬롯 — 테스트 완료 후 DEFAULT_REWARDED_AD_UNIT 대신 사용 */
+const DEFAULT_REWARDED_AD_UNIT = "/22639388115/rewarded_web_example";
+/** 모바일 SDK용 테스트 유닛 — 웹 GPT에서는 fill 안 될 수 있음 */
+// const MOBILE_SDK_TEST_UNIT = "/21775744923/example/rewarded";
+/** @type {string} 실전: Ad Manager 보상형 슬롯 */
 // const PRODUCTION_REWARDED_AD_UNIT = "/23358308038/rewarded_ai_tools";
 
 /** @type {string} */
 let adUnitPath = DEFAULT_REWARDED_AD_UNIT;
 
+/**
+ * localhost / ?skip_rewarded=1 — 보상형 광고 없이 onRewardGranted 바로 호출
+ * (데스크톱·로컬에서 GPT rewarded canRun이 false로 자주 막힘)
+ */
+function shouldBypassRewardedAd() {
+  try {
+    const h = window.location.hostname;
+    if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".localhost")) {
+      return true;
+    }
+    return new URLSearchParams(window.location.search).has("skip_rewarded");
+  } catch {
+    return false;
+  }
+}
+
 /** @type {import("googletag").Slot | null} */
 let rewardedSlot = null;
+
+/** @type {import("googletag").RewardedSlotReadyEvent | null} */
+let pendingReadyEvent = null;
 
 /** @type {((evt?: unknown) => void) | null} */
 let onRewardGranted = null;
@@ -43,27 +64,31 @@ let initPromise = null;
 /** @type {Promise<void> | null} */
 let gptScriptPromise = null;
 
-/** GPT 스크립트 영구 로드 실패(차단 등) — 재시도마다 팝업만 반복하지 않도록 안내 다이얼로그로 고정 */
+/** GPT 스크립트 영구 로드 실패(차단 등) */
 let gptScriptUnavailable = false;
 
 let pubadsListenersAttached = false;
 let servicesEnabled = false;
 let slotSetupGeneration = 0;
 
+/** 현재 슬롯에 display() 호출 완료 여부 (GPT: 슬롯당 1회 display 후 ready 대기) */
+let slotDisplayed = false;
+
+/** 분석하기 클릭 후 ready 이벤트 대기 중 */
+let userAwaitingShow = false;
+
 /** @type {ReturnType<typeof setTimeout> | null} */
 let displayFailureTimer = null;
 
-/** 진행 중인 광고 요청 시퀀스 — 타임아웃·취소 후 늦게 도착한 이벤트 무시 */
 let requestSeq = 0;
 /** @type {number} */
 let activeRequestSeq = 0;
 let activeRequestAborted = false;
 
-/** 광고 로드 대기 (ready 미수신 시 타임아웃) */
 const REWARDED_LOAD_TIMEOUT_MS = 12_000;
 
 /**
- * @typedef {"blocked" | "no-fill" | "timeout" | "slot-missing"} RewardedFailureKind
+ * @typedef {"blocked" | "no-fill" | "timeout" | "slot-missing" | "unsupported"} RewardedFailureKind
  */
 
 /** @type {Record<RewardedFailureKind, { title: string, message: string, offerReload?: boolean }>} */
@@ -80,6 +105,12 @@ const FAILURE_COPY = {
       "광고가 차단되었습니다.\n광고 차단 확장 프로그램을 해제한 뒤 페이지를 새로고침해 주세요.",
     offerReload: true,
   },
+  unsupported: {
+    title: "보상형 광고 미지원",
+    message:
+      "이 브라우저·화면 크기에서는 보상형 광고를 표시할 수 없습니다.\n모바일 뷰 또는 다른 브라우저에서 시도해 주세요.",
+    offerReload: true,
+  },
   "no-fill": {
     title: "안내",
     message: "현재 준비된 광고가 없습니다.\n잠시 후 다시 시도해 주세요.",
@@ -89,6 +120,20 @@ const FAILURE_COPY = {
     message: "광고 로드 시간이 초과되었습니다.\n잠시 후 다시 시도해 주세요.",
   },
 };
+
+function debugLog(...args) {
+  try {
+    if (
+      typeof window !== "undefined" &&
+      (window.__ITZ_GPT_REWARDED_DEBUG ||
+        new URLSearchParams(window.location.search).has("gpt_debug"))
+    ) {
+      console.log("[gpt-rewarded]", ...args);
+    }
+  } catch {
+    /* ignore */
+  }
+}
 
 function clearDisplayFailureTimer() {
   if (displayFailureTimer) {
@@ -114,9 +159,17 @@ function shouldIgnoreRewardedEvent() {
   return activeRequestAborted;
 }
 
+function resetReadyState() {
+  pendingReadyEvent = null;
+  userAwaitingShow = false;
+  slotDisplayed = false;
+}
+
 function abortActiveRewardedRequest() {
   activeRequestAborted = true;
+  userAwaitingShow = false;
   clearDisplayFailureTimer();
+  pendingReadyEvent = null;
 
   const googletag = ensureGoogletag();
   googletag.cmd.push(() => {
@@ -124,7 +177,10 @@ function abortActiveRewardedRequest() {
       googletag.destroySlots([rewardedSlot]);
       rewardedSlot = null;
     }
-    void setupRewardedSlot();
+    slotDisplayed = false;
+    void setupRewardedSlot().then((ok) => {
+      if (ok) void prefetchRewardedAd();
+    });
   });
 }
 
@@ -134,6 +190,7 @@ function scheduleDisplayFailureCheck(seq) {
   displayFailureTimer = setTimeout(() => {
     displayFailureTimer = null;
     if (!isActiveRewardedRequest(seq)) return;
+    debugLog("load timeout");
     abortActiveRewardedRequest();
     void showRewardedFailureAlert("timeout");
   }, REWARDED_LOAD_TIMEOUT_MS);
@@ -165,6 +222,28 @@ async function showRewardedFailureAlert(kind) {
 }
 
 /**
+ * @param {import("googletag").RewardedSlotReadyEvent} evt
+ * @returns {boolean}
+ */
+function tryShowPendingRewardedAd(evt) {
+  if (shouldIgnoreRewardedEvent()) return false;
+  if (!userAwaitingShow) return false;
+  if (evt.slot !== rewardedSlot) return false;
+
+  userAwaitingShow = false;
+  clearDisplayFailureTimer();
+
+  const shown = evt.makeRewardedVisible();
+  debugLog("makeRewardedVisible", shown);
+  if (!shown) {
+    abortActiveRewardedRequest();
+    void showRewardedFailureAlert("no-fill");
+    return false;
+  }
+  return true;
+}
+
+/**
  * @param {{ adUnitPath?: string }} [cfg]
  */
 export function configureGptRewardedAds(cfg = {}) {
@@ -193,7 +272,14 @@ function ensureGptScript() {
         resolve();
         return;
       }
-      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "load",
+        () => {
+          existing.setAttribute("data-gpt-loaded", "1");
+          resolve();
+        },
+        { once: true },
+      );
       existing.addEventListener(
         "error",
         () => {
@@ -231,13 +317,18 @@ function attachPubadsListeners(googletag) {
 
   googletag.pubads().addEventListener("rewardedSlotReady", (evt) => {
     if (shouldIgnoreRewardedEvent()) return;
-    clearDisplayFailureTimer();
-    evt.makeRewardedVisible();
+    if (evt.slot !== rewardedSlot) return;
+
+    debugLog("rewardedSlotReady");
+    pendingReadyEvent = evt;
+    tryShowPendingRewardedAd(evt);
   });
 
   googletag.pubads().addEventListener("rewardedSlotGranted", (evt) => {
     if (shouldIgnoreRewardedEvent()) return;
     clearDisplayFailureTimer();
+    userAwaitingShow = false;
+    pendingReadyEvent = null;
     console.log(
       "[gpt-rewarded] 구글 보상 확인 완료! AI 연산 및 다운로드를 시작합니다.",
     );
@@ -251,28 +342,21 @@ function attachPubadsListeners(googletag) {
   googletag.pubads().addEventListener("rewardedSlotClosed", () => {
     if (shouldIgnoreRewardedEvent()) return;
     clearDisplayFailureTimer();
+    userAwaitingShow = false;
+    pendingReadyEvent = null;
+    slotDisplayed = false;
+
     if (rewardedSlot) {
       googletag.destroySlots([rewardedSlot]);
       rewardedSlot = null;
     }
-    void setupRewardedSlot();
-  });
-
-  googletag.pubads().addEventListener("slotRenderEnded", (evt) => {
-    if (shouldIgnoreRewardedEvent()) return;
-    if (evt.slot !== rewardedSlot) return;
-
-    clearDisplayFailureTimer();
-
-    if (!evt.isEmpty) return;
-
-    abortActiveRewardedRequest();
-    void showRewardedFailureAlert("no-fill");
+    void setupRewardedSlot().then((ok) => {
+      if (ok) void prefetchRewardedAd();
+    });
   });
 }
 
 /**
- * defineOutOfPageSlot + REWARDED 포맷으로 슬롯 정의
  * @returns {Promise<boolean>}
  */
 function setupRewardedSlot() {
@@ -291,6 +375,8 @@ function setupRewardedSlot() {
         rewardedSlot = null;
       }
 
+      resetReadyState();
+
       rewardedSlot = googletag.defineOutOfPageSlot(
         adUnitPath,
         googletag.enums.OutOfPageFormat.REWARDED,
@@ -299,15 +385,38 @@ function setupRewardedSlot() {
       if (rewardedSlot) {
         rewardedSlot.addService(googletag.pubads());
         attachPubadsListeners(googletag);
+        debugLog("slot defined", adUnitPath);
+      } else {
+        debugLog("defineOutOfPageSlot returned null (unsupported environment)");
       }
 
       if (!servicesEnabled) {
-        googletag.pubads().enableSingleRequest();
+        // Google 보상형 샘플: enableServices()만 사용 (SRA 미사용)
         googletag.enableServices();
         servicesEnabled = true;
       }
 
       resolve(!!rewardedSlot);
+    });
+  });
+}
+
+/**
+ * Google 권장: 슬롯 정의 후 display()로 프리로드 → ready 시 makeRewardedVisible()
+ * @returns {Promise<void>}
+ */
+function prefetchRewardedAd() {
+  const googletag = ensureGoogletag();
+  return new Promise((resolve) => {
+    googletag.cmd.push(() => {
+      if (!rewardedSlot || slotDisplayed) {
+        resolve();
+        return;
+      }
+      debugLog("prefetch display");
+      googletag.display(rewardedSlot);
+      slotDisplayed = true;
+      resolve();
     });
   });
 }
@@ -324,6 +433,11 @@ export async function initGptRewardedAds(opts = {}) {
     onRewardGranted = opts.onRewardGranted;
   }
 
+  if (shouldBypassRewardedAd()) {
+    debugLog("init skipped (localhost/dev bypass)");
+    return;
+  }
+
   if (gptScriptUnavailable) {
     throw new Error("GPT script unavailable");
   }
@@ -333,7 +447,11 @@ export async function initGptRewardedAds(opts = {}) {
   initPromise = (async () => {
     try {
       await ensureGptScript();
-      await setupRewardedSlot();
+      const ok = await setupRewardedSlot();
+      if (!ok) {
+        throw new Error("Rewarded slot unsupported");
+      }
+      await prefetchRewardedAd();
     } catch (err) {
       initPromise = null;
       console.warn("[gpt-rewarded] 초기화 실패", err);
@@ -346,18 +464,25 @@ export async function initGptRewardedAds(opts = {}) {
 
 /** @returns {boolean} */
 export function isRewardedSlotReady() {
-  return !!rewardedSlot;
+  return !!pendingReadyEvent;
 }
 
 /**
- * 분석/처리 버튼 클릭 시 호출 — 보상형 광고 표시 후 시청 완료 시 onRewardGranted 실행
- * 차단·로드 실패 시 안내 팝업만 표시 (AI 미실행)
- *
  * @returns {Promise<void>}
  */
 export async function requestRewardedAd() {
   if (!onRewardGranted) {
     console.warn("[gpt-rewarded] onRewardGranted 미설정 — initGptRewardedAds()를 먼저 호출하세요.");
+    return;
+  }
+
+  if (shouldBypassRewardedAd()) {
+    console.log("[gpt-rewarded] localhost/dev bypass — 광고 없이 AI 시작");
+    try {
+      onRewardGranted();
+    } catch (err) {
+      console.error("[gpt-rewarded] onRewardGranted handler failed", err);
+    }
     return;
   }
 
@@ -368,30 +493,45 @@ export async function requestRewardedAd() {
 
   try {
     await initGptRewardedAds();
-  } catch {
-    await showRewardedFailureAlert("blocked");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("unsupported")) {
+      await showRewardedFailureAlert("unsupported");
+    } else {
+      await showRewardedFailureAlert("blocked");
+    }
     return;
   }
 
   if (!rewardedSlot) {
-    await showRewardedFailureAlert("slot-missing");
+    await showRewardedFailureAlert("unsupported");
     return;
   }
 
   const requestId = startRewardedRequest();
-  const googletag = ensureGoogletag();
+  userAwaitingShow = true;
+  scheduleDisplayFailureCheck(requestId);
 
+  if (pendingReadyEvent && pendingReadyEvent.slot === rewardedSlot) {
+    debugLog("ready event already pending — show immediately");
+    if (tryShowPendingRewardedAd(pendingReadyEvent)) return;
+  }
+
+  const googletag = ensureGoogletag();
   googletag.cmd.push(() => {
     if (!isActiveRewardedRequest(requestId)) return;
 
     if (!rewardedSlot) {
       abortActiveRewardedRequest();
-      void showRewardedFailureAlert("slot-missing");
+      void showRewardedFailureAlert("unsupported");
       return;
     }
 
-    scheduleDisplayFailureCheck(requestId);
-    googletag.display(rewardedSlot);
+    if (!slotDisplayed) {
+      debugLog("display on click");
+      googletag.display(rewardedSlot);
+      slotDisplayed = true;
+    }
   });
 }
 

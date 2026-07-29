@@ -210,6 +210,15 @@ function logScriptUnavailableOnce(err) {
   );
 }
 
+function isLocalDevHost() {
+  try {
+    const h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".localhost");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 지정한 광고 단위를 컨테이너에 렌더합니다. (호출한 곳에서만 로드·표시)
  *
@@ -227,6 +236,12 @@ export async function showAdSense(unitKey, container) {
   const el = resolveContainer(container);
   if (!el) {
     console.warn(`[adsense] container not found: ${container}`);
+    return false;
+  }
+
+  // localhost: Google 광고 스크립트(ss:/ui config 콘솔 스팸) 로드 자체를 생략
+  if (isLocalDevHost()) {
+    markAdSlotEmpty(el);
     return false;
   }
 

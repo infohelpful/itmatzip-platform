@@ -10,10 +10,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna15";
+} from "../common/bridge.js?v=lna21";
 import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 if (typeof window !== "undefined") {
@@ -1058,11 +1058,12 @@ function updateBinReadiness(agentOk, data) {
   if (b.cuda_available) parts.push("CUDA");
   else if (p?.gpu_detected && p?.installed_bundle === "cpu") parts.push("CUDA 재설치 필요");
 
-  // enhance API와 동일 — model_ready가 실제 사용 가능 여부
-  toolReady = !!b.model_ready;
-  setModelReadySummary(!!b.model_ready);
+  // enhance API와 동일 — torch+pip+vendor+모델 모두 필요
+  const fullyReady = !!(b.torch && b.pip_stack && b.vendor_ready && b.model_ready);
+  toolReady = fullyReady;
+  setModelReadySummary(fullyReady);
 
-  if (b.model_ready) {
+  if (fullyReady) {
     binReadiness.className = "bin-readiness is-ok";
     binReadiness.textContent = `${parts.join(" · ")} 준비됨`;
     return;

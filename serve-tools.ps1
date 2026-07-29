@@ -18,4 +18,15 @@ Write-Host "      http://localhost:$Port/silence-remover/" -ForegroundColor Gree
 Write-Host "에이전트 health: http://127.0.0.1:19876/health" -ForegroundColor DarkGray
 Write-Host ""
 
-python -m http.server $Port
+# WindowsApps python stub(스토어 유도) 회피 — 3.12 우선
+$py = Get-Command py -ErrorAction SilentlyContinue
+if ($py) {
+    py -3.12 -m http.server $Port
+} else {
+    $py312 = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+    if (Test-Path $py312) {
+        & $py312 -m http.server $Port
+    } else {
+        throw "Python 3.12 없음. py -3.12 또는 Python312\python.exe 를 설치하세요."
+    }
+}
