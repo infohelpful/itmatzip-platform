@@ -1,10 +1,38 @@
-"""ACE-Step 모델 다운로드 (3.12 venv 전용 — 직접 실행하지 마세요)."""
+"""ACE-Step 모델 다운로드 (engine-runtime — 직접 실행하지 마세요)."""
 from __future__ import annotations
 
 import json
 import os
 import sys
 from pathlib import Path
+
+
+def _bootstrap_import_paths() -> None:
+    agent = os.environ.get("ITMATZIP_AGENT_DIR", "").strip() or os.environ.get(
+        "ITMATZIP_AGENT_PACKAGE_ROOT", ""
+    ).strip()
+    if not agent:
+        install = os.environ.get("ITMATZIP_AGENT_INSTALL_ROOT", "").strip()
+        if install:
+            agent = str(Path(install) / "agent")
+    if agent and agent not in sys.path:
+        sys.path.insert(0, agent)
+    try:
+        from common.runtime_site_packages import TOOL_CREATE_MUSIC, activate_runtime_site_packages
+
+        os.environ.setdefault("ITMATZIP_RUNTIME_TOOL", TOOL_CREATE_MUSIC)
+        activate_runtime_site_packages(TOOL_CREATE_MUSIC)
+    except Exception as exc:
+        print(f"warning: runtime site-packages bootstrap failed: {exc}", file=sys.stderr)
+
+    root = os.environ.get("ITMATZIP_ACESTEP_ROOT", "").strip() or os.environ.get(
+        "ACESTEP_PROJECT_ROOT", ""
+    ).strip()
+    if root and root not in sys.path:
+        sys.path.insert(0, root)
+
+
+_bootstrap_import_paths()
 
 
 def _write_progress(path: str, progress: float, message: str) -> None:

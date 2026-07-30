@@ -262,9 +262,9 @@ def start_prepare(force: bool = False) -> PrepareState:
             )
             _set_progress(10, f"가상환경 준비 중… ({root})")
 
-            _set_progress(12, "Python 3.12 가상환경·패키지 설치 중…")
-            ace_rt.ensure_venv(on_progress=_set_progress)
-            _set_progress(35, "가상환경 준비 완료")
+            _set_progress(12, "engine-runtime·패키지 설치 중…")
+            ace_rt.ensure_venv(on_progress=_set_progress, force_repair_torch=force)
+            _set_progress(35, "런타임 준비 완료")
             _prepare_state.phase = "downloading_model"
             _prepare_state.message = "모델 가중치 다운로드 중… (첫 실행 시 수 GB, 수 분~수십 분)"
 

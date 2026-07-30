@@ -250,7 +250,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | `auto-subtitle` | Auto Subtitle | Faster-Whisper, SRT/번인 | Engine |
 | `vocal-remover` | Vocal Remover | Demucs `mdx_extra_q` | Engine (torch, demucs) |
 | `image-enhancer` | Image Enhancer | CodeFormer 얼굴 복원 | Engine-runtime (Python 3.12) |
-| `create-music` | Create Music | ACE-Step 1.5, LoRA | Venv (Python 3.12) |
+| `create-music` | Create Music | ACE-Step 1.5, LoRA | Engine-runtime (Python 3.12) |
 | `magic-canvas` | Magic Canvas | SDXL inpaint/outpaint, rembg | Venv (Python 3.12) |
 
 ### 툴별 상세 문서
@@ -283,15 +283,18 @@ MSI로 설치된 `C:\Program Files\itmatzip-agent\engine\`(Python **3.12** embed
 | `vocal-remover` | torch, demucs, diffq (GitHub wheel 번들, **cp312**) |
 | `auto-subtitle` | faster-whisper, ctranslate2 등 |
 | `image-enhancer` | torch, torchvision, facexlib (CodeFormer vendor basicsr) |
+| `create-music` | torch(+cu128), ACE-Step deps — 데이터/소스는 ProgramData |
 
 ### 6.3 Venv Runtime (Python 3.12 전용 venv)
 
-엔진과 **같은 메이저(3.12)** 이지만, 일부 무거운 스택은 독립 venv를 사용합니다.
+엔진과 **같은 메이저(3.12)** 이지만, Magic Canvas는 독립 venv를 사용합니다.
 
 | tool_id | venv 경로 |
 |---------|-----------|
-| `create-music` | `%ProgramData%\itmatzip-agent\create-music\.venv-acestep` |
 | `magic-canvas` | `%APPDATA%\ItMatZip\magic-canvas\.venv-magiccanvas` |
+
+Create Music 데이터(소스·체크포인트·wheels-cache): `%ProgramData%\itmatzip-agent\create-music\`  
+패키지는 `engine-runtime/create-music` (구 `.venv-acestep` 는 prepare 시 삭제).
 
 ### 6.4 런타임 API (`agent/common/runtime_site_packages.py`)
 

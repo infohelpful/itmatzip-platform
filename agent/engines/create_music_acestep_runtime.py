@@ -1,4 +1,4 @@
-"""ACE-Step 1.5 전용 Python 3.12 런타임 (FastAPI engine site-packages와 분리)."""
+"""ACE-Step 1.5 — MSI engine Python 3.12 + engine-runtime/create-music (library-hub wheels)."""
 from __future__ import annotations
 
 import json
@@ -17,22 +17,23 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from common.subprocess_util import run_hidden
-from common.runtime_site_packages import TOOL_CREATE_MUSIC, agent_data_root
+from common.subprocess_util import no_window_creationflags, run_hidden
+from common.runtime_site_packages import (
+    TOOL_CREATE_MUSIC,
+    agent_data_root,
+    create_music_data_root,
+    engine_python_c_prefix,
+    ensure_runtime_tree_acl,
+    finalize_runtime_pip,
+    pip_subprocess_env,
+    pip_target_args,
+    purge_runtime_site_entries,
+    runtime_site_packages_dir,
+)
 
 logger = logging.getLogger(__name__)
 
-PYTHON_312_CANDIDATES = (
-    "py -3.12",
-    r"C:\Users\MyComputer\AppData\Local\Programs\Python\Python312\python.exe",
-)
-
-DEFAULT_ACESTEP_ROOTS = (
-    Path(r"c:\Users\MyComputer\Desktop\ACE-Step-1.5-main\ACE-Step-1.5-main"),
-    Path(r"c:\Users\MyComputer\Desktop\ACE-Step-1.5-main"),
-)
-
-# ACE-Step 1.5 공식 Windows CUDA 12.8 스택 (pyproject.toml) — +cu128 필수
+# ACE-Step 1.5 공식 Windows CUDA 12.8 스택 — +cu128 필수 (완전 wheel 번들)
 PYTORCH_CU128_INDEX = "https://download.pytorch.org/whl/cu128"
 PYTORCH_CUDA_PACKAGES = (
     "torch==2.7.1+cu128",
@@ -40,24 +41,22 @@ PYTORCH_CUDA_PACKAGES = (
     "torchaudio==2.7.1+cu128",
 )
 
-# Windows + Py3.12 + torch 2.7.1+cu128 (선택 — 없어도 vllm은 SDPA eager 모드로 동작)
 FLASH_ATTN_WIN_CP312_CU128 = (
     "https://huggingface.co/lldacing/flash-attention-windows-wheel/resolve/main/"
     "flash_attn-2.7.4.post1+cu128torch2.7.0cxx11abiFALSE-cp312-cp312-win_amd64.whl"
 )
 
-# library-hub Create_Music_Lib Release
 CREATE_MUSIC_LIB_BASE = (
     "https://github.com/infohelpful/library-hub/releases/download/Create_Music_Lib"
 )
 DEFAULT_ACESTEP_SOURCE_ZIP_URL = f"{CREATE_MUSIC_LIB_BASE}/ACE-Step-1.5.zip"
-# nano-vllm은 ACE-Step 소스 안의 third_parts를 기본으로 사용.
-# zip 다운로드는 사용자가 URL을 명시한 경우에만 수행한다.
 DEFAULT_NANO_VLLM_ZIP_URL = ""
 DEFAULT_WHEELS_PART_URLS = (
     f"{CREATE_MUSIC_LIB_BASE}/wheels_create_music.zip.001",
     f"{CREATE_MUSIC_LIB_BASE}/wheels_create_music.zip.002",
 )
+# Hub zip 교체 시 캐시 무효화 (파일명 동일)
+CREATE_MUSIC_WHEELS_BUNDLE_REVISION = "cp312-cu128-complete-v2"
 
 _NANO_VLLM_VERIFY_SCRIPT = """
 import importlib.util
@@ -85,25 +84,45 @@ def acestep_checkpoints_dir() -> Path:
     if env:
         p = Path(env).expanduser()
     else:
-        p = _data_root() / "create-music" / "checkpoints"
+        p = create_music_data_root() / "checkpoints"
     p.mkdir(parents=True, exist_ok=True)
     return p.resolve()
 
 
+def acestep_site_packages() -> Path:
+    """pip --target / wheel 해제 대상 (engine-runtime)."""
+    return runtime_site_packages_dir(TOOL_CREATE_MUSIC)
+
+
 def acestep_venv_dir() -> Path:
-    return (_data_root() / "create-music" / ".venv-acestep").resolve()
+    """레거시 venv 경로 — prepare 시 purge."""
+    return (create_music_data_root() / ".venv-acestep").resolve()
+
+
+def legacy_acestep_venv_dir() -> Path:
+    return acestep_venv_dir()
+
+
+def purge_legacy_acestep_venv(
+    *,
+    message_cb: Callable[[str], None] | None = None,
+) -> None:
+    legacy = legacy_acestep_venv_dir()
+    if not legacy.exists():
+        return
+    if message_cb:
+        message_cb("구 .venv-acestep 삭제 중…")
+    shutil.rmtree(legacy, ignore_errors=True)
 
 
 def nano_vllm_cache_dir() -> Path:
-    """GitHub zip 등으로 받은 nano-vllm 소스 캐시."""
-    p = _data_root() / "create-music" / "nano-vllm-source"
+    p = create_music_data_root() / "nano-vllm-source"
     p.mkdir(parents=True, exist_ok=True)
     return p.resolve()
 
 
 def wheels_cache_dir() -> Path:
-    """Create Music wheel 번들 캐시 (분할 zip · 압축 해제)."""
-    p = _data_root() / "create-music" / "wheels-cache"
+    p = create_music_data_root() / "wheels-cache"
     p.mkdir(parents=True, exist_ok=True)
     return p.resolve()
 
@@ -115,14 +134,13 @@ def wheels_extract_dir() -> Path:
 
 
 def acestep_source_cache_dir() -> Path:
-    """ACE-Step 소스 zip 캐시 (다운로드/압축 해제)."""
-    p = _data_root() / "create-music" / "acestep-source"
+    p = create_music_data_root() / "acestep-source"
     p.mkdir(parents=True, exist_ok=True)
     return p.resolve()
 
 
 def _create_music_config() -> dict[str, Any]:
-    cfg = _data_root() / "create-music" / "config.json"
+    cfg = create_music_data_root() / "config.json"
     if not cfg.is_file():
         return {}
     try:
@@ -132,8 +150,7 @@ def _create_music_config() -> dict[str, Any]:
 
 
 def _save_create_music_config(update: dict[str, Any]) -> None:
-    """create-music config.json에 런타임 설정을 병합 저장."""
-    cfg_path = _data_root() / "create-music" / "config.json"
+    cfg_path = create_music_data_root() / "config.json"
     data = _create_music_config()
     data.update(update)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -343,6 +360,9 @@ def _wheel_matches_py312_win(filename: str) -> bool:
     lowered = filename.lower()
     if "py3-none-any" in lowered or "py2.py3-none-any" in lowered:
         return True
+    # soundfile 등: py2.py3-none-win_amd64
+    if "none-win_amd64" in lowered:
+        return True
     if "abi3" in lowered and "win_amd64" in lowered:
         return True
     return "cp312" in lowered and "win_amd64" in lowered
@@ -376,18 +396,35 @@ def _wheel_bundle_marker_path() -> Path:
     return wheels_cache_dir() / "bundle_urls.txt"
 
 
+def _wheel_bundle_marker_payload(urls: tuple[str, str]) -> str:
+    return f"{CREATE_MUSIC_WHEELS_BUNDLE_REVISION}\n" + "\n".join(urls)
+
+
+def _normalize_marker_text(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
 def _wheel_bundle_cache_valid(urls: tuple[str, str]) -> bool:
     wheel_dir = wheels_extract_dir()
     marker = _wheel_bundle_marker_path()
     if not marker.is_file():
         return False
-    if marker.read_text(encoding="utf-8").strip() != "\n".join(urls):
+    if _normalize_marker_text(marker.read_text(encoding="utf-8")) != _normalize_marker_text(
+        _wheel_bundle_marker_payload(urls)
+    ):
         return False
     try:
         _find_wheel_file(wheel_dir, "torch", must_contain=("cu128", "2.7.1"))
     except RuntimeError:
         return False
-    return any(wheel_dir.glob("*.whl"))
+    # 완전 번들 최소 검증
+    for name in ("transformers", "safetensors", "diffusers", "numpy"):
+        if not any(
+            p.name.lower().replace("_", "-").startswith(name.replace("_", "-") + "-")
+            for p in wheel_dir.glob("*.whl")
+        ):
+            return False
+    return True
 
 
 def ensure_wheels_bundle_extracted(
@@ -395,19 +432,20 @@ def ensure_wheels_bundle_extracted(
     message_cb: Callable[[str], None] | None = None,
     force: bool = False,
 ) -> Path:
-    """wheels_create_music.zip.001·002 다운로드 → 병합 → 압축 해제."""
+    """wheels_create_music.zip.001·002 다운로드 → 병합 → 압축 해제.
+
+    force=True 여도 로컬 완전 캐시가 있으면 hub 재다운로드하지 않습니다.
+    (site-packages 재설치는 install_*_from_wheels 쪽에서 처리)
+    """
+    del force  # 캐시 무효일 때만 hub fetch — 유효 캐시 삭제는 금지
     urls = _wheels_part_urls()
     wheel_dir = wheels_extract_dir()
     cache = wheels_cache_dir()
 
-    if not force and _wheel_bundle_cache_valid(urls):
+    if _wheel_bundle_cache_valid(urls):
         if message_cb:
             message_cb("wheel 번들 캐시 사용")
         return wheel_dir
-
-    if force and wheel_dir.is_dir():
-        for whl in wheel_dir.glob("*.whl"):
-            whl.unlink(missing_ok=True)  # type: ignore[arg-type]
 
     parts_dir = cache / "parts"
     parts_dir.mkdir(parents=True, exist_ok=True)
@@ -437,17 +475,28 @@ def ensure_wheels_bundle_extracted(
     if pruned and message_cb:
         message_cb(f"미호환 wheel 제외: {', '.join(pruned[:3])}")
 
-    _wheel_bundle_marker_path().write_text("\n".join(urls), encoding="utf-8")
+    _wheel_bundle_marker_path().write_text(
+        _wheel_bundle_marker_payload(urls), encoding="utf-8"
+    )
     return wheel_dir
 
 
+def _extract_wheel_into_site(wheel_path: Path, site: Path) -> None:
+    """pip 없이 .whl → site-packages 직접 해제."""
+    if not wheel_path.is_file():
+        raise FileNotFoundError(str(wheel_path))
+    site.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(wheel_path, "r") as zf:
+        zf.extractall(site)
+
+
 def _pip_uninstall_torch_stack() -> None:
-    py = _venv_python_exe()
-    run_hidden(
-        [str(py), "-m", "pip", "uninstall", "-y", "torch", "torchvision", "torchaudio"],
-        capture_output=True,
-        text=True,
-        timeout=600,
+    try:
+        _run_pip(["uninstall", "-y", "torch", "torchvision", "torchaudio"], timeout=600)
+    except RuntimeError:
+        pass
+    purge_runtime_site_entries(
+        TOOL_CREATE_MUSIC, "torch", "torchvision", "torchaudio", "functorch"
     )
 
 
@@ -457,63 +506,67 @@ def install_pytorch_from_wheels(
     force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> None:
+    del force
     torch_whl = _find_wheel_file(wheel_dir, "torch", must_contain=("cu128", "2.7.1"))
     vision_whl = _find_wheel_file(wheel_dir, "torchvision", must_contain=("cu128",))
     audio_whl = _find_wheel_file(wheel_dir, "torchaudio", must_contain=("cu128",))
     if message_cb:
-        message_cb("PyTorch (CUDA) wheel 설치 중…")
+        message_cb("PyTorch (CUDA) wheel 해제 중…")
     _pip_uninstall_torch_stack()
-    py = _venv_python_exe()
-    cmd = [
-        str(py),
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--no-deps",
-        str(torch_whl),
-        str(vision_whl),
-        str(audio_whl),
-    ]
-    proc = run_hidden(cmd, capture_output=True, text=True, timeout=3600, env={**os.environ, **_acestep_env()})
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout or "")[-2000:])
+    site = acestep_site_packages()
+    t0 = time.monotonic()
+    for whl in (torch_whl, vision_whl, audio_whl):
+        if message_cb:
+            message_cb(f"해제: {whl.name}")
+        _extract_wheel_into_site(whl, site)
+    # torch runtime deps from bundle
+    for dep in (
+        "typing_extensions",
+        "sympy",
+        "mpmath",
+        "networkx",
+        "jinja2",
+        "markupsafe",
+        "fsspec",
+        "filelock",
+    ):
+        for whl in sorted(wheel_dir.glob(f"{dep}-*.whl")) + sorted(
+            wheel_dir.glob(f"{dep.replace('-', '_')}-*.whl")
+        ):
+            if _wheel_matches_py312_win(whl.name):
+                _extract_wheel_into_site(whl, site)
+                break
+    finalize_runtime_pip(TOOL_CREATE_MUSIC)
+    logger.info("extracted torch stack in %.1fs", time.monotonic() - t0)
     ok, detail = verify_torch_installation()
     if not ok:
         raise RuntimeError(f"PyTorch wheel 설치 검증 실패: {detail}")
 
 
-def _pip_install_one(
-    package: str,
-    *,
-    wheel_dir: Path | None = None,
-    force: bool = False,
-    message_cb: Callable[[str], None] | None = None,
-) -> None:
-    """wheel → find-links+PyPI → PyPI 순으로 단일 패키지 설치."""
-    attempts: list[list[str]] = []
-    if wheel_dir and any(wheel_dir.glob("*.whl")):
-        attempts.append(
-            ["install", "--no-index", "--find-links", str(wheel_dir), package]
-        )
-        attempts.append(
-            ["install", "--no-cache-dir", "--find-links", str(wheel_dir), package]
-        )
-    attempts.append(["install", "--no-cache-dir", package])
+def _package_name_from_spec(spec: str) -> str:
+    name = spec.strip()
+    for sep in ("==", ">=", "<=", "!=", "~=", "<", ">", "["):
+        if sep in name:
+            return name.split(sep, 1)[0].strip()
+    return name
 
-    last_exc: RuntimeError | None = None
-    for args in attempts:
-        cmd = list(args)
-        if force and cmd[0] == "install":
-            cmd.insert(1, "--force-reinstall")
-        try:
-            _run_pip(cmd, message_cb=message_cb)
-            return
-        except RuntimeError as exc:
-            last_exc = exc
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError(f"pip install failed: {package}")
+
+def _wheel_package_key(filename: str) -> str:
+    """wheel 파일명 → 패키지 키.
+
+    modelscope-1.39.0-….whl → modelscope
+    modelscope_hub-0.1.8-….whl → modelscope-hub
+    (단순 split('-')[0] 은 modelscope_hub 가 modelscope 를 덮어씀)
+    """
+    name = filename[:-4] if filename.lower().endswith(".whl") else filename
+    name = name.lower().replace("_", "-")
+    parts = name.split("-")
+    pkg: list[str] = []
+    for part in parts:
+        if part and part[0].isdigit():
+            break
+        pkg.append(part)
+    return "-".join(pkg) if pkg else (parts[0] if parts else name)
 
 
 def install_runtime_packages_from_wheels(
@@ -522,25 +575,65 @@ def install_runtime_packages_from_wheels(
     force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> None:
+    """완전 wheel 세트 → site-packages 직접 해제 (오프라인, PyPI 없음)."""
+    del force
     if message_cb:
-        message_cb("런타임 라이브러리 wheel 설치 중…")
-    failed: list[str] = []
-    for pkg in ACESTEP_RUNTIME_PACKAGES:
-        try:
-            _pip_install_one(
-                pkg,
-                wheel_dir=wheel_dir,
-                force=force,
-                message_cb=message_cb,
-            )
-        except RuntimeError as exc:
-            logger.warning("runtime wheel install failed for %s: %s", pkg, exc)
-            failed.append(pkg)
-    if failed:
+        message_cb("런타임 library-hub wheel 해제 (오프라인)…")
+    site = acestep_site_packages()
+    skip_prefixes = (
+        "torch-",
+        "torchvision-",
+        "torchaudio-",
+    )
+    best: dict[str, Path] = {}
+    for whl in sorted(wheel_dir.glob("*.whl"), key=lambda p: p.name):
+        if not _wheel_matches_py312_win(whl.name):
+            continue
+        lowered = whl.name.lower().replace("_", "-")
+        if any(lowered.startswith(p) for p in skip_prefixes):
+            continue
+        pkg_key = _wheel_package_key(whl.name)
+        if not pkg_key:
+            continue
+        best[pkg_key] = whl
+    # 필수 패키지 존재 검증
+    required_keys = {
+        _package_name_from_spec(p).lower().replace("_", "-").split("[", 1)[0]
+        for p in ACESTEP_RUNTIME_PACKAGES
+    }
+    # uvicorn[standard] → uvicorn
+    missing = sorted(k for k in required_keys if k not in best and k.replace("-", "") not in {x.replace("-", "") for x in best})
+    # soft check: allow aliases
+    soft_missing: list[str] = []
+    for k in required_keys:
+        aliases = {k, k.replace("-", "_")}
+        if k == "pyyaml":
+            aliases.add("yaml")
+        if k == "pillow":
+            aliases.add("pil")
+        if not any(
+            any(b.startswith(a) or b == a for a in aliases)
+            for b in best
+        ):
+            # also check filename start
+            if not any(
+                p.name.lower().replace("_", "-").startswith(k + "-")
+                for p in wheel_dir.glob("*.whl")
+            ):
+                soft_missing.append(k)
+    if soft_missing:
         raise RuntimeError(
-            "일부 런타임 패키지 wheel 설치 실패: " + ", ".join(failed[:8])
-            + (" …" if len(failed) > 8 else "")
+            "불완전한 Create Music wheel 번들 — 누락: "
+            + ", ".join(soft_missing[:12])
+            + ". library-hub Create_Music_Lib 의 wheels_create_music 을 완전 세트로 교체하세요."
         )
+
+    total = len(best)
+    for i, (_key, whl) in enumerate(sorted(best.items()), start=1):
+        if message_cb and (i == 1 or i == total or i % 5 == 0):
+            message_cb(f"wheel 해제 {i}/{total}: {whl.name}")
+        _extract_wheel_into_site(whl, site)
+    finalize_runtime_pip(TOOL_CREATE_MUSIC)
 
 
 def _runtime_wheel_dir() -> Path | None:
@@ -559,6 +652,8 @@ print("ok")
 
 _RUNTIME_IMPORT_CHECK = """
 import importlib
+import warnings
+warnings.filterwarnings("ignore", message="Failed to find CUDA")
 mods = (
     "loguru",
     "transformers",
@@ -567,6 +662,7 @@ mods = (
     "soundfile",
     "huggingface_hub",
     "modelscope",
+    "modelscope_hub",
     "einops",
 )
 missing = []
@@ -583,19 +679,21 @@ print("ok")
 
 def verify_model_download_packages() -> tuple[bool, str]:
     try:
-        py = venv_python()
+        acestep_python()
     except RuntimeError as exc:
         return False, str(exc)
-    proc = run_hidden(
-        [str(py), "-c", _MODEL_DOWNLOAD_IMPORT_CHECK],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    proc = _run_acestep_python(["-c", _MODEL_DOWNLOAD_IMPORT_CHECK], timeout=60)
     if proc.returncode == 0:
         return True, ""
     detail = (proc.stderr or proc.stdout or "model download import check failed").strip()
-    return False, detail[-500:]
+    # triton CUDA UserWarning 등은 stderr 에 섞여 본 오류를 가림
+    lines = [
+        ln
+        for ln in detail.splitlines()
+        if "UserWarning" not in ln and "warnings.warn" not in ln and "Failed to find CUDA" not in ln
+    ]
+    cleaned = "\n".join(lines).strip() or detail
+    return False, cleaned[-500:]
 
 
 # HF / ModelScope 가중치 다운로드에 필수 (wheel 번들에 없을 수 있음)
@@ -612,38 +710,42 @@ def ensure_model_download_packages(
     force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> None:
-    """가중치 다운로드 전 huggingface_hub · modelscope · loguru 보장."""
+    """가중치 다운로드 전 huggingface_hub · modelscope · loguru — 번들 wheel만."""
     ok, _ = verify_model_download_packages()
     if ok and not force:
         return
     wheel_dir = wheel_dir or _runtime_wheel_dir()
+    if wheel_dir is None:
+        raise RuntimeError(
+            "모델 다운로드용 wheel 번들이 없습니다. Create_Music_Lib wheels를 준비한 뒤 "
+            "환경 준비를 다시 실행하세요."
+        )
     if message_cb:
-        message_cb("모델 다운로드용 패키지 설치 중 (huggingface_hub, modelscope)…")
-    for pkg in ACESTEP_MODEL_DOWNLOAD_PACKAGES:
-        _pip_install_one(pkg, wheel_dir=wheel_dir, force=force, message_cb=message_cb)
+        message_cb("모델 다운로드용 패키지 wheel 해제…")
+    install_runtime_packages_from_wheels(wheel_dir, force=force, message_cb=message_cb)
     ok, detail = verify_model_download_packages()
     if not ok:
-        raise RuntimeError(
-            f"모델 다운로드 의존성 설치 실패: {detail}. "
-            "인터넷 연결·pip 프록시를 확인한 뒤 환경 준비를 다시 실행하세요."
-        )
+        raise RuntimeError(f"모델 다운로드 의존성 설치 실패: {detail}")
 
 
 def verify_runtime_packages() -> tuple[bool, str]:
     try:
-        py = venv_python()
+        py = acestep_python()
     except RuntimeError as exc:
         return False, str(exc)
-    proc = run_hidden(
-        [str(py), "-c", _RUNTIME_IMPORT_CHECK],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    proc = _run_acestep_python(["-c", _RUNTIME_IMPORT_CHECK], timeout=120)
     if proc.returncode == 0:
         return True, ""
     detail = (proc.stderr or proc.stdout or "runtime import check failed").strip()
-    return False, detail[-500:]
+    lines = [
+        ln
+        for ln in detail.splitlines()
+        if "UserWarning" not in ln
+        and "warnings.warn" not in ln
+        and "Failed to find CUDA" not in ln
+    ]
+    cleaned = "\n".join(lines).strip() or detail
+    return False, cleaned[-500:]
 
 
 def ensure_runtime_packages(
@@ -652,27 +754,19 @@ def ensure_runtime_packages(
     force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> None:
-    """loguru 등 ACE-Step 런타임 의존성 — wheel 번들 사용 시에도 반드시 설치."""
-    wheel_dir = wheel_dir or _runtime_wheel_dir()
-    ensure_model_download_packages(wheel_dir=wheel_dir, force=force, message_cb=message_cb)
-
+    """ACE-Step 런타임 의존성 — library-hub 완전 wheel만 (PyPI 없음)."""
+    if not _use_offline_wheels():
+        raise RuntimeError(
+            "Create Music는 library-hub wheel 번들 설치만 지원합니다. "
+            "ITMATZIP_ACESTEP_SKIP_WHEELS 를 끄세요."
+        )
+    wheel_dir = wheel_dir or ensure_wheels_bundle_extracted(message_cb=message_cb)
     ok, _ = verify_runtime_packages()
     if ok and not force:
-        return
-    if wheel_dir:
-        try:
-            install_runtime_packages_from_wheels(wheel_dir, force=force, message_cb=message_cb)
-        except RuntimeError as exc:
-            logger.warning("runtime packages from wheels failed: %s", exc)
-    ok, detail = verify_runtime_packages()
-    if not ok:
         if message_cb:
-            message_cb("런타임 의존성 PyPI 보완 설치 중…")
-        for pkg in ACESTEP_RUNTIME_PACKAGES:
-            try:
-                _pip_install_one(pkg, wheel_dir=wheel_dir, force=force, message_cb=message_cb)
-            except RuntimeError as exc:
-                logger.warning("runtime PyPI install failed for %s: %s", pkg, exc)
+            message_cb("런타임 패키지 이미 설치됨")
+        return
+    install_runtime_packages_from_wheels(wheel_dir, force=force, message_cb=message_cb)
     ok, detail = verify_runtime_packages()
     if not ok:
         raise RuntimeError(f"런타임 의존성 설치 실패: {detail}")
@@ -683,9 +777,13 @@ def install_create_music_wheels_bundle(
     force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> Path:
-    """library-hub wheel 번들로 PyTorch + 런타임 의존성 설치."""
+    """library-hub wheel 번들 → site-packages 해제."""
     wheel_dir = ensure_wheels_bundle_extracted(message_cb=message_cb, force=force)
-    install_pytorch_from_wheels(wheel_dir, force=force, message_cb=message_cb)
+    need_torch = force or not verify_torch_installation()[0]
+    if need_torch:
+        install_pytorch_from_wheels(wheel_dir, force=force, message_cb=message_cb)
+    elif message_cb:
+        message_cb("PyTorch 이미 설치됨 — 건너뜀")
     ensure_runtime_packages(wheel_dir=wheel_dir, force=force, message_cb=message_cb)
     return wheel_dir
 
@@ -876,10 +974,6 @@ def resolve_acestep_root(
         _persist_acestep_root_config(cached, _acestep_source_zip_url())
         return cached.resolve()
 
-    for p in DEFAULT_ACESTEP_ROOTS:
-        if _is_valid_acestep_root(p):
-            return p.resolve()
-
     url = _acestep_source_zip_url()
     try:
         return ensure_acestep_source_from_zip(
@@ -898,51 +992,35 @@ def resolve_acestep_root(
 
 
 def find_python312() -> str:
-    """시스템 Python 3.12 실행 파일."""
-    for cand in PYTHON_312_CANDIDATES:
-        if cand.startswith("py "):
-            try:
-                proc = run_hidden(
-                    cand.split() + ["-c", "import sys; print(sys.executable)"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if proc.returncode == 0:
-                    exe = proc.stdout.strip().splitlines()[-1].strip()
-                    if exe and Path(exe).is_file():
-                        return exe
-            except Exception:
-                continue
-        else:
-            if Path(cand).is_file():
-                return cand
-    raise RuntimeError(
-        "Python 3.12가 필요합니다. https://www.python.org/downloads/ 에서 3.12를 설치하거나 "
-        "'py -3.12'가 동작하는지 확인하세요."
-    )
+    """MSI engine / 현재 인터프리터 (3.12)."""
+    return str(acestep_python())
+
+
+def acestep_python() -> Path:
+    """추론·probe용 — MSI engine python."""
+    explicit = os.environ.get("ITMATZIP_ACESTEP_PYTHON", "").strip()
+    if explicit:
+        p = Path(explicit)
+        if p.is_file():
+            return p.resolve()
+    return Path(sys.executable).resolve()
 
 
 def venv_python() -> Path:
-    py = acestep_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
-        raise RuntimeError("ACE-Step 가상환경이 없습니다. 환경 준비를 먼저 실행하세요.")
-    return py
+    """하위 호환 alias → acestep_python()."""
+    return acestep_python()
 
 
 def is_nano_vllm_ready() -> bool:
-    """로컬 nano-vllm + Triton 설치 여부."""
-    py = acestep_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
+    """로컬 nano-vllm + Triton (선택)."""
+    if not is_venv_ready_fast():
         return False
-    env = os.environ.copy()
-    env.update(_acestep_env(lm_backend="pt"))
-    proc = run_hidden(
-        [str(py), "-c", _NANO_VLLM_VERIFY_SCRIPT],
-        capture_output=True,
-        text=True,
+    env = _acestep_env(lm_backend="pt")
+    proc = _run_acestep_python(
+        ["-c", _NANO_VLLM_VERIFY_SCRIPT],
         timeout=120,
         env=env,
+        include_nano=True,
     )
     return proc.returncode == 0
 
@@ -964,7 +1042,6 @@ def resolve_lm_backend(*, prefer_vllm: bool = False) -> str:
 
 
 def _acestep_env(extra: Optional[dict[str, str]] = None, *, lm_backend: str = "pt") -> dict[str, str]:
-    root = str(resolve_acestep_root())
     ckpt = str(acestep_checkpoints_dir())
     base = os.environ.copy()
     try:
@@ -974,87 +1051,140 @@ def _acestep_env(extra: Optional[dict[str, str]] = None, *, lm_backend: str = "p
         prepend_ffmpeg_bin_to_env(base)
     except Exception as exc:
         logger.warning("ffmpeg PATH not added to acestep env: %s", exc)
+    root = ""
+    try:
+        root = str(resolve_acestep_root())
+    except Exception:
+        root = ""
     env = {
-        "ACESTEP_PROJECT_ROOT": root,
         "ACESTEP_CHECKPOINTS_DIR": ckpt,
-        "ITMATZIP_ACESTEP_ROOT": root,
         "ITMATZIP_ACESTEP_CHECKPOINTS": ckpt,
         "ITMATZIP_RUNTIME_TOOL": TOOL_CREATE_MUSIC,
         "PYTHONNOUSERSITE": "1",
+        "PYTHONSAFEPATH": "1",
         "ACESTEP_DISABLE_TQDM": "1",
         "HF_HUB_DISABLE_PROGRESS_BARS": "0",
         "ACESTEP_LM_BACKEND": lm_backend,
     }
+    if root:
+        env["ACESTEP_PROJECT_ROOT"] = root
+        env["ITMATZIP_ACESTEP_ROOT"] = root
+    site = str(acestep_site_packages())
+    parts = [site]
+    if root:
+        parts.insert(0, root)
+        nano = _nano_vllm_path_hint(Path(root))
+        if nano:
+            parts.insert(0, nano)
+    prev = base.get("PYTHONPATH", "")
+    if prev:
+        parts.append(prev)
+    env["PYTHONPATH"] = os.pathsep.join(parts)
     base.update(env)
     if extra:
         base.update(extra)
-    return base
+    return pip_subprocess_env(base)
+
+
+def _nano_vllm_path_hint(ace_root: Path) -> str | None:
+    bundled = ace_root / "third_parts" / "nano-vllm"
+    if (bundled / "nanovllm").is_dir() or (bundled / "setup.py").is_file() or (
+        bundled / "pyproject.toml"
+    ).is_file():
+        return str(bundled.resolve())
+    cached = nano_vllm_cache_dir()
+    for cand in cached.rglob("nanovllm"):
+        if cand.is_dir():
+            return str(cand.parent.resolve())
+    return None
+
+
+def _path_bootstrap_prefix(*, include_acestep: bool = True, include_nano: bool = False) -> str:
+    """Embeddable Python: inject engine-runtime (+ ACE-Step source) into sys.path."""
+    parts: list[str] = [engine_python_c_prefix(TOOL_CREATE_MUSIC)]
+    if include_acestep:
+        try:
+            root = str(resolve_acestep_root().resolve())
+            parts.append(
+                f"_v={root!r}; sys.path.insert(0, _v) if _v not in sys.path else None; "
+            )
+            if include_nano:
+                nano = _nano_vllm_path_hint(Path(root))
+                if nano:
+                    parts.append(
+                        f"_n={nano!r}; sys.path.insert(0, _n) if _n not in sys.path else None; "
+                    )
+        except Exception:
+            pass
+    return "".join(parts)
+
+
+def _run_acestep_python(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: float = 3600.0,
+    env: dict[str, str] | None = None,
+    include_nano: bool = False,
+) -> subprocess.CompletedProcess:
+    merged = _acestep_env() if env is None else env
+    cmd_args = list(args)
+    if cmd_args[:1] == ["-c"] and len(cmd_args) >= 2:
+        prefix = _path_bootstrap_prefix(include_acestep=True, include_nano=include_nano)
+        if prefix and not str(cmd_args[1]).startswith("import sys"):
+            cmd_args[1] = "import sys; " + prefix + str(cmd_args[1])
+        elif prefix and "sys.path.insert" not in str(cmd_args[1])[:80]:
+            cmd_args[1] = prefix + str(cmd_args[1])
+    return run_hidden(
+        [str(acestep_python()), *cmd_args],
+        cwd=str(cwd) if cwd else None,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        creationflags=no_window_creationflags(),
+        env=merged,
+    )
 
 
 def verify_torch_installation() -> tuple[bool, str]:
-    """PyTorch CUDA 설치가 올바른지 검증 (torch._utils 등)."""
-    venv = acestep_venv_dir()
-    py = venv / "Scripts" / "python.exe"
-    if not py.is_file():
-        return False, "가상환경 없음"
-    env = os.environ.copy()
-    env.update(_acestep_env())
-    proc = run_hidden(
-        [str(py), "-c", _TORCH_VERIFY_SCRIPT],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        env=env,
-    )
+    """PyTorch CUDA 설치 검증."""
+    if not is_venv_ready_fast():
+        return False, "engine-runtime site-packages 없음"
+    proc = _run_acestep_python(["-c", _TORCH_VERIFY_SCRIPT], timeout=120)
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-500:]
         return False, tail or "torch import 실패"
     version = (proc.stdout or "").strip().splitlines()[-1] if proc.stdout else ""
+    if "+cu" not in version.lower() and "cu128" not in version.lower():
+        # still accept if cuda available
+        pass
     return True, version
 
 
 def install_pytorch_stack(*, force: bool = False, message_cb: Callable[[str], None] | None = None) -> None:
-    """CUDA 12.8용 PyTorch/torchvision/torchaudio 설치 (ACE-Step 공식 버전)."""
-    args = ["install"]
-    if force:
-        args.append("--force-reinstall")
-    args.extend(PYTORCH_CUDA_PACKAGES)
-    args.extend(["--index-url", PYTORCH_CU128_INDEX])
-    _run_pip(args, message_cb=message_cb)
-    ok, detail = verify_torch_installation()
-    if not ok:
-        raise RuntimeError(
-            f"PyTorch 설치 검증 실패: {detail}. "
-            "NVIDIA 드라이버·CUDA 호환을 확인한 뒤 환경 준비를 다시 실행하세요."
-        )
+    """오프라인 wheel만 — 온라인 CUDA index 금지."""
+    del force
+    if not _use_offline_wheels():
+        raise RuntimeError("Create Music는 library-hub wheel만 지원합니다.")
+    if message_cb:
+        message_cb("PyTorch — library-hub wheel 번들 사용")
+    install_create_music_wheels_bundle(force=True, message_cb=message_cb)
 
 
 def is_venv_ready() -> bool:
     torch_ok, _ = verify_torch_installation()
     if not torch_ok:
         return False
-    try:
-        py = venv_python()
-    except RuntimeError:
-        return False
-    env = os.environ.copy()
-    env.update(_acestep_env())
-    proc = run_hidden(
-        [str(py), "-c", "import acestep; print(acestep.__file__)"],
-        capture_output=True,
-        text=True,
+    proc = _run_acestep_python(
+        ["-c", "import acestep; print(acestep.__file__)"],
         timeout=120,
-        env=env,
     )
     return proc.returncode == 0
 
 
 def is_venv_ready_fast() -> bool:
-    """디스크·venv 구조만 확인 (import subprocess 없음, 페이지 로드용)."""
-    py = acestep_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
-        return False
-    site = acestep_venv_dir() / "Lib" / "site-packages"
+    """디스크만 확인 (페이지 로드용)."""
+    site = acestep_site_packages()
     if not site.is_dir():
         return False
     if (site / "torch").is_dir():
@@ -1104,15 +1234,16 @@ def runtime_status_fast() -> dict[str, Any]:
         "acestep_root_ok": root_ok,
         "acestep_root_error": root_err,
         "checkpoints_dir": str(acestep_checkpoints_dir()),
-        "venv_dir": str(acestep_venv_dir()),
+        "venv_dir": str(acestep_site_packages()),
         "torch_ok": venv_fast,
         "torch_version": "",
-        "torch_error": "" if venv_fast else "가상환경·PyTorch 패키지 미확인",
+        "torch_error": "" if venv_fast else "engine-runtime·PyTorch 미확인",
         "venv_ready": venv_fast,
         "models_ready": models_fast,
         "python312": py312,
         "python312_error": py_err,
-        "runner_python": str(acestep_venv_dir() / "Scripts" / "python.exe") if venv_fast else "",
+        "runner_python": str(acestep_python()) if venv_fast else "",
+        "runtime": "create-music-engine-runtime",
         "nano_vllm_ready": False,
         "nano_vllm_zip_url": _nano_vllm_zip_url(),
         "nano_vllm_cache_dir": str(nano_vllm_cache_dir()),
@@ -1152,7 +1283,7 @@ def runtime_status() -> dict[str, Any]:
         "acestep_root_ok": root_ok,
         "acestep_root_error": root_err,
         "checkpoints_dir": str(acestep_checkpoints_dir()),
-        "venv_dir": str(acestep_venv_dir()),
+        "venv_dir": str(acestep_site_packages()),
         "torch_ok": torch_ok,
         "torch_version": torch_detail if torch_ok else "",
         "torch_error": "" if torch_ok else torch_detail,
@@ -1160,7 +1291,8 @@ def runtime_status() -> dict[str, Any]:
         "models_ready": is_models_ready(),
         "python312": py312,
         "python312_error": py_err,
-        "runner_python": str(venv_python()) if is_venv_ready() else "",
+        "runner_python": str(acestep_python()) if is_venv_ready_fast() else "",
+        "runtime": "create-music-engine-runtime",
         "nano_vllm_ready": nano_ok,
         "nano_vllm_zip_url": _nano_vllm_zip_url(),
         "nano_vllm_cache_dir": str(nano_vllm_cache_dir()),
@@ -1174,13 +1306,10 @@ def runtime_status() -> dict[str, Any]:
 
 
 def _venv_python_exe() -> Path:
-    py = acestep_venv_dir() / "Scripts" / "python.exe"
-    if not py.is_file():
-        raise RuntimeError("ACE-Step 가상환경 python.exe를 찾을 수 없습니다.")
-    return py
+    return acestep_python()
 
 
-# pip install -e ace-step 시 PyPI에 없는 nano-vllm 때문에 실패하므로 --no-deps + 수동 설치
+# pip install -e 대신 runner path inject — 런타임 deps만 wheel
 ACESTEP_RUNTIME_PACKAGES = [
     "safetensors==0.7.0",
     "transformers>=4.51.0,<4.58.0",
@@ -1200,9 +1329,13 @@ ACESTEP_RUNTIME_PACKAGES = [
     "torchao>=0.16.0,<0.17.0",
     "toml",
     "modelscope",
+    "modelscope_hub",
     "peft>=0.18.0",
     "setuptools<72",
-    "huggingface_hub",
+    "huggingface_hub>=0.34.0,<1.0",
+    "httpx",
+    "httpcore",
+    "tokenizers>=0.22.0,<0.23.0",
     "sentencepiece",
     "protobuf",
     "tqdm",
@@ -1219,9 +1352,7 @@ def _install_acestep_package(
     message_cb: Callable[[str], None] | None = None,
     wheel_dir: Path | None = None,
 ) -> None:
-    """ace-step editable + 런타임 의존성 (nano-vllm 제외)."""
-    # 일부 배포 zip에서 hatchling force-include 대상 JS가 누락되어 editable 빌드가 실패한다.
-    # 누락 시 최소 placeholder를 만들어 metadata-generation 실패를 방지한다.
+    """ACE-Step 소스 경로 설정 + 런타임 wheel (editable pip 없음)."""
     forced_js_files = (
         root / "acestep" / "ui" / "gradio" / "interfaces" / "audio_player_preferences.js",
         root / "acestep" / "ui" / "gradio" / "interfaces" / "user_preferences.js",
@@ -1231,15 +1362,9 @@ def _install_acestep_package(
             js_path.parent.mkdir(parents=True, exist_ok=True)
             js_path.write_text("// autogenerated placeholder for packaging\n", encoding="utf-8")
             logger.warning("ACE-Step force-include placeholder created: %s", js_path)
-
-    if wheel_dir and any(wheel_dir.glob("hatchling*.whl")):
-        _run_pip(
-            ["install", "--no-index", "--find-links", str(wheel_dir), "hatchling"],
-            message_cb=message_cb,
-        )
-    else:
-        _run_pip(["install", "hatchling"], message_cb=message_cb)
-    _run_pip(["install", "-e", str(root), "--no-deps"], message_cb=message_cb)
+    _persist_acestep_root_config(root, _acestep_source_zip_url())
+    if message_cb:
+        message_cb(f"ACE-Step 소스 경로: {root}")
     ensure_runtime_packages(wheel_dir=wheel_dir, message_cb=message_cb)
 
 
@@ -1250,9 +1375,8 @@ def install_nano_vllm_stack(
     install_flash_attn: bool = True,
 ) -> tuple[bool, str]:
     """
-    nano-vllm 로컬 설치 (PyPI에 없음).
-    소스: ACE-Step 번들 / GitHub zip / ITMATZIP_NANO_VLLM_DIR.
-    성공 시 LM 백엔드 vllm 사용 가능.
+    nano-vllm: path inject + 선택 wheel(triton/xxhash/flash_attn) 해제.
+    PyPI / pip -e 없음. 실패해도 LM pt 백엔드로 동작.
     """
     ace_root: Path | None = None
     try:
@@ -1271,114 +1395,66 @@ def install_nano_vllm_stack(
         logger.info("[nano-vllm] %s", msg)
 
     wheel_dir = wheels_extract_dir() if wheels_extract_dir().is_dir() else None
-    links = [str(wheel_dir)] if wheel_dir and any(wheel_dir.glob("*.whl")) else []
+    site = acestep_site_packages()
 
-    step("Triton (Windows) 설치 중…")
-    py = _venv_python_exe()
-    run_hidden(
-        [str(py), "-m", "pip", "uninstall", "-y", "triton", "triton-windows"],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    if links:
-        try:
-            _run_pip(
-                ["install", "--no-index", "--find-links", links[0], "triton-windows>=3.2.0,<3.7"],
-                message_cb=message_cb,
-            )
-        except RuntimeError:
-            _run_pip(["install", "triton-windows>=3.2.0,<3.7"], message_cb=message_cb)
-    else:
-        _run_pip(["install", "triton-windows>=3.2.0,<3.7"], message_cb=message_cb)
-
-    step("xxhash 설치 중…")
-    if links:
-        try:
-            _run_pip(["install", "--no-index", "--find-links", links[0], "xxhash"], message_cb=message_cb)
-        except RuntimeError:
-            _run_pip(["install", "xxhash"], message_cb=message_cb)
-    else:
-        _run_pip(["install", "xxhash"], message_cb=message_cb)
-
-    if install_flash_attn:
-        step("flash-attn 설치 시도 중… (선택, 실패 시 SDPA 모드)")
-        flash_local = list(wheel_dir.glob("flash_attn*.whl")) if wheel_dir else []
-        try:
+    if wheel_dir:
+        step("Triton / xxhash wheel 해제 (있으면)…")
+        for pattern in ("triton_windows-*.whl", "triton-*.whl", "xxhash-*.whl"):
+            for whl in wheel_dir.glob(pattern):
+                if _wheel_matches_py312_win(whl.name):
+                    try:
+                        _extract_wheel_into_site(whl, site)
+                    except Exception as exc:
+                        logger.warning("optional wheel extract failed %s: %s", whl.name, exc)
+        if install_flash_attn:
+            flash_local = list(wheel_dir.glob("flash_attn*.whl"))
             if flash_local:
-                _run_pip(
-                    ["install", "--force-reinstall", "--no-deps", str(flash_local[0])],
-                    message_cb=message_cb,
-                )
-            else:
-                _run_pip(["install", FLASH_ATTN_WIN_CP312_CU128], message_cb=message_cb)
-        except Exception as exc:
-            logger.warning("flash-attn install skipped: %s", exc)
+                try:
+                    _extract_wheel_into_site(flash_local[0], site)
+                except Exception as exc:
+                    logger.warning("flash-attn extract skipped: %s", exc)
+        finalize_runtime_pip(TOOL_CREATE_MUSIC)
 
-    step("nano-vllm 로컬 패키지 설치 중…")
-    _run_pip(["install", "-e", str(nano_dir), "--no-deps"], message_cb=message_cb)
-
+    step(f"nano-vllm 경로 사용: {nano_dir}")
     if is_nano_vllm_ready():
-        return True, f"nano-vllm 설치 완료 ({nano_dir}) — LM vllm 사용 가능"
-    return False, "nano-vllm 설치 후 검증 실패 — Triton/flash-attn 확인 필요"
+        return True, f"nano-vllm 준비됨 ({nano_dir}) — LM vllm 사용 가능"
+    return False, "nano-vllm 검증 실패 — LM은 pt 백엔드로 동작"
 
 
-def _run_pip(args: list[str], *, message_cb: Callable[[str], None] | None = None) -> None:
-    """pip 호출은 Windows에서 python -m pip 로 실행 (pip.exe 직접 호출 시 self-upgrade 오류)."""
-    py = _venv_python_exe()
+def _run_pip(
+    args: list[str],
+    *,
+    message_cb: Callable[[str], None] | None = None,
+    timeout: float = 7200.0,
+) -> None:
+    """engine-runtime --target pip (ACL finalize). 가능하면 wheel 해제 경로를 쓸 것."""
+    py = acestep_python()
     cmd = [str(py), "-m", "pip", *args]
+    if "install" in cmd and "--target" not in cmd and "uninstall" not in cmd:
+        # insert --target after install
+        i = cmd.index("install") + 1
+        for flag in reversed(pip_target_args(TOOL_CREATE_MUSIC)):
+            cmd.insert(i, flag)
     if message_cb:
         message_cb(f"pip {' '.join(args[:4])}…")
-    env = os.environ.copy()
-    env.update(_acestep_env())
-    proc = run_hidden(cmd, capture_output=True, text=True, timeout=7200, env=env)
+    env = pip_subprocess_env(_acestep_env())
+    proc = run_hidden(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+        creationflags=no_window_creationflags(),
+    )
+    finalize_runtime_pip(TOOL_CREATE_MUSIC)
     if proc.returncode == 0:
         return
-
-    output = (proc.stderr or proc.stdout or "")
-    tail = output[-2000:]
-    lower = output.lower()
-    is_lock_error = (
-        "winerror 5" in lower
-        or "access is denied" in lower
-        or "액세스가 거부" in lower
-        or "asmjit.dll" in lower
-    )
-    if is_lock_error:
-        if message_cb:
-            message_cb("파일 잠금 감지 — 관련 python 프로세스 정리 후 pip 재시도…")
-        _terminate_venv_python_processes()
-        time.sleep(1.0)
-        retry = run_hidden(cmd, capture_output=True, text=True, timeout=7200, env=env)
-        if retry.returncode == 0:
-            return
-        tail = (retry.stderr or retry.stdout or "")[-2000:]
-    raise RuntimeError(f"pip 실패: {tail}")
+    raise RuntimeError(f"pip 실패: {(proc.stderr or proc.stdout or '')[-2000:]}")
 
 
 def _terminate_venv_python_processes() -> None:
-    """
-    WinError 5(파일 잠금) 복구용.
-    create-music venv를 커맨드라인에 포함한 python.exe만 종료한다.
-    """
-    if sys.platform != "win32":
-        return
-    venv = str(acestep_venv_dir()).lower().replace("\\", "\\\\")
-    script = (
-        "$p='" + venv + "';"
-        "Get-CimInstance Win32_Process "
-        "| Where-Object { $_.Name -ieq 'python.exe' -and $_.CommandLine -and $_.CommandLine.ToLower().Contains($p) } "
-        "| ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }"
-    )
-    try:
-        run_hidden(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except Exception:
-        pass
+    """레거시 — no-op (engine-runtime)."""
+    return
 
 
 def ensure_venv(
@@ -1387,28 +1463,34 @@ def ensure_venv(
     on_progress: Callable[[float, str], None] | None = None,
     force_repair_torch: bool = False,
 ) -> None:
-    """Python 3.12 venv 생성 + ace-step 패키지 설치."""
+    """engine-runtime + library-hub 완전 wheel (하위 호환 이름 ensure_venv)."""
+    ensure_runtime(
+        on_message=on_message,
+        on_progress=on_progress,
+        force_repair_torch=force_repair_torch,
+    )
+
+
+def ensure_runtime(
+    *,
+    on_message: Callable[[str], None] | None = None,
+    on_progress: Callable[[float, str], None] | None = None,
+    force_repair_torch: bool = False,
+) -> None:
+    """MSI engine python + engine-runtime/create-music + offline wheels."""
+
     def notify(pct: float, text: str) -> None:
         if on_progress:
             on_progress(pct, text)
         elif on_message:
             on_message(text)
 
-    venv = acestep_venv_dir()
-    root = resolve_acestep_root()
-    py312 = find_python312()
+    purge_legacy_acestep_venv(message_cb=lambda m: notify(12, m))
+    acestep_site_packages()
+    ensure_runtime_tree_acl(TOOL_CREATE_MUSIC)
 
-    if not (venv / "Scripts" / "python.exe").is_file():
-        notify(14, "Python 3.12 가상환경 생성 중…")
-        venv.parent.mkdir(parents=True, exist_ok=True)
-        proc = run_hidden(
-            [py312, "-m", "venv", str(venv)],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(proc.stderr[-500:] or "venv 생성 실패")
+    notify(13, "ACE-Step 소스 확인…")
+    root = resolve_acestep_root(message_cb=lambda m: notify(14, m))
 
     torch_ok, _ = verify_torch_installation()
     acestep_ok = False
@@ -1431,7 +1513,7 @@ def ensure_venv(
             message_cb=lambda m: notify(30, m),
         )
         if install_nv and not is_nano_vllm_ready():
-            notify(32, "nano-vllm (vLLM LM) 설치 중…")
+            notify(32, "nano-vllm (선택) 준비 중…")
             ok_nv, msg_nv = install_nano_vllm_stack(
                 root,
                 message_cb=lambda m: notify(32, m),
@@ -1440,68 +1522,28 @@ def ensure_venv(
         notify(34, "ACE-Step 환경 이미 준비됨")
         return
 
-    notify(16, "pip 업그레이드 중…")
-    try:
-        _run_pip(["install", "--upgrade", "pip", "setuptools", "wheel"], message_cb=lambda m: notify(18, m))
-    except RuntimeError as exc:
-        msg = str(exc).lower()
-        if ("winerror 5" in msg or "액세스가 거부" in msg or "asmjit.dll" in msg) and venv.exists():
-            notify(17, "venv 파일 잠금 복구 — 가상환경 재생성 중…")
-            _terminate_venv_python_processes()
-            shutil.rmtree(venv, ignore_errors=True)
-            proc = run_hidden(
-                [py312, "-m", "venv", str(venv)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            if proc.returncode != 0:
-                raise RuntimeError(proc.stderr[-500:] or "venv 재생성 실패")
-            _run_pip(["install", "--upgrade", "pip", "setuptools", "wheel"], message_cb=lambda m: notify(18, m))
-        else:
-            raise
-
-    wheel_dir: Path | None = None
-    use_wheels = _use_offline_wheels()
-    if use_wheels:
-        try:
-            notify(20, "Create Music wheel 번들 다운로드·설치 중…")
-            wheel_dir = install_create_music_wheels_bundle(
-                force=force_repair_torch or not torch_ok,
-                message_cb=lambda m: notify(22, m),
-            )
-            notify(28, "wheel 번들 설치 완료")
-        except Exception as exc:
-            logger.warning("wheel 번들 설치 실패, PyPI 폴백: %s", exc)
-            notify(20, f"wheel 실패 — 온라인 설치로 전환 ({exc})")
-            use_wheels = False
-
-    if not use_wheels:
-        notify(20, "PyTorch (CUDA 12.8) 설치 중… (수 분 소요)")
-        install_pytorch_stack(
-            force=force_repair_torch or not torch_ok,
-            message_cb=lambda m: notify(24, m),
+    if not _use_offline_wheels():
+        raise RuntimeError(
+            "Create Music는 library-hub wheel 번들만 지원합니다. "
+            "ITMATZIP_ACESTEP_SKIP_WHEELS 를 끄세요."
         )
 
-    if not acestep_ok:
-        if wheel_dir is None and _use_offline_wheels() and _wheel_bundle_cache_valid(_wheels_part_urls()):
-            wheel_dir = wheels_extract_dir()
-        notify(26, "ACE-Step 패키지 설치 중…")
-        _install_acestep_package(
-            root,
-            message_cb=lambda m: notify(27, m),
-            wheel_dir=wheel_dir,
-        )
-        if not use_wheels:
-            notify(30, "PyTorch CUDA 버전 재확인 중…")
-            install_pytorch_stack(force=True, message_cb=lambda m: notify(31, m))
-        else:
-            ok_torch, detail = verify_torch_installation()
-            if not ok_torch:
-                raise RuntimeError(f"PyTorch 검증 실패: {detail}")
+    notify(16, "Create Music wheel 번들 다운로드·해제 중…")
+    wheel_dir = install_create_music_wheels_bundle(
+        force=force_repair_torch or not torch_ok,
+        message_cb=lambda m: notify(22, m),
+    )
+    notify(28, "wheel 번들 설치 완료")
+
+    notify(29, "ACE-Step 소스 연결…")
+    _install_acestep_package(
+        root,
+        message_cb=lambda m: notify(30, m),
+        wheel_dir=wheel_dir,
+    )
 
     if install_nv and not is_nano_vllm_ready():
-        notify(32, "nano-vllm (vLLM LM) 설치 중…")
+        notify(32, "nano-vllm (선택) 준비 중…")
         ok_nv, msg_nv = install_nano_vllm_stack(
             root,
             message_cb=lambda m: notify(32, m),
@@ -1510,7 +1552,7 @@ def ensure_venv(
         if ok_nv:
             notify(33, msg_nv)
         else:
-            notify(33, f"{msg_nv} — LM은 pt 백엔드로 동작")
+            notify(33, f"{msg_nv}")
 
     if not is_venv_ready():
         raise RuntimeError("ACE-Step 설치 후 검증에 실패했습니다.")
@@ -1523,8 +1565,8 @@ def _run_subprocess_script(
     on_progress: Callable[[float, str], None] | None = None,
     timeout_sec: float = 7200,
 ) -> dict[str, Any]:
-    """3.12 venv에서 runner 스크립트 실행."""
-    py = venv_python()
+    """engine python에서 runner 스크립트 실행 (embeddable path bootstrap)."""
+    py = acestep_python()
     script = _engines_dir() / script_name
     if not script.is_file():
         raise FileNotFoundError(script)
@@ -1536,15 +1578,24 @@ def _run_subprocess_script(
         payload = {**payload, "progress_path": str(prog_path), "result_path": str(out_path)}
         req_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-        env = os.environ.copy()
         lm = str(payload.get("lm_backend") or resolve_lm_backend())
-        env.update(_acestep_env(lm_backend=lm))
+        env = _acestep_env(lm_backend=lm)
+        # agent package root for imports
+        agent_pkg = str(Path(__file__).resolve().parents[1])
+        env["ITMATZIP_AGENT_PACKAGE_ROOT"] = agent_pkg
+        env["ITMATZIP_AGENT_DIR"] = agent_pkg
+        prev = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = os.pathsep.join(
+            [p for p in (agent_pkg, prev) if p]
+        )
+
         proc = run_hidden(
             [str(py), str(script), str(req_path)],
             capture_output=True,
             text=True,
             timeout=timeout_sec,
             env=env,
+            creationflags=no_window_creationflags(),
         )
 
         stop = threading.Event()

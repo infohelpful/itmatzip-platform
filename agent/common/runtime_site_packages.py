@@ -30,11 +30,11 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_VOCAL_REMOVER,
     TOOL_AUTO_SUBTITLE,
     TOOL_IMAGE_ENHANCER,
+    TOOL_CREATE_MUSIC,
 )
 
-# Dedicated venv per tool (ACE-Step / Magic Canvas) — same 3.12 major, isolated envs
+# Dedicated venv per tool (Magic Canvas) — same 3.12 major, isolated env
 VENV_RUNTIME_TOOL_IDS: tuple[str, ...] = (
-    TOOL_CREATE_MUSIC,
     TOOL_MAGIC_CANVAS,
 )
 
@@ -71,11 +71,14 @@ def agent_data_root() -> Path:
 def tool_venv_data_root(tool_id: str) -> Path:
     """Python 3.12 venv 런타임 데이터 루트 (engine-runtime 과 분리)."""
     tid = _resolve_tool_id(tool_id)
-    if tid == TOOL_CREATE_MUSIC:
-        return agent_data_root() / TOOL_CREATE_MUSIC
     if tid == TOOL_MAGIC_CANVAS:
         return _appdata_root() / TOOL_MAGIC_CANVAS
     raise ValueError(f"venv runtime tool_id 가 아닙니다: {tid}")
+
+
+def create_music_data_root() -> Path:
+    """Create Music 데이터(소스·캐시·체크포인트) — packages는 engine-runtime."""
+    return agent_data_root() / TOOL_CREATE_MUSIC
 
 
 def runtime_site_packages_dir(tool_id: str) -> Path:
@@ -246,14 +249,13 @@ def ensure_runtime_directories() -> None:
         runtime_site_packages_dir(tid)
         if not runtime_site_packages_readable(tid):
             ensure_runtime_tree_acl(tid)
-    # Image Enhancer data (models/vendor/wheels) — packages live in engine-runtime
+    # Image Enhancer / Create Music data — packages live in engine-runtime
     (_appdata_root() / TOOL_IMAGE_ENHANCER).mkdir(parents=True, exist_ok=True)
+    create_music_data_root().mkdir(parents=True, exist_ok=True)
     for tid in VENV_RUNTIME_TOOL_IDS:
         root = tool_venv_data_root(tid)
         root.mkdir(parents=True, exist_ok=True)
-        if tid == TOOL_CREATE_MUSIC:
-            (root / ".venv-acestep").mkdir(parents=True, exist_ok=True)
-        elif tid == TOOL_MAGIC_CANVAS:
+        if tid == TOOL_MAGIC_CANVAS:
             (root / ".venv-magiccanvas").mkdir(parents=True, exist_ok=True)
 
 

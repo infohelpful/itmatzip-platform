@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -76,7 +76,10 @@ func ensureRuntimeSitePackagesDir() {
 		grantUsersModifyRecursive(filepath.Join(settingsRootPath, "auto-subtitle"))
 		createMusicRoot := filepath.Join(settingsRootPath, "create-music")
 		ensureDirWritable(createMusicRoot)
-		ensureDirWritable(filepath.Join(createMusicRoot, ".venv-acestep"))
+		ensureDirWritable(filepath.Join(createMusicRoot, "acestep-source"))
+		ensureDirWritable(filepath.Join(createMusicRoot, "wheels-cache"))
+		ensureDirWritable(filepath.Join(createMusicRoot, "checkpoints"))
+		ensureDirWritable(filepath.Join(createMusicRoot, "workspace"))
 		ensureDirWritable(filepath.Join(settingsRootPath, "Font"))
 	}
 
