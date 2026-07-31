@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.7",
+    "version":  "1.5.8",
     "published_at":  "2026-08-01",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.7/itmatzip-agent.msi",
-    "sha256":  "59e3ff723a2398c3ebafa2f3b8b6e6451adf3414f4fbd901524e31adc4334424",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.8/itmatzip-agent.msi",
+    "sha256":  "16a2d12ba45eb7d29d1ad0c2cc298ffa51d82ee8dcfd9a25a08e4897b39e779b",
     "mandatory":  false,
     "release_notes":  "오류 수정",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.7/itmatzip-agent.msi",
-    "msi_sha256":  "59e3ff723a2398c3ebafa2f3b8b6e6451adf3414f4fbd901524e31adc4334424"
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.8/itmatzip-agent.msi",
+    "msi_sha256":  "16a2d12ba45eb7d29d1ad0c2cc298ffa51d82ee8dcfd9a25a08e4897b39e779b"
 }
