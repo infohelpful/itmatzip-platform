@@ -69,6 +69,19 @@ export const TOOLS = [
     tags: ["이미지", "화질", "복원", "얼굴", "codeformer", "ai", "사진", "photo"],
   },
   {
+    id: "background-remover",
+    href: "background-remover/",
+    title: "Background Remover",
+    subtitle: "AI 배경제거 · BiRefNet",
+    description:
+      "로컬 이미지에서 배경을 제거하고 투명 PNG와 마스크를 만듭니다. BiRefNet 모델은 최초 사용 시 다운로드됩니다.",
+    icon: "✂️",
+    accent: "#14b8a6",
+    available: true,
+    badge: "AI",
+    tags: ["배경", "배경제거", "background", "remove", "birefnet", "투명", "png", "마스크", "ai"],
+  },
+  {
     id: "create-music",
     href: "create-music/",
     title: "Create Music",
