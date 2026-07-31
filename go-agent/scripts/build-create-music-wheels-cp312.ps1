@@ -187,6 +187,7 @@ $RequiredNames = @(
     "safetensors", "transformers", "diffusers", "numpy", "scipy",
     "soundfile", "cffi", "pycparser", "loguru", "einops", "accelerate", "huggingface-hub",
     "httpx", "httpcore", "win32-setctime", "tokenizers", "modelscope-hub",
+    "einx", "frozendict", "vector-quantize-pytorch",
     "modelscope", "peft", "sentencepiece", "librosa", "av",
     "typing-extensions", "sympy", "jinja2", "filelock"
 )
@@ -207,9 +208,18 @@ if ($Phase -in @("all", "download")) {
         httpcore httpx sniffio win32_setctime `
         watchfiles websockets click pydantic annotated-types pydantic-core `
         llvmlite audioread soxr lazy-loader platformdirs colorama `
-        importlib-metadata zipp hf-xet cffi pycparser
+        importlib-metadata zipp hf-xet cffi pycparser `
+        einx frozendict
     # ignore failures on some pure extras
     Write-Host "Transitive download done (best-effort)" -ForegroundColor DarkGray
+
+    # Drop any non-cu128 torch that transitive/pip may have pulled
+    Get-ChildItem $GpuWheels -Filter "torch-*.whl" | Where-Object {
+        $_.Name -notmatch 'cu128'
+    } | ForEach-Object {
+        Write-Host ("Removing non-cu128 torch: {0}" -f $_.Name) -ForegroundColor Yellow
+        Remove-Item $_.FullName -Force
+    }
 
     Write-Host "==> CUDA 12.8 torch stack" -ForegroundColor Cyan
     & $Py -m pip download --dest $GpuWheels --only-binary=:all: --python-version 312 --platform win_amd64 `
@@ -271,7 +281,7 @@ if ($Phase -in @('all', 'upload')) {
     Write-Host "==> Upload to $Repo release $Tag (clobber)" -ForegroundColor Cyan
     gh release upload $Tag ($parts.FullName) --repo $Repo --clobber
     if ($LASTEXITCODE -ne 0) { throw 'gh release upload failed' }
-    Write-Host 'Uploaded. Agents with CREATE_MUSIC_WHEELS_BUNDLE_REVISION=cp312-cu128-complete-v2 will re-download.' -ForegroundColor Green
+    Write-Host 'Uploaded. Agents with CREATE_MUSIC_WHEELS_BUNDLE_REVISION=cp312-cu128-complete-v3 will re-download.' -ForegroundColor Green
 }
 
 Write-Host 'Done.' -ForegroundColor Green

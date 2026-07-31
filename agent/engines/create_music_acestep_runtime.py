@@ -56,7 +56,7 @@ DEFAULT_WHEELS_PART_URLS = (
     f"{CREATE_MUSIC_LIB_BASE}/wheels_create_music.zip.002",
 )
 # Hub zip 교체 시 캐시 무효화 (파일명 동일)
-CREATE_MUSIC_WHEELS_BUNDLE_REVISION = "cp312-cu128-complete-v2"
+CREATE_MUSIC_WHEELS_BUNDLE_REVISION = "cp312-cu128-complete-v3"
 
 _NANO_VLLM_VERIFY_SCRIPT = """
 import importlib.util
@@ -1325,6 +1325,8 @@ ACESTEP_RUNTIME_PACKAGES = [
     "uvicorn[standard]>=0.27.0",
     "numba>=0.63.1",
     "vector-quantize-pytorch>=1.27.15",
+    "einx",
+    "frozendict",
     "torchcodec>=0.9.1",
     "torchao>=0.16.0,<0.17.0",
     "toml",
