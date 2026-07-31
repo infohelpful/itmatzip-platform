@@ -80,7 +80,15 @@ function scheduleFillWatch(ins, container, unitKey) {
  * @property {string} [adFormat] `data-ad-format` (예: "horizontal", "auto")
  * @property {boolean} [fullWidthResponsive]
  * @property {string} [style]
+ * @property {number} [minWidth] 이 폭 미만이면 push 하지 않음 (TagError 방지)
  */
+
+/**
+ * 가로형(horizontal) 광고가 들어갈 수 있는 최소 폭.
+ * 이보다 좁은 컨테이너에 push 하면 AdSense 가 맞는 크기를 못 찾아
+ * `TagError: No slot size for availableWidth=…` 를 던진다.
+ */
+const HORIZONTAL_MIN_WIDTH = 250;
 
 /**
  * 광고 단위 정의 (슬롯 추가 시 여기만 수정)
@@ -93,6 +101,7 @@ export const AD_UNITS = {
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
+    minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** XML 다운로드 페이지 하단 */
   downloadBottom: {
@@ -100,6 +109,7 @@ export const AD_UNITS = {
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
+    minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 편집 화면 — 옵션·미디어 요약 위 */
   editorAboveWorkspace: {
@@ -107,13 +117,7 @@ export const AD_UNITS = {
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
-  },
-  /** 편집 화면 — 좌측 사이드바 */
-  editorSidebar: {
-    slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
+    minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 편집 화면 — XML 다운로드 버튼 아래 */
   editorBelowExport: {
@@ -121,6 +125,7 @@ export const AD_UNITS = {
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
+    minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 메인 대시보드 — 상단 배너 */
   dashboardBanner: {
@@ -128,13 +133,7 @@ export const AD_UNITS = {
     adFormat: "horizontal",
     fullWidthResponsive: true,
     style: "display:block",
-  },
-  /** 메인 대시보드 — 좌측 사이드바 */
-  dashboardSidebar: {
-    slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
+    minWidth: HORIZONTAL_MIN_WIDTH,
   },
 };
 
@@ -210,6 +209,17 @@ function logScriptUnavailableOnce(err) {
   );
 }
 
+/**
+ * 광고가 실제로 쓸 수 있는 폭 (padding 제외) — AdSense 의 availableWidth 와 같은 기준
+ * @param {HTMLElement} el
+ * @returns {number}
+ */
+function availableAdWidth(el) {
+  const cs = getComputedStyle(el);
+  const pad = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+  return Math.max(0, Math.floor(el.clientWidth - pad));
+}
+
 function isLocalDevHost() {
   try {
     const h = window.location.hostname;
@@ -241,6 +251,16 @@ export async function showAdSense(unitKey, container) {
 
   // localhost: Google 광고 스크립트(ss:/ui config 콘솔 스팸) 로드 자체를 생략
   if (isLocalDevHost()) {
+    markAdSlotEmpty(el);
+    return false;
+  }
+
+  // 폭이 부족하면 adsbygoogle.push() 가 TagError("No slot size for availableWidth")를 던지고,
+  // 그 실패가 광고 차단으로 오탐돼 안내 팝업까지 뜬다. 아예 요청하지 않는다.
+  if (unit.minWidth && availableAdWidth(el) < unit.minWidth) {
+    console.info(
+      `[adsense] skip ${unitKey}: 컨테이너 폭 ${availableAdWidth(el)}px < 필요 ${unit.minWidth}px`,
+    );
     markAdSlotEmpty(el);
     return false;
   }

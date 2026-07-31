@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js";
+import { showAdSense } from "../common/adsense.js?v=2";
 import { TOOLS } from "./tools-registry.js?v=3";
 
 const gridEl = document.getElementById("hub-tool-grid");
@@ -97,7 +97,6 @@ function init() {
   }
 
   void showAdSense("dashboardBanner", "#hub-ad-banner");
-  void showAdSense("dashboardSidebar", "#hub-sidebar-ad-slot");
 }
 
 if (document.readyState === "loading") {

@@ -37,20 +37,6 @@ body {
   min-height: 100vh;
 }
 
-.hub-sidebar-ad {
-  flex: 0 0 160px;
-  min-height: 120px;
-  background: #000;
-  border-right: 1px solid var(--border);
-  padding: 20px 8px;
-}
-
-.hub-sidebar-ad .adsbygoogle {
-  display: block;
-  width: 100%;
-  max-width: 144px;
-}
-
 .hub-main {
   flex: 1;
   min-width: 0;
@@ -316,10 +302,6 @@ body {
 }
 
 @media (max-width: 900px) {
-  .hub-sidebar-ad {
-    display: none;
-  }
-
   .hub-main {
     padding: 28px 16px 48px;
   }
