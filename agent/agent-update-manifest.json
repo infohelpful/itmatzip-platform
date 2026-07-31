@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.5",
-    "published_at":  "2026-07-31",
+    "version":  "1.5.6",
+    "published_at":  "2026-08-01",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.5/itmatzip-agent.msi",
-    "sha256":  "b3c4e5fb5650ef791ae3d069638f91d4f665a66af009085dbf25193d9c728ea7",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.6/itmatzip-agent.msi",
+    "sha256":  "d325860f938ee12dce1d7e9593b9779bab822d6fb505e30ebd9050cde72a8af7",
     "mandatory":  false,
-    "release_notes":  "Create Music 수정",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.5/itmatzip-agent.msi",
-    "msi_sha256":  "b3c4e5fb5650ef791ae3d069638f91d4f665a66af009085dbf25193d9c728ea7"
+    "release_notes":  "배경제거 Background Remover 사이트 추가",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.6/itmatzip-agent.msi",
+    "msi_sha256":  "d325860f938ee12dce1d7e9593b9779bab822d6fb505e30ebd9050cde72a8af7"
 }

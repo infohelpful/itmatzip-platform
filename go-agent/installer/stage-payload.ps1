@@ -264,6 +264,11 @@ function Copy-ToolsWebUI {
     robocopy (Join-Path $toolsSrc "image-enhancer") (Join-Path $TargetDir "image-enhancer") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy image-enhancer failed: $LASTEXITCODE" }
 
+    if (Test-Path (Join-Path $toolsSrc "background-remover\index.html")) {
+        robocopy (Join-Path $toolsSrc "background-remover") (Join-Path $TargetDir "background-remover") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy background-remover failed: $LASTEXITCODE" }
+    }
+
     robocopy (Join-Path $toolsSrc "common") (Join-Path $TargetDir "common") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy common failed: $LASTEXITCODE" }
 

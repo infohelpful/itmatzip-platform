@@ -89,6 +89,10 @@ def codeformer_runner_script() -> Path:
     return agent_package_root() / "engines" / "codeformer_runner.py"
 
 
+def birefnet_runner_script() -> Path:
+    return agent_package_root() / "engines" / "birefnet_runner.py"
+
+
 def magic_canvas_worker_script() -> Path:
     """%APPDATA% 오버라이드가 있으면 MSI 재설치 없이 워커 핫픽스 가능."""
     appdata = os.environ.get("APPDATA", "").strip()
@@ -117,6 +121,16 @@ def codeformer_python_executable() -> Path:
     from engines.codeformer_runtime import codeformer_python
 
     return codeformer_python()
+
+
+def background_remover_python_executable() -> Path:
+    """
+    BiRefNet 추론·prepare용 Python — MSI/엔진 python (3.12).
+    패키지는 %APPDATA%\\ItMatZip\\engine-runtime\\background-remover.
+    """
+    from engines.birefnet_runtime import birefnet_python
+
+    return birefnet_python()
 
 
 def pick_script_path() -> Path:

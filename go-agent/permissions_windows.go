@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -65,6 +65,12 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(imageEnhancerRoot, "models"))
 		ensureDirWritable(filepath.Join(imageEnhancerRoot, "vendor"))
 		ensureDirWritable(filepath.Join(imageEnhancerRoot, "wheels-cache"))
+		backgroundRemoverRoot := filepath.Join(appData, "ItMatZip", "background-remover")
+		ensureDirWritable(backgroundRemoverRoot)
+		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "models"))
+		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "wheels-cache"))
+		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "workspace"))
+		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "hf-home"))
 		magicCanvasRoot := filepath.Join(appData, "ItMatZip", "magic-canvas")
 		ensureDirWritable(magicCanvasRoot)
 		ensureDirWritable(filepath.Join(magicCanvasRoot, ".venv-magiccanvas"))

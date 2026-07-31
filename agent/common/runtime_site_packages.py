@@ -22,6 +22,7 @@ TOOL_VOCAL_REMOVER = "vocal-remover"
 TOOL_AUTO_SUBTITLE = "auto-subtitle"
 TOOL_IMAGE_ENHANCER = "image-enhancer"
 TOOL_CREATE_MUSIC = "create-music"
+TOOL_BACKGROUND_REMOVER = "background-remover"
 TOOL_MAGIC_CANVAS = "magic-canvas"
 
 # MSI embeddable Python(3.12) — pip --target per tool
@@ -31,6 +32,7 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_AUTO_SUBTITLE,
     TOOL_IMAGE_ENHANCER,
     TOOL_CREATE_MUSIC,
+    TOOL_BACKGROUND_REMOVER,
 )
 
 # Dedicated venv per tool (Magic Canvas) — same 3.12 major, isolated env
@@ -249,8 +251,9 @@ def ensure_runtime_directories() -> None:
         runtime_site_packages_dir(tid)
         if not runtime_site_packages_readable(tid):
             ensure_runtime_tree_acl(tid)
-    # Image Enhancer / Create Music data — packages live in engine-runtime
+    # Image Enhancer / Background Remover / Create Music data — packages live in engine-runtime
     (_appdata_root() / TOOL_IMAGE_ENHANCER).mkdir(parents=True, exist_ok=True)
+    (_appdata_root() / TOOL_BACKGROUND_REMOVER).mkdir(parents=True, exist_ok=True)
     create_music_data_root().mkdir(parents=True, exist_ok=True)
     for tid in VENV_RUNTIME_TOOL_IDS:
         root = tool_venv_data_root(tid)

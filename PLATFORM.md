@@ -73,11 +73,12 @@ ItMatZip은 **브라우저 기반 웹 UI**와 **Windows 로컬 에이전트**를
 │  │  /api/tools/vocal-remover/*                                 │ │
 │  │  /api/tools/auto-subtitle/*                                 │ │
 │  │  /api/tools/image-enhancer/*                                │ │
+│  │  /api/tools/background-remover/*                            │ │
 │  │  /api/tools/create-music/*                                  │ │
 │  │  /api/tools/magic-canvas/*                                  │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │ agent/engines/ — FFmpeg, Whisper, Demucs, CodeFormer 등     │ │
+│  │ agent/engines/ — FFmpeg, Whisper, Demucs, CodeFormer, BiRefNet │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -125,6 +126,7 @@ web-ui/tools/
 ├── auto-subtitle/
 ├── vocal-remover/
 ├── image-enhancer/
+├── background-remover/
 ├── create-music/
 └── magic-canvas/
 ```
@@ -250,6 +252,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | `auto-subtitle` | Auto Subtitle | Faster-Whisper, SRT/번인 | Engine |
 | `vocal-remover` | Vocal Remover | Demucs `mdx_extra_q` | Engine (torch, demucs) |
 | `image-enhancer` | Image Enhancer | CodeFormer 얼굴 복원 | Engine-runtime (Python 3.12) |
+| `background-remover` | Background Remover | BiRefNet 배경제거 | Engine-runtime (Python 3.12) |
 | `create-music` | Create Music | ACE-Step 1.5, LoRA | Engine-runtime (Python 3.12) |
 | `magic-canvas` | Magic Canvas | SDXL inpaint/outpaint, rembg | Venv (Python 3.12) |
 
@@ -260,6 +263,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | Auto Subtitle | `web-ui/tools/auto-subtitle/AUTO-SUBTITLE.MD` |
 | Vocal Remover | `web-ui/tools/vocal-remover/VOCAL-REMOVER.MD` |
 | Image Enhancer | `web-ui/tools/image-enhancer/IMAGE-ENHANCER.MD` |
+| Background Remover | `web-ui/tools/background-remover/BACKGROUND-REMOVER.MD` |
 | Magic Canvas | `web-ui/tools/magic-canvas/MAGIC-CANVAS.MD` |
 
 ---
@@ -283,6 +287,7 @@ MSI로 설치된 `C:\Program Files\itmatzip-agent\engine\`(Python **3.12** embed
 | `vocal-remover` | torch, demucs, diffq (GitHub wheel 번들, **cp312**) |
 | `auto-subtitle` | faster-whisper, ctranslate2 등 |
 | `image-enhancer` | torch, torchvision, facexlib (CodeFormer vendor basicsr) |
+| `background-remover` | torch, transformers, timm, kornia (BiRefNet) |
 | `create-music` | torch(+cu128), ACE-Step deps — 데이터/소스는 ProgramData |
 
 ### 6.3 Venv Runtime (Python 3.12 전용 venv)
@@ -407,6 +412,8 @@ cd go-agent
 | `build-agent.ps1` | 레거시 PyInstaller exe 빌드 |
 | `go-agent/installer/build.ps1` | WiX MSI 빌드 |
 | `go-agent/scripts/deploy-agent-py.ps1` | agent Python 소스를 설치 트리에 배포 |
+| `go-agent/scripts/build-codeformer-wheels-cp312.ps1` | Image Enhancer wheel 번들 |
+| `go-agent/scripts/build-birefnet-wheels-cp312.ps1` | Background Remover wheel·모델 번들 |
 | `publish-agent-release.ps1` | manifest + SHA256 생성 |
 | `go-agent/scripts/fix-engine-runtime-permissions.ps1` | ACL 오염 수동 복구 |
 
