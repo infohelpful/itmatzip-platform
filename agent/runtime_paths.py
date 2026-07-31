@@ -93,26 +93,6 @@ def birefnet_runner_script() -> Path:
     return agent_package_root() / "engines" / "birefnet_runner.py"
 
 
-def magic_canvas_worker_script() -> Path:
-    """%APPDATA% 오버라이드가 있으면 MSI 재설치 없이 워커 핫픽스 가능."""
-    appdata = os.environ.get("APPDATA", "").strip()
-    if appdata:
-        override = Path(appdata) / "ItMatZip" / "magic-canvas" / "magic_canvas_worker.py"
-        if override.is_file():
-            return override.resolve()
-    explicit = os.environ.get("ITMATZIP_MAGIC_CANVAS_WORKER_SCRIPT", "").strip()
-    if explicit and Path(explicit).is_file():
-        return Path(explicit).resolve()
-    return agent_package_root() / "engines" / "magic_canvas_worker.py"
-
-
-def magic_canvas_python_executable() -> Path:
-    """Magic Canvas 추론·prepare 전용 Python 3.12 venv."""
-    from engines.magic_canvas_runtime import venv_python
-
-    return venv_python()
-
-
 def codeformer_python_executable() -> Path:
     """
     CodeFormer 추론·prepare용 Python — MSI/엔진 python (3.12).

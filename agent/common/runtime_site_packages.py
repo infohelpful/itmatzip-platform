@@ -23,7 +23,6 @@ TOOL_AUTO_SUBTITLE = "auto-subtitle"
 TOOL_IMAGE_ENHANCER = "image-enhancer"
 TOOL_CREATE_MUSIC = "create-music"
 TOOL_BACKGROUND_REMOVER = "background-remover"
-TOOL_MAGIC_CANVAS = "magic-canvas"
 
 # MSI embeddable Python(3.12) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
@@ -35,10 +34,9 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_BACKGROUND_REMOVER,
 )
 
-# Dedicated venv per tool (Magic Canvas) — same 3.12 major, isolated env
-VENV_RUNTIME_TOOL_IDS: tuple[str, ...] = (
-    TOOL_MAGIC_CANVAS,
-)
+# Dedicated venv per tool — same 3.12 major, isolated env.
+# 현재 사용하는 툴 없음. venv 가 필요한 툴을 추가하면 여기에 등록한다.
+VENV_RUNTIME_TOOL_IDS: tuple[str, ...] = ()
 
 ALL_RUNTIME_TOOL_IDS: tuple[str, ...] = ENGINE_RUNTIME_TOOL_IDS + VENV_RUNTIME_TOOL_IDS
 
@@ -71,11 +69,14 @@ def agent_data_root() -> Path:
 
 
 def tool_venv_data_root(tool_id: str) -> Path:
-    """Python 3.12 venv 런타임 데이터 루트 (engine-runtime 과 분리)."""
+    """Python 3.12 venv 런타임 데이터 루트 (engine-runtime 과 분리).
+
+    venv 자체의 디렉터리 이름은 툴의 runtime 모듈이 정한다.
+    """
     tid = _resolve_tool_id(tool_id)
-    if tid == TOOL_MAGIC_CANVAS:
-        return _appdata_root() / TOOL_MAGIC_CANVAS
-    raise ValueError(f"venv runtime tool_id 가 아닙니다: {tid}")
+    if tid not in VENV_RUNTIME_TOOL_IDS:
+        raise ValueError(f"venv runtime tool_id 가 아닙니다: {tid}")
+    return _appdata_root() / tid
 
 
 def create_music_data_root() -> Path:
@@ -256,10 +257,7 @@ def ensure_runtime_directories() -> None:
     (_appdata_root() / TOOL_BACKGROUND_REMOVER).mkdir(parents=True, exist_ok=True)
     create_music_data_root().mkdir(parents=True, exist_ok=True)
     for tid in VENV_RUNTIME_TOOL_IDS:
-        root = tool_venv_data_root(tid)
-        root.mkdir(parents=True, exist_ok=True)
-        if tid == TOOL_MAGIC_CANVAS:
-            (root / ".venv-magiccanvas").mkdir(parents=True, exist_ok=True)
+        tool_venv_data_root(tid).mkdir(parents=True, exist_ok=True)
 
 
 def engine_site_packages_dir() -> Path:

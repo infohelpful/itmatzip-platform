@@ -71,11 +71,6 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "wheels-cache"))
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "workspace"))
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "hf-home"))
-		magicCanvasRoot := filepath.Join(appData, "ItMatZip", "magic-canvas")
-		ensureDirWritable(magicCanvasRoot)
-		ensureDirWritable(filepath.Join(magicCanvasRoot, ".venv-magiccanvas"))
-		ensureDirWritable(filepath.Join(magicCanvasRoot, "models"))
-		ensureDirWritable(filepath.Join(magicCanvasRoot, "workspace"))
 	}
 
 	if settingsRootPath != "" {

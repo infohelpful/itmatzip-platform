@@ -75,7 +75,6 @@ ItMatZip은 **브라우저 기반 웹 UI**와 **Windows 로컬 에이전트**를
 │  │  /api/tools/image-enhancer/*                                │ │
 │  │  /api/tools/background-remover/*                            │ │
 │  │  /api/tools/create-music/*                                  │ │
-│  │  /api/tools/magic-canvas/*                                  │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │ agent/engines/ — FFmpeg, Whisper, Demucs, CodeFormer, BiRefNet │ │
@@ -127,8 +126,7 @@ web-ui/tools/
 ├── vocal-remover/
 ├── image-enhancer/
 ├── background-remover/
-├── create-music/
-└── magic-canvas/
+└── create-music/
 ```
 
 **`bridge.js`** 가 모든 툴의 에이전트 통신을 담당합니다:
@@ -254,7 +252,6 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | `image-enhancer` | Image Enhancer | CodeFormer 얼굴 복원 | Engine-runtime (Python 3.12) |
 | `background-remover` | Background Remover | BiRefNet 배경제거 | Engine-runtime (Python 3.12) |
 | `create-music` | Create Music | ACE-Step 1.5, LoRA | Engine-runtime (Python 3.12) |
-| `magic-canvas` | Magic Canvas | SDXL inpaint/outpaint, rembg | Venv (Python 3.12) |
 
 ### 툴별 상세 문서
 
@@ -264,7 +261,6 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | Vocal Remover | `web-ui/tools/vocal-remover/VOCAL-REMOVER.MD` |
 | Image Enhancer | `web-ui/tools/image-enhancer/IMAGE-ENHANCER.MD` |
 | Background Remover | `web-ui/tools/background-remover/BACKGROUND-REMOVER.MD` |
-| Magic Canvas | `web-ui/tools/magic-canvas/MAGIC-CANVAS.MD` |
 
 ---
 
@@ -292,11 +288,8 @@ MSI로 설치된 `C:\Program Files\itmatzip-agent\engine\`(Python **3.12** embed
 
 ### 6.3 Venv Runtime (Python 3.12 전용 venv)
 
-엔진과 **같은 메이저(3.12)** 이지만, Magic Canvas는 독립 venv를 사용합니다.
-
-| tool_id | venv 경로 |
-|---------|-----------|
-| `magic-canvas` | `%APPDATA%\ItMatZip\magic-canvas\.venv-magiccanvas` |
+현재 전용 venv를 쓰는 툴은 없습니다. 모든 툴이 engine-runtime 을 사용합니다.
+venv 가 필요한 툴을 추가하면 `VENV_RUNTIME_TOOL_IDS` 에 등록합니다.
 
 Create Music 데이터(소스·체크포인트·wheels-cache): `%ProgramData%\itmatzip-agent\create-music\`  
 패키지는 `engine-runtime/create-music` (구 `.venv-acestep` 는 prepare 시 삭제).

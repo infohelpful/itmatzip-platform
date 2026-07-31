@@ -94,28 +94,4 @@ export const TOOLS = [
     badge: "AI",
     tags: ["음악", "music", "ai", "생성", "작곡", "ace-step", "lora", "노래"],
   },
-  {
-    id: "magic-canvas",
-    href: "magic-canvas/",
-    title: "Magic Canvas",
-    subtitle: "AI 이미지 편집 · SDXL Inpaint",
-    description:
-      "아웃페인팅, 개체 제거, 이미지 합성을 로컬 PC에서 SDXL로 처리합니다. 모델은 최초 사용 시 다운로드됩니다.",
-    icon: "🎨",
-    accent: "#a855f7",
-    available: true,
-    badge: "NEW",
-    tags: [
-      "magic canvas",
-      "매직 캔버스",
-      "이미지",
-      "편집",
-      "아웃페인팅",
-      "합성",
-      "sdxl",
-      "inpaint",
-      "rembg",
-      "image editor",
-    ],
-  },
 ];

@@ -40,7 +40,6 @@ from routers import create_music as create_music_router  # noqa: E402
 from routers import silence_remover as silence_remover_router  # noqa: E402
 from routers import background_remover as background_remover_router  # noqa: E402
 from routers import image_enhancer as image_enhancer_router  # noqa: E402
-from routers import magic_canvas as magic_canvas_router  # noqa: E402
 from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
 
@@ -159,7 +158,6 @@ def create_app() -> FastAPI:
     app.include_router(create_music_router.router)
     app.include_router(image_enhancer_router.router)
     app.include_router(background_remover_router.router)
-    app.include_router(magic_canvas_router.router)
 
     web_ui = _AGENT_ROOT.parent / "web-ui"
     if web_ui.is_dir():

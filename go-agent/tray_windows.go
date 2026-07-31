@@ -32,9 +32,9 @@ func toolsWebBase() string {
 	return "https://tools.itmatzip.com"
 }
 
-func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicCanvas string) {
+func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-canvas/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/"
 }
 
 func resolveTrayIconPath() string {
@@ -195,7 +195,7 @@ func onTrayReady(port int, iconData []byte) {
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
-	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer, backgroundRemoverURL, magicCanvasURL := trayToolURLs()
+	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer, backgroundRemoverURL := trayToolURLs()
 	imageEnhancerURL := bundledImageEnhancerURL(port)
 	if imageEnhancerURL == "" {
 		imageEnhancerURL = remoteImageEnhancer
@@ -210,7 +210,6 @@ func onTrayReady(port int, iconData []byte) {
 	mCreateMusic := systray.AddMenuItem("Create Music", createMusicURL)
 	mImageEnhancer := systray.AddMenuItem("Image Enhancer", imageEnhancerURL)
 	mBackgroundRemover := systray.AddMenuItem("Background Remover", backgroundRemoverURL)
-	mMagicCanvas := systray.AddMenuItem("Magic Canvas", magicCanvasURL)
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 
@@ -233,8 +232,6 @@ func onTrayReady(port int, iconData []byte) {
 				openURL(imageEnhancerURL)
 			case <-mBackgroundRemover.ClickedCh:
 				openURL(backgroundRemoverURL)
-			case <-mMagicCanvas.ClickedCh:
-				openURL(magicCanvasURL)
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return

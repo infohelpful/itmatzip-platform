@@ -882,55 +882,6 @@ def codeformer_inference_env(
     return env
 
 
-def _python312_candidates() -> tuple[str, ...]:
-    """Magic Canvas 등 레거시 venv 부트스트랩용 (Image Enhancer는 엔진 python 사용)."""
-    local = os.environ.get("LOCALAPPDATA", "")
-    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    candidates: list[str] = ["py -3.12"]
-    if local:
-        candidates.append(str(Path(local) / "Programs/Python/Python312/python.exe"))
-    candidates.append(str(Path(program_files) / "Python312/python.exe"))
-    candidates.append(r"C:\Python312\python.exe")
-    return tuple(candidates)
-
-
-def find_python312() -> str:
-    """엔진 python 우선, 없으면 시스템 3.12 (Magic Canvas venv 생성용)."""
-    exe = Path(sys.executable)
-    if exe.is_file():
-        try:
-            proc = run_hidden(
-                [str(exe), "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            if proc.returncode == 0 and (proc.stdout or "").strip().startswith("3.12"):
-                return str(exe.resolve())
-        except Exception:
-            pass
-    for cand in _python312_candidates():
-        if cand.startswith("py "):
-            try:
-                proc = run_hidden(
-                    cand.split() + ["-c", "import sys; print(sys.executable)"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-                if proc.returncode == 0:
-                    found = (proc.stdout or "").strip().splitlines()[-1].strip()
-                    if found and Path(found).is_file():
-                        return found
-            except Exception:
-                continue
-        elif Path(cand).is_file():
-            return cand
-    raise RuntimeError(
-        "Python 3.12가 필요합니다. MSI 에이전트(engine) 또는 python.org 3.12를 설치하세요."
-    )
-
-
 def codeformer_python() -> Path:
     """추론·probe용 실행 파일 — MSI/엔진 python (3.12)."""
     explicit = os.environ.get("ITMATZIP_CODEFORMER_PYTHON", "").strip()
