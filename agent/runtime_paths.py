@@ -93,6 +93,10 @@ def birefnet_runner_script() -> Path:
     return agent_package_root() / "engines" / "birefnet_runner.py"
 
 
+def iopaint_runner_script() -> Path:
+    return agent_package_root() / "engines" / "iopaint_runner.py"
+
+
 def codeformer_python_executable() -> Path:
     """
     CodeFormer 추론·prepare용 Python — MSI/엔진 python (3.12).
@@ -111,6 +115,16 @@ def background_remover_python_executable() -> Path:
     from engines.birefnet_runtime import birefnet_python
 
     return birefnet_python()
+
+
+def magic_eraser_python_executable() -> Path:
+    """
+    LaMa(erase-only) 추론·prepare용 Python — MSI/엔진 python (3.12).
+    패키지는 %APPDATA%\\ItMatZip\\engine-runtime\\magic-eraser.
+    """
+    from engines.iopaint_runtime import iopaint_python
+
+    return iopaint_python()
 
 
 def pick_script_path() -> Path:

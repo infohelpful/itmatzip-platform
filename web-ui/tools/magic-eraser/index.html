@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>MagicEraser</title>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <div class="logo-area">
+          <span class="badge">AI Powered</span>
+          <div class="logo-title-row">
+            <h1>Magic<span class="accent">Eraser</span></h1>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+          </div>
+          <p class="header-tagline">LaMa로 객체를 지우고 배경을 자연스럽게 채웁니다.</p>
+        </div>
+        <div class="header-status-col">
+          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
+          <div id="connection-status" class="status-dot" role="status">에이전트 연결 확인 중…</div>
+          <div id="bin-readiness" class="bin-readiness">MagicEraser · 환경 준비 대기</div>
+        </div>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <div class="enhancer-content-shell" id="enhancer-content-shell">
+        <section class="drop-zone">
+          <div class="path-input-group">
+            <label for="image-path">이미지 파일 경로</label>
+            <p class="path-hint" id="path-hint">이미지를 선택하면 편집 화면에 원본이 표시됩니다.</p>
+            <div class="path-row">
+              <input type="text" id="image-path" autocomplete="off" spellcheck="false" placeholder="파일 경로">
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="preview-panel" aria-label="이미지 편집">
+          <div class="preview-panel-head">
+            <h3 class="preview-panel-heading" id="preview-panel-heading">원본 미리보기</h3>
+            <div class="brush-toolbar" id="brush-toolbar" hidden>
+              <div class="brush-tool-group" role="group" aria-label="브러시 도구">
+                <button type="button" id="tool-brush" class="brush-tool-btn is-active" aria-pressed="true">
+                  <span aria-hidden="true">🖌</span> 브러시
+                </button>
+                <button type="button" id="tool-eraser" class="brush-tool-btn" aria-pressed="false">
+                  <span aria-hidden="true">🧹</span> 지우개
+                </button>
+              </div>
+              <div class="brush-size-field">
+                <label for="brush-size-range">브러시 크기</label>
+                <input type="range" id="brush-size-range" min="5" max="100" value="24">
+                <output id="brush-size-value" for="brush-size-range">24px</output>
+              </div>
+              <button type="button" id="btn-clear-mask" class="brush-clear-btn">마스크 초기화</button>
+            </div>
+          </div>
+          <div class="preview-viewport" id="preview-viewport">
+            <div class="preview-empty" id="preview-empty">
+              <span class="preview-empty-icon" aria-hidden="true">🖼</span>
+              <p>이미지를 선택하면 여기에서 지울 영역을 칠할 수 있습니다.</p>
+            </div>
+            <div class="canvas-stage" id="canvas-stage" hidden>
+              <canvas id="edit-canvas"></canvas>
+            </div>
+            <div class="compare-slider" id="compare-slider" hidden role="group" aria-label="원본과 결과 비교">
+              <img id="compare-original" class="compare-img compare-layer-base" alt="원본" decoding="async">
+              <img id="compare-result" class="compare-img compare-layer-top" alt="결과" decoding="async">
+              <div class="compare-divider" id="compare-divider" style="left: 50%">
+                <span class="compare-handle" id="compare-handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="비교 슬라이더"></span>
+              </div>
+              <span class="compare-label compare-label--original">원본</span>
+              <span class="compare-label compare-label--result">결과</span>
+            </div>
+          </div>
+          <p class="canvas-hint" id="canvas-hint" hidden>마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.</p>
+          <p class="compare-hint" id="compare-hint" hidden>슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.</p>
+        </section>
+
+        <section class="options-layout" id="options-panel">
+          <div class="options-main">
+            <div class="options-group options-group--last">
+              <h3 class="options-group-title">실행 장치</h3>
+              <div class="options-grid options-grid--3">
+                <div class="option-field">
+                  <label class="option-label" for="device-select">실행 장치</label>
+                  <select id="device-select" class="option-select">
+                    <option value="auto">자동 (권장)</option>
+                    <option value="cuda">CUDA (GPU)</option>
+                    <option value="cpu">CPU</option>
+                  </select>
+                  <p class="option-hint">GPU가 있으면 자동으로 CUDA를 사용합니다. 문제가 있으면 CPU로 전환하세요.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="media-summary-panel" aria-label="작업 요약">
+            <h4 class="media-summary-title">작업 상태</h4>
+            <dl class="media-summary-list">
+              <div class="media-summary-item">
+                <dt>준비</dt>
+                <dd id="summary-model-ready">확인 중</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>장치</dt>
+                <dd id="summary-device">자동</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>브러시</dt>
+                <dd id="summary-brush">24px</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>마스크</dt>
+                <dd id="summary-mask">비어 있음</dd>
+              </div>
+            </dl>
+          </aside>
+        </section>
+
+        <section class="action-stack" aria-label="실행">
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
+          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled>지우기 실행</button>
+          <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
+            <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
+          </a>
+        </section>
+
+        <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <p id="setup-loading-step" class="loading-step"></p>
+            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="setup-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="erase-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="erase-loading-title">지우기 실행</h3>
+            <p id="erase-loading-step" class="loading-step"></p>
+            <p id="erase-loading-message" class="loading-message">처리 중…</p>
+            <p id="erase-loading-percent" class="loading-percent">0%</p>
+            <div id="erase-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="erase-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+    </main>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script type="module" src="script.js?v=1"></script>
+</body>
+</html>

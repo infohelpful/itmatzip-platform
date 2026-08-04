@@ -74,6 +74,7 @@ ItMatZip은 **브라우저 기반 웹 UI**와 **Windows 로컬 에이전트**를
 │  │  /api/tools/auto-subtitle/*                                 │ │
 │  │  /api/tools/image-enhancer/*                                │ │
 │  │  /api/tools/background-remover/*                            │ │
+│  │  /api/tools/magic-eraser/*                                  │ │
 │  │  /api/tools/create-music/*                                  │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────────────────┐ │
@@ -126,6 +127,7 @@ web-ui/tools/
 ├── vocal-remover/
 ├── image-enhancer/
 ├── background-remover/
+├── magic-eraser/
 └── create-music/
 ```
 
@@ -251,6 +253,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | `vocal-remover` | Vocal Remover | Demucs `mdx_extra_q` | Engine (torch, demucs) |
 | `image-enhancer` | Image Enhancer | CodeFormer 얼굴 복원 | Engine-runtime (Python 3.12) |
 | `background-remover` | Background Remover | BiRefNet 배경제거 | Engine-runtime (Python 3.12) |
+| `magic-eraser` | MagicEraser | IOPaint LaMa 객체 지우기 | Engine-runtime (Python 3.12) |
 | `create-music` | Create Music | ACE-Step 1.5, LoRA | Engine-runtime (Python 3.12) |
 
 ### 툴별 상세 문서
@@ -261,6 +264,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | Vocal Remover | `web-ui/tools/vocal-remover/VOCAL-REMOVER.MD` |
 | Image Enhancer | `web-ui/tools/image-enhancer/IMAGE-ENHANCER.MD` |
 | Background Remover | `web-ui/tools/background-remover/BACKGROUND-REMOVER.MD` |
+| MagicEraser | `web-ui/tools/magic-eraser/MAGIC-ERASER.MD` |
 
 ---
 
@@ -284,6 +288,7 @@ MSI로 설치된 `C:\Program Files\itmatzip-agent\engine\`(Python **3.12** embed
 | `auto-subtitle` | faster-whisper, ctranslate2 등 |
 | `image-enhancer` | torch, torchvision, facexlib (CodeFormer vendor basicsr) |
 | `background-remover` | torch, transformers, timm, kornia (BiRefNet) |
+| `magic-eraser` | torch, opencv-python-headless, Pillow (LaMa TorchScript) |
 | `create-music` | torch(+cu128), ACE-Step deps — 데이터/소스는 ProgramData |
 
 ### 6.3 Venv Runtime (Python 3.12 전용 venv)
@@ -407,6 +412,7 @@ cd go-agent
 | `go-agent/scripts/deploy-agent-py.ps1` | agent Python 소스를 설치 트리에 배포 |
 | `go-agent/scripts/build-codeformer-wheels-cp312.ps1` | Image Enhancer wheel 번들 |
 | `go-agent/scripts/build-birefnet-wheels-cp312.ps1` | Background Remover wheel·모델 번들 |
+| `go-agent/scripts/build-iopaint-wheels-cp312.ps1` | MagicEraser (LaMa) wheel·모델 번들 |
 | `publish-agent-release.ps1` | manifest + SHA256 생성 |
 | `go-agent/scripts/fix-engine-runtime-permissions.ps1` | ACL 오염 수동 복구 |
 

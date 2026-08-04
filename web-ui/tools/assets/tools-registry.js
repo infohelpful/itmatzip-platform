@@ -94,4 +94,17 @@ export const TOOLS = [
     badge: "AI",
     tags: ["음악", "music", "ai", "생성", "작곡", "ace-step", "lora", "노래"],
   },
+  {
+    id: "magic-eraser",
+    href: "magic-eraser/",
+    title: "MagicEraser",
+    subtitle: "객체 지우기 · LaMa Erase",
+    description:
+      "브러시로 지울 영역을 칠하면 AI가 객체를 제거하고 주변 배경으로 자연스럽게 채웁니다.",
+    icon: "✨",
+    accent: "#a855f7",
+    available: true,
+    badge: "AI",
+    tags: ["지우기", "erase", "lama", "inpaint", "객체", "magic eraser", "iopaint"],
+  },
 ];

@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover", "magic-eraser"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -71,6 +71,11 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "wheels-cache"))
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "workspace"))
 		ensureDirWritable(filepath.Join(backgroundRemoverRoot, "hf-home"))
+		magicEraserRoot := filepath.Join(appData, "ItMatZip", "magic-eraser")
+		ensureDirWritable(magicEraserRoot)
+		ensureDirWritable(filepath.Join(magicEraserRoot, "models"))
+		ensureDirWritable(filepath.Join(magicEraserRoot, "wheels-cache"))
+		ensureDirWritable(filepath.Join(magicEraserRoot, "workspace"))
 	}
 
 	if settingsRootPath != "" {
