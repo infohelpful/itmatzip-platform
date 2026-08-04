@@ -98,18 +98,42 @@ function Build-DiffqVendorWheel {
     )
     $vendorDir = Join-Path $EngineDir "vendor-wheels"
     New-Item -ItemType Directory -Force -Path $vendorDir | Out-Null
-    $existing = Get-ChildItem $vendorDir -Filter "diffq-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $existing = Get-ChildItem $vendorDir -Filter "diffq-*-cp312*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $existing) {
+        $existing = Get-ChildItem $vendorDir -Filter "diffq-*.whl" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'cp312' } |
+            Select-Object -First 1
+    }
     if ($existing) {
         Write-Host "vendor diffq wheel already present: $($existing.Name)"
         return
+    }
+
+    # Prefer a prebuilt cp312 wheel — sdist needs MSVC (Python.h + C++ Build Tools).
+    $prebuiltCandidates = @(
+        (Join-Path $Root "dist\vocal-wheels-cp312\cpu\wheels"),
+        (Join-Path $Root "dist\vocal-wheels-cp312\gpu\wheels"),
+        (Join-Path $CacheDir "diffq-prebuilt"),
+        (Join-Path $env:LOCALAPPDATA "ItMatZip\engine-runtime\vocal-remover\Lib\site-packages")
+    )
+    foreach ($dir in $prebuiltCandidates) {
+        if (-not (Test-Path -LiteralPath $dir)) { continue }
+        $hit = Get-ChildItem -LiteralPath $dir -Filter "diffq-*-cp312*.whl" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($hit) {
+            Write-Step "Copying prebuilt diffq wheel: $($hit.FullName)"
+            Copy-Item -LiteralPath $hit.FullName -Destination (Join-Path $vendorDir $hit.Name) -Force
+            return
+        }
     }
 
     $buildPython = Resolve-BuildPython -EmbeddableVersion $EmbeddableVersion
     if (-not $buildPython) {
         throw (
             "Full Python $EmbeddableVersion is required to build the diffq cp312 wheel (embeddable Python has no Python.h)." + [char]10 +
-            "  - Install Python $EmbeddableVersion and rebuild, or" + [char]10 +
-            "  - Set env var ITMATZIP_BUILD_PYTHON to python.exe (e.g. C:\Path\To\python.exe)"
+            "  - Place a prebuilt diffq-*-cp312*.whl under go-agent\dist\vocal-wheels-cp312\cpu\wheels, or" + [char]10 +
+            "  - Install Python $EmbeddableVersion + Visual C++ Build Tools and rebuild, or" + [char]10 +
+            "  - Set env var ITMATZIP_BUILD_PYTHON to python.exe"
         )
     }
 
@@ -123,6 +147,13 @@ function Build-DiffqVendorWheel {
         if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
         Expand-ArchiveCompat -Path $wheelZip -DestinationPath $extractDir -Force
     }
+    # Prefer .whl inside the zip if present (newer hub assets)
+    $diffqWhl = Get-ChildItem $extractDir -Recurse -Filter "diffq-*-cp312*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($diffqWhl) {
+        Write-Step "Using diffq wheel from VocalRemover-Lib wheel.zip: $($diffqWhl.Name)"
+        Copy-Item -LiteralPath $diffqWhl.FullName -Destination (Join-Path $vendorDir $diffqWhl.Name) -Force
+        return
+    }
     $diffqTar = Get-ChildItem $extractDir -Recurse -Filter "diffq-*.tar.gz" | Select-Object -First 1
     if (-not $diffqTar) {
         throw "diffq tar.gz not found inside v1.0.4 wheel.zip"
@@ -132,8 +163,11 @@ function Build-DiffqVendorWheel {
     $env:PYTHONNOUSERSITE = "1"
     & $buildPython -m pip wheel $diffqTar.FullName -w $vendorDir --no-deps
     Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue
-    if (-not (Get-ChildItem $vendorDir -Filter "diffq-*.whl" -ErrorAction SilentlyContinue)) {
-        throw "diffq vendor wheel build failed"
+    if (-not (Get-ChildItem $vendorDir -Filter "diffq-*-cp312*.whl" -ErrorAction SilentlyContinue)) {
+        throw (
+            "diffq vendor wheel build failed (usually missing Microsoft Visual C++ Build Tools)." + [char]10 +
+            "  Fix: copy go-agent\dist\vocal-wheels-cp312\cpu\wheels\diffq-*-cp312*.whl into the staging engine\vendor-wheels, or install VS C++ Build Tools and retry."
+        )
     }
 }
 
