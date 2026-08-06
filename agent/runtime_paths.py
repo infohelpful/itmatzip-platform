@@ -97,6 +97,10 @@ def iopaint_runner_script() -> Path:
     return agent_package_root() / "engines" / "iopaint_runner.py"
 
 
+def voice_changer_runner_script() -> Path:
+    return agent_package_root() / "engines" / "voice_changer_runner.py"
+
+
 def codeformer_python_executable() -> Path:
     """
     CodeFormer 추론·prepare용 Python — MSI/엔진 python (3.12).
@@ -125,6 +129,16 @@ def magic_eraser_python_executable() -> Path:
     from engines.iopaint_runtime import iopaint_python
 
     return iopaint_python()
+
+
+def voice_changer_python_executable() -> Path:
+    """
+    Seed-VC 추론·prepare용 Python — MSI/엔진 python (3.12).
+    패키지는 %APPDATA%\\ItMatZip\\engine-runtime\\voice-changer.
+    """
+    from engines.seedvc_runtime import seedvc_python
+
+    return seedvc_python()
 
 
 def pick_script_path() -> Path:

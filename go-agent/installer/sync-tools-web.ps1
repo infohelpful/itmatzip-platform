@@ -30,6 +30,7 @@ New-Item -ItemType Directory -Force -Path $ToolsDst | Out-Null
 Sync-Dir "image-enhancer"
 Sync-Dir "background-remover"
 Sync-Dir "magic-eraser"
+Sync-Dir "voice-changer"
 Sync-Dir "common"
 $silence = Join-Path $ToolsSrc "silence-remover"
 if (Test-Path $silence) {

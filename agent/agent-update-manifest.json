@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.10",
-    "published_at":  "2026-08-05",
+    "version":  "1.5.11",
+    "published_at":  "2026-08-06",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.10/itmatzip-agent.msi",
-    "sha256":  "8daedbafda7f72d5073fffe60a36f50b4d45fcd53e38749699cd158e497e92b3",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.11/itmatzip-agent.msi",
+    "sha256":  "540bad12902a92b0446b3aff007671dba5678471753ffadab697dca19766cbfc",
     "mandatory":  false,
-    "release_notes":  "객체 제거 사이트 추가",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.10/itmatzip-agent.msi",
-    "msi_sha256":  "8daedbafda7f72d5073fffe60a36f50b4d45fcd53e38749699cd158e497e92b3"
+    "release_notes":  "SEED-vc 사이트  추가 ",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.11/itmatzip-agent.msi",
+    "msi_sha256":  "540bad12902a92b0446b3aff007671dba5678471753ffadab697dca19766cbfc"
 }

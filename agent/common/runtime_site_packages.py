@@ -24,6 +24,7 @@ TOOL_IMAGE_ENHANCER = "image-enhancer"
 TOOL_CREATE_MUSIC = "create-music"
 TOOL_BACKGROUND_REMOVER = "background-remover"
 TOOL_MAGIC_ERASER = "magic-eraser"
+TOOL_VOICE_CHANGER = "voice-changer"
 
 # MSI embeddable Python(3.12) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
@@ -34,6 +35,7 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_CREATE_MUSIC,
     TOOL_BACKGROUND_REMOVER,
     TOOL_MAGIC_ERASER,
+    TOOL_VOICE_CHANGER,
 )
 
 # Dedicated venv per tool — same 3.12 major, isolated env.
@@ -84,6 +86,11 @@ def tool_venv_data_root(tool_id: str) -> Path:
 def create_music_data_root() -> Path:
     """Create Music 데이터(소스·캐시·체크포인트) — packages는 engine-runtime."""
     return agent_data_root() / TOOL_CREATE_MUSIC
+
+
+def voice_changer_data_root() -> Path:
+    """Voice Changer 데이터(Seed-VC 소스·HF 캐시·workspace) — packages는 engine-runtime."""
+    return _appdata_root() / TOOL_VOICE_CHANGER
 
 
 def runtime_site_packages_dir(tool_id: str) -> Path:
@@ -254,10 +261,11 @@ def ensure_runtime_directories() -> None:
         runtime_site_packages_dir(tid)
         if not runtime_site_packages_readable(tid):
             ensure_runtime_tree_acl(tid)
-    # Image Enhancer / Background Remover / Magic Eraser / Create Music data — packages live in engine-runtime
+    # Image Enhancer / Background Remover / Magic Eraser / Voice Changer / Create Music data — packages live in engine-runtime
     (_appdata_root() / TOOL_IMAGE_ENHANCER).mkdir(parents=True, exist_ok=True)
     (_appdata_root() / TOOL_BACKGROUND_REMOVER).mkdir(parents=True, exist_ok=True)
     (_appdata_root() / TOOL_MAGIC_ERASER).mkdir(parents=True, exist_ok=True)
+    voice_changer_data_root().mkdir(parents=True, exist_ok=True)
     create_music_data_root().mkdir(parents=True, exist_ok=True)
     for tid in VENV_RUNTIME_TOOL_IDS:
         tool_venv_data_root(tid).mkdir(parents=True, exist_ok=True)

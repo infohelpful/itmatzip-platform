@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover", "magic-eraser"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover", "magic-eraser", "voice-changer"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -76,6 +76,12 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(magicEraserRoot, "models"))
 		ensureDirWritable(filepath.Join(magicEraserRoot, "wheels-cache"))
 		ensureDirWritable(filepath.Join(magicEraserRoot, "workspace"))
+		voiceChangerRoot := filepath.Join(appData, "ItMatZip", "voice-changer")
+		ensureDirWritable(voiceChangerRoot)
+		ensureDirWritable(filepath.Join(voiceChangerRoot, "seed-vc-source"))
+		ensureDirWritable(filepath.Join(voiceChangerRoot, "hf-home"))
+		ensureDirWritable(filepath.Join(voiceChangerRoot, "workspace"))
+		ensureDirWritable(filepath.Join(voiceChangerRoot, "checkpoints"))
 	}
 
 	if settingsRootPath != "" {
