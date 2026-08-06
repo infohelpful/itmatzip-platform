@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>Voice Changer</title>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <div class="logo-area">
+          <span class="badge">AI Powered</span>
+          <div class="logo-title-row">
+            <h1>Voice <span class="accent">Changer</span></h1>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+          </div>
+          <p class="header-tagline">Seed-VC로 소스 음성을 레퍼런스 음색으로 변환합니다.</p>
+        </div>
+        <div class="header-status-col">
+          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
+          <div id="connection-status" class="status-dot" role="status">에이전트 연결 확인 중…</div>
+          <div id="bin-readiness" class="bin-readiness">Voice Changer · 환경 준비 대기</div>
+        </div>
+      </header>
+
+      <div class="editor-ad" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <div class="vocal-editor-shell" id="voice-editor-shell">
+        <section class="drop-zone">
+          <div class="path-input-group">
+            <label for="source-path">소스 음성 (변환할 목소리)</label>
+            <p class="path-hint">본인 말소리·녹음 파일을 선택하세요.</p>
+            <div class="path-row">
+              <input type="text" id="source-path" autocomplete="off" spellcheck="false" placeholder="소스 파일 경로">
+              <button type="button" id="btn-pick-source" class="btn-pick-file">찾아보기</button>
+            </div>
+          </div>
+          <div class="path-input-group path-input-group--second">
+            <label for="reference-path">레퍼런스 음성 (목표 음색)</label>
+            <p class="path-hint">바꾸고 싶은 음색의 짧은 샘플(권장 3~15초)을 선택하세요.</p>
+            <div class="path-row">
+              <input type="text" id="reference-path" autocomplete="off" spellcheck="false" placeholder="레퍼런스 파일 경로">
+              <button type="button" id="btn-pick-reference" class="btn-pick-file">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="media-workspace" id="media-workspace">
+          <section class="options-layout" id="options-panel">
+            <div class="options-main">
+              <div class="options-row">
+                <div class="option-card">
+                  <label for="output-format">출력 포맷</label>
+                  <p class="option-hint">WAV는 무손실, MP3·FLAC은 FFmpeg로 변환합니다.</p>
+                  <select id="output-format" class="option-select">
+                    <option value="wav">WAV</option>
+                    <option value="mp3">MP3</option>
+                    <option value="flac">FLAC</option>
+                  </select>
+                </div>
+                <div class="option-card">
+                  <label for="device-select">실행 장치</label>
+                  <p class="option-hint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
+                  <select id="device-select" class="option-select">
+                    <option value="auto">자동 (권장)</option>
+                    <option value="cuda">CUDA (GPU)</option>
+                    <option value="cpu">CPU</option>
+                  </select>
+                </div>
+                <div class="option-card">
+                  <label for="diffusion-steps">Diffusion steps</label>
+                  <p class="option-hint">높을수록 품질↑ · 시간↑ (권장 25, 노래 30~50)</p>
+                  <input type="number" id="diffusion-steps" class="option-select" min="4" max="100" value="25">
+                </div>
+                <div class="option-card option-card--check">
+                  <label class="check-label" for="f0-condition">
+                    <input type="checkbox" id="f0-condition">
+                    노래 변환 (F0)
+                  </label>
+                  <p class="option-hint">보컬/노래 변환 시 켭니다. 일반 말은 끄세요.</p>
+                </div>
+              </div>
+            </div>
+            <aside class="media-summary-panel" id="job-summary-panel" aria-label="작업 요약">
+              <h4 class="media-summary-title">작업 상태</h4>
+              <dl class="media-summary-list">
+                <div class="media-summary-item">
+                  <dt>준비</dt>
+                  <dd id="summary-model-ready">확인 중</dd>
+                </div>
+                <div class="media-summary-item">
+                  <dt>장치</dt>
+                  <dd id="summary-device">자동</dd>
+                </div>
+                <div class="media-summary-item">
+                  <dt>포맷</dt>
+                  <dd id="summary-format">WAV</dd>
+                </div>
+              </dl>
+            </aside>
+          </section>
+        </div>
+
+        <section class="preview-section" id="preview-section" aria-label="미리듣기">
+          <div class="preview-grid">
+            <div class="preview-card">
+              <h3 class="preview-title">소스</h3>
+              <p class="preview-file" id="source-file-label">선택 대기</p>
+              <audio id="source-audio" controls preload="metadata"></audio>
+            </div>
+            <div class="preview-card">
+              <h3 class="preview-title">레퍼런스</h3>
+              <p class="preview-file" id="reference-file-label">선택 대기</p>
+              <audio id="reference-audio" controls preload="metadata"></audio>
+            </div>
+            <div class="preview-card preview-card--result">
+              <h3 class="preview-title">변환 결과</h3>
+              <p class="preview-file" id="result-file-label">변환 대기</p>
+              <audio id="result-audio" controls preload="metadata"></audio>
+            </div>
+          </div>
+        </section>
+
+        <section class="action-stack" aria-label="실행">
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
+          <button type="button" id="btn-start-convert" class="btn-action btn-action--primary" disabled>변환하기</button>
+          <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
+            <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
+          </a>
+        </section>
+
+        <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <p id="setup-loading-step" class="loading-step"></p>
+            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="setup-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="convert-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="convert-loading-title">목소리 변환</h3>
+            <p id="convert-loading-step" class="loading-step"></p>
+            <p id="convert-loading-message" class="loading-message">처리 중…</p>
+            <p id="convert-loading-percent" class="loading-percent">0%</p>
+            <div id="convert-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="convert-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
+    </main>
+  </div>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="dialog" aria-modal="true">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">Voice Changer는 PC와 로컬 에이전트가 필요한 도구입니다.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script src="../silence-remover/mobile-only.js?v=2"></script>
+  <script type="module" src="script.js?v=3"></script>
+</body>
+</html>

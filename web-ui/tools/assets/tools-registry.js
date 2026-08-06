@@ -107,4 +107,17 @@ export const TOOLS = [
     badge: "AI",
     tags: ["지우기", "erase", "lama", "inpaint", "객체", "magic eraser", "iopaint"],
   },
+  {
+    id: "voice-changer",
+    href: "voice-changer/",
+    title: "Voice Changer",
+    subtitle: "AI 목소리 변환 · Seed-VC",
+    description:
+      "소스 음성을 레퍼런스 음색으로 로컬에서 변환합니다. Seed-VC 모델은 최초 사용 시 다운로드됩니다.",
+    icon: "🗣️",
+    accent: "#14b8a6",
+    available: true,
+    badge: "AI",
+    tags: ["보이스", "voice", "changer", "seed-vc", "변조", "음색", "변환", "ai"],
+  },
 ];

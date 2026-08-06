@@ -1,0 +1,32 @@
+.dl-meta {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  min-height: 1.4em;
+}
+
+.dl-btn-result {
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
+  color: #042f2e;
+  box-shadow: 0 4px 20px rgba(20, 184, 166, 0.35);
+}
+
+.dl-btn-result:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+.dl-nle-item__logo--vc {
+  background: linear-gradient(135deg, #14b8a6, #2dd4bf);
+  color: #042f2e;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.dl-nle-item__steps {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text-dim);
+}

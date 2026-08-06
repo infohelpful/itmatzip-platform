@@ -6,7 +6,7 @@
  * |------|-----|
  * | AGENT_PICK_VIDEO | Silence Detector |
  * | AGENT_PICK_SUBTITLE_MEDIA | Auto Subtitle (영상·오디오 원본) |
- * | AGENT_PICK_AUDIO | Vocal Remover, Create Music |
+ * | AGENT_PICK_AUDIO | Vocal Remover, Create Music, Voice Changer |
  * | AGENT_PICK_IMAGE | Image Enhancer, Auto Subtitle (워터마크 이미지) |
  * | AGENT_PICK_FONT | Auto Subtitle (자막 폰트) |
  * | AGENT_PICK_PROJECT | Auto Subtitle (.autosub 프로젝트) |
