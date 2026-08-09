@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.12",
+    "version":  "1.5.13",
     "published_at":  "2026-08-09",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.12/itmatzip-agent.msi",
-    "sha256":  "44c37199cf523e917d6de3d57d5341f078c172454cc811faac35482862aeecaf",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.13/itmatzip-agent.msi",
+    "sha256":  "3bffb775a00c8ea87e300e5593260992401b198909f05882bf37a03773da60cf",
     "mandatory":  false,
     "release_notes":  "MagicEraser 다중 파일 수정 기능 추가",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.12/itmatzip-agent.msi",
-    "msi_sha256":  "44c37199cf523e917d6de3d57d5341f078c172454cc811faac35482862aeecaf"
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.13/itmatzip-agent.msi",
+    "msi_sha256":  "3bffb775a00c8ea87e300e5593260992401b198909f05882bf37a03773da60cf"
 }
