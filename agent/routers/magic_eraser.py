@@ -36,6 +36,30 @@ class MagicEraserEraseBody(BaseModel):
     timeout_sec: float = Field(1800.0, ge=30.0, le=7200.0)
 
 
+class MagicEraserBatchEraseBody(BaseModel):
+    folder_path: str = Field(..., description="이미지가 들어 있는 로컬 폴더 절대 경로")
+    mask_base64: str = Field(
+        ...,
+        min_length=1,
+        description="첫 이미지에서 그린 PNG/L 마스크 base64. white(255)=지울 영역",
+    )
+    device: str | None = Field(None, description="'cpu' | 'cuda' | None=auto")
+    timeout_sec: float = Field(
+        1800.0,
+        ge=30.0,
+        le=7200.0,
+        description="이미지 1장당 타임아웃(초)",
+    )
+
+
+class MagicEraserScanFolderBody(BaseModel):
+    folder_path: str = Field(..., min_length=1, description="로컬 폴더 절대 경로")
+
+
+class MagicEraserShowInFolderBody(BaseModel):
+    path: str = Field(..., min_length=1, description="탐색기에서 열 파일 또는 폴더 경로")
+
+
 class MagicEraserEraseStatus(BaseModel):
     phase: str
     progress: float
@@ -45,6 +69,12 @@ class MagicEraserEraseStatus(BaseModel):
     output_path: str | None = None
     width: int | None = None
     height: int | None = None
+    batch: bool = False
+    batch_total: int = 0
+    batch_done: int = 0
+    batch_failed: int = 0
+    batch_output_dir: str | None = None
+    folder_path: str | None = None
 
 
 class MagicEraserWorkspaceCleanupResponse(BaseModel):
@@ -259,6 +289,10 @@ def get_prepare_status() -> MagicEraserPrepareStatus:
 
 def _erase_status_payload(job: magic_eraser.EraseJobStatus) -> MagicEraserEraseStatus:
     result = job.result
+    summary = job.batch_summary
+    folder_path = None
+    if summary is not None:
+        folder_path = str(summary.folder_path)
     return MagicEraserEraseStatus(
         phase=job.phase,
         progress=job.progress,
@@ -268,6 +302,12 @@ def _erase_status_payload(job: magic_eraser.EraseJobStatus) -> MagicEraserEraseS
         output_path=str(result.output_path) if result else None,
         width=result.width if result else None,
         height=result.height if result else None,
+        batch=bool(job.batch),
+        batch_total=int(job.batch_total or 0),
+        batch_done=int(job.batch_done or 0),
+        batch_failed=int(job.batch_failed or 0),
+        batch_output_dir=str(job.batch_output_dir) if job.batch_output_dir else None,
+        folder_path=folder_path,
     )
 
 
@@ -312,9 +352,73 @@ def post_erase(body: MagicEraserEraseBody) -> MagicEraserEraseStatus:
     return _erase_status_payload(job)
 
 
+@router.post("/erase-batch", response_model=MagicEraserEraseStatus)
+def post_erase_batch(body: MagicEraserBatchEraseBody) -> MagicEraserEraseStatus:
+    if body.device is not None and body.device not in {"cpu", "cuda"}:
+        raise HTTPException(status_code=400, detail="device는 'cpu' 또는 'cuda' 이어야 합니다.")
+
+    folder = Path(body.folder_path)
+    if not magic_eraser.is_allowed_folder_path(folder):
+        raise HTTPException(status_code=400, detail=f"폴더를 찾을 수 없습니다: {folder}")
+
+    if not magic_eraser.is_model_ready():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Magic Eraser 환경이 준비되지 않았습니다. "
+                "페이지에서 「환경 준비」를 완료한 뒤 다시 시도하세요. "
+                "(PyTorch + LaMa 모델)"
+            ),
+        )
+
+    try:
+        job = magic_eraser.start_batch_erase_job(
+            folder,
+            mask_base64=body.mask_base64,
+            device=body.device,
+            timeout_sec=body.timeout_sec,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _erase_status_payload(job)
+
+
 @router.get("/erase/status", response_model=MagicEraserEraseStatus)
 def get_erase_status() -> MagicEraserEraseStatus:
     return _erase_status_payload(magic_eraser.get_job_status())
+
+
+@router.post("/scan-folder")
+def post_scan_folder(body: MagicEraserScanFolderBody) -> dict[str, object]:
+    folder = Path(body.folder_path)
+    if not magic_eraser.is_allowed_folder_path(folder):
+        raise HTTPException(status_code=400, detail=f"폴더를 찾을 수 없습니다: {folder}")
+    try:
+        images = magic_eraser.list_folder_images(folder)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    first = images[0] if images else None
+    return {
+        "ok": True,
+        "folder_path": str(folder.resolve()),
+        "count": len(images),
+        "images": [str(path) for path in images],
+        "first_image": str(first) if first else None,
+        "output_dir": str(magic_eraser.batch_output_dir_for(folder)),
+        "allowed_suffixes": sorted(magic_eraser.ALLOWED_IMAGE_SUFFIXES),
+    }
+
+
+@router.post("/show-in-folder")
+def post_show_in_folder(body: MagicEraserShowInFolderBody) -> dict[str, object]:
+    path_obj = Path(body.path)
+    try:
+        magic_eraser.show_path_in_folder(path_obj)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"탐색기 열기 실패: {exc}") from None
+    return {"ok": True, "path": str(path_obj.resolve())}
 
 
 @router.post("/workspace/cleanup", response_model=MagicEraserWorkspaceCleanupResponse)

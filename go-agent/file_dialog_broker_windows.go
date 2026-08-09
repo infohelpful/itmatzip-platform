@@ -79,3 +79,26 @@ func pickFileViaUserDialog(audioOnly bool, projectOnly bool, fontOnly bool, imag
 	}
 	return strings.TrimSpace(path), nil
 }
+
+func pickFolderViaUserDialog() (string, error) {
+	title := "ItMatZip — 이미지 폴더 선택"
+	fgHwnd := windows.GetForegroundWindow()
+
+	opts := []zenity.Option{
+		zenity.Title(title),
+		zenity.Directory(),
+	}
+	if fgHwnd != 0 {
+		opts = append(opts, zenity.Attach(fgHwnd))
+		opts = append(opts, zenity.Modal())
+	}
+
+	path, err := zenity.SelectFile(opts...)
+	if err == zenity.ErrCanceled {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("폴더 대화상자 오류: %v", err)
+	}
+	return strings.TrimSpace(path), nil
+}

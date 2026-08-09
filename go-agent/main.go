@@ -247,6 +247,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	mux.HandleFunc("/api/agent/pick-local-image-file", func(w http.ResponseWriter, r *http.Request) {
 		handlePickLocalFile(w, r, false, false, false, true)
 	})
+	mux.HandleFunc("/api/agent/pick-local-folder", handlePickLocalFolder)
 	mux.HandleFunc("/api/agent/read-local-image", handleReadLocalImage)
 	mountBundledToolsWeb(mux)
 	mountAutoSubtitleMediaRoutes(mux)
@@ -503,4 +504,31 @@ func handlePickLocalFile(w http.ResponseWriter, r *http.Request, audioOnly bool,
 		return
 	}
 	writeAgentPickJSON(w, http.StatusOK, map[string]any{"video_path": path})
+}
+
+func handlePickLocalFolder(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !isCurrentProcessInteractive() {
+		writeAgentPickJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"detail": "폴더 선택 창을 띄울 수 없습니다. 작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.",
+		})
+		return
+	}
+
+	path, err := pickFolderViaUserDialog()
+	if err != nil {
+		writeAgentPickJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"detail": fmt.Sprintf("폴더 대화상자 오류: %v", err),
+		})
+		return
+	}
+	if strings.TrimSpace(path) == "" {
+		writeAgentPickJSON(w, http.StatusOK, map[string]any{"path": "", "cancelled": true})
+		return
+	}
+	writeAgentPickJSON(w, http.StatusOK, map[string]any{"path": path})
 }

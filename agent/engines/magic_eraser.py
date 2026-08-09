@@ -34,6 +34,7 @@ MANIFEST_PATH = MAGIC_ERASER_ROOT / "prepare-manifest.json"
 
 ALLOWED_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".jfif"}
 ALLOWED_MASK_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+BATCH_OUTPUT_DIR_NAME = "magic-eraser-out"
 
 _MIN_LAMA_MODEL_BYTES = 50_000_000
 _MAX_MASK_BASE64_BYTES = 40 * 1024 * 1024  # 디코딩 후 원본 이미지 크기 상한
@@ -52,11 +53,29 @@ class EraseResult:
 
 
 @dataclass
+class BatchEraseSummary:
+    folder_path: Path
+    output_dir: Path
+    total: int
+    done: int
+    failed: int
+    first_original_path: Path | None = None
+    first_output_path: Path | None = None
+    errors: list[str] | None = None
+
+
+@dataclass
 class EraseJobStatus:
     phase: str
     progress: float
     message: str | None = None
     result: EraseResult | None = None
+    batch: bool = False
+    batch_total: int = 0
+    batch_done: int = 0
+    batch_failed: int = 0
+    batch_output_dir: Path | None = None
+    batch_summary: BatchEraseSummary | None = None
 
 
 _job_lock = threading.RLock()
@@ -155,6 +174,12 @@ def get_job_status() -> EraseJobStatus:
             progress=_job.progress,
             message=_job.message,
             result=_job.result,
+            batch=_job.batch,
+            batch_total=_job.batch_total,
+            batch_done=_job.batch_done,
+            batch_failed=_job.batch_failed,
+            batch_output_dir=_job.batch_output_dir,
+            batch_summary=_job.batch_summary,
         )
 
 
@@ -163,6 +188,14 @@ def _set_job(
     progress: float,
     message: str | None = None,
     result: EraseResult | None = None,
+    *,
+    batch: bool | None = None,
+    batch_total: int | None = None,
+    batch_done: int | None = None,
+    batch_failed: int | None = None,
+    batch_output_dir: Path | None = None,
+    batch_summary: BatchEraseSummary | None = None,
+    clear_batch: bool = False,
 ) -> None:
     with _job_lock:
         _job.phase = phase
@@ -170,6 +203,25 @@ def _set_job(
         _job.message = message
         if result is not None or phase in {"idle", "failed"}:
             _job.result = result
+        if clear_batch:
+            _job.batch = False
+            _job.batch_total = 0
+            _job.batch_done = 0
+            _job.batch_failed = 0
+            _job.batch_output_dir = None
+            _job.batch_summary = None
+        if batch is not None:
+            _job.batch = batch
+        if batch_total is not None:
+            _job.batch_total = batch_total
+        if batch_done is not None:
+            _job.batch_done = batch_done
+        if batch_failed is not None:
+            _job.batch_failed = batch_failed
+        if batch_output_dir is not None:
+            _job.batch_output_dir = batch_output_dir
+        if batch_summary is not None:
+            _job.batch_summary = batch_summary
 
 
 def cleanup_workspace() -> dict[str, object]:
@@ -190,6 +242,12 @@ def cleanup_workspace() -> dict[str, object]:
         _job.progress = 0.0
         _job.message = "작업 공간이 정리되었습니다."
         _job.result = None
+        _job.batch = False
+        _job.batch_total = 0
+        _job.batch_done = 0
+        _job.batch_failed = 0
+        _job.batch_output_dir = None
+        _job.batch_summary = None
 
     for entry in list(WORKSPACE_ROOT.iterdir()):
         try:
@@ -521,7 +579,12 @@ def start_erase_job(
     with _job_lock:
         if _job_thread is not None and _job_thread.is_alive():
             return get_job_status()
-        _set_job("running", 2.0, "지우기 작업을 시작합니다…")
+        _set_job(
+            "running",
+            2.0,
+            "지우기 작업을 시작합니다…",
+            clear_batch=True,
+        )
         _job_thread = threading.Thread(
             target=_run_job,
             args=(input_path, mask_path, mask_base64, device, timeout_sec),
@@ -529,6 +592,258 @@ def start_erase_job(
         )
         _job_thread.start()
     return get_job_status()
+
+
+def is_allowed_folder_path(path: Path) -> bool:
+    resolved = path.resolve()
+    return resolved.is_dir()
+
+
+def list_folder_images(folder: Path) -> list[Path]:
+    """폴더 직속 이미지만 반환 (magic-eraser-out 하위·숨김 파일 제외)."""
+    resolved = folder.resolve()
+    if not resolved.is_dir():
+        raise ValueError(f"폴더를 찾을 수 없습니다: {resolved}")
+
+    images: list[Path] = []
+    for entry in sorted(resolved.iterdir(), key=lambda p: p.name.lower()):
+        if not entry.is_file():
+            continue
+        name = entry.name
+        if name.startswith("."):
+            continue
+        if entry.suffix.lower() not in ALLOWED_IMAGE_SUFFIXES:
+            continue
+        images.append(entry.resolve())
+    return images
+
+
+def batch_output_dir_for(folder: Path) -> Path:
+    return folder.resolve() / BATCH_OUTPUT_DIR_NAME
+
+
+def _copy_result_to_batch_output(result: EraseResult, dest: Path) -> Path:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(result.output_path, dest)
+    return dest.resolve()
+
+
+def _run_batch_job(
+    folder_path: Path,
+    mask_base64: str,
+    device: str | None,
+    timeout_sec: float,
+) -> None:
+    errors: list[str] = []
+    first_original: Path | None = None
+    first_output: Path | None = None
+    first_result: EraseResult | None = None
+    done = 0
+    failed = 0
+
+    try:
+        images = list_folder_images(folder_path)
+        total = len(images)
+        if total == 0:
+            raise ValueError("폴더에 지원하는 이미지가 없습니다.")
+
+        output_dir = batch_output_dir_for(folder_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        shared_mask = WORKSPACE_ROOT / f"batch-mask-{int(time.time() * 1000)}.png"
+        _decode_mask_base64(mask_base64, shared_mask)
+
+        _set_job(
+            "running",
+            1.0,
+            f"폴더 일괄 지우기 시작 ({total}장)…",
+            batch=True,
+            batch_total=total,
+            batch_done=0,
+            batch_failed=0,
+            batch_output_dir=output_dir,
+        )
+
+        for index, image_path in enumerate(images):
+            base = ((index) / total) * 100.0
+            span = 100.0 / total
+
+            def on_progress(pct: float, message: str, *, _i=index, _base=base, _span=span) -> None:
+                overall = min(99.0, _base + (max(0.0, min(100.0, pct)) / 100.0) * _span)
+                _set_job(
+                    "running",
+                    overall,
+                    f"[{_i + 1}/{total}] {image_path.name}: {message}",
+                    batch=True,
+                    batch_total=total,
+                    batch_done=done,
+                    batch_failed=failed,
+                    batch_output_dir=output_dir,
+                )
+
+            try:
+                on_progress(4.0, "시작")
+                result = erase(
+                    image_path,
+                    mask_path=shared_mask,
+                    device=device,
+                    timeout_sec=timeout_sec,
+                    on_progress=on_progress,
+                )
+                dest = output_dir / f"{image_path.stem}.png"
+                copied = _copy_result_to_batch_output(result, dest)
+                done += 1
+                if first_original is None:
+                    first_original = image_path.resolve()
+                    first_output = copied
+                    first_result = EraseResult(
+                        original_path=first_original,
+                        mask_path=result.mask_path,
+                        output_path=copied,
+                        width=result.width,
+                        height=result.height,
+                    )
+            except Exception as exc:
+                failed += 1
+                errors.append(f"{image_path.name}: {exc}")
+                _set_job(
+                    "running",
+                    min(99.0, ((index + 1) / total) * 100.0),
+                    f"[{index + 1}/{total}] {image_path.name} 실패 — 다음 이미지로 계속",
+                    batch=True,
+                    batch_total=total,
+                    batch_done=done,
+                    batch_failed=failed,
+                    batch_output_dir=output_dir,
+                )
+
+        summary = BatchEraseSummary(
+            folder_path=folder_path.resolve(),
+            output_dir=output_dir.resolve(),
+            total=total,
+            done=done,
+            failed=failed,
+            first_original_path=first_original,
+            first_output_path=first_output,
+            errors=errors or None,
+        )
+
+        if done == 0:
+            detail = errors[0] if errors else "처리된 이미지가 없습니다."
+            _set_job(
+                "failed",
+                0.0,
+                f"폴더 일괄 지우기 실패: {detail}",
+                batch=True,
+                batch_total=total,
+                batch_done=done,
+                batch_failed=failed,
+                batch_output_dir=output_dir,
+                batch_summary=summary,
+            )
+            return
+
+        message = f"완료 — {done}/{total}장 저장"
+        if failed:
+            message += f" (실패 {failed}장)"
+        _set_job(
+            "ready",
+            100.0,
+            message,
+            result=first_result,
+            batch=True,
+            batch_total=total,
+            batch_done=done,
+            batch_failed=failed,
+            batch_output_dir=output_dir,
+            batch_summary=summary,
+        )
+    except Exception as exc:
+        _set_job(
+            "failed",
+            0.0,
+            str(exc),
+            batch=True,
+            batch_summary=BatchEraseSummary(
+                folder_path=folder_path.resolve(),
+                output_dir=batch_output_dir_for(folder_path),
+                total=0,
+                done=done,
+                failed=failed,
+                first_original_path=first_original,
+                first_output_path=first_output,
+                errors=errors or [str(exc)],
+            ),
+        )
+
+
+def start_batch_erase_job(
+    folder_path: Path,
+    *,
+    mask_base64: str,
+    device: str | None = None,
+    timeout_sec: float = 1800.0,
+) -> EraseJobStatus:
+    global _job_thread
+
+    if not mask_base64 or not str(mask_base64).strip():
+        raise ValueError("mask_base64 가 필요합니다.")
+    if not is_allowed_folder_path(folder_path):
+        raise ValueError(f"폴더를 찾을 수 없습니다: {folder_path}")
+    images = list_folder_images(folder_path)
+    if not images:
+        raise ValueError("폴더에 지원하는 이미지가 없습니다.")
+
+    with _job_lock:
+        if _job_thread is not None and _job_thread.is_alive():
+            return get_job_status()
+        output_dir = batch_output_dir_for(folder_path)
+        _set_job(
+            "running",
+            1.0,
+            f"폴더 일괄 지우기 준비 중… ({len(images)}장)",
+            clear_batch=True,
+            batch=True,
+            batch_total=len(images),
+            batch_done=0,
+            batch_failed=0,
+            batch_output_dir=output_dir,
+        )
+        _job_thread = threading.Thread(
+            target=_run_batch_job,
+            args=(folder_path, mask_base64, device, timeout_sec),
+            daemon=True,
+        )
+        _job_thread.start()
+    return get_job_status()
+
+
+def show_path_in_folder(path: Path) -> None:
+    """탐색기에서 파일 선택 또는 폴더 열기."""
+    import platform
+    import subprocess
+
+    resolved = path.resolve()
+    system = platform.system()
+    if resolved.is_file():
+        if system == "Windows":
+            subprocess.run(["explorer", "/select,", str(resolved)], check=False)
+            return
+        if system == "Darwin":
+            subprocess.run(["open", "-R", str(resolved)], check=False)
+            return
+        subprocess.run(["xdg-open", str(resolved.parent)], check=False)
+        return
+    if resolved.is_dir():
+        if system == "Windows":
+            subprocess.run(["explorer", str(resolved)], check=False)
+            return
+        if system == "Darwin":
+            subprocess.run(["open", str(resolved)], check=False)
+            return
+        subprocess.run(["xdg-open", str(resolved)], check=False)
+        return
+    raise FileNotFoundError(f"경로를 찾을 수 없습니다: {resolved}")
 
 
 def workspace_env_summary() -> dict[str, object]:
