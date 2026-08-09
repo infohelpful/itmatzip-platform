@@ -249,6 +249,19 @@ body {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.source-mode-select {
+  flex: 0 0 auto;
+  min-width: 88px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0f1318;
+  color: var(--text-main);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .path-row input {
@@ -259,6 +272,12 @@ body {
   border: 1px solid var(--border);
   background: #0f1318;
   color: var(--text-main);
+}
+
+.folder-meta {
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  color: var(--text-muted, #9ca3af);
 }
 
 .btn-pick-file,

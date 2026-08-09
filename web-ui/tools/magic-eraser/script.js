@@ -11,7 +11,7 @@ import {
   setAgentLongOperationActive,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna21";
-import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
+import { AGENT_PICK_FOLDER, AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
@@ -37,20 +37,28 @@ const SS = {
   sourceName: "magic-eraser:dl-source-name",
   editorPath: "magic-eraser:editor-image-path",
   returnFromDl: "magic-eraser:return-from-dl",
+  sourceMode: "magic-eraser:source-mode",
+  folderPath: "magic-eraser:folder-path",
+  batchOutputDir: "magic-eraser:batch-output-dir",
+  batchCount: "magic-eraser:batch-count",
 };
 
 const els = {
   imagePath: document.getElementById("image-path"),
+  sourceMode: document.getElementById("source-mode"),
   pick: document.getElementById("btn-pick-local-file"),
   newJob: document.getElementById("btn-new-job"),
   prepare: document.getElementById("btn-prepare"),
   start: document.getElementById("btn-start-erase"),
   exportLink: document.getElementById("export-link"),
+  openOutputFolder: document.getElementById("btn-open-output-folder"),
   device: document.getElementById("device-select"),
   shell: document.getElementById("enhancer-content-shell"),
   connection: document.getElementById("connection-status"),
   compute: document.getElementById("compute-capability"),
   readiness: document.getElementById("bin-readiness"),
+  pathHint: document.getElementById("path-hint"),
+  folderMeta: document.getElementById("folder-meta"),
   previewEmpty: document.getElementById("preview-empty"),
   canvasStage: document.getElementById("canvas-stage"),
   editCanvas: document.getElementById("edit-canvas"),
@@ -72,6 +80,8 @@ const els = {
   summaryDevice: document.getElementById("summary-device"),
   summaryBrush: document.getElementById("summary-brush"),
   summaryMask: document.getElementById("summary-mask"),
+  summaryFolderRow: document.getElementById("summary-folder-row"),
+  summaryFolder: document.getElementById("summary-folder"),
   setupOverlay: document.getElementById("setup-loading"),
   setupStep: document.getElementById("setup-loading-step"),
   setupMessage: document.getElementById("setup-loading-message"),
@@ -88,6 +98,10 @@ const els = {
 let toolReady = false;
 let agentOk = false;
 let currentImagePath = "";
+let currentFolderPath = "";
+/** @type {string[]} */
+let folderImagePaths = [];
+let batchOutputDir = "";
 let outputPath = "";
 let currentTool = "brush";
 let brushSize = 24;
@@ -130,6 +144,59 @@ function setExportEnabled(enabled) {
   els.exportLink.setAttribute("aria-disabled", enabled ? "false" : "true");
 }
 
+function isFolderMode() {
+  return (els.sourceMode?.value || "file") === "folder";
+}
+
+function setOpenOutputFolderEnabled(enabled) {
+  if (!els.openOutputFolder) return;
+  const show = Boolean(batchOutputDir);
+  els.openOutputFolder.hidden = !show;
+  els.openOutputFolder.disabled = !enabled || !batchOutputDir;
+}
+
+function updateSourceModeUi() {
+  const folder = isFolderMode();
+  if (els.imagePath) {
+    els.imagePath.placeholder = folder ? "폴더 경로" : "파일 경로";
+  }
+  if (els.pathHint) {
+    els.pathHint.textContent = folder
+      ? "폴더를 선택하면 첫 이미지가 표시됩니다. 워터마크 영역을 칠한 뒤 「지우기 실행」하면 폴더 전체에 동일 마스크가 적용됩니다."
+      : "이미지를 선택하면 편집 화면에 원본이 표시됩니다.";
+  }
+  if (els.canvasHint && !els.canvasHint.hidden) {
+    els.canvasHint.textContent = folder
+      ? "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다."
+      : "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.";
+  }
+  updateFolderMeta();
+}
+
+function updateFolderMeta() {
+  const folder = isFolderMode() && currentFolderPath;
+  if (els.folderMeta) {
+    if (folder && folderImagePaths.length) {
+      els.folderMeta.hidden = false;
+      els.folderMeta.textContent = `${folderImagePaths.length}장 · 대표 이미지로 마스크를 칠한 뒤 일괄 적용합니다.`;
+    } else if (folder) {
+      els.folderMeta.hidden = false;
+      els.folderMeta.textContent = "폴더에 지원 이미지가 없습니다.";
+    } else {
+      els.folderMeta.hidden = true;
+      els.folderMeta.textContent = "";
+    }
+  }
+  if (els.summaryFolderRow) {
+    els.summaryFolderRow.hidden = !folder;
+  }
+  if (els.summaryFolder) {
+    els.summaryFolder.textContent = folder
+      ? `${folderImagePaths.length}장`
+      : "—";
+  }
+}
+
 function updateSummary() {
   if (els.summaryDevice) {
     const device = els.device?.value || "auto";
@@ -138,11 +205,15 @@ function updateSummary() {
   }
   if (els.summaryBrush) els.summaryBrush.textContent = `${brushSize}px`;
   if (els.summaryMask) els.summaryMask.textContent = hasMaskPaint ? "칠해짐" : "비어 있음";
+  updateFolderMeta();
 }
 
 function updateEraseButtonState() {
   if (!els.start) return;
-  els.start.disabled = !currentImagePath || !hasMaskPaint;
+  const hasSource = isFolderMode()
+    ? Boolean(currentFolderPath && currentImagePath && folderImagePaths.length)
+    : Boolean(currentImagePath);
+  els.start.disabled = !hasSource || !hasMaskPaint;
 }
 
 function syncShellBusy() {
@@ -314,9 +385,18 @@ function showCanvasEditor() {
   if (els.canvasStage) els.canvasStage.hidden = false;
   if (els.compare) els.compare.hidden = true;
   if (els.brushToolbar) els.brushToolbar.hidden = false;
-  if (els.canvasHint) els.canvasHint.hidden = false;
+  if (els.canvasHint) {
+    els.canvasHint.hidden = false;
+    els.canvasHint.textContent = isFolderMode()
+      ? "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다."
+      : "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.";
+  }
   if (els.compareHint) els.compareHint.hidden = true;
-  if (els.previewHeading) els.previewHeading.textContent = "브러시로 지울 영역을 칠하세요";
+  if (els.previewHeading) {
+    els.previewHeading.textContent = isFolderMode()
+      ? "폴더 대표 이미지 — 지울 영역을 칠하세요"
+      : "브러시로 지울 영역을 칠하세요";
+  }
 }
 
 function showComparePreview() {
@@ -325,8 +405,17 @@ function showComparePreview() {
   if (els.compare) els.compare.hidden = false;
   if (els.brushToolbar) els.brushToolbar.hidden = true;
   if (els.canvasHint) els.canvasHint.hidden = true;
-  if (els.compareHint) els.compareHint.hidden = false;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 ↔ 결과 비교";
+  if (els.compareHint) {
+    els.compareHint.hidden = false;
+    els.compareHint.textContent = isFolderMode()
+      ? "첫 이미지 비교입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요."
+      : "슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.";
+  }
+  if (els.previewHeading) {
+    els.previewHeading.textContent = isFolderMode()
+      ? "원본 ↔ 결과 비교 (대표 1장)"
+      : "원본 ↔ 결과 비교";
+  }
   setCompareSplit(50);
 }
 
@@ -638,32 +727,113 @@ async function cleanupWorkspace() {
   }
 }
 
+async function loadImagePathIntoEditor(path, previewUrl = "") {
+  currentImagePath = path;
+  outputPath = "";
+  batchOutputDir = "";
+  setExportEnabled(false);
+  setOpenOutputFolderEnabled(false);
+  if (els.imagePath && !isFolderMode()) els.imagePath.value = path;
+  const url = await resolveImageSrc(path, previewUrl);
+  const img = await loadImageElement(url);
+  await setupCanvasesForImage(img);
+  showCanvasEditor();
+  updateEraseButtonState();
+}
+
+async function adoptFolder(folderPath) {
+  const data = await requestAgent({
+    method: "POST",
+    path: `${API}/scan-folder`,
+    json: { folder_path: folderPath },
+  });
+  const images = Array.isArray(data?.images) ? data.images.map((p) => String(p)) : [];
+  const first = String(data?.first_image || images[0] || "").trim();
+  if (!first) {
+    throw new Error("폴더에 지원하는 이미지(.jpg/.png/.webp 등)가 없습니다.");
+  }
+  currentFolderPath = String(data?.folder_path || folderPath);
+  folderImagePaths = images;
+  batchOutputDir = "";
+  if (els.imagePath) els.imagePath.value = currentFolderPath;
+  await loadImagePathIntoEditor(first);
+  updateFolderMeta();
+  updateEraseButtonState();
+}
+
 async function pickLocalImage() {
   await primeLocalNetworkAccess();
   const data = await requestAgent({
     method: "POST",
     path: AGENT_PICK_IMAGE,
   });
+  if (data?.cancelled) return;
   const path = String(data?.path || "").trim();
   if (!path) throw new Error("이미지를 선택하지 않았습니다.");
-  currentImagePath = path;
-  outputPath = "";
-  setExportEnabled(false);
-  if (els.imagePath) els.imagePath.value = path;
-  const url = await resolveImageSrc(path, data?.preview_url || "");
-  const img = await loadImageElement(url);
-  await setupCanvasesForImage(img);
-  showCanvasEditor();
+  currentFolderPath = "";
+  folderImagePaths = [];
+  batchOutputDir = "";
+  updateFolderMeta();
+  await loadImagePathIntoEditor(path, data?.preview_url || "");
 }
 
-async function adoptTypedImagePath() {
+async function pickLocalFolder() {
+  await primeLocalNetworkAccess();
+  const data = await requestAgent({
+    method: "POST",
+    path: AGENT_PICK_FOLDER,
+  });
+  if (data?.cancelled) return;
+  const path = String(data?.path || "").trim();
+  if (!path) throw new Error("폴더를 선택하지 않았습니다.");
+  await adoptFolder(path);
+}
+
+async function pickByCurrentMode() {
+  if (isFolderMode()) {
+    await pickLocalFolder();
+  } else {
+    await pickLocalImage();
+  }
+}
+
+async function adoptTypedPath() {
   const path = els.imagePath?.value.trim() || "";
+  if (isFolderMode()) {
+    if (path === currentFolderPath) return;
+    outputPath = "";
+    batchOutputDir = "";
+    setExportEnabled(false);
+    setOpenOutputFolderEnabled(false);
+    if (!path) {
+      currentFolderPath = "";
+      folderImagePaths = [];
+      currentImagePath = "";
+      updateFolderMeta();
+      showEmptyState();
+      updateEraseButtonState();
+      return;
+    }
+    try {
+      await adoptFolder(path);
+    } catch {
+      /* 입력 중인 불완전한 경로 */
+    }
+    return;
+  }
+
   if (path === currentImagePath) return;
+  currentFolderPath = "";
+  folderImagePaths = [];
   currentImagePath = path;
   outputPath = "";
+  batchOutputDir = "";
   setExportEnabled(false);
+  setOpenOutputFolderEnabled(false);
+  updateFolderMeta();
   if (!path) {
     showEmptyState();
+    updateEraseButtonState();
     return;
   }
   try {
@@ -671,6 +841,7 @@ async function adoptTypedImagePath() {
     const img = await loadImageElement(url);
     await setupCanvasesForImage(img);
     showCanvasEditor();
+    updateEraseButtonState();
   } catch {
     /* 입력 중인 불완전한 경로 — 미리보기는 비워 둔다 */
   }
@@ -680,15 +851,33 @@ function persistDownloadSession() {
   if (!outputPath) return;
   sessionStorage.setItem(SS.output, outputPath);
   sessionStorage.setItem(SS.original, currentImagePath || "");
-  sessionStorage.setItem(
-    SS.sourceName,
-    (currentImagePath.split(/[\\/]/).pop() || "image").replace(/\.[^.]+$/, "") + "-erased",
-  );
+  const baseName =
+    (currentImagePath.split(/[\\/]/).pop() || "image").replace(/\.[^.]+$/, "") + "-erased";
+  sessionStorage.setItem(SS.sourceName, baseName);
   sessionStorage.setItem(SS.editorPath, currentImagePath || "");
+  sessionStorage.setItem(SS.sourceMode, isFolderMode() ? "folder" : "file");
+  sessionStorage.setItem(SS.folderPath, currentFolderPath || "");
+  sessionStorage.setItem(SS.batchOutputDir, batchOutputDir || "");
+  sessionStorage.setItem(SS.batchCount, String(folderImagePaths.length || 0));
+}
+
+async function openOutputFolder() {
+  const target = batchOutputDir || outputPath;
+  if (!target) return;
+  await requestAgent({
+    method: "POST",
+    path: `${API}/show-in-folder`,
+    json: { path: target },
+  });
 }
 
 async function runErase() {
-  if (!currentImagePath) {
+  if (isFolderMode()) {
+    if (!currentFolderPath || !folderImagePaths.length) {
+      alert("폴더를 먼저 선택하세요.");
+      return;
+    }
+  } else if (!currentImagePath) {
     alert("이미지를 먼저 선택하세요.");
     return;
   }
@@ -708,24 +897,63 @@ async function runErase() {
     }
   }
 
+  const maskBase64 = exportMaskBase64();
+  const device = els.device?.value === "auto" ? null : els.device?.value;
+
   setAgentLongOperationActive(true);
   try {
-    setBusy("erase", true, 3, "시작", "지우기를 시작합니다…");
-    const body = {
-      image_path: currentImagePath,
-      mask_base64: exportMaskBase64(),
-      device: els.device?.value === "auto" ? null : els.device?.value,
-      timeout_sec: 1800,
-    };
-    await requestAgent({ method: "POST", path: `${API}/erase`, json: body });
+    if (isFolderMode()) {
+      setBusy(
+        "erase",
+        true,
+        2,
+        "폴더 일괄",
+        `${folderImagePaths.length}장에 동일 마스크를 적용합니다…`,
+      );
+      await requestAgent({
+        method: "POST",
+        path: `${API}/erase-batch`,
+        json: {
+          folder_path: currentFolderPath,
+          mask_base64: maskBase64,
+          device,
+          timeout_sec: 1800,
+        },
+      });
+    } else {
+      setBusy("erase", true, 3, "시작", "지우기를 시작합니다…");
+      await requestAgent({
+        method: "POST",
+        path: `${API}/erase`,
+        json: {
+          image_path: currentImagePath,
+          mask_base64: maskBase64,
+          device,
+          timeout_sec: 1800,
+        },
+      });
+    }
+
     const status = await pollEraseStatus();
     outputPath = String(status?.output_path || "");
     if (!outputPath) throw new Error("결과 경로가 없습니다.");
+    if (status?.original_path) {
+      currentImagePath = String(status.original_path);
+    }
+    batchOutputDir = String(status?.batch_output_dir || "").trim();
     persistDownloadSession();
     setExportEnabled(true);
+    setOpenOutputFolderEnabled(Boolean(batchOutputDir));
     showComparePreview();
     await loadImageInto(els.compareOriginal, currentImagePath);
     await loadImageInto(els.compareResult, outputPath);
+    if (isFolderMode() && status?.batch_failed) {
+      alert(
+        `일괄 지우기 완료: ${status.batch_done}/${status.batch_total}장 성공` +
+          (status.batch_failed ? `, 실패 ${status.batch_failed}장` : "") +
+          `\n결과 폴더: ${batchOutputDir || "(확인 필요)"}`,
+      );
+    }
   } finally {
     setBusy("erase", false);
     setAgentLongOperationActive(false);
@@ -736,6 +964,9 @@ async function resetEditor() {
   revokePreviewUrls();
   await cleanupWorkspace();
   currentImagePath = "";
+  currentFolderPath = "";
+  folderImagePaths = [];
+  batchOutputDir = "";
   outputPath = "";
   baseImage = null;
   naturalWidth = 0;
@@ -745,6 +976,7 @@ async function resetEditor() {
   hasMaskPaint = false;
   if (els.imagePath) els.imagePath.value = "";
   setExportEnabled(false);
+  setOpenOutputFolderEnabled(false);
   updateEraseButtonState();
   updateSummary();
   showEmptyState();
@@ -752,6 +984,10 @@ async function resetEditor() {
   sessionStorage.removeItem(SS.original);
   sessionStorage.removeItem(SS.sourceName);
   sessionStorage.removeItem(SS.editorPath);
+  sessionStorage.removeItem(SS.sourceMode);
+  sessionStorage.removeItem(SS.folderPath);
+  sessionStorage.removeItem(SS.batchOutputDir);
+  sessionStorage.removeItem(SS.batchCount);
 }
 
 async function restoreEditorAfterDownload() {
@@ -760,10 +996,21 @@ async function restoreEditorAfterDownload() {
   const path = sessionStorage.getItem(SS.editorPath) || "";
   const savedOutput = sessionStorage.getItem(SS.output) || "";
   if (!path || !savedOutput) return;
+  const mode = sessionStorage.getItem(SS.sourceMode) || "file";
+  if (els.sourceMode) els.sourceMode.value = mode === "folder" ? "folder" : "file";
+  updateSourceModeUi();
   currentImagePath = path;
   outputPath = savedOutput;
-  if (els.imagePath) els.imagePath.value = path;
+  currentFolderPath = sessionStorage.getItem(SS.folderPath) || "";
+  batchOutputDir = sessionStorage.getItem(SS.batchOutputDir) || "";
+  const count = Number(sessionStorage.getItem(SS.batchCount) || "0");
+  folderImagePaths = count > 0 ? Array.from({ length: count }, () => "") : [];
+  if (els.imagePath) {
+    els.imagePath.value = isFolderMode() && currentFolderPath ? currentFolderPath : path;
+  }
   setExportEnabled(true);
+  setOpenOutputFolderEnabled(Boolean(batchOutputDir));
+  updateFolderMeta();
   showComparePreview();
   try {
     await loadImageInto(els.compareOriginal, path);
@@ -783,14 +1030,18 @@ function wireControls() {
   els.toolBrush?.addEventListener("click", () => setTool("brush"));
   els.toolEraser?.addEventListener("click", () => setTool("eraser"));
   els.clearMask?.addEventListener("click", () => clearMask());
+  els.sourceMode?.addEventListener("change", () => {
+    updateSourceModeUi();
+    void resetEditor().catch(() => {});
+  });
 
   let pathDebounce = null;
   els.imagePath?.addEventListener("input", () => {
     clearTimeout(pathDebounce);
-    pathDebounce = setTimeout(() => void adoptTypedImagePath(), 400);
+    pathDebounce = setTimeout(() => void adoptTypedPath(), 400);
   });
   els.pick?.addEventListener("click", () => {
-    void pickLocalImage().catch((err) => alert(formatAgentConnectionError(err)));
+    void pickByCurrentMode().catch((err) => alert(formatAgentConnectionError(err)));
   });
   els.prepare?.addEventListener("click", () => {
     void prepareModel({ force: false }).catch((err) => alert(String(err?.message || err)));
@@ -800,6 +1051,9 @@ function wireControls() {
   });
   els.newJob?.addEventListener("click", () => {
     void resetEditor().catch(() => {});
+  });
+  els.openOutputFolder?.addEventListener("click", () => {
+    void openOutputFolder().catch((err) => alert(String(err?.message || err)));
   });
   els.exportLink?.addEventListener("click", (ev) => {
     if (!outputPath) {
@@ -815,9 +1069,11 @@ async function boot() {
   wireCanvasPainting();
   wireControls();
   setTool("brush");
+  updateSourceModeUi();
   updateSummary();
   updateEraseButtonState();
   setExportEnabled(false);
+  setOpenOutputFolderEnabled(false);
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
 
