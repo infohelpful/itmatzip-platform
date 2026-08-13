@@ -32,9 +32,9 @@ func toolsWebBase() string {
 	return "https://tools.itmatzip.com"
 }
 
-func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicEraser, voiceChanger string) {
+func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicEraser, voiceChanger, watermarkRemover string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/watermark-remover/"
 }
 
 func resolveTrayIconPath() string {
@@ -195,7 +195,7 @@ func onTrayReady(port int, iconData []byte) {
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
-	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer, backgroundRemoverURL, magicEraserURL, voiceChangerURL := trayToolURLs()
+	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer, backgroundRemoverURL, magicEraserURL, voiceChangerURL, watermarkRemoverURL := trayToolURLs()
 	imageEnhancerURL := bundledImageEnhancerURL(port)
 	if imageEnhancerURL == "" {
 		imageEnhancerURL = remoteImageEnhancer
@@ -212,6 +212,7 @@ func onTrayReady(port int, iconData []byte) {
 	mBackgroundRemover := systray.AddMenuItem("Background Remover", backgroundRemoverURL)
 	mMagicEraser := systray.AddMenuItem("MagicEraser", magicEraserURL)
 	mVoiceChanger := systray.AddMenuItem("Voice Changer", voiceChangerURL)
+	mWatermarkRemover := systray.AddMenuItem("Watermark Remover", watermarkRemoverURL)
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 
@@ -238,6 +239,8 @@ func onTrayReady(port int, iconData []byte) {
 				openURL(magicEraserURL)
 			case <-mVoiceChanger.ClickedCh:
 				openURL(voiceChangerURL)
+			case <-mWatermarkRemover.ClickedCh:
+				openURL(watermarkRemoverURL)
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return

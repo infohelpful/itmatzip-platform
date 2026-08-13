@@ -25,6 +25,7 @@ TOOL_CREATE_MUSIC = "create-music"
 TOOL_BACKGROUND_REMOVER = "background-remover"
 TOOL_MAGIC_ERASER = "magic-eraser"
 TOOL_VOICE_CHANGER = "voice-changer"
+TOOL_WATERMARK_REMOVER = "watermark-remover"
 
 # MSI embeddable Python(3.12) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
@@ -36,6 +37,7 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_BACKGROUND_REMOVER,
     TOOL_MAGIC_ERASER,
     TOOL_VOICE_CHANGER,
+    TOOL_WATERMARK_REMOVER,
 )
 
 # Dedicated venv per tool — same 3.12 major, isolated env.
@@ -91,6 +93,11 @@ def create_music_data_root() -> Path:
 def voice_changer_data_root() -> Path:
     """Voice Changer 데이터(Seed-VC 소스·HF 캐시·workspace) — packages는 engine-runtime."""
     return _appdata_root() / TOOL_VOICE_CHANGER
+
+
+def watermark_remover_data_root() -> Path:
+    """Watermark Remover 데이터(ProPainter 소스·가중치·workspace) — packages는 engine-runtime."""
+    return _appdata_root() / TOOL_WATERMARK_REMOVER
 
 
 def runtime_site_packages_dir(tool_id: str) -> Path:
@@ -266,6 +273,7 @@ def ensure_runtime_directories() -> None:
     (_appdata_root() / TOOL_BACKGROUND_REMOVER).mkdir(parents=True, exist_ok=True)
     (_appdata_root() / TOOL_MAGIC_ERASER).mkdir(parents=True, exist_ok=True)
     voice_changer_data_root().mkdir(parents=True, exist_ok=True)
+    watermark_remover_data_root().mkdir(parents=True, exist_ok=True)
     create_music_data_root().mkdir(parents=True, exist_ok=True)
     for tid in VENV_RUNTIME_TOOL_IDS:
         tool_venv_data_root(tid).mkdir(parents=True, exist_ok=True)

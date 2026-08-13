@@ -101,6 +101,10 @@ def voice_changer_runner_script() -> Path:
     return agent_package_root() / "engines" / "voice_changer_runner.py"
 
 
+def propainter_runner_script() -> Path:
+    return agent_package_root() / "engines" / "propainter_runner.py"
+
+
 def codeformer_python_executable() -> Path:
     """
     CodeFormer 추론·prepare용 Python — MSI/엔진 python (3.12).
@@ -139,6 +143,16 @@ def voice_changer_python_executable() -> Path:
     from engines.seedvc_runtime import seedvc_python
 
     return seedvc_python()
+
+
+def watermark_remover_python_executable() -> Path:
+    """
+    ProPainter 추론·prepare용 Python — MSI/엔진 python (3.12).
+    패키지는 %APPDATA%\\ItMatZip\\engine-runtime\\watermark-remover.
+    """
+    from engines.propainter_runtime import propainter_python
+
+    return propainter_python()
 
 
 def pick_script_path() -> Path:

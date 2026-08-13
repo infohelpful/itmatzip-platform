@@ -50,7 +50,7 @@ func grantUsersModifyRecursive(dir string) {
 
 func ensureRuntimeSitePackagesDir() {
 	// engine-runtime/<tool>/Lib/site-packages — MSI embeddable Python 3.12 pip --target
-	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover", "magic-eraser", "voice-changer"}
+	engineRuntimeTools := []string{"silence-remover", "vocal-remover", "auto-subtitle", "image-enhancer", "create-music", "background-remover", "magic-eraser", "voice-changer", "watermark-remover"}
 	appData := os.Getenv("APPDATA")
 	if appData != "" {
 		runtimeRoot := filepath.Join(appData, "ItMatZip", "engine-runtime")
@@ -82,6 +82,13 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(voiceChangerRoot, "hf-home"))
 		ensureDirWritable(filepath.Join(voiceChangerRoot, "workspace"))
 		ensureDirWritable(filepath.Join(voiceChangerRoot, "checkpoints"))
+		watermarkRemoverRoot := filepath.Join(appData, "ItMatZip", "watermark-remover")
+		ensureDirWritable(watermarkRemoverRoot)
+		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "models"))
+		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "propainter-source"))
+		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "workspace"))
+		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "source-cache"))
+		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "wheels-cache"))
 	}
 
 	if settingsRootPath != "" {

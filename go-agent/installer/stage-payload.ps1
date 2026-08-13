@@ -313,6 +313,11 @@ function Copy-ToolsWebUI {
         if ($LASTEXITCODE -ge 8) { throw "robocopy voice-changer failed: $LASTEXITCODE" }
     }
 
+    if (Test-Path (Join-Path $toolsSrc "watermark-remover\index.html")) {
+        robocopy (Join-Path $toolsSrc "watermark-remover") (Join-Path $TargetDir "watermark-remover") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy watermark-remover failed: $LASTEXITCODE" }
+    }
+
     robocopy (Join-Path $toolsSrc "common") (Join-Path $TargetDir "common") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy common failed: $LASTEXITCODE" }
 

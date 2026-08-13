@@ -41,6 +41,9 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "engines\seedvc_runtime.py"; Dst = Join-Path $AgentDst "engines\seedvc_runtime.py" },
     @{ Src = Join-Path $AgentSrc "engines\voice_changer.py"; Dst = Join-Path $AgentDst "engines\voice_changer.py" },
     @{ Src = Join-Path $AgentSrc "engines\voice_changer_runner.py"; Dst = Join-Path $AgentDst "engines\voice_changer_runner.py" },
+    @{ Src = Join-Path $AgentSrc "engines\propainter_runtime.py"; Dst = Join-Path $AgentDst "engines\propainter_runtime.py" },
+    @{ Src = Join-Path $AgentSrc "engines\propainter_runner.py"; Dst = Join-Path $AgentDst "engines\propainter_runner.py" },
+    @{ Src = Join-Path $AgentSrc "engines\watermark_remover.py"; Dst = Join-Path $AgentDst "engines\watermark_remover.py" },
     @{ Src = Join-Path $AgentSrc "engines\create_music_acestep_runtime.py"; Dst = Join-Path $AgentDst "engines\create_music_acestep_runtime.py" },
     @{ Src = Join-Path $AgentSrc "engines\create_music.py"; Dst = Join-Path $AgentDst "engines\create_music.py" },
     @{ Src = Join-Path $AgentSrc "engines\create_music_runner.py"; Dst = Join-Path $AgentDst "engines\create_music_runner.py" },
@@ -51,6 +54,7 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "routers\background_remover.py"; Dst = Join-Path $AgentDst "routers\background_remover.py" },
     @{ Src = Join-Path $AgentSrc "routers\magic_eraser.py"; Dst = Join-Path $AgentDst "routers\magic_eraser.py" },
     @{ Src = Join-Path $AgentSrc "routers\voice_changer.py"; Dst = Join-Path $AgentDst "routers\voice_changer.py" },
+    @{ Src = Join-Path $AgentSrc "routers\watermark_remover.py"; Dst = Join-Path $AgentDst "routers\watermark_remover.py" },
     @{ Src = Join-Path $AgentSrc "routers\create_music.py"; Dst = Join-Path $AgentDst "routers\create_music.py" }
 )
 

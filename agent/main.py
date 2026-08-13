@@ -43,6 +43,7 @@ from routers import image_enhancer as image_enhancer_router  # noqa: E402
 from routers import magic_eraser as magic_eraser_router  # noqa: E402
 from routers import vocal_remover as vocal_remover_router  # noqa: E402
 from routers import voice_changer as voice_changer_router  # noqa: E402
+from routers import watermark_remover as watermark_remover_router  # noqa: E402
 from version import AGENT_VERSION  # noqa: E402
 
 
@@ -162,6 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(background_remover_router.router)
     app.include_router(magic_eraser_router.router)
     app.include_router(voice_changer_router.router)
+    app.include_router(watermark_remover_router.router)
 
     web_ui = _AGENT_ROOT.parent / "web-ui"
     if web_ui.is_dir():

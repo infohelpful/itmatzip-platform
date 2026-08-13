@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.13",
-    "published_at":  "2026-08-09",
+    "version":  "1.5.14",
+    "published_at":  "2026-08-13",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.13/itmatzip-agent.msi",
-    "sha256":  "3bffb775a00c8ea87e300e5593260992401b198909f05882bf37a03773da60cf",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.14/itmatzip-agent.msi",
+    "sha256":  "0d1e45a9c9917477851263aa7478f7e6b83d8d626b0c92b4b415326b923a3382",
     "mandatory":  false,
-    "release_notes":  "MagicEraser 다중 파일 수정 기능 추가",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.13/itmatzip-agent.msi",
-    "msi_sha256":  "3bffb775a00c8ea87e300e5593260992401b198909f05882bf37a03773da60cf"
+    "release_notes":  "WertermarkAI 사이트 추가 ",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.14/itmatzip-agent.msi",
+    "msi_sha256":  "0d1e45a9c9917477851263aa7478f7e6b83d8d626b0c92b4b415326b923a3382"
 }
