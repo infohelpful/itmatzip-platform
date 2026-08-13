@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>Watermark Remover</title>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <div class="logo-area">
+          <span class="badge">AI Powered</span>
+          <div class="logo-title-row">
+            <h1>Watermark<span class="accent">Remover</span></h1>
+            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+          </div>
+          <p class="header-tagline">ProPainter로 고정 워터마크를 지우고 재생 가능한 영상으로 저장합니다.</p>
+        </div>
+        <div class="header-status-col">
+          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
+          <div id="connection-status" class="status-dot" role="status">에이전트 연결 확인 중…</div>
+          <div id="bin-readiness" class="bin-readiness">Watermark Remover · 환경 준비 대기</div>
+        </div>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <div class="enhancer-content-shell" id="enhancer-content-shell">
+        <section class="drop-zone">
+          <div class="path-input-group">
+            <label for="video-path">영상 / 폴더 경로</label>
+            <p class="path-hint" id="path-hint">영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.</p>
+            <div class="path-row">
+              <select id="source-mode" class="source-mode-select" aria-label="선택 방식">
+                <option value="file" selected>파일</option>
+                <option value="folder">폴더</option>
+              </select>
+              <input type="text" id="video-path" autocomplete="off" spellcheck="false" placeholder="영상 파일 경로">
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+            </div>
+            <p class="folder-meta" id="folder-meta" hidden></p>
+          </div>
+        </section>
+
+        <section class="preview-panel" aria-label="영상 편집">
+          <div class="preview-panel-head">
+            <h3 class="preview-panel-heading" id="preview-panel-heading">원본 미리보기</h3>
+            <div class="brush-toolbar" id="brush-toolbar" hidden>
+              <div class="brush-tool-group" role="group" aria-label="영역 도구">
+                <button type="button" id="tool-rect" class="brush-tool-btn is-active" aria-pressed="true">
+                  <span aria-hidden="true">▭</span> 사각형
+                </button>
+                <button type="button" id="tool-ellipse" class="brush-tool-btn" aria-pressed="false">
+                  <span aria-hidden="true">○</span> 원형
+                </button>
+              </div>
+              <div class="brush-size-field">
+                <label for="shape-width-range">가로</label>
+                <input type="range" id="shape-width-range" min="8" max="800" value="120">
+                <output id="shape-width-value" for="shape-width-range">120px</output>
+              </div>
+              <div class="brush-size-field">
+                <label for="shape-height-range">세로</label>
+                <input type="range" id="shape-height-range" min="8" max="800" value="80">
+                <output id="shape-height-value" for="shape-height-range">80px</output>
+              </div>
+              <button type="button" id="btn-clear-mask" class="brush-clear-btn">영역 지우기</button>
+            </div>
+          </div>
+          <div class="preview-viewport" id="preview-viewport">
+            <div class="preview-empty" id="preview-empty">
+              <span class="preview-empty-icon" aria-hidden="true">🎬</span>
+              <p>영상을 선택하면 여기에서 사각형 또는 원으로 워터마크를 지정할 수 있습니다.</p>
+            </div>
+            <div class="canvas-stage" id="canvas-stage" hidden>
+              <canvas id="edit-canvas"></canvas>
+            </div>
+          </div>
+          <div class="video-stack" id="video-stack" hidden>
+            <figure class="video-stack-item">
+              <figcaption>원본</figcaption>
+              <div class="video-frame">
+                <video id="original-video" class="stack-video" controls playsinline preload="metadata"></video>
+              </div>
+            </figure>
+            <figure class="video-stack-item">
+              <figcaption>결과</figcaption>
+              <div class="video-frame">
+                <video id="result-video" class="stack-video" controls playsinline preload="metadata"></video>
+              </div>
+            </figure>
+          </div>
+          <p class="canvas-hint" id="canvas-hint" hidden>드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.</p>
+          <p class="compare-hint" id="compare-hint" hidden>위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.</p>
+        </section>
+
+        <section class="options-layout" id="options-panel">
+          <div class="options-main">
+            <div class="options-group options-group--last">
+              <h3 class="options-group-title">실행 장치</h3>
+              <div class="options-grid options-grid--3">
+                <div class="option-field">
+                  <label class="option-label" for="device-select">실행 장치</label>
+                  <select id="device-select" class="option-select">
+                    <option value="auto">자동 (권장)</option>
+                    <option value="cuda">CUDA (GPU)</option>
+                    <option value="cpu">CPU</option>
+                  </select>
+                  <p class="option-hint">GPU가 있으면 자동으로 CUDA를 사용합니다. CPU는 매우 느립니다.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <aside class="media-summary-panel" aria-label="작업 요약">
+            <h4 class="media-summary-title">작업 상태</h4>
+            <dl class="media-summary-list">
+              <div class="media-summary-item">
+                <dt>준비</dt>
+                <dd id="summary-model-ready">확인 중</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>장치</dt>
+                <dd id="summary-device">자동</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>영역</dt>
+                <dd id="summary-brush">없음</dd>
+              </div>
+              <div class="media-summary-item">
+                <dt>마스크</dt>
+                <dd id="summary-mask">비어 있음</dd>
+              </div>
+              <div class="media-summary-item" id="summary-folder-row" hidden>
+                <dt>폴더</dt>
+                <dd id="summary-folder">—</dd>
+              </div>
+            </dl>
+          </aside>
+        </section>
+
+        <section class="action-stack" aria-label="실행">
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
+          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled>지우기 실행</button>
+          <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
+            <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
+          </a>
+          <button type="button" id="btn-open-output-folder" class="btn-action btn-action--secondary" hidden disabled>
+            결과 폴더 열기
+          </button>
+        </section>
+
+        <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <p id="setup-loading-step" class="loading-step"></p>
+            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="setup-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="erase-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
+          <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
+            <h3 id="erase-loading-title">워터마크 제거</h3>
+            <p id="erase-loading-step" class="loading-step"></p>
+            <p id="erase-loading-message" class="loading-message">처리 중…</p>
+            <p id="erase-loading-percent" class="loading-percent">0%</p>
+            <div id="erase-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div id="erase-loading-bar" class="loading-bar"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+    </main>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script type="module" src="script.js?v=5"></script>
+</body>
+</html>

@@ -120,4 +120,17 @@ export const TOOLS = [
     badge: "AI",
     tags: ["보이스", "voice", "changer", "seed-vc", "변조", "음색", "변환", "ai"],
   },
+  {
+    id: "watermark-remover",
+    href: "watermark-remover/",
+    title: "Watermark Remover",
+    subtitle: "고정 워터마크 제거 · ProPainter",
+    description:
+      "영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
+    icon: "🚫",
+    accent: "#eab308",
+    available: true,
+    badge: "AI",
+    tags: ["워터마크", "watermark", "로고", "제거", "propainter", "영상", "inpaint", "ai"],
+  },
 ];
