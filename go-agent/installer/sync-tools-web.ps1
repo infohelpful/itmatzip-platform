@@ -32,6 +32,7 @@ Sync-Dir "background-remover"
 Sync-Dir "magic-eraser"
 Sync-Dir "voice-changer"
 Sync-Dir "watermark-remover"
+Sync-Dir "assets"
 Sync-Dir "common"
 $silence = Join-Path $ToolsSrc "silence-remover"
 if (Test-Path $silence) {
@@ -46,6 +47,8 @@ foreach ($ico in @("favicon-16x16.ico", "favicon-32x32.ico")) {
     $src = Join-Path $ToolsSrc $ico
     if (Test-Path $src) { Copy-Item $src (Join-Path $ToolsDst $ico) }
 }
+$hub = Join-Path $ToolsSrc "index.html"
+if (Test-Path $hub) { Copy-Item $hub (Join-Path $ToolsDst "index.html") }
 
 $check = Join-Path $ToolsDst "image-enhancer\script.js"
 if (-not (Select-String -Path $check -Pattern "loadImageInto" -Quiet)) {

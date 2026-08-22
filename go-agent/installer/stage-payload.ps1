@@ -318,6 +318,14 @@ function Copy-ToolsWebUI {
         if ($LASTEXITCODE -ge 8) { throw "robocopy watermark-remover failed: $LASTEXITCODE" }
     }
 
+    if (Test-Path (Join-Path $toolsSrc "assets")) {
+        robocopy (Join-Path $toolsSrc "assets") (Join-Path $TargetDir "assets") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy assets failed: $LASTEXITCODE" }
+    }
+    if (Test-Path (Join-Path $toolsSrc "index.html")) {
+        Copy-Item (Join-Path $toolsSrc "index.html") (Join-Path $TargetDir "index.html") -Force
+    }
+
     robocopy (Join-Path $toolsSrc "common") (Join-Path $TargetDir "common") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy common failed: $LASTEXITCODE" }
 

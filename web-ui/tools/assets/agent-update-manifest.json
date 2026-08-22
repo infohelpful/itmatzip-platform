@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.14",
-    "published_at":  "2026-08-13",
+    "version":  "1.5.15",
+    "published_at":  "2026-08-23",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.14/itmatzip-agent.msi",
-    "sha256":  "0d1e45a9c9917477851263aa7478f7e6b83d8d626b0c92b4b415326b923a3382",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.15/itmatzip-agent.msi",
+    "sha256":  "72789d4e21f47f26ea57575a8dcb57c72d0ba28cb4d9c824ef7ba232d8865536",
     "mandatory":  false,
-    "release_notes":  "WertermarkAI 사이트 추가 ",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.14/itmatzip-agent.msi",
-    "msi_sha256":  "0d1e45a9c9917477851263aa7478f7e6b83d8d626b0c92b4b415326b923a3382"
+    "release_notes":  "Create Anime, Moving Image 툴 제거",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.15/itmatzip-agent.msi",
+    "msi_sha256":  "72789d4e21f47f26ea57575a8dcb57c72d0ba28cb4d9c824ef7ba232d8865536"
 }
