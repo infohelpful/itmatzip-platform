@@ -133,4 +133,16 @@ export const TOOLS = [
     badge: "AI",
     tags: ["워터마크", "watermark", "로고", "제거", "propainter", "영상", "inpaint", "ai"],
   },
+  {
+    id: "thumbnail-grabber",
+    href: "thumbnail-grabber/",
+    title: "Thumbnail Grabber",
+    subtitle: "유튜브 썸네일 저장",
+    description:
+      "유튜브 영상 주소만 붙여넣으면 공개 썸네일을 미리보고 원하는 화질로 저장합니다. AI·에이전트 없이 바로 동작합니다.",
+    icon: "🖼️",
+    accent: "#f43f5e",
+    available: true,
+    tags: ["유튜브", "youtube", "썸네일", "thumbnail", "다운로드", "커버", "shorts"],
+  },
 ];
