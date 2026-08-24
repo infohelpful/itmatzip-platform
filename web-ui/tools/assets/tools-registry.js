@@ -145,4 +145,16 @@ export const TOOLS = [
     available: true,
     tags: ["유튜브", "youtube", "썸네일", "thumbnail", "다운로드", "커버", "shorts"],
   },
+  {
+    id: "ico-maker",
+    href: "ico-maker/",
+    title: "ICO Maker",
+    subtitle: "PNG → 다중 해상도 ICO",
+    description:
+      "PNG를 올리면 16부터 256까지 Windows용 해상도를 한 .ico 파일로 묶어 저장합니다. AI·에이전트 없이 바로 동작합니다.",
+    icon: "🧩",
+    accent: "#38bdf8",
+    available: true,
+    tags: ["ico", "아이콘", "png", "favicon", "윈도우", "icon", "변환"],
+  },
 ];
