@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css?v=2">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 </head>
 <body>
   <div class="app-container">
@@ -173,6 +174,27 @@
       </div>
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="MagicEraser 안내">
+        <p class="tool-guide-kicker">MagicEraser</p>
+        <h2>지울 자리만 칠하면 배경이 이어지는 인페인트 도구</h2>
+        <p class="tool-guide-lead">MagicEraser는 브러시로 표시한 영역을 LaMa가 지우고, 주변 픽셀로 자연스럽게 채웁니다. 전경 전체를 따내는 배경제거와 달리, 사진 안의 특정 객체·잡티·문자만 없애는 작업에 맞춰져 있습니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>로컬 이미지를 연 뒤 지우고 싶은 부분을 칠합니다. 에이전트가 IOPaint/LaMa 런타임으로 해당 마스크만 복원하고, 결과를 미리본 다음 저장합니다. 모델은 처음 사용할 때 PC에 준비됩니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>이미지 불러오기.</strong> 손볼 사진을 로컬에서 고릅니다.</li>
+          <li><strong>영역 표시.</strong> 브러시 크기를 맞춘 뒤 객체나 얼룩을 덮습니다. 덜 칠하면 잔상이 남을 수 있습니다.</li>
+          <li><strong>지우기 실행.</strong> 모델이 마스크 안을 주변 맥락으로 채웁니다. 진행 상태는 화면에서 봅니다.</li>
+          <li><strong>확인 후 저장.</strong> 가장자리 이질감이 있으면 마스크를 넓혀 다시 돌리거나, 받은 파일을 외부 편집기에서 다듬습니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>부분 수정에 집중합니다.</strong> 배경 전체를 버리지 않고, 필요한 픽셀만 고칩니다.</li>
+          <li><strong>원본이 업로드되지 않습니다.</strong> 의뢰 상품 컷이나 개인 사진의 작은 결함을 기기 안에서 처리합니다.</li>
+          <li><strong>반복이 쉽습니다.</strong> 한 번에 안 지워지면 마스크만 바꿔 같은 흐름으로 다시 시도할 수 있습니다.</li>
+        </ul>
+        <p class="tool-guide-note">넓은 패턴·복잡한 구조물 위에서는 복원 흔적이 보일 수 있습니다. 상업 인쇄용 최종본보다는, 웹·영상용 정리 단계에 쓰는 도구로 보는 것이 맞습니다.</p>
+      </section>
     </main>
   </div>
 

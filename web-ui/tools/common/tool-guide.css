@@ -1,0 +1,134 @@
+/* 도구 안내 본문 전용. 기존 편집 UI·스크립트와 선택자를 공유하지 않습니다. */
+.tool-guide {
+  --tg-text: #e2e8f0;
+  --tg-dim: #94a3b8;
+  --tg-muted: #7b889c;
+  --tg-line: #2d333f;
+  --tg-panel: rgba(26, 29, 35, 0.72);
+  --tg-accent: #93c5fd;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 840px;
+  margin: 40px auto 8px;
+  padding: 28px 4px 36px;
+  color: var(--tg-text);
+  font-family: "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.85;
+  letter-spacing: -0.01em;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.tool-guide *,
+.tool-guide *::before,
+.tool-guide *::after {
+  box-sizing: border-box;
+}
+
+.tool-guide-kicker {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tg-accent);
+}
+
+.tool-guide h2 {
+  margin: 0 0 14px;
+  font-size: 1.45rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.35;
+  color: #f8fafc;
+}
+
+.tool-guide h3 {
+  margin: 28px 0 10px;
+  padding-bottom: 8px;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f1f5f9;
+  border-bottom: 1px solid var(--tg-line);
+}
+
+.tool-guide p {
+  margin: 0 0 14px;
+  color: var(--tg-dim);
+}
+
+.tool-guide .tool-guide-lead {
+  margin-bottom: 8px;
+  color: #cbd5e1;
+  font-size: 15.5px;
+}
+
+.tool-guide ol,
+.tool-guide ul {
+  margin: 0 0 8px;
+  padding: 16px 18px 16px 36px;
+  border: 1px solid var(--tg-line);
+  border-radius: 14px;
+  background: var(--tg-panel);
+}
+
+.tool-guide li {
+  margin: 0 0 10px;
+  color: var(--tg-dim);
+}
+
+.tool-guide li:last-child {
+  margin-bottom: 0;
+}
+
+.tool-guide li strong {
+  color: #e2e8f0;
+  font-weight: 700;
+}
+
+.tool-guide-note {
+  margin-top: 22px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--tg-line);
+  color: var(--tg-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  background: rgba(15, 17, 21, 0.45);
+}
+
+html:has(body.as-app .tool-guide),
+body.as-app:has(.tool-guide) {
+  height: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+body.as-app .tool-guide {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+  background: #0a0c10;
+}
+
+.hub-inner > .tool-guide {
+  max-width: none;
+  margin: 48px 0 0;
+  padding: 8px 0 12px;
+  border-top: 1px solid var(--tg-line);
+}
+
+@media (max-width: 640px) {
+  .tool-guide {
+    margin-top: 28px;
+    padding-left: 2px;
+    padding-right: 2px;
+    font-size: 14.5px;
+  }
+
+  .tool-guide h2 {
+    font-size: 1.25rem;
+  }
+}

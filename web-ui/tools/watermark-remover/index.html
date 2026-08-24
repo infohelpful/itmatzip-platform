@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css?v=4">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 </head>
 <body>
   <div class="app-container">
@@ -183,6 +184,27 @@
       </div>
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="Watermark Remover 안내">
+        <p class="tool-guide-kicker">Watermark Remover</p>
+        <h2>고정된 로고 자리만 지우고 영상을 다시 붙이는 도구</h2>
+        <p class="tool-guide-lead">Watermark Remover는 영상에서 워터마크가 있는 영역을 칠하면 ProPainter가 그 부분만 메우고, 일반 플레이어에서 재생 가능한 파일로 저장합니다. 화면 전체를 재생성하는 도구가 아니라, 위치가 거의 고정된 로고·타임코드를 겨냥합니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>로컬 영상을 불러 미리보기에서 마스크를 그립니다. 에이전트가 해당 영역만 시간축으로 메우고, 결과 클립을 내보냅니다. 소스와 가중치는 PC에 두며, 처리 범위가 마스크 안으로 한정됩니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>영상 열기.</strong> 로고가 박힌 로컬 파일을 지정합니다.</li>
+          <li><strong>영역 칠하기.</strong> 워터마크가 움직이는 최대 범위를 여유 있게 덮습니다. 작게 칠하면 잔상이 남기 쉽습니다.</li>
+          <li><strong>제거 실행.</strong> ProPainter가 마스크 안을 복원합니다. 길이와 해상도에 따라 시간이 걸립니다.</li>
+          <li><strong>재생 확인 후 저장.</strong> 가장자리 깜빡임이 있으면 마스크를 키워 다시 돌리고, 문제 없으면 결과 영상을 받습니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>영상 전용이지만 범위가 좁습니다.</strong> 로고 자리만 손봐서, 나머지 프레임의 원본 질감을 유지하기 쉽습니다.</li>
+          <li><strong>로컬에서 끝납니다.</strong> 원본 클립을 온라인 제거 서비스에 올리지 않아도 됩니다.</li>
+          <li><strong>결과물이 재생 가능한 영상입니다.</strong> 시퀀스 프로젝트가 아니라 바로 볼 수 있는 파일로 나갑니다.</li>
+        </ul>
+        <p class="tool-guide-note">다른 사람의 저작권 표시나 방송사 로고를 무단으로 지우는 용도가 아닙니다. 직접 찍은 영상, 사용 권한이 있는 자료의 자체 워터마크 정리에 쓰는 것이 맞습니다.</p>
+      </section>
     </main>
   </div>
 

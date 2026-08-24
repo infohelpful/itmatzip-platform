@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 
 </head>
 
@@ -323,6 +324,28 @@
         <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
 
       </div>
+
+      <section class="tool-guide" aria-label="Vocal Remover 안내">
+        <p class="tool-guide-kicker">Vocal Remover</p>
+        <h2>한 트랙에서 보컬과 반주를 가르는 로컬 분리기</h2>
+        <p class="tool-guide-lead">Vocal Remover는 로컬 오디오를 소스 분리 모델로 읽어, 노래 목소리와 반주(MR)를 따로 저장합니다. 업로드형 웹 분리기와 달리 원본과 결과는 PC 폴더에 남고, 원하는 쪽만 골라 받을 수 있습니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>에이전트가 Demucs 계열 런타임으로 스테레오 혼합음을 보컬 스템과 반주 스템으로 나눕니다. 화면에서 진행 상태를 본 뒤, MR만 쓰거나 보컬만 쓰는 용도에 맞게 내보냅니다. 악보를 다시 연주하지 않고 기존 음원을 재료로 쓰는 작업에 맞춰져 있습니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>파일 지정.</strong> 찾아보기로 로컬 음원을 고릅니다. 일반적인 오디오 컨테이너를 지원합니다.</li>
+          <li><strong>분석 실행.</strong> 에이전트가 모델을 준비하고 분리를 돌립니다. 첫 실행에서는 런타임이 PC에 설치될 수 있습니다.</li>
+          <li><strong>결과 확인.</strong> 보컬과 반주가 나뉘면 미리 듣고, 필요한 스템만 고릅니다.</li>
+          <li><strong>다운로드.</strong> 쓸 포맷으로 저장한 뒤, DAW나 영상 타임라인에 올립니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>용도가 분명합니다.</strong> 커버 연습용 MR, 쇼츠용 보이스 트랙, 영상 내레이션 정리처럼 “한 줄기만 필요할 때” 씁니다.</li>
+          <li><strong>원본을 올리지 않습니다.</strong> 미발표 음원이나 클라이언트 파일을 외부 사이트에 맡기지 않아도 됩니다.</li>
+          <li><strong>후반 작업과 이어집니다.</strong> 분리 결과는 일반 오디오 파일이므로 이퀄라이저·컷 편집을 기존 툴에서 이어갈 수 있습니다.</li>
+        </ul>
+        <p class="tool-guide-note">분리 품질은 원본 믹스와 모델 한계에 따라 달라집니다. 완전 무손실 스템이 아니라, 편집에 쓸 수 있는 실용 분리 결과로 이해하는 것이 맞습니다.</p>
+      </section>
 
     </main>
 

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css?v=1">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 </head>
 <body>
   <div class="app-container">
@@ -162,6 +163,27 @@
       </div>
 
       <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="Voice Changer 안내">
+        <p class="tool-guide-kicker">Voice Changer</p>
+        <h2>말은 유지하고 음색만 바꾸는 로컬 변환기</h2>
+        <p class="tool-guide-lead">Voice Changer는 Seed-VC로 소스 음성의 내용(말·멜로디)을 유지한 채, 레퍼런스 음성의 음색으로 바꿉니다. 실시간 보이스 필터가 아니라, 파일을 넣고 변환 결과를 받는 배치 작업입니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>내레이션, 더빙 연습, 프로토타입 캐릭터 보이스처럼 “같은 대본을 다른 목소리로 들어보고 싶을 때” 씁니다. 소스와 레퍼런스를 로컬에서 지정하면 에이전트가 모델을 돌리고, 변환된 오디오를 저장합니다. 가중치는 최초 사용 시 PC에 내려받습니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>소스 지정.</strong> 바꿀 말이나 노래가 담긴 오디오를 고릅니다.</li>
+          <li><strong>레퍼런스 지정.</strong> 목표 음색이 잘 드러난 짧은 샘플을 넣습니다. 잡음이 적고 한 화자인 파일이 유리합니다.</li>
+          <li><strong>변환.</strong> Seed-VC가 음색을 옮깁니다. 첫 실행이면 런타임 설치가 포함될 수 있습니다.</li>
+          <li><strong>청취 후 저장.</strong> 발음 붕괴나 숨소리 이질감을 확인하고, 쓸 파일만 받습니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>문장을 다시 녹음하지 않아도 됩니다.</strong> 대본이 확정된 상태에서 톤만 바꿔 볼 수 있습니다.</li>
+          <li><strong>파일이 밖으로 나가지 않습니다.</strong> 미공개 보이스 샘플을 외부 변환 사이트에 올리지 않아도 됩니다.</li>
+          <li><strong>후반과 이어집니다.</strong> 결과는 일반 오디오라 자막 영상, BGM 믹스에 바로 올릴 수 있습니다.</li>
+        </ul>
+        <p class="tool-guide-note">다른 사람의 음성을 레퍼런스로 쓸 때는 초상권·음성권·계약 범위를 확인해야 합니다. 이 도구는 기술적 변환만 수행하며, 사용 권한은 작업자가 판단합니다.</p>
+      </section>
     </main>
   </div>
 

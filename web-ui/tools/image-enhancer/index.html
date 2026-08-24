@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 
 </head>
 
@@ -298,6 +299,28 @@
       <!-- 광고: 결과 다운로드 아래 -->
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+
+      <section class="tool-guide" aria-label="Image Enhancer 안내">
+        <p class="tool-guide-kicker">Image Enhancer</p>
+        <h2>흐린 얼굴과 디테일을 PC에서 되돌리는 복원 도구</h2>
+        <p class="tool-guide-lead">Image Enhancer는 CodeFormer 기반으로 저화질 사진의 얼굴선과 질감을 복원합니다. 웹에 사진을 올리는 대신, 로컬 에이전트가 모델을 PC에서 돌려 결과를 같은 자리에서 비교하고 저장합니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>오래된 스냅, 압축이 심한 프로필, 작은 해상도로 남은 인물 컷처럼 “얼굴은 보이지만 선명하지 않은” 이미지를 다룹니다. 모델은 처음 쓸 때 내려받고, 이후 작업은 로컬 런타임에서 반복됩니다. 원본과 결과를 나란히 본 뒤 받을 파일을 고릅니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>이미지 지정.</strong> 로컬 사진 경로를 넣거나 찾아보기로 고릅니다.</li>
+          <li><strong>환경 확인.</strong> 에이전트가 연결되어 있고, 최초라면 CodeFormer 런타임이 준비되어야 합니다.</li>
+          <li><strong>복원 실행.</strong> 모델이 얼굴을 중심으로 디테일을 되살립니다. 진행률은 화면에서 확인합니다.</li>
+          <li><strong>비교 후 저장.</strong> 과한 보정 여부를 눈으로 확인하고, 쓸 결과만 다운로드합니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>인물 사진에 맞춰져 있습니다.</strong> 일반 업스케일과 달리 눈·입·피부 구조를 우선 복원하는 쪽에 가깝습니다.</li>
+          <li><strong>원본이 기기 안에 남습니다.</strong> 가족 사진이나 의뢰 이미지를 외부 복원 사이트에 올리지 않아도 됩니다.</li>
+          <li><strong>다음 편집과 이어집니다.</strong> 복원본을 배경제거나 아이콘 제작 도구로 넘기는 식으로 쓸 수 있습니다.</li>
+        </ul>
+        <p class="tool-guide-note">복원은 추정에 가깝습니다. 원본에 없는 정보를 만들어 내므로, 공식 서류용 증명사진처럼 픽셀 단위 진실이 필요한 용도에는 쓰지 않는 것이 좋습니다.</p>
+      </section>
 
     </main>
 

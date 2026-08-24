@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css?v=26">
   <link rel="stylesheet" href="mobile-only.css?v=2">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
 </head>
 <body>
   <div class="app-container">
@@ -149,6 +150,27 @@
         </div>
         <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
       </div>
+      <section class="tool-guide" aria-label="Silence Detector 안내">
+        <p class="tool-guide-kicker">Silence Detector</p>
+        <h2>영상 속 무음을 찾아 편집 타임라인으로 넘기는 도구</h2>
+        <p class="tool-guide-lead">Silence Detector는 영상 파일의 오디오에서 말이 없는 구간을 찾아, Premiere Pro·DaVinci Resolve 등에서 불러올 수 있는 FCP7 XML을 만듭니다. 영상을 다시 인코딩하지 않고, 컷 정보만 편집 프로그램으로 넘기는 방식입니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>로컬 에이전트가 지정한 영상 경로를 읽고 음량 기준으로 무음·유음 경계를 계산합니다. 결과는 화면의 파형과 구간 목록으로 확인하고, 필요하면 패딩·최소 무음 길이 같은 기준을 조정한 뒤 XML로 내보냅니다. 파일 자체는 PC 밖으로 나가지 않습니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>영상 지정.</strong> 찾아보기로 로컬 파일을 고르면 경로가 입력되고, 가능한 경우 원본 FPS가 자동으로 채워집니다.</li>
+          <li><strong>기준 설정.</strong> 프레임 레이트, 무음으로 볼 음량, 너무 짧은 무음을 무시할 길이, 컷 앞뒤 여유(패딩)를 맞춥니다.</li>
+          <li><strong>분석.</strong> 에이전트가 오디오를 스캔해 구간을 나눕니다. 파형에서 잘린 위치와 길이를 검토합니다.</li>
+          <li><strong>XML 내보내기.</strong> 무음 구간을 빼거나 남긴 타임라인을 FCP7 XML로 저장한 뒤, 편집 프로그램에서 시퀀스로 가져옵니다.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>편집 프로그램을 대신하지 않습니다.</strong> 컷 결정만 넘기고, 색보정·자막·오디오 믹스는 기존 프로젝트에서 이어갑니다.</li>
+          <li><strong>재인코딩을 피할 수 있습니다.</strong> 원본 코덱을 유지한 채 타임라인만 받기 때문에 품질 손실이 적습니다.</li>
+          <li><strong>인터뷰·강의·브이로그에 맞습니다.</strong> 침묵이 반복되는 롱테이크에서 손으로 컷을 찍는 시간을 줄입니다.</li>
+        </ul>
+        <p class="tool-guide-note">분석과 XML 생성은 ItMatZip 에이전트가 설치된 Windows PC에서 동작합니다. 타임라인 FPS는 영상 원본과 맞춰 두는 것이 가장 안전합니다.</p>
+      </section>
     </main>
   </div>
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
