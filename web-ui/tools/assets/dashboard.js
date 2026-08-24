@@ -1,5 +1,6 @@
-import { showAdSense } from "../common/adsense.js?v=2";
-  import { TOOLS } from "./tools-registry.js?v=12";
+import { showAdSense } from "../common/adsense.js?v=3";
+import { loadSiteConfig } from "../common/site-config.js?v=1";
+import { TOOLS } from "./tools-registry.js?v=12";
 
 const gridEl = document.getElementById("hub-tool-grid");
 const searchEl = document.getElementById("hub-search");
@@ -62,18 +63,28 @@ function renderCard(tool) {
   return tag;
 }
 
+/** @type {Set<string>} */
+let hiddenToolIds = new Set();
+
+function catalogTools() {
+  return TOOLS.filter((t) => !hiddenToolIds.has(t.id));
+}
+
 function renderGrid() {
   if (!gridEl) return;
 
   const q = (searchEl?.value || "").trim().toLowerCase();
-  const list = TOOLS.filter((t) => toolMatchesQuery(t, q));
+  const catalog = catalogTools();
+  const list = catalog.filter((t) => toolMatchesQuery(t, q));
 
   gridEl.replaceChildren();
 
   if (list.length === 0) {
     const empty = document.createElement("p");
     empty.className = "hub-empty";
-    empty.textContent = "검색 결과가 없습니다. 다른 키워드로 시도해 주세요.";
+    empty.textContent = q
+      ? "검색 결과가 없습니다. 다른 키워드로 시도해 주세요."
+      : "현재 공개된 도구가 없습니다.";
     gridEl.appendChild(empty);
   } else {
     for (const tool of list) {
@@ -82,14 +93,20 @@ function renderGrid() {
   }
 
   if (countEl) {
-    const total = TOOLS.filter((t) => t.available !== false).length;
+    const total = catalog.filter((t) => t.available !== false).length;
     countEl.textContent = q
       ? `${list.length}개 표시 · 이용 가능 ${total}개`
-      : `이용 가능 ${total}개 · 전체 ${TOOLS.length}개`;
+      : `이용 가능 ${total}개 · 전체 ${catalog.length}개`;
   }
 }
 
-function init() {
+async function init() {
+  try {
+    const cfg = await loadSiteConfig();
+    hiddenToolIds = new Set(cfg.hiddenToolIds || []);
+  } catch {
+    hiddenToolIds = new Set();
+  }
   renderGrid();
 
   if (searchEl) {

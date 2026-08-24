@@ -6,8 +6,13 @@
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
+import { loadSiteConfig } from "./site-config.js?v=1";
+
 /** @type {string} */
 let _client = "ca-pub-2088466558007407";
+
+let _runtimePromise = null;
+let _adsDisabled = false;
 
 /** @type {Promise<void> | null} */
 let _scriptLoadPromise = null;
@@ -144,6 +149,29 @@ export function configureAdSense(cfg = {}) {
   if (cfg.client?.trim()) _client = cfg.client.trim();
 }
 
+function applyRuntimeAdSense() {
+  if (_runtimePromise) return _runtimePromise;
+  _runtimePromise = (async () => {
+    try {
+      const cfg = await loadSiteConfig();
+      _adsDisabled = cfg.adsense?.enabled === false;
+      if (cfg.adsense?.client?.trim()) configureAdSense({ client: cfg.adsense.client });
+      const units = cfg.adsense?.units || {};
+      for (const [key, unit] of Object.entries(units)) {
+        if (!AD_UNITS[key] || !unit) continue;
+        if (typeof unit.slot === "string") AD_UNITS[key].slot = unit.slot.trim();
+        if (typeof unit.adFormat === "string") AD_UNITS[key].adFormat = unit.adFormat;
+        if (typeof unit.fullWidthResponsive === "boolean") {
+          AD_UNITS[key].fullWidthResponsive = unit.fullWidthResponsive;
+        }
+      }
+    } catch {
+      _adsDisabled = false;
+    }
+  })();
+  return _runtimePromise;
+}
+
 /**
  * adsbygoogle.js 1회 로드
  * @returns {Promise<void>}
@@ -237,15 +265,23 @@ function isLocalDevHost() {
  * @returns {Promise<boolean>} 성공 여부
  */
 export async function showAdSense(unitKey, container) {
-  const unit = AD_UNITS[unitKey];
-  if (!unit) {
-    console.warn(`[adsense] unknown unit: ${unitKey}`);
-    return false;
-  }
+  await applyRuntimeAdSense();
 
   const el = resolveContainer(container);
   if (!el) {
     console.warn(`[adsense] container not found: ${container}`);
+    return false;
+  }
+
+  if (_adsDisabled) {
+    markAdSlotEmpty(el);
+    return false;
+  }
+
+  const unit = AD_UNITS[unitKey];
+  if (!unit || !String(unit.slot || "").trim()) {
+    console.warn(`[adsense] unknown or empty unit: ${unitKey}`);
+    markAdSlotEmpty(el);
     return false;
   }
 

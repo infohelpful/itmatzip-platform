@@ -1,0 +1,34 @@
+{
+  "hiddenToolIds": [],
+  "adsense": {
+    "enabled": true,
+    "client": "ca-pub-2088466558007407",
+    "units": {
+      "dashboardBanner": {
+        "slot": "5724069500",
+        "adFormat": "horizontal",
+        "fullWidthResponsive": true
+      },
+      "editorAboveWorkspace": {
+        "slot": "5724069500",
+        "adFormat": "horizontal",
+        "fullWidthResponsive": true
+      },
+      "editorBelowExport": {
+        "slot": "5724069500",
+        "adFormat": "horizontal",
+        "fullWidthResponsive": true
+      },
+      "downloadTop": {
+        "slot": "5724069500",
+        "adFormat": "horizontal",
+        "fullWidthResponsive": true
+      },
+      "downloadBottom": {
+        "slot": "5724069500",
+        "adFormat": "horizontal",
+        "fullWidthResponsive": true
+      }
+    }
+  }
+}

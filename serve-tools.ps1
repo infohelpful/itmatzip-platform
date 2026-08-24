@@ -15,17 +15,20 @@ Write-Host "=== ItMatZip Tools (static) ===" -ForegroundColor Cyan
 Write-Host "Root: $Root"
 Write-Host "URL:  http://localhost:$Port/" -ForegroundColor Green
 Write-Host "      http://localhost:$Port/silence-remover/" -ForegroundColor Green
+Write-Host "      http://localhost:$Port/admin/" -ForegroundColor Green
 Write-Host "에이전트 health: http://127.0.0.1:19876/health" -ForegroundColor DarkGray
 Write-Host ""
+
+$ServerPy = Join-Path $Root "dev-static-server.py"
 
 # WindowsApps python stub(스토어 유도) 회피 — 3.12 우선
 $py = Get-Command py -ErrorAction SilentlyContinue
 if ($py) {
-    py -3.12 -m http.server $Port
+    py -3.12 $ServerPy $Port
 } else {
     $py312 = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
     if (Test-Path $py312) {
-        & $py312 -m http.server $Port
+        & $py312 $ServerPy $Port
     } else {
         throw "Python 3.12 없음. py -3.12 또는 Python312\python.exe 를 설치하세요."
     }

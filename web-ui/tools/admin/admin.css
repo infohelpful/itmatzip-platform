@@ -1,0 +1,250 @@
+:root {
+  --admin-danger: #f87171;
+  --admin-ok: #34d399;
+}
+
+/* display:flex 규칙이 hidden 속성을 덮어쓰지 않게 */
+[hidden] {
+  display: none !important;
+}
+
+.admin-login-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.admin-login-card {
+  width: min(420px, 100%);
+  padding: 32px 28px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, var(--panel-bg) 0%, var(--bg-elevated) 100%);
+}
+
+.admin-login-card h1 {
+  margin: 10px 0 8px;
+  font-size: 1.6rem;
+}
+
+.admin-login-lead,
+.admin-card-lead {
+  margin: 0 0 22px;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.admin-inner {
+  max-width: 880px;
+}
+
+.admin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.admin-grid {
+  display: grid;
+  gap: 20px;
+}
+
+.admin-card {
+  padding: 24px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.admin-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}
+
+.admin-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.admin-field input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text-main);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.admin-field input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  color: var(--text-main);
+}
+
+.admin-tool-list,
+.admin-unit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-tool-row,
+.admin-unit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.admin-tool-meta {
+  min-width: 0;
+}
+
+.admin-tool-meta strong {
+  display: block;
+  font-size: 14px;
+}
+
+.admin-tool-meta span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.admin-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+
+.admin-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.admin-switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #334155;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.admin-switch span::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: transform 0.16s ease;
+}
+
+.admin-switch input:checked + span {
+  background: var(--accent);
+}
+
+.admin-switch input:checked + span::after {
+  transform: translateX(18px);
+}
+
+.admin-unit-row {
+  align-items: flex-end;
+}
+
+.admin-unit-row .admin-field {
+  flex: 1;
+  margin: 0;
+}
+
+.admin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding-bottom: 24px;
+}
+
+.admin-btn {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 11px 16px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.admin-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.admin-btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.admin-error {
+  margin: 0 0 14px;
+  color: var(--admin-danger);
+  font-size: 13px;
+}
+
+.admin-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.admin-status.is-ok {
+  color: var(--admin-ok);
+}
+
+.admin-status.is-err {
+  color: var(--admin-danger);
+}
+
+@media (max-width: 640px) {
+  .admin-header,
+  .admin-unit-row,
+  .admin-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
