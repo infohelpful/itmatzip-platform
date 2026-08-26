@@ -14,10 +14,15 @@
     if (id.indexOf(".") !== -1) return;
     if (id === "assets" || id === "common" || id === "admin") return;
 
-    var style = document.createElement("style");
-    style.id = "itz-boot-hide";
-    style.textContent = "html{visibility:hidden !important}";
-    (document.head || document.documentElement).appendChild(style);
+    var ua = String(navigator.userAgent || "");
+    var isCrawler = /Googlebot|bingbot|Yeti|NaverBot|DuckDuckBot|Slurp|YandexBot|Baiduspider|facebookexternalhit|Twitterbot|kakaotalk|Discordbot|LinkedInBot/i.test(ua);
+
+    if (!isCrawler) {
+      var style = document.createElement("style");
+      style.id = "itz-boot-hide";
+      style.textContent = "html{visibility:hidden !important}";
+      (document.head || document.documentElement).appendChild(style);
+    }
 
     var revealed = false;
     function reveal() {
