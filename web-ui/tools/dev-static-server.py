@@ -13,10 +13,12 @@ import secrets
 import sys
 import time
 import urllib.parse
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 ROOT = Path(__file__).resolve().parent
 ADMIN = ROOT / "admin"
@@ -26,6 +28,7 @@ DATA_DIR = ADMIN / "data"
 RUNTIME_CONFIG = DATA_DIR / "site-config.json"
 RATE_FILE = DATA_DIR / "login-rate.json"
 SESS_FILE = DATA_DIR / "sessions.json"
+REGISTRY_FILE = ROOT / "assets" / "tools-registry.js"
 
 COOKIE_NAME = "itz_admin"
 RATE_WINDOW_SEC = 900
@@ -144,6 +147,93 @@ def public_config() -> dict:
     if isinstance(runtime, dict):
         return normalize_config(runtime)
     return normalize_config(default_config())
+
+
+def parse_tools_registry():
+    tools = []
+    try:
+        raw = REGISTRY_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return tools
+    match = re.search(r"export const TOOLS = \[(.*)\];", raw, re.S)
+    if not match:
+        return tools
+    for block in re.findall(r"\{([^{}]+)\}", match.group(1)):
+        id_m = re.search(r'\bid:\s*"([^"]+)"', block)
+        href_m = re.search(r'\bhref:\s*"([^"]+)"', block)
+        if not id_m or not href_m:
+            continue
+        avail_m = re.search(r"\bavailable:\s*(true|false)", block)
+        tools.append(
+            {
+                "id": id_m.group(1),
+                "href": href_m.group(1),
+                "available": avail_m.group(1) == "true" if avail_m else True,
+            }
+        )
+    return tools
+
+
+def _iso_date(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp, timezone.utc).strftime("%Y-%m-%d")
+
+
+def _url_lastmod(relative_href: str) -> str:
+    rel = relative_href.replace("\\", "/").strip("/")
+    candidates = [ROOT / rel / "index.html", ROOT / rel]
+    for path in candidates:
+        if path.is_file():
+            return _iso_date(path.stat().st_mtime)
+    if REGISTRY_FILE.is_file():
+        return _iso_date(REGISTRY_FILE.stat().st_mtime)
+    return _iso_date(time.time())
+
+
+def sitemap_xml(base: str) -> bytes:
+    hidden = set(public_config().get("hiddenToolIds") or [])
+    home = ROOT / "index.html"
+    home_mod = _iso_date(home.stat().st_mtime if home.is_file() else time.time())
+    urls = [
+        {
+            "loc": f"{base}/",
+            "lastmod": home_mod,
+            "changefreq": "daily",
+            "priority": "1.0",
+        }
+    ]
+    for tool in parse_tools_registry():
+        if not tool.get("available"):
+            continue
+        if tool["id"] in hidden:
+            continue
+        href = str(tool.get("href") or "").lstrip("/")
+        if not href or ".." in href or re.match(r"^[a-z][a-z0-9+.-]*:", href, re.I):
+            continue
+        urls.append(
+            {
+                "loc": f"{base}/{href}",
+                "lastmod": _url_lastmod(href),
+                "changefreq": "weekly",
+                "priority": "0.8",
+            }
+        )
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for url in urls:
+        lines.extend(
+            [
+                "  <url>",
+                f"    <loc>{xml_escape(url['loc'])}</loc>",
+                f"    <lastmod>{xml_escape(url['lastmod'])}</lastmod>",
+                f"    <changefreq>{xml_escape(url['changefreq'])}</changefreq>",
+                f"    <priority>{xml_escape(url['priority'])}</priority>",
+                "  </url>",
+            ]
+        )
+    lines.append("</urlset>")
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def verify_login(username: str, password: str) -> bool:
@@ -291,6 +381,23 @@ class ToolsHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _request_base(self) -> str:
+        host = self.headers.get("Host") or "127.0.0.1:29180"
+        if re.search(r"(^|\.)tools\.itmatzip\.com$", host, re.I):
+            return "https://tools.itmatzip.com"
+        return f"http://{host}"
+
+    def _serve_sitemap(self):
+        raw = sitemap_xml(self._request_base())
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/xml; charset=utf-8")
+        self.send_header("Cache-Control", "public, max-age=600")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(raw)
+
     def _read_body(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 1_000_000:
@@ -412,6 +519,9 @@ class ToolsHandler(SimpleHTTPRequestHandler):
         if parsed.path.rstrip("/") == "/admin/api.php" or parsed.path == "/admin/api.php":
             self._handle_api()
             return
+        if parsed.path in ("/sitemap.xml", "/sitemap.php"):
+            self._serve_sitemap()
+            return
         rel = self._rel_path()
         if self._is_protected(rel):
             self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
@@ -429,6 +539,9 @@ class ToolsHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path.rstrip("/") == "/admin/api.php" or parsed.path == "/admin/api.php":
             self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Method not allowed")
+            return
+        if parsed.path in ("/sitemap.xml", "/sitemap.php"):
+            self._serve_sitemap()
             return
         rel = self._rel_path()
         if self._is_protected(rel):

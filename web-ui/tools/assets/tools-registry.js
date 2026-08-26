@@ -1,5 +1,5 @@
 /**
- * 웹툴 메뉴 정의 — 새 툴 추가 시 이 배열에 항목만 추가하면 대시보드에 자동 반영됩니다.
+ * 웹툴 메뉴 정의 — 새 툴 추가 시 이 배열에 항목만 추가하면 대시보드와 sitemap.xml에 자동 반영됩니다.
  *
  * @typedef {Object} ToolEntry
  * @property {string} id

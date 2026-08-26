@@ -2,3 +2,9 @@
 <IfModule mod_headers.c>
   Header set Permissions-Policy "local-network-access=*"
 </IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^sitemap\.xml$ sitemap.php [L]
+</IfModule>
