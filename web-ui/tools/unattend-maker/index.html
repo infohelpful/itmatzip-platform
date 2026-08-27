@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="../common/site-runtime.js?v=2"></script>
+  <title>윈도우 자동설치 XML - Unattend Maker | ItMatZip</title>
+  <meta name="description" content="Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다. 자주 쓰는 설정으로 채운 뒤 원하는 항목만 바꾸면 됩니다.">
+  <meta name="keywords" content="autounattend, 윈도우 자동설치, 무인설치, Unattend Maker, Windows 11 XML">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/unattend-maker/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="윈도우 자동설치 XML - Unattend Maker | ItMatZip">
+  <meta property="og:description" content="Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/unattend-maker/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ItMatZip Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="윈도우 자동설치 XML - Unattend Maker | ItMatZip">
+  <meta name="twitter:description" content="Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "Unattend Maker",
+      "alternateName": "윈도우 자동설치 XML",
+      "url": "https://tools.itmatzip.com/unattend-maker/",
+      "description": "Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Windows",
+      "inLanguage": "ko",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "Unattend Maker", "item": "https://tools.itmatzip.com/unattend-maker/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=1">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <span class="eyebrow">ItMatZip</span>
+        <div class="logo-title-row">
+          <h1>Unattend <span class="accent">Maker</span></h1>
+          <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+        </div>
+        <p class="header-tagline">Windows를 설치할 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다.</p>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <div class="mode-bar" role="tablist" aria-label="설정 모드">
+        <div class="modes" id="modes"></div>
+        <div class="mode-actions">
+          <input type="file" id="file-import" accept=".xml,text/xml,application/xml" hidden>
+          <button type="button" class="btn-ghost" id="btn-import">불러오기</button>
+          <button type="button" class="btn-ghost" id="btn-preview">미리보기</button>
+          <button type="button" class="btn-primary" id="btn-download">파일 받기</button>
+        </div>
+      </div>
+      <p class="mode-note" id="mode-note"></p>
+
+      <div class="workspace">
+        <nav class="side-nav" id="nav" aria-label="설정 항목"></nav>
+        <section class="panel" id="panel" aria-live="polite"></section>
+      </div>
+
+      <aside class="howto">
+        <h2>받은 파일 쓰는 법</h2>
+        <ol>
+          <li>Microsoft에서 Windows 11 설치 USB를 만듭니다. <strong>여기서 고른 언어와 같은</strong> 설치 파일을 쓰세요.</li>
+          <li>받은 파일을 USB <strong>맨 위</strong>에 넣습니다. 다른 폴더 안에 넣으면 적용되지 않습니다.</li>
+          <li>그 USB로 PC를 켜면, 고른 설정대로 설치가 진행됩니다.</li>
+        </ol>
+        <ul>
+          <li>한국어로 만들었다면 영문 Windows 설치 파일은 쓰지 마세요.</li>
+          <li>디스크를 자동으로 지우는 옵션을 켰다면, 고른 디스크의 파일이 전부 삭제됩니다.</li>
+          <li>Rufus로 USB를 만들 때 추가 설치 옵션을 켜면 이 파일을 쓰지 않을 수 있습니다.</li>
+        </ul>
+      </aside>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="Unattend Maker 안내">
+        <p class="tool-guide-kicker">Unattend Maker</p>
+        <h2>Windows 설치 질문에 미리 답하는 파일을 만드는 도구</h2>
+        <p class="tool-guide-lead">언어, 계정, 디스크, 지울 앱을 고른 뒤 설치 파일로 저장합니다. 컴퓨터 밖으로 올라가지 않고, 지금 쓰는 브라우저에서만 만들어집니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>Windows를 처음 설치할 때 나오는 언어, Microsoft 계정, 개인정보 화면을 건너뛰고 싶을 때 씁니다. 같은 설정을 여러 대에 반복할 때도 유용합니다. 직접 고르거나, 가정용 클린·구형 PC·미니멀로 값을 채운 다음 필요한 칸만 바꾸면 됩니다. 여기서 받은 파일은 다시 불러와 이어서 고칠 수 있습니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>모드를 고릅니다.</strong> 빠르게 가려면 가정용 클린을 누르세요. 처음부터 고르려면 직접 설정을 쓰면 됩니다.</li>
+          <li><strong>왼쪽에서 확인합니다.</strong> 계정 이름, 디스크, 지울 앱처럼 사람마다 다른 값만 보면 됩니다.</li>
+          <li><strong>파일을 받아 USB에 넣습니다.</strong> 설치 파일 언어가 여기서 고른 언어와 같은지 확인하세요.</li>
+        </ol>
+        <h3>이 도구의 장점</h3>
+        <ul>
+          <li><strong>프리셋 후에도 전부 고칠 수 있습니다.</strong> 시작값만 채워 주고, 숨기는 옵션은 없습니다.</li>
+          <li><strong>받은 파일을 다시 열 수 있습니다.</strong> 설치에 쓰는 그 파일에 설정이 들어 있습니다.</li>
+          <li><strong>설치 프로그램이 필요 없습니다.</strong> 브라우저만으로 파일을 만듭니다.</li>
+        </ul>
+        <p class="tool-guide-note">디스크를 자동으로 지우는 옵션은 그 안의 파일을 전부 삭제합니다. 잘 모르겠으면 설치 화면에서 디스크를 고르세요. Windows 설치 USB 자체는 Microsoft에서 받아야 합니다.</p>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="preview-dialog" class="preview-dialog">
+    <form method="dialog" class="preview-head">
+      <strong>설치 파일 미리보기</strong>
+      <button type="submit" class="btn-ghost">닫기</button>
+    </form>
+    <pre id="preview-code" class="preview-code"></pre>
+  </dialog>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">ItMatZip Tools는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script src="../silence-remover/mobile-only.js?v=1"></script>
+  <script type="module" src="app.js?v=4"></script>
+</body>
+</html>

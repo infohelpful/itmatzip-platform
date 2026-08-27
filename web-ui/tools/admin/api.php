@@ -28,6 +28,7 @@ const ALLOWED_TOOL_IDS = array(
   'watermark-remover',
   'thumbnail-grabber',
   'ico-maker',
+  'unattend-maker',
 );
 
 const ALLOWED_AD_UNITS = array(

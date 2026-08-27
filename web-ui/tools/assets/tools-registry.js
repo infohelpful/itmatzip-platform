@@ -157,4 +157,16 @@ export const TOOLS = [
     available: true,
     tags: ["ico", "아이콘", "png", "favicon", "윈도우", "icon", "변환"],
   },
+  {
+    id: "unattend-maker",
+    href: "unattend-maker/",
+    title: "Unattend Maker",
+    subtitle: "윈도우 자동설치 · XML",
+    description:
+      "Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다. 자주 쓰는 설정으로 채운 뒤 원하는 항목만 바꾸면 됩니다.",
+    icon: "💿",
+    accent: "#60a5fa",
+    available: true,
+    tags: ["윈도우", "windows", "설치", "autounattend", "xml", "무인설치", "응답파일", "iso"],
+  },
 ];

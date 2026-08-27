@@ -48,6 +48,7 @@ ALLOWED_TOOL_IDS = frozenset(
         "watermark-remover",
         "thumbnail-grabber",
         "ico-maker",
+        "unattend-maker",
     }
 )
 ALLOWED_AD_UNITS = (

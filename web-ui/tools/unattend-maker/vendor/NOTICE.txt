@@ -1,0 +1,5 @@
+Catalog JSON and helper scripts in this folder come from
+https://github.com/cschneegans/unattend-generator
+Copyright (c) Christoph Schneegans
+Licensed under the MIT License.
+The website UI at schneegans.de is not included.

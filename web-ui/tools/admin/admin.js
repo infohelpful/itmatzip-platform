@@ -1,4 +1,4 @@
-import { TOOLS } from "../assets/tools-registry.js?v=12";
+import { TOOLS } from "../assets/tools-registry.js?v=14";
 import { DEFAULT_SITE_CONFIG, mergeSiteConfig } from "../common/site-config.js?v=1";
 
 const API_URL = "/admin/api.php";
