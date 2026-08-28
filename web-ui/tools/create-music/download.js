@@ -3,7 +3,7 @@ import {
   configureBridge,
   fetchAgent,
 } from "../common/bridge.js";
-import { showAdSense } from "../common/adsense.js";
+import { showAdSense } from "../common/adsense.js?v=4";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 import { encodeAudioBufferToMp3Blob, triggerBlobDownload } from "./mp3-export.js";
 

@@ -25,7 +25,7 @@ body {
 
 .main-content {
   flex: 1;
-  max-width: 1000px;
+  max-width: 1288px;
   margin: 0 auto;
   padding: 40px 20px;
 }
@@ -33,7 +33,7 @@ body {
 /* AdSense — 옵션·미디어 요약 위 인라인 슬롯 */
 .editor-ad {
   margin: 0 0 var(--editor-block-gap);
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   border-radius: var(--radius);
   background: #0a0c10;
   border: 1px dashed var(--border);
@@ -46,16 +46,16 @@ body {
 .editor-ad .adsbygoogle {
   display: block;
   width: 100%;
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   line-height: normal;
 }
 
 .editor-ad:not(:has(.adsbygoogle)) {
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
 }
 
 .editor-ad[data-adsense-empty="1"] {
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   display: flex;
   align-items: center;
   justify-content: center;

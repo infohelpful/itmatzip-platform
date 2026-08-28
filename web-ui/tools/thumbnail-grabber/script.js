@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js";
+import { showAdSense } from "../common/adsense.js?v=4";
 
 /** @param {string} id */
 function el(id) {

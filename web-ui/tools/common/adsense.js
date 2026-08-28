@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js";
+ *   import { showAdSense } from "../common/adsense.js?v=4";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
@@ -89,11 +89,25 @@ function scheduleFillWatch(ins, container, unitKey) {
  */
 
 /**
- * 가로형(horizontal) 광고가 들어갈 수 있는 최소 폭.
+ * 가로형 배너가 들어갈 수 있는 최소 폭.
  * 이보다 좁은 컨테이너에 push 하면 AdSense 가 맞는 크기를 못 찾아
  * `TagError: No slot size for availableWidth=…` 를 던진다.
  */
 const HORIZONTAL_MIN_WIDTH = 250;
+
+/** PC 728×90 / 모바일 320×50 — 구글 예시의 800px 기준과 맞춤 */
+const AD_BANNER_MOBILE_MQ = "(max-width: 799px)";
+const AD_BANNER_HEIGHT_DESKTOP = 90;
+const AD_BANNER_HEIGHT_MOBILE = 50;
+
+function bannerAdHeightPx() {
+  try {
+    if (window.matchMedia(AD_BANNER_MOBILE_MQ).matches) return AD_BANNER_HEIGHT_MOBILE;
+  } catch {
+    /* ignore */
+  }
+  return AD_BANNER_HEIGHT_DESKTOP;
+}
 
 /**
  * 광고 단위 정의 (슬롯 추가 시 여기만 수정)
@@ -103,41 +117,26 @@ export const AD_UNITS = {
   /** XML 다운로드 페이지 상단 */
   downloadTop: {
     slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** XML 다운로드 페이지 하단 */
   downloadBottom: {
     slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 편집 화면 — 옵션·미디어 요약 위 */
   editorAboveWorkspace: {
     slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 편집 화면 — XML 다운로드 버튼 아래 */
   editorBelowExport: {
     slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
   /** 메인 대시보드 — 상단 배너 */
   dashboardBanner: {
     slot: "5724069500",
-    adFormat: "horizontal",
-    fullWidthResponsive: true,
-    style: "display:block",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
 };
@@ -160,10 +159,6 @@ function applyRuntimeAdSense() {
       for (const [key, unit] of Object.entries(units)) {
         if (!AD_UNITS[key] || !unit) continue;
         if (typeof unit.slot === "string") AD_UNITS[key].slot = unit.slot.trim();
-        if (typeof unit.adFormat === "string") AD_UNITS[key].adFormat = unit.adFormat;
-        if (typeof unit.fullWidthResponsive === "boolean") {
-          AD_UNITS[key].fullWidthResponsive = unit.fullWidthResponsive;
-        }
       }
     } catch {
       _adsDisabled = false;
@@ -315,14 +310,11 @@ export async function showAdSense(unitKey, container) {
   el.removeAttribute("data-adsense-empty");
 
   const ins = document.createElement("ins");
-  ins.className = "adsbygoogle";
-  ins.style.cssText = unit.style ?? "display:block";
+  const heightPx = bannerAdHeightPx();
+  ins.className = "adsbygoogle itz-ad-unit";
+  ins.style.cssText = "display:block;width:100%;height:" + heightPx + "px";
   ins.setAttribute("data-ad-client", _client);
   ins.setAttribute("data-ad-slot", unit.slot);
-  if (unit.adFormat) ins.setAttribute("data-ad-format", unit.adFormat);
-  if (unit.fullWidthResponsive) {
-    ins.setAttribute("data-full-width-responsive", "true");
-  }
 
   el.appendChild(ins);
 

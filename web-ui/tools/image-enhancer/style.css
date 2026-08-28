@@ -22,7 +22,7 @@ body {
 }
 
 .main-content {
-  max-width: 960px;
+  max-width: 1288px;
   margin: 0 auto;
   padding: 40px 20px 80px;
 }
@@ -174,7 +174,7 @@ body {
 /* AdSense — 이미지 경로 위 · 결과 다운로드 아래 (팝업 블러 제외) */
 .editor-ad {
   margin: 0 0 var(--editor-block-gap);
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   border-radius: var(--radius);
   background: #0a0c10;
   border: 1px dashed var(--border);
@@ -192,16 +192,16 @@ body {
 .editor-ad .adsbygoogle {
   display: block;
   width: 100%;
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   line-height: normal;
 }
 
 .editor-ad:not(:has(.adsbygoogle)) {
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
 }
 
 .editor-ad[data-adsense-empty="1"] {
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=3";
+import { showAdSense } from "../common/adsense.js?v=4";
 import {
   LOCALE_OPTIONS,
   applyI18n,

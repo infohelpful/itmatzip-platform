@@ -3,7 +3,7 @@
  */
 import * as Bridge from "../common/bridge.js?v=lna21";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
-import { showAdSense } from "../common/adsense.js";
+import { showAdSense } from "../common/adsense.js?v=4";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
 import { createMusicWaveformPlayer } from "./waveform-player.js";
 import { initMusicComposeEditor } from "./music-compose.js?v=10";

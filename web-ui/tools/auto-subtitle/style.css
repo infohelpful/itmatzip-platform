@@ -476,7 +476,7 @@ body.as-app {
 
 .as-preview-ad-wrap {
   flex: 0 0 auto;
-  max-height: 110px;
+  max-height: calc(var(--itz-ad-height, 90px) + 24px);
   overflow: hidden;
   padding: 10px 12px 12px;
   border-top: 1px solid var(--as-border);
@@ -1269,7 +1269,7 @@ body.as-app {
 /* Subtitle pane ad */
 .as-subtitle-ad-wrap {
   flex: 0 0 auto;
-  max-height: 110px;
+  max-height: calc(var(--itz-ad-height, 90px) + 24px);
   overflow: hidden;
   padding: 10px 12px;
   border-bottom: 1px solid var(--as-border);
@@ -1277,7 +1277,7 @@ body.as-app {
 
 .as-ad-slot.editor-ad {
   margin: 0;
-  min-height: 90px;
+  min-height: var(--itz-ad-height, 90px);
   border-radius: var(--as-radius);
   background: #0a0c10;
   border: 1px dashed var(--as-border);
@@ -1289,16 +1289,16 @@ body.as-app {
 .as-ad-slot.editor-ad .adsbygoogle {
   display: block;
   width: 100%;
-  min-height: 90px;
+  min-height: var(--itz-ad-height, 90px);
   line-height: normal;
 }
 
 .as-ad-slot.editor-ad:not(:has(.adsbygoogle)) {
-  min-height: 90px;
+  min-height: var(--itz-ad-height, 90px);
 }
 
 .as-ad-slot.editor-ad[data-adsense-empty="1"] {
-  min-height: 90px;
+  min-height: var(--itz-ad-height, 90px);
   display: flex;
   align-items: center;
   justify-content: center;

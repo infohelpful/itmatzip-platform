@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=3";
+import { showAdSense } from "../common/adsense.js?v=4";
 import { loadSiteConfig } from "../common/site-config.js?v=3";
 import { TOOLS } from "./tools-registry.js?v=15";
 

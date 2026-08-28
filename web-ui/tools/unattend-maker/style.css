@@ -41,7 +41,7 @@ body {
 }
 
 .main-content {
-  max-width: 1120px;
+  max-width: 1288px;
   margin: 0 auto;
   padding: 40px 20px 80px;
 }
@@ -118,7 +118,7 @@ body {
 
 .editor-ad {
   margin: 0 0 var(--editor-block-gap);
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   border-radius: var(--radius);
   background: #0a0c10;
   border: 1px dashed var(--border);
@@ -650,6 +650,6 @@ textarea {
   .editor-ad,
   .editor-ad .adsbygoogle,
   .editor-ad[data-adsense-empty="1"] {
-    min-height: 100px;
+    min-height: var(--itz-ad-height, 90px);
   }
 }

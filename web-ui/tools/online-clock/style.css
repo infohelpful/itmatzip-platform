@@ -61,7 +61,7 @@ body {
 }
 
 .main-content {
-  max-width: 920px;
+  max-width: 1288px;
   margin: 0 auto;
   padding: 36px 20px 80px;
 }
@@ -198,7 +198,7 @@ body {
 
 .editor-ad {
   margin: 0 0 var(--editor-block-gap);
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   border-radius: var(--radius);
   background: #0a0c10;
   border: 1px dashed var(--border);
@@ -216,12 +216,12 @@ body {
 .editor-ad .adsbygoogle {
   display: block;
   width: 100%;
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   line-height: normal;
 }
 
 .editor-ad[data-adsense-empty="1"] {
-  min-height: 280px;
+  min-height: var(--itz-ad-height, 90px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1299,7 +1299,7 @@ html:-webkit-full-screen {
   .editor-ad,
   .editor-ad .adsbygoogle,
   .editor-ad[data-adsense-empty="1"] {
-    min-height: 100px;
+    min-height: var(--itz-ad-height, 90px);
   }
 
   .alert-overlay {

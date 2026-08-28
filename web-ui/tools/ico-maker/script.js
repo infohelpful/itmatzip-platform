@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=3";
+import { showAdSense } from "../common/adsense.js?v=4";
 
 const ICON_SIZES = [
   { px: 16, hint: "탐색기 자세히 · 트레이" },
