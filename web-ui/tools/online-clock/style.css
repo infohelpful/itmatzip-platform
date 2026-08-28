@@ -507,7 +507,9 @@ body {
 .field input[type="time"],
 .field input[type="number"],
 .field select {
+  display: block;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
   height: 42px;
   padding: 0 10px;
@@ -517,6 +519,36 @@ body {
   color: var(--text-main);
   font-family: inherit;
   font-size: 14px;
+}
+
+/* Native time pickers (AM/PM + clock icon) ignore min-width and overflow on mobile. */
+.field input[type="time"] {
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
+}
+
+.field input[type="time"]::-webkit-datetime-edit,
+.field input[type="time"]::-webkit-datetime-edit-fields-wrapper {
+  min-width: 0;
+  padding: 0;
+}
+
+.field input[type="time"]::-webkit-datetime-edit-text,
+.field input[type="time"]::-webkit-datetime-edit-hour-field,
+.field input[type="time"]::-webkit-datetime-edit-minute-field,
+.field input[type="time"]::-webkit-datetime-edit-ampm-field {
+  padding: 0 1px;
+}
+
+.field input[type="time"]::-webkit-calendar-picker-indicator {
+  margin-left: 4px;
+  margin-right: 0;
+  padding: 0;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .volume-row {
@@ -1153,9 +1185,14 @@ html:-webkit-full-screen {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
   .alarm-form {
     grid-template-columns: 1fr 1fr;
+  }
+
+  /* Time control needs a full row; 12-hour AM/PM cannot fit a 5-col cell. */
+  .alarm-form > .field-time {
+    grid-column: 1 / -1;
   }
 }
 
