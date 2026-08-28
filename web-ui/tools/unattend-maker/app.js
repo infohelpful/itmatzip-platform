@@ -734,6 +734,13 @@ function renderNav() {
       <small>${summaryFor(item.id)}</small>
     </button>`,
   ).join("");
+  const jump = $("#section-jump");
+  if (!jump) return;
+  jump.innerHTML = NAV.map((item) => {
+    const extra = summaryFor(item.id);
+    const label = extra ? `${item.name} · ${extra}` : item.name;
+    return `<option value="${item.id}" ${section === item.id ? "selected" : ""}>${label}</option>`;
+  }).join("");
 }
 
 function renderModes() {
@@ -912,6 +919,11 @@ function boot() {
     const btn = event.target.closest("[data-nav]");
     if (!btn) return;
     section = btn.dataset.nav;
+    renderNav();
+    renderPanel();
+  });
+  $("#section-jump").addEventListener("change", (event) => {
+    section = event.target.value;
     renderNav();
     renderPanel();
   });

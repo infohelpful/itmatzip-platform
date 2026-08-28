@@ -65,8 +65,17 @@ body {
   margin-bottom: 14px;
 }
 
-.hub-title {
+.hub-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
   margin: 0 0 10px;
+}
+
+.hub-title {
+  margin: 0;
   font-size: clamp(1.75rem, 4vw, 2.25rem);
   font-weight: 800;
   letter-spacing: -0.02em;
@@ -75,6 +84,77 @@ body {
 
 .hub-title .accent {
   color: var(--accent);
+}
+
+.hub-mobile-menu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.hub-mobile-menu-toggle[hidden] {
+  display: none !important;
+}
+
+.hub-mobile-menu-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.hub-switch {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: 0 0 auto;
+}
+
+.hub-switch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.hub-switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: #334155;
+  pointer-events: none;
+  transition: background 0.16s ease;
+}
+
+.hub-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: transform 0.16s ease;
+}
+
+.hub-switch input:checked + .hub-switch-track {
+  background: var(--accent);
+}
+
+.hub-switch input:checked + .hub-switch-track::after {
+  transform: translateX(18px);
+}
+
+.hub-switch input:focus-visible + .hub-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .hub-lead {
@@ -209,6 +289,21 @@ body {
   pointer-events: none;
 }
 
+.hub-card.is-pc-only {
+  opacity: 0.38;
+  filter: grayscale(0.45) brightness(0.72);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.hub-card.is-pc-only .hub-card-cta {
+  color: var(--text-muted);
+}
+
+.hub-card.is-pc-only .hub-card-cta::after {
+  content: none;
+}
+
 .hub-card-badge {
   position: absolute;
   top: 16px;
@@ -308,6 +403,25 @@ body {
 
   .hub-header {
     margin-bottom: 22px;
+  }
+
+  .hub-title-row {
+    align-items: flex-start;
+  }
+
+  .hub-mobile-menu-toggle {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    padding-top: 4px;
+  }
+
+  .hub-mobile-menu-label {
+    font-size: 11px;
+    white-space: normal;
+    text-align: right;
+    max-width: 7.5rem;
+    line-height: 1.35;
   }
 
   .hub-lead {

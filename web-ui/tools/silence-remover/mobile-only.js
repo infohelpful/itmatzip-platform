@@ -33,8 +33,13 @@
 
   function isMobileEnvironment() {
     const ua = navigator.userAgent || "";
-    if (/Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+    if (/Android|webOS|iPhone|iPod|iPad|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
       return true;
+    }
+    try {
+      if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+    } catch (e) {
+      /* ignore */
     }
     if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
       return true;
@@ -51,16 +56,12 @@
     const path = String(location.pathname || "");
     if (/\/admin(?:\/|$)/i.test(path)) return null;
     const attr = document.documentElement.getAttribute("data-tool-id");
-    if (attr) return attr;
+    if (attr && KNOWN_TOOL_IDS.indexOf(attr) !== -1) return attr;
     const parts = path.split("/").filter(Boolean);
     for (let i = 0; i < parts.length; i++) {
       if (KNOWN_TOOL_IDS.indexOf(parts[i]) !== -1) return parts[i];
     }
-    if (!parts.length) return "";
-    const id = parts[0];
-    if (id.indexOf(".") !== -1) return "";
-    if (id === "assets" || id === "common" || id === "admin") return "";
-    return id;
+    return "";
   }
 
   function mobileEnabledIds(cfg) {
@@ -74,11 +75,8 @@
   }
 
   function isMobileAllowed(cfg, toolId) {
-    const allowed = mobileEnabledIds(cfg);
-    if (toolId === "") {
-      return allowed.length > 0;
-    }
-    return allowed.indexOf(toolId) !== -1;
+    if (!toolId) return true;
+    return mobileEnabledIds(cfg).indexOf(toolId) !== -1;
   }
 
   function ensureOverlay() {
@@ -88,7 +86,8 @@
       const style = document.createElement("style");
       style.id = "itz-mobile-only-fallback-css";
       style.textContent =
-        ".mobile-only-overlay{position:fixed;inset:0;z-index:20000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,17,21,.72)}" +
+        ".mobile-only-overlay{position:fixed;inset:0;z-index:20000;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(15,17,21,.72)}" +
+        ".mobile-only-overlay.is-open{display:flex!important}" +
         ".mobile-only-overlay.is-hidden,[hidden].mobile-only-overlay{display:none!important}" +
         ".mobile-only-card{width:min(100%,360px);padding:32px 28px;border-radius:16px;border:1px solid #2d333f;background:#1a1d23;text-align:center;color:#e2e8f0;font-family:Pretendard,system-ui,sans-serif}" +
         ".mobile-only-title{margin:0 0 10px;font-size:1.2rem}.mobile-only-desc{margin:0;color:#94a3b8;line-height:1.6}";
@@ -113,14 +112,19 @@
   function showMobileOnlyOverlay() {
     const overlay = ensureOverlay();
     overlay.hidden = false;
+    overlay.classList.add("is-open");
     overlay.classList.remove("is-hidden");
     document.body.classList.add("mobile-only-active");
   }
 
   function hideMobileOnlyOverlay() {
     const overlay = document.getElementById("mobile-only-overlay");
-    if (!overlay) return;
+    if (!overlay) {
+      document.body.classList.remove("mobile-only-active");
+      return;
+    }
     overlay.hidden = true;
+    overlay.classList.remove("is-open");
     overlay.classList.add("is-hidden");
     document.body.classList.remove("mobile-only-active");
   }
@@ -171,11 +175,13 @@
   }
 
   function init() {
-    if (!isMobileEnvironment()) return;
+    if (!isMobileEnvironment()) {
+      hideMobileOnlyOverlay();
+      return;
+    }
     const toolId = currentToolId();
     if (toolId === null) return;
 
-    // 설정 응답 전에 기본 허용 도구·대시보드는 바로 통과. 예전 스크립트처럼 전체를 막지 않음.
     apply({ mobileEnabledToolIds: DEFAULT_MOBILE_IDS.slice() });
 
     loadConfig()

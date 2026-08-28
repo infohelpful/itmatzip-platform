@@ -357,6 +357,11 @@ class ToolsHandler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
     def list_directory(self, path):
         self.send_error(HTTPStatus.FORBIDDEN, "Directory listing disabled")
         return None

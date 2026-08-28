@@ -2,13 +2,17 @@
   position: fixed;
   inset: 0;
   z-index: 20000;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 24px;
   background: rgba(15, 17, 21, 0.45);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
+}
+
+.mobile-only-overlay.is-open {
+  display: flex;
 }
 
 .mobile-only-overlay.is-hidden,

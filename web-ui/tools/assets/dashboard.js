@@ -2,9 +2,13 @@ import { showAdSense } from "../common/adsense.js?v=3";
 import { loadSiteConfig } from "../common/site-config.js?v=3";
 import { TOOLS } from "./tools-registry.js?v=15";
 
+const MOBILE_MENU_ONLY_KEY = "itz-mobile-menu-only";
+
 const gridEl = document.getElementById("hub-tool-grid");
 const searchEl = document.getElementById("hub-search");
 const countEl = document.getElementById("hub-tool-count");
+const mobileMenuToggleEl = document.getElementById("hub-mobile-menu-toggle");
+const mobileMenuOnlyEl = document.getElementById("hub-mobile-menu-only");
 
 /**
  * @param {import("./tools-registry.js").ToolEntry} tool
@@ -27,51 +31,21 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-/**
- * @param {import("./tools-registry.js").ToolEntry} tool
- */
-function renderCard(tool) {
-  const available = tool.available !== false;
-  const tag = document.createElement(available ? "a" : "article");
-  tag.className = "hub-card" + (available ? "" : " is-disabled");
-  tag.style.setProperty("--card-accent", tool.accent || "#3b82f6");
-  tag.style.setProperty(
-    "--card-accent-glow",
-    `color-mix(in srgb, ${tool.accent || "#3b82f6"} 22%, transparent)`,
-  );
-
-  if (available) {
-    tag.href = tool.href;
-    tag.setAttribute("aria-label", `${tool.title} 열기`);
-  } else {
-    tag.setAttribute("aria-disabled", "true");
-  }
-
-  const badgeText = available ? tool.badge || "" : "준비 중";
-  const badgeClass =
-    "hub-card-badge" + (available && tool.badge ? "" : " is-soon");
-
-  tag.innerHTML = `
-    ${badgeText ? `<span class="${badgeClass}">${escapeHtml(badgeText)}</span>` : ""}
-    <div class="hub-card-icon" aria-hidden="true">${escapeHtml(tool.icon || "⚙")}</div>
-    <h2 class="hub-card-title">${escapeHtml(tool.title)}</h2>
-    <p class="hub-card-subtitle">${escapeHtml(tool.subtitle)}</p>
-    <p class="hub-card-desc">${escapeHtml(tool.description)}</p>
-    <span class="hub-card-cta">${available ? "도구 열기" : "곧 공개"}</span>
-  `;
-
-  return tag;
-}
-
 /** @type {Set<string>} */
 let hiddenToolIds = new Set();
 /** @type {Set<string> | null} */
 let mobileEnabledToolIds = null;
+let mobileMenuOnly = true;
 
 function isMobileDashboard() {
   const ua = navigator.userAgent || "";
-  if (/Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+  if (/Android|webOS|iPhone|iPod|iPad|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
     return true;
+  }
+  try {
+    if (navigator.userAgentData && navigator.userAgentData.mobile) return true;
+  } catch {
+    /* ignore */
   }
   if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
     return true;
@@ -84,10 +58,84 @@ function isMobileDashboard() {
   return coarse && narrow;
 }
 
+function readMobileMenuOnly() {
+  try {
+    return localStorage.getItem(MOBILE_MENU_ONLY_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeMobileMenuOnly(value) {
+  try {
+    localStorage.setItem(MOBILE_MENU_ONLY_KEY, value ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+function isMobileLocked(tool) {
+  if (!isMobileDashboard() || !mobileEnabledToolIds) return false;
+  return !mobileEnabledToolIds.has(tool.id);
+}
+
+/**
+ * @param {import("./tools-registry.js").ToolEntry} tool
+ */
+function renderCard(tool) {
+  const comingSoon = tool.available === false;
+  const mobileLocked = !comingSoon && isMobileLocked(tool);
+  const clickable = !comingSoon && !mobileLocked;
+  const tag = document.createElement(clickable ? "a" : "article");
+  tag.className =
+    "hub-card" +
+    (comingSoon ? " is-disabled" : "") +
+    (mobileLocked ? " is-disabled is-pc-only" : "");
+  tag.style.setProperty("--card-accent", tool.accent || "#3b82f6");
+  tag.style.setProperty(
+    "--card-accent-glow",
+    `color-mix(in srgb, ${tool.accent || "#3b82f6"} 22%, transparent)`,
+  );
+
+  if (clickable) {
+    tag.href = tool.href;
+    tag.setAttribute("aria-label", `${tool.title} 열기`);
+  } else {
+    tag.setAttribute("aria-disabled", "true");
+    if (mobileLocked) {
+      tag.setAttribute("aria-label", `${tool.title} — PC에서만 이용할 수 있습니다`);
+    }
+  }
+
+  const badgeText = comingSoon ? "준비 중" : mobileLocked ? "PC 전용" : tool.badge || "";
+  const badgeClass =
+    "hub-card-badge" + (comingSoon || mobileLocked || !tool.badge ? " is-soon" : "");
+
+  let cta = "도구 열기";
+  if (comingSoon) cta = "곧 공개";
+  else if (mobileLocked) cta = "PC에서만 이용";
+
+  tag.innerHTML = `
+    ${badgeText ? `<span class="${badgeClass}">${escapeHtml(badgeText)}</span>` : ""}
+    <div class="hub-card-icon" aria-hidden="true">${escapeHtml(tool.icon || "⚙")}</div>
+    <h2 class="hub-card-title">${escapeHtml(tool.title)}</h2>
+    <p class="hub-card-subtitle">${escapeHtml(tool.subtitle)}</p>
+    <p class="hub-card-desc">${escapeHtml(tool.description)}</p>
+    <span class="hub-card-cta">${cta}</span>
+  `;
+
+  return tag;
+}
+
 function catalogTools() {
   return TOOLS.filter((t) => {
     if (hiddenToolIds.has(t.id)) return false;
-    if (isMobileDashboard() && mobileEnabledToolIds && !mobileEnabledToolIds.has(t.id)) {
+    if (
+      isMobileDashboard() &&
+      mobileMenuOnly &&
+      mobileEnabledToolIds &&
+      !mobileEnabledToolIds.has(t.id)
+    ) {
       return false;
     }
     return true;
@@ -119,11 +167,27 @@ function renderGrid() {
   }
 
   if (countEl) {
-    const total = catalog.filter((t) => t.available !== false).length;
+    const usable = catalog.filter((t) => t.available !== false && !isMobileLocked(t)).length;
     countEl.textContent = q
-      ? `${list.length}개 표시 · 이용 가능 ${total}개`
-      : `이용 가능 ${total}개 · 전체 ${catalog.length}개`;
+      ? `${list.length}개 표시 · 이용 가능 ${usable}개`
+      : `이용 가능 ${usable}개 · 전체 ${catalog.length}개`;
   }
+}
+
+function setupMobileMenuToggle() {
+  if (!mobileMenuToggleEl || !mobileMenuOnlyEl) return;
+  if (!isMobileDashboard()) {
+    mobileMenuToggleEl.hidden = true;
+    return;
+  }
+  mobileMenuOnly = readMobileMenuOnly();
+  mobileMenuOnlyEl.checked = mobileMenuOnly;
+  mobileMenuToggleEl.hidden = false;
+  mobileMenuOnlyEl.addEventListener("change", () => {
+    mobileMenuOnly = mobileMenuOnlyEl.checked;
+    writeMobileMenuOnly(mobileMenuOnly);
+    renderGrid();
+  });
 }
 
 async function init() {
@@ -135,6 +199,7 @@ async function init() {
     hiddenToolIds = new Set();
     mobileEnabledToolIds = null;
   }
+  setupMobileMenuToggle();
   renderGrid();
 
   if (searchEl) {
