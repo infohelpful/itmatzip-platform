@@ -1,5 +1,5 @@
 /**
- * 공개 사이트 런타임 설정 (메뉴 숨김 · AdSense).
+ * 공개 사이트 런타임 설정 (메뉴 숨김 · 모바일 접속 · AdSense).
  * 관리자 저장값은 /admin/api.php?action=public 에서 읽고,
  * PHP가 없는 환경은 /admin/site-config.json 으로 폴백합니다.
  */
@@ -9,6 +9,7 @@
 /**
  * @typedef {Object} SiteConfig
  * @property {string[]} hiddenToolIds
+ * @property {string[]} mobileEnabledToolIds
  * @property {{
  *   enabled: boolean,
  *   client: string,
@@ -19,6 +20,7 @@
 /** @type {SiteConfig} */
 export const DEFAULT_SITE_CONFIG = {
   hiddenToolIds: [],
+  mobileEnabledToolIds: ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker"],
   adsense: {
     enabled: true,
     client: "ca-pub-2088466558007407",
@@ -71,6 +73,7 @@ export function mergeSiteConfig(raw) {
   /** @type {SiteConfig} */
   const out = {
     hiddenToolIds: [],
+    mobileEnabledToolIds: [...DEFAULT_SITE_CONFIG.mobileEnabledToolIds],
     adsense: {
       enabled: DEFAULT_SITE_CONFIG.adsense.enabled,
       client: DEFAULT_SITE_CONFIG.adsense.client,
@@ -83,6 +86,12 @@ export function mergeSiteConfig(raw) {
 
   if (Array.isArray(src.hiddenToolIds)) {
     out.hiddenToolIds = src.hiddenToolIds.filter((id) => typeof id === "string" && id.trim());
+  }
+
+  if (Object.prototype.hasOwnProperty.call(src, "mobileEnabledToolIds")) {
+    out.mobileEnabledToolIds = Array.isArray(src.mobileEnabledToolIds)
+      ? src.mobileEnabledToolIds.filter((id) => typeof id === "string" && id.trim())
+      : [];
   }
 
   const ads = src.adsense && typeof src.adsense === "object"
@@ -151,4 +160,10 @@ export function loadSiteConfig() {
 export async function isToolHidden(toolId) {
   const cfg = await loadSiteConfig();
   return cfg.hiddenToolIds.includes(toolId);
+}
+
+/** @param {string} toolId */
+export async function isToolMobileEnabled(toolId) {
+  const cfg = await loadSiteConfig();
+  return cfg.mobileEnabledToolIds.includes(toolId);
 }

@@ -1,5 +1,5 @@
-import { TOOLS } from "../assets/tools-registry.js?v=14";
-import { DEFAULT_SITE_CONFIG, mergeSiteConfig } from "../common/site-config.js?v=1";
+import { TOOLS } from "../assets/tools-registry.js?v=15";
+import { DEFAULT_SITE_CONFIG, mergeSiteConfig } from "../common/site-config.js?v=3";
 
 const API_URL = "/admin/api.php";
 
@@ -84,21 +84,35 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-function renderTools(hiddenIds) {
+function renderTools(hiddenIds, mobileIds) {
   const hidden = new Set(hiddenIds || []);
+  const mobile = new Set(mobileIds || []);
   toolToggles.replaceChildren();
   for (const tool of TOOLS) {
-    const row = document.createElement("label");
+    const row = document.createElement("div");
     row.className = "admin-tool-row";
-    const checked = hidden.has(tool.id) ? "" : "checked";
+    const visibleChecked = hidden.has(tool.id) ? "" : "checked";
+    const mobileChecked = mobile.has(tool.id) ? "checked" : "";
     row.innerHTML = `
       <span class="admin-tool-meta">
         <strong>${escapeHtml(tool.icon || "")} ${escapeHtml(tool.title)}</strong>
         <span>${escapeHtml(tool.subtitle || tool.id)}</span>
       </span>
-      <span class="admin-switch">
-        <input type="checkbox" data-tool-id="${escapeHtml(tool.id)}" ${checked}>
-        <span></span>
+      <span class="admin-tool-switches">
+        <label class="admin-switch-wrap">
+          <span class="admin-switch-label">공개</span>
+          <span class="admin-switch">
+            <input type="checkbox" data-tool-id="${escapeHtml(tool.id)}" data-switch="visible" ${visibleChecked}>
+            <span></span>
+          </span>
+        </label>
+        <label class="admin-switch-wrap">
+          <span class="admin-switch-label">모바일</span>
+          <span class="admin-switch">
+            <input type="checkbox" data-tool-id="${escapeHtml(tool.id)}" data-switch="mobile" ${mobileChecked}>
+            <span></span>
+          </span>
+        </label>
       </span>
     `;
     toolToggles.appendChild(row);
@@ -126,14 +140,18 @@ function applyConfig(raw) {
   const cfg = mergeSiteConfig(raw);
   adsEnabled.checked = cfg.adsense.enabled !== false;
   adsClient.value = cfg.adsense.client || "";
-  renderTools(cfg.hiddenToolIds);
+  renderTools(cfg.hiddenToolIds, cfg.mobileEnabledToolIds);
   renderAdUnits(cfg);
 }
 
 function collectConfig() {
   const hiddenToolIds = [];
-  for (const input of toolToggles.querySelectorAll("input[data-tool-id]")) {
+  const mobileEnabledToolIds = [];
+  for (const input of toolToggles.querySelectorAll('input[data-tool-id][data-switch="visible"]')) {
     if (!input.checked) hiddenToolIds.push(input.getAttribute("data-tool-id"));
+  }
+  for (const input of toolToggles.querySelectorAll('input[data-tool-id][data-switch="mobile"]')) {
+    if (input.checked) mobileEnabledToolIds.push(input.getAttribute("data-tool-id"));
   }
   const units = {};
   const base = DEFAULT_SITE_CONFIG.adsense.units;
@@ -148,6 +166,7 @@ function collectConfig() {
   }
   return {
     hiddenToolIds,
+    mobileEnabledToolIds,
     adsense: {
       enabled: adsEnabled.checked,
       client: adsClient.value.trim(),

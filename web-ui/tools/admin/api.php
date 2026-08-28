@@ -29,6 +29,7 @@ const ALLOWED_TOOL_IDS = array(
   'thumbnail-grabber',
   'ico-maker',
   'unattend-maker',
+  'online-clock',
 );
 
 const ALLOWED_AD_UNITS = array(
@@ -118,11 +119,30 @@ function write_json_file($path, array $data) {
   return rename($tmp, $path);
 }
 
+function parse_tool_id_list($raw) {
+  $out = array();
+  if (!is_array($raw)) {
+    return $out;
+  }
+  foreach ($raw as $id) {
+    if (is_string($id) && in_array($id, ALLOWED_TOOL_IDS, true)) {
+      $out[] = $id;
+    }
+  }
+  return array_values(array_unique($out));
+}
+
+function default_mobile_enabled_tool_ids() {
+  $ids = array('thumbnail-grabber', 'ico-maker', 'online-clock', 'unattend-maker');
+  return parse_tool_id_list($ids);
+}
+
 function default_config() {
   $cfg = read_json_file(DEFAULT_CONFIG_FILE);
   if (!is_array($cfg)) {
     $cfg = array(
       'hiddenToolIds' => array(),
+      'mobileEnabledToolIds' => default_mobile_enabled_tool_ids(),
       'adsense' => array(
         'enabled' => true,
         'client' => 'ca-pub-2088466558007407',
@@ -142,15 +162,12 @@ function public_config() {
 }
 
 function normalize_config(array $cfg) {
-  $hidden = array();
-  if (isset($cfg['hiddenToolIds']) && is_array($cfg['hiddenToolIds'])) {
-    foreach ($cfg['hiddenToolIds'] as $id) {
-      if (is_string($id) && in_array($id, ALLOWED_TOOL_IDS, true)) {
-        $hidden[] = $id;
-      }
-    }
+  $hidden = parse_tool_id_list($cfg['hiddenToolIds'] ?? null);
+  if (array_key_exists('mobileEnabledToolIds', $cfg)) {
+    $mobile = parse_tool_id_list($cfg['mobileEnabledToolIds']);
+  } else {
+    $mobile = default_mobile_enabled_tool_ids();
   }
-  $hidden = array_values(array_unique($hidden));
 
   $ads = (isset($cfg['adsense']) && is_array($cfg['adsense'])) ? $cfg['adsense'] : array();
   $client = isset($ads['client']) && is_string($ads['client']) ? trim($ads['client']) : '';
@@ -187,6 +204,7 @@ function normalize_config(array $cfg) {
 
   return array(
     'hiddenToolIds' => $hidden,
+    'mobileEnabledToolIds' => $mobile,
     'adsense' => array(
       'enabled' => !isset($ads['enabled']) || (bool) $ads['enabled'],
       'client' => $client,

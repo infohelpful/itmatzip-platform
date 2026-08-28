@@ -49,6 +49,7 @@ ALLOWED_TOOL_IDS = frozenset(
         "thumbnail-grabber",
         "ico-maker",
         "unattend-maker",
+        "online-clock",
     }
 )
 ALLOWED_AD_UNITS = (
@@ -84,6 +85,7 @@ def default_config():
         return data
     return {
         "hiddenToolIds": [],
+        "mobileEnabledToolIds": default_mobile_enabled_tool_ids(),
         "adsense": {
             "enabled": True,
             "client": "ca-pub-2088466558007407",
@@ -92,16 +94,30 @@ def default_config():
     }
 
 
+def parse_tool_id_list(raw) -> list:
+    out = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if isinstance(item, str) and item in ALLOWED_TOOL_IDS:
+            out.append(item)
+    return sorted(set(out), key=out.index)
+
+
+def default_mobile_enabled_tool_ids() -> list:
+    return parse_tool_id_list(
+        ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker"]
+    )
+
+
 def normalize_config(cfg) -> dict:
     if not isinstance(cfg, dict):
         cfg = {}
-    hidden = []
-    raw_hidden = cfg.get("hiddenToolIds")
-    if isinstance(raw_hidden, list):
-        for item in raw_hidden:
-            if isinstance(item, str) and item in ALLOWED_TOOL_IDS:
-                hidden.append(item)
-    hidden = sorted(set(hidden), key=hidden.index)
+    hidden = parse_tool_id_list(cfg.get("hiddenToolIds"))
+    if "mobileEnabledToolIds" in cfg:
+        mobile = parse_tool_id_list(cfg.get("mobileEnabledToolIds"))
+    else:
+        mobile = default_mobile_enabled_tool_ids()
 
     ads = cfg.get("adsense") if isinstance(cfg.get("adsense"), dict) else {}
     client = ads.get("client") if isinstance(ads.get("client"), str) else ""
@@ -135,6 +151,7 @@ def normalize_config(cfg) -> dict:
 
     return {
         "hiddenToolIds": hidden,
+        "mobileEnabledToolIds": mobile,
         "adsense": {
             "enabled": bool(ads.get("enabled", True)),
             "client": client,

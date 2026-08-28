@@ -1,6 +1,6 @@
 import { showAdSense } from "../common/adsense.js?v=3";
-import { loadSiteConfig } from "../common/site-config.js?v=1";
-import { TOOLS } from "./tools-registry.js?v=14";
+import { loadSiteConfig } from "../common/site-config.js?v=3";
+import { TOOLS } from "./tools-registry.js?v=15";
 
 const gridEl = document.getElementById("hub-tool-grid");
 const searchEl = document.getElementById("hub-search");
@@ -65,9 +65,33 @@ function renderCard(tool) {
 
 /** @type {Set<string>} */
 let hiddenToolIds = new Set();
+/** @type {Set<string> | null} */
+let mobileEnabledToolIds = null;
+
+function isMobileDashboard() {
+  const ua = navigator.userAgent || "";
+  if (/Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua)) {
+    return true;
+  }
+  if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) {
+    return true;
+  }
+  if (/Windows NT|Win64|WOW64|Macintosh|Mac OS X|Linux|X11|CrOS/i.test(ua) && !/iPhone|iPod|iPad|Android/i.test(ua)) {
+    return false;
+  }
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const narrow = window.matchMedia("(max-width: 900px)").matches;
+  return coarse && narrow;
+}
 
 function catalogTools() {
-  return TOOLS.filter((t) => !hiddenToolIds.has(t.id));
+  return TOOLS.filter((t) => {
+    if (hiddenToolIds.has(t.id)) return false;
+    if (isMobileDashboard() && mobileEnabledToolIds && !mobileEnabledToolIds.has(t.id)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function renderGrid() {
@@ -84,7 +108,9 @@ function renderGrid() {
     empty.className = "hub-empty";
     empty.textContent = q
       ? "검색 결과가 없습니다. 다른 키워드로 시도해 주세요."
-      : "현재 공개된 도구가 없습니다.";
+      : isMobileDashboard()
+        ? "모바일에서 이용할 수 있는 도구가 없습니다."
+        : "현재 공개된 도구가 없습니다.";
     gridEl.appendChild(empty);
   } else {
     for (const tool of list) {
@@ -104,8 +130,10 @@ async function init() {
   try {
     const cfg = await loadSiteConfig();
     hiddenToolIds = new Set(cfg.hiddenToolIds || []);
+    mobileEnabledToolIds = new Set(cfg.mobileEnabledToolIds || []);
   } catch {
     hiddenToolIds = new Set();
+    mobileEnabledToolIds = null;
   }
   renderGrid();
 

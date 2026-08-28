@@ -11,8 +11,9 @@
   -webkit-backdrop-filter: blur(14px);
 }
 
-.mobile-only-overlay.is-hidden {
-  display: none;
+.mobile-only-overlay.is-hidden,
+.mobile-only-overlay[hidden] {
+  display: none !important;
 }
 
 .mobile-only-card {

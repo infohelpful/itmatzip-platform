@@ -1,0 +1,317 @@
+﻿<!DOCTYPE html>
+<html lang="ko" data-tool-id="online-clock">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="../common/site-runtime.js?v=2"></script>
+  <title>온라인 시계</title>
+  <meta name="description" content="알람, 타이머, 스톱워치, 세계 시계를 브라우저에서 바로 사용하세요. 설치 없이 정확한 현재 시각을 확인합니다.">
+  <meta name="keywords" content="온라인 시계, 세계 시계, 온라인 알람, 온라인 타이머, 스톱워치, 현재 시각, Online Clock">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/online-clock/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:locale:alternate" content="en_US">
+  <meta property="og:locale:alternate" content="ja_JP">
+  <meta property="og:locale:alternate" content="zh_CN">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="온라인 시계">
+  <meta property="og:description" content="알람, 타이머, 스톱워치, 세계 시계를 브라우저에서 바로 사용하세요.">
+  <meta property="og:url" content="https://tools.itmatzip.com/online-clock/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="온라인 시계">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="온라인 시계">
+  <meta name="twitter:description" content="알람, 타이머, 스톱워치, 세계 시계를 브라우저에서 바로 사용하세요.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "온라인 시계",
+      "alternateName": ["Online Clock", "オンライン時計", "在线时钟"],
+      "url": "https://tools.itmatzip.com/online-clock/",
+      "description": "알람, 타이머, 스톱워치, 세계 시계를 브라우저에서 바로 사용합니다.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any",
+      "inLanguage": ["ko", "en", "ja", "zh-CN"],
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "온라인 시계", "item": "https://tools.itmatzip.com/online-clock/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=2">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=2">
+</head>
+<body>
+  <div class="app-container" id="app">
+    <main class="main-content">
+      <header class="app-header">
+        <div class="header-top">
+          <span class="eyebrow" data-i18n="brand">ItMatZip</span>
+          <label class="lang-field">
+            <span class="visually-hidden" data-i18n="lang.label">언어</span>
+            <select id="lang-select" aria-label="Language"></select>
+          </label>
+        </div>
+        <div class="logo-title-row">
+          <h1 data-i18n="title">온라인 시계</h1>
+          <a href="../index.html" class="btn-to-dashboard" data-i18n="dashboard">대시보드로 이동</a>
+        </div>
+        <p class="header-tagline" data-i18n="tagline">정확한 현재 시각과 알람·타이머·스톱워치를 한곳에서 사용하세요.</p>
+      </header>
+
+      <nav class="mode-nav" role="tablist" aria-label="Online clock modes">
+        <button type="button" class="mode-tab is-active" data-mode="clock" role="tab" aria-selected="true" data-i18n="nav.clock">시계</button>
+        <button type="button" class="mode-tab" data-mode="alarm" role="tab" aria-selected="false" data-i18n="nav.alarm">알람</button>
+        <button type="button" class="mode-tab" data-mode="timer" role="tab" aria-selected="false" data-i18n="nav.timer">타이머</button>
+        <button type="button" class="mode-tab" data-mode="stopwatch" role="tab" aria-selected="false" data-i18n="nav.stopwatch">스톱워치</button>
+      </nav>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <section id="view-clock" class="view" data-view="clock">
+        <div class="stage clock-stage" id="clock-stage">
+          <div class="clock-hero">
+            <div class="analog-wrap" id="analog-wrap">
+              <svg class="analog" id="analog-clock" viewBox="0 0 200 200" aria-hidden="true">
+                <defs>
+                  <radialGradient id="analogGlow" cx="50%" cy="38%" r="70%">
+                    <stop offset="0%" stop-color="rgba(34,211,238,0.18)"/>
+                    <stop offset="100%" stop-color="rgba(34,211,238,0)"/>
+                  </radialGradient>
+                </defs>
+                <circle class="analog-face" cx="100" cy="100" r="94"/>
+                <circle cx="100" cy="100" r="94" fill="url(#analogGlow)"/>
+                <g id="analog-ticks"></g>
+                <g id="hand-hour" transform="translate(100 100)">
+                  <line class="hand hand-hour" x1="0" y1="10" x2="0" y2="-48"/>
+                </g>
+                <g id="hand-minute" transform="translate(100 100)">
+                  <line class="hand hand-minute" x1="0" y1="12" x2="0" y2="-70"/>
+                </g>
+                <g id="hand-second" transform="translate(100 100)">
+                  <line class="hand hand-second" x1="0" y1="16" x2="0" y2="-78"/>
+                </g>
+                <circle class="analog-cap" cx="100" cy="100" r="5.5"/>
+              </svg>
+            </div>
+            <div class="digital-wrap">
+              <p class="clock-kicker" data-i18n="clock.now">현재 시각</p>
+              <p class="digital-time" id="digital-time">00:00:00</p>
+              <p class="digital-date" id="digital-date"></p>
+              <p class="digital-zone" id="digital-zone"></p>
+            </div>
+          </div>
+          <div class="clock-toolbar">
+            <div class="seg" role="group" aria-label="Time format">
+              <button type="button" class="seg-btn" id="fmt-24" data-i18n="clock.hour24">24시간</button>
+              <button type="button" class="seg-btn" id="fmt-12" data-i18n="clock.hour12">12시간</button>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="opt-seconds" checked>
+              <span data-i18n="clock.seconds">초 표시</span>
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="opt-analog" checked>
+              <span data-i18n="clock.analog">아날로그</span>
+            </label>
+            <label class="field-inline">
+              <span data-i18n="clock.color">표시 색</span>
+              <select id="clock-color"></select>
+            </label>
+            <button type="button" class="btn-ghost" id="btn-fullscreen" data-i18n="fullscreen">전체 화면</button>
+          </div>
+        </div>
+
+        <section class="panel world-panel" aria-labelledby="world-heading">
+          <div class="panel-head">
+            <h2 id="world-heading" data-i18n="clock.world">세계 시계</h2>
+            <div class="world-add">
+              <label class="visually-hidden" for="city-select" data-i18n="clock.addCity">도시 추가</label>
+              <select id="city-select"></select>
+              <button type="button" class="btn-primary" id="btn-add-city" data-i18n="add">추가</button>
+            </div>
+          </div>
+          <div class="world-grid" id="world-grid"></div>
+        </section>
+      </section>
+
+      <section id="view-alarm" class="view" data-view="alarm" hidden>
+        <div class="panel composer">
+          <div class="alarm-form">
+            <label class="field">
+              <span data-i18n="alarm.time">시각</span>
+              <input type="time" id="alarm-time" step="60">
+            </label>
+            <label class="field field-grow">
+              <span data-i18n="alarm.label">이름</span>
+              <input type="text" id="alarm-label" maxlength="48" data-i18n-placeholder="alarm.labelPh">
+            </label>
+            <label class="field">
+              <span data-i18n="alarm.repeat">반복</span>
+              <select id="alarm-repeat"></select>
+            </label>
+            <label class="field">
+              <span data-i18n="alarm.sound">소리</span>
+              <select id="alarm-sound"></select>
+            </label>
+            <label class="field">
+              <span data-i18n="alarm.snoozeMin">다시 알림</span>
+              <select id="alarm-snooze"></select>
+            </label>
+          </div>
+          <label class="volume-row">
+            <span data-i18n="alarm.volume">볼륨</span>
+            <input type="range" id="alarm-volume" min="0" max="100" value="80">
+          </label>
+          <div class="day-pills" id="alarm-days" hidden></div>
+          <div class="form-actions">
+            <button type="button" class="btn-ghost" id="btn-test-sound" data-i18n="alarm.test">미리듣기</button>
+            <button type="button" class="btn-primary" id="btn-add-alarm" data-i18n="alarm.add">알람 추가</button>
+          </div>
+          <p class="hint-row">
+            <span data-i18n="alarm.notify">브라우저 알림을 허용하면 다른 탭에서도 알람을 볼 수 있습니다.</span>
+            <button type="button" class="link-btn" id="btn-notify" data-i18n="alarm.notifyAllow">알림 허용</button>
+          </p>
+        </div>
+        <div class="alarm-list" id="alarm-list"></div>
+      </section>
+
+      <section id="view-timer" class="view" data-view="timer" hidden>
+        <div class="stage timer-stage">
+          <div class="ring-wrap">
+            <svg class="timer-ring" viewBox="0 0 220 220" aria-hidden="true">
+              <circle class="ring-track" cx="110" cy="110" r="96"/>
+              <circle class="ring-value" id="timer-ring" cx="110" cy="110" r="96"/>
+            </svg>
+            <p class="timer-readout" id="timer-readout">00:05:00</p>
+          </div>
+          <div class="digit-row" id="timer-digits">
+            <div class="digit-col">
+              <button type="button" class="spin" data-spin="h" data-dir="1" aria-label="+ hour">+</button>
+              <input id="timer-h" type="number" min="0" max="99" value="0" inputmode="numeric">
+              <button type="button" class="spin" data-spin="h" data-dir="-1" aria-label="- hour">−</button>
+              <span class="digit-label" data-i18n="timer.hours">시</span>
+            </div>
+            <div class="digit-col">
+              <button type="button" class="spin" data-spin="m" data-dir="1" aria-label="+ minute">+</button>
+              <input id="timer-m" type="number" min="0" max="59" value="5" inputmode="numeric">
+              <button type="button" class="spin" data-spin="m" data-dir="-1" aria-label="- minute">−</button>
+              <span class="digit-label" data-i18n="timer.minutes">분</span>
+            </div>
+            <div class="digit-col">
+              <button type="button" class="spin" data-spin="s" data-dir="1" aria-label="+ second">+</button>
+              <input id="timer-s" type="number" min="0" max="59" value="0" inputmode="numeric">
+              <button type="button" class="spin" data-spin="s" data-dir="-1" aria-label="- second">−</button>
+              <span class="digit-label" data-i18n="timer.seconds">초</span>
+            </div>
+          </div>
+          <div class="preset-row" id="timer-presets"></div>
+          <div class="control-row">
+            <button type="button" class="btn-primary btn-wide" id="btn-timer-start" data-i18n="timer.start">시작</button>
+            <button type="button" class="btn-ghost" id="btn-timer-reset" data-i18n="timer.reset">재설정</button>
+            <label class="toggle">
+              <input type="checkbox" id="timer-loop">
+              <span data-i18n="timer.loop">반복</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-stopwatch" class="view" data-view="stopwatch" hidden>
+        <div class="stage stopwatch-stage">
+          <p class="stopwatch-readout" id="sw-readout">00:00:00.00</p>
+          <div class="control-row">
+            <button type="button" class="btn-primary btn-wide" id="btn-sw-start" data-i18n="stopwatch.start">시작</button>
+            <button type="button" class="btn-ghost" id="btn-sw-lap" data-i18n="stopwatch.lap" disabled>랩</button>
+            <button type="button" class="btn-ghost" id="btn-sw-reset" data-i18n="stopwatch.reset" disabled>재설정</button>
+          </div>
+          <p class="shortcuts" data-i18n="stopwatch.shortcuts">단축키: Space 시작/정지 · L 랩 · R 재설정</p>
+        </div>
+        <section class="panel lap-panel">
+          <div class="panel-head">
+            <h2 data-i18n="stopwatch.laps">랩 기록</h2>
+          </div>
+          <div class="lap-table-wrap">
+            <table class="lap-table" id="lap-table">
+              <thead>
+                <tr>
+                  <th data-i18n="stopwatch.laps">랩</th>
+                  <th data-i18n="stopwatch.split">구간</th>
+                  <th data-i18n="stopwatch.total">누적</th>
+                </tr>
+              </thead>
+              <tbody id="lap-body"></tbody>
+            </table>
+            <p class="empty-note" id="lap-empty" data-i18n="stopwatch.empty">랩을 누르면 구간 시간이 쌓입니다.</p>
+          </div>
+        </section>
+      </section>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+
+      <section class="tool-guide" aria-label="온라인 시계 안내">
+        <p class="tool-guide-kicker" data-i18n="guide.kicker">온라인 시계</p>
+        <h2 data-i18n="guide.h2">브라우저에서 바로 쓰는 시계·알람·타이머·스톱워치</h2>
+        <p class="tool-guide-lead" data-i18n="guide.lead">온라인 시계는 현재 시각, 세계 도시 시각, 여러 개의 알람, 카운트다운 타이머, 랩 스톱워치를 한 화면에서 제공합니다. 시각은 사용자 PC의 시계를 쓰며, 설정은 이 브라우저에만 저장됩니다.</p>
+        <h3 data-i18n="guide.what.h3">이 도구가 하는 일</h3>
+        <p data-i18n="guide.what.p">회의실 모니터, 공부·요리·운동 타이머, 출근 알람처럼 탭만 열어 두면 되는 시간 도구가 필요할 때 씁니다. 설치와 계정 없이 동작하고, 한국어·영어·일본어·중국어를 고를 수 있습니다.</p>
+        <h3 data-i18n="guide.how.h3">사용 방법</h3>
+        <ol>
+          <li data-i18n="guide.how.li1">시계. 로컬 시각과 세계 도시를 보고, 12/24시간·초·아날로그·색을 맞춘 뒤 전체 화면으로 띄울 수 있습니다.</li>
+          <li data-i18n="guide.how.li2">알람. 시각·이름·반복 요일·소리를 정합니다. 울릴 때 다시 알림(스누즈)으로 잠시 미룰 수 있습니다. 브라우저 탭을 닫으면 울리지 않습니다.</li>
+          <li data-i18n="guide.how.li3">타이머. 시·분·초 또는 1·5·10·25분 프리셋으로 카운트다운합니다. 끝나면 소리와 알림이 납니다.</li>
+          <li data-i18n="guide.how.li4">스톱워치. 1/100초까지 재고 랩을 남깁니다. Space, L, R 키로 조작할 수 있습니다.</li>
+        </ol>
+        <h3 data-i18n="guide.plus.h3">이 도구의 장점</h3>
+        <ul>
+          <li data-i18n="guide.plus.li1">네 가지 도구가 한 주소에 있습니다. 메뉴만 바꾸면 됩니다.</li>
+          <li data-i18n="guide.plus.li2">알람과 타이머·스톱워치 상태는 브라우저에 남아 새로고침 후에도 이어집니다.</li>
+          <li data-i18n="guide.plus.li3">에이전트 설치가 필요 없습니다. 인터넷이 끊겨도 이미 연 페이지에서는 시계가 갑니다.</li>
+          <li data-i18n="guide.plus.li4">표시 언어를 바꿀 수 있어 공용 PC나 해외 일정에도 맞출 수 있습니다.</li>
+        </ul>
+        <p class="tool-guide-note" data-i18n="guide.note">알람과 타이머 소리는 이 탭이 열려 있을 때만 납니다. 절전 모드나 브라우저를 닫으면 울리지 않으니, 중요한 약속은 휴대폰 알람과 함께 쓰는 것이 안전합니다.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="alert-overlay" class="alert-overlay" hidden>
+    <div class="alert-card" role="alertdialog" aria-modal="true" aria-labelledby="alert-title">
+      <p class="alert-kind" id="alert-kind"></p>
+      <h2 class="alert-title" id="alert-title"></h2>
+      <p class="alert-sub" id="alert-sub"></p>
+      <div class="alert-actions">
+        <button type="button" class="btn-ghost" id="btn-alert-snooze" data-i18n="alarm.snooze">다시 알림</button>
+        <button type="button" class="btn-primary" id="btn-alert-dismiss" data-i18n="alarm.dismiss">끄기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script src="../silence-remover/mobile-only.js?v=5"></script>
+  <script type="module" src="script.js?v=5"></script>
+</body>
+</html>

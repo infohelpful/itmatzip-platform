@@ -484,22 +484,158 @@ textarea {
 }
 
 @media (max-width: 860px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .main-content {
+    padding: 20px 14px calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .logo-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .logo-title-row h1 {
+    font-size: 1.35rem;
+    line-height: 1.25;
+  }
+
+  .header-tagline {
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+
+  .btn-to-dashboard {
+    min-height: 40px;
+  }
+
+  .mode-bar {
+    position: static;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0 0 8px;
+    background: none;
+  }
+
+  .modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .mode-btn {
+    min-height: 42px;
+    text-align: center;
+  }
+
+  .mode-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 0;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: rgba(15, 17, 21, 0.94);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+  }
+
+  .mode-actions .btn-ghost {
+    min-height: 44px;
+    width: 100%;
+    font-size: 13px;
+    padding: 8px 8px;
+  }
+
+  .mode-actions .btn-primary {
+    grid-column: 1 / -1;
+    min-height: 44px;
+    width: 100%;
+  }
+
   .workspace {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .side-nav {
     position: static;
+    display: flex;
     flex-direction: row;
+    gap: 8px;
     overflow-x: auto;
+    padding: 2px 0 8px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .side-nav::-webkit-scrollbar {
+    display: none;
   }
 
   .nav-item {
-    min-width: 140px;
+    flex: 0 0 auto;
+    min-width: 148px;
+    scroll-snap-align: start;
+    background: var(--panel-bg);
+    border-color: var(--border);
+  }
+
+  .panel {
+    padding: 16px 16px 22px;
+    min-height: 0;
+  }
+
+  .panel h2 {
+    font-size: 17px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  textarea {
+    min-height: 96px;
   }
 
   .grid2,
   .chip-grid {
     grid-template-columns: 1fr;
+  }
+
+  .howto {
+    padding: 16px;
+  }
+
+  .toast {
+    left: 14px;
+    right: 14px;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    max-width: none;
+  }
+
+  .preview-dialog {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 92vh;
+    margin: 0;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .editor-ad,
+  .editor-ad .adsbygoogle,
+  .editor-ad[data-adsense-empty="1"] {
+    min-height: 100px;
   }
 }

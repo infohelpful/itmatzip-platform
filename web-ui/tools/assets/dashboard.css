@@ -303,12 +303,50 @@ body {
 
 @media (max-width: 900px) {
   .hub-main {
-    padding: 28px 16px 48px;
+    padding: 22px 16px calc(40px + env(safe-area-inset-bottom, 0px));
   }
-}
 
-@media (max-width: 520px) {
+  .hub-header {
+    margin-bottom: 22px;
+  }
+
+  .hub-lead {
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .hub-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .hub-search-wrap {
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .hub-search {
+    font-size: 16px;
+    min-height: 46px;
+  }
+
   .hub-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .hub-card {
+    min-height: 0;
+    padding: 18px 16px 16px;
+  }
+
+  .hub-card:not(.is-disabled):hover {
+    transform: none;
+  }
+
+  .hub-ad-banner,
+  .hub-ad-banner .adsbygoogle {
+    min-height: 100px;
   }
 }

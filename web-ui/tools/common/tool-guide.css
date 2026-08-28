@@ -122,13 +122,27 @@ body.as-app .tool-guide {
 
 @media (max-width: 640px) {
   .tool-guide {
-    margin-top: 28px;
-    padding-left: 2px;
-    padding-right: 2px;
+    margin-top: 24px;
+    padding: 8px 0 28px;
     font-size: 14.5px;
+    line-height: 1.75;
   }
 
   .tool-guide h2 {
-    font-size: 1.25rem;
+    font-size: 1.22rem;
+  }
+
+  .tool-guide h3 {
+    margin-top: 22px;
+    font-size: 1rem;
+  }
+
+  .tool-guide ol,
+  .tool-guide ul {
+    padding: 14px 14px 14px 28px;
+  }
+
+  .tool-guide-note {
+    padding: 12px 14px;
   }
 }
