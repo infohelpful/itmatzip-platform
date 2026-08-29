@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="json-formatter">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="../common/site-runtime.js?v=12"></script>
+  <title>JSON 포맷터 - JSON 정렬, 압축, 오류 고치기 | ItMatZip</title>
+  <meta name="description" content="붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 오류가 있으면 위치를 알려 주고, 깨진 문법도 고칩니다. 설치 없이 브라우저에서 쓰는 무료 JSON 포맷터입니다.">
+  <meta name="keywords" content="JSON 포맷터, JSON 정렬, JSON 뷰티파이, JSON Beautify, JSON 압축, JSON 유효성 검사, JSON 포맷, JSONPath, JSON 예쁘게, API JSON">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/json-formatter/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="JSON 포맷터 - JSON 정렬, 압축, 오류 고치기 | ItMatZip">
+  <meta property="og:description" content="붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 설치 없이 브라우저에서 쓰는 무료 JSON 포맷터입니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/json-formatter/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ItMatZip Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="JSON 포맷터 - JSON 정렬, 압축">
+  <meta name="twitter:description" content="붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 설치 없이 브라우저에서 씁니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "JSON 포맷터",
+      "alternateName": ["JSON Formatter", "JSON 정렬", "JSON Beautify", "JSON整形"],
+      "url": "https://tools.itmatzip.com/json-formatter/",
+      "description": "붙여넣은 JSON을 브라우저에서 정렬·압축하고, 오류가 있으면 고칩니다. 설치가 필요 없습니다.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Any",
+      "inLanguage": ["ko", "en", "ja", "zh-CN"],
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "JSON 포맷터", "item": "https://tools.itmatzip.com/json-formatter/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=6">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <div class="page-chrome">
+        <header class="app-header">
+          <div class="header-row">
+            <div class="header-copy">
+              <span class="eyebrow">ItMatZip</span>
+              <h1 data-i18n="h1">JSON 포맷터</h1>
+              <p class="header-tagline" data-i18n="tagline">복사한 JSON을 붙여넣으면 보기 좋게 정렬됩니다. 파일이 없어도 됩니다.</p>
+            </div>
+            <div class="header-actions">
+              <button type="button" class="itz-theme-toggle" id="itz-theme-toggle" aria-label="테마">
+                <span class="itz-theme-toggle-icon" aria-hidden="true"></span>
+              </button>
+              <label class="lang-field">
+                <span class="visually-hidden" data-i18n="lang">언어</span>
+                <select id="lang-select" aria-label="Language"></select>
+              </label>
+              <a href="../index.html" class="btn-to-dashboard" data-i18n="back">대시보드로 이동</a>
+            </div>
+          </div>
+          <p class="privacy-chip" data-i18n="privacy">입력한 JSON은 서버로 올라가지 않습니다</p>
+        </header>
+
+        <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+        <p class="banner" id="banner" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="workspace">
+        <section class="pane" id="input-pane" aria-labelledby="input-label">
+          <div class="pane-head">
+            <h2 id="input-label" data-i18n="input">입력</h2>
+            <div class="pane-menus">
+              <button type="button" class="menu-btn" id="btn-open-file" data-i18n="openFile">파일 열기</button>
+              <button type="button" class="menu-btn" id="btn-clear" data-i18n="clear">지우기</button>
+            </div>
+            <input type="file" id="file-input" class="visually-hidden" tabindex="-1" aria-hidden="true" accept=".json,.txt,.jsonc,.log,.js,*/*">
+          </div>
+          <div class="pane-body input-body" id="input-body">
+            <div id="monaco-editor-container" class="monaco-editor-container"></div>
+            <textarea id="input" class="visually-hidden" spellcheck="false" data-i18n-placeholder="placeholder" placeholder='{name: "demo", items: [1, 2,]}'></textarea>
+            <canvas class="input-squiggles" id="input-squiggles" aria-hidden="true" style="display:none;"></canvas>
+            <div class="input-overview" id="input-overview" aria-hidden="true" style="display:none;"></div>
+          </div>
+          <div class="pane-status"><span id="input-caret">Ln 1, Col 1</span></div>
+        </section>
+
+        <aside class="action-rail" aria-label="JSON actions">
+          <button type="button" class="rail-btn is-primary" id="btn-format" data-i18n="format" data-i18n-title="formatHint">정렬하기</button>
+          <button type="button" class="rail-btn" id="btn-minify" data-i18n="minify" data-i18n-title="minifyHint">한 줄로</button>
+          <button type="button" class="rail-btn" id="btn-repair" data-i18n="repair" data-i18n-title="repairHint">오류 고치기</button>
+          <button type="button" class="rail-btn" id="btn-mask" data-i18n="mask">민감값 가리기</button>
+          <label class="rail-indent">
+            <span data-i18n="indentLabel">들여쓰기</span>
+            <select id="indent-select">
+              <option value="2" selected data-i18n="indent2">2칸</option>
+              <option value="4" data-i18n="indent4">4칸</option>
+            </select>
+          </label>
+          <p class="rail-hint" data-i18n="maskHint">이메일·전화·카드·토큰만 바꿉니다. 법적 비식별화가 아닙니다.</p>
+        </aside>
+
+        <section class="pane" aria-labelledby="output-label">
+          <div class="pane-head">
+            <h2 id="output-label" data-i18n="output">출력</h2>
+            <div class="pane-menus">
+              <div class="menu-group" role="tablist">
+                <button type="button" class="menu-btn is-active" id="tab-text" data-tab="text" data-i18n="tabText">텍스트</button>
+                <button type="button" class="menu-btn" id="tab-tree" data-tab="tree" data-i18n="tabTree">트리</button>
+              </div>
+              <span class="menu-sep" aria-hidden="true"></span>
+              <div class="menu-group">
+                <button type="button" class="menu-btn" id="btn-copy-out" data-i18n="copy">복사</button>
+                <button type="button" class="menu-btn" id="btn-save-out" data-i18n="save">저장</button>
+              </div>
+            </div>
+          </div>
+          <div class="pane-body">
+            <div id="monaco-output-container" class="monaco-editor-container" hidden></div>
+            <pre class="output-text" id="output-text" hidden></pre>
+            <div class="output-tree" id="output-tree" hidden></div>
+            <div class="output-error" id="output-error" hidden>
+              <p class="output-error-kicker" data-i18n="errTitle">문법 오류</p>
+              <ul class="output-error-list" id="output-error-list"></ul>
+              <p class="output-error-hint" data-i18n="errHintRepair">왼쪽은 원문 그대로입니다. 고칠 수 있으면 가운데에서 ‘오류 고치기’를 누르세요.</p>
+            </div>
+            <p class="output-empty" id="output-empty" data-i18n="empty">왼쪽 입력란에 JSON을 붙여넣은 뒤, 가운데에서 정렬하기를 누르세요.</p>
+          </div>
+          <div class="pane-status"><span id="output-meta" data-i18n="statusReady">결과를 이 칸에서 확인하고 복사합니다.</span></div>
+        </section>
+      </div>
+
+      <div class="page-chrome after-workspace">
+      <section class="extract-bar" aria-label="JSONPath">
+        <label class="path-label" for="path-input" data-i18n="path">경로</label>
+        <input type="text" id="path-input" data-i18n-placeholder="pathPh" placeholder="items[*].price 또는 $.data.id" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn-ghost" id="btn-extract" data-i18n="extract">추출</button>
+        <button type="button" class="btn-ghost" id="btn-copy-path" data-i18n="copyPath">경로 복사</button>
+        <div class="chips" id="path-chips">
+          <span class="chips-label" data-i18n="chipsHint">예시</span>
+          <button type="button" class="chip" data-path="$">$</button>
+          <button type="button" class="chip" data-path="$.data[*]">$.data[*]</button>
+          <button type="button" class="chip" data-path="$..id">$..id</button>
+        </div>
+      </section>
+      <pre class="side-out" id="extract-out" hidden></pre>
+
+      <div class="convert-row">
+        <button type="button" class="btn-ghost" id="btn-ts" data-i18n="ts">TypeScript</button>
+        <button type="button" class="btn-ghost" id="btn-py" data-i18n="btnPython">Python</button>
+        <button type="button" class="btn-ghost" id="btn-copy-code" data-i18n="copyCode">코드 복사</button>
+      </div>
+      <pre class="side-out" id="convert-out" hidden></pre>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="JSON Formatter 안내">
+        <p class="tool-guide-kicker" data-i18n="guideKicker">JSON 포맷터</p>
+        <h2 data-i18n="guideH2">온라인 JSON 포맷터로 정렬하고 압축하기</h2>
+        <p class="tool-guide-lead" data-i18n="guideLead">개발 중에 복사한 API 응답이나 설정 JSON이 한 줄로 붙어 있으면 읽기 어렵습니다. 이 페이지에 붙여넣으면 들여쓰기로 정렬하고, 필요하면 다시 한 줄로 압축합니다. 프로그램 설치는 필요 없습니다.</p>
+        <h3 data-i18n="guideWhat">JSON 포맷터가 하는 일</h3>
+        <p data-i18n="guideWhatP">JSON 정렬(Beautify), JSON 압축, 문법 오류 위치 표시, 깨진 JSON 복구, JSONPath로 값 추출, TypeScript·Python 코드 복사를 한 화면에서 합니다.</p>
+        <h3 data-i18n="guideHow">사용 방법</h3>
+        <ol>
+          <li data-i18n="guideLi1">JSON 텍스트를 붙여넣거나 파일 열기로 .json 파일을 불러옵니다. 서버에는 올라가지 않습니다.</li>
+          <li data-i18n="guideLi2">가운데에서 정렬하기를 누릅니다. 안 되면 오류 고치기를 누르세요. 왼쪽 원문은 그대로 둡니다.</li>
+          <li data-i18n="guideLi3">트리에서 키를 누르거나 JSONPath로 원하는 값만 복사합니다.</li>
+          <li data-i18n="guideLi4">다른 사람에게 보여 주기 전에 민감값 가리기를 쓸 수 있습니다. 모든 개인정보를 가리지는 않습니다.</li>
+        </ol>
+        <h3 data-i18n="guideWhy">이 도구를 쓰는 이유</h3>
+        <ul>
+          <li data-i18n="guideA1">문법이 조금 깨져 있어도 멈추지 않고 고쳐서 보여 줍니다.</li>
+          <li data-i18n="guideA2">큰 JSON에서도 경로만 찍어 일부만 가져갈 수 있습니다.</li>
+          <li data-i18n="guideA3">별도 프로그램 없이 브라우저 탭만 열면 됩니다.</li>
+        </ul>
+        <p class="tool-guide-note" data-i18n="guideNote">가리기는 이메일·전화·카드·토큰처럼 흔한 패턴만 바꿉니다. 주민번호나 한글 이름까지 보장하지 않습니다. 광고와 글꼴은 페이지 표시용이며, 입력한 JSON과는 별개입니다.</p>
+      </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="mask-modal" class="mask-modal" hidden role="dialog" aria-modal="true" aria-labelledby="mask-modal-title">
+    <div class="mask-modal-backdrop" id="mask-modal-backdrop"></div>
+    <div class="mask-modal-card">
+      <div class="mask-modal-header">
+        <h3 id="mask-modal-title" class="mask-modal-title">🔒 민감값 가리기 항목 선택</h3>
+        <button type="button" class="mask-modal-close" id="btn-mask-close" aria-label="닫기">✕</button>
+      </div>
+      <div class="mask-modal-toolbar">
+        <input type="text" id="mask-search-input" class="mask-search-input" placeholder="항목 이름 검색 (e.g. email, name...)" autocomplete="off" spellcheck="false">
+        <div class="mask-action-btns">
+          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-all">전체 선택</button>
+          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-none">전체 해제</button>
+        </div>
+      </div>
+      <div class="mask-modal-body" id="mask-keys-container">
+        <!-- Key checkboxes populated dynamically -->
+      </div>
+      <div class="mask-modal-footer">
+        <span class="mask-selected-count" id="mask-selected-count">0개 항목 선택됨</span>
+        <div class="mask-modal-btn-group">
+          <button type="button" id="btn-mask-cancel">취소</button>
+          <button type="button" id="btn-mask-apply">가리기 적용</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">ItMatZip Tools는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script src="../silence-remover/mobile-only.js?v=6"></script>
+  <script type="module" src="script.js?v=25"></script>
+</body>
+</html>

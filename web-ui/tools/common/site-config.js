@@ -20,7 +20,7 @@
 /** @type {SiteConfig} */
 export const DEFAULT_SITE_CONFIG = {
   hiddenToolIds: [],
-  mobileEnabledToolIds: ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker"],
+  mobileEnabledToolIds: ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker", "json-formatter"],
   adsense: {
     enabled: true,
     client: "ca-pub-2088466558007407",

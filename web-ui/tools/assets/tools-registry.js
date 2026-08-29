@@ -181,6 +181,19 @@ export const TOOLS = [
     ],
   },
   {
+    id: "json-formatter",
+    href: "json-formatter/",
+    title: "JSON Formatter",
+    subtitle: "정렬 · 압축 · 복구",
+    description:
+      "붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 오류가 있으면 고칩니다. 설치 없이 브라우저에서 씁니다.",
+    icon: "{}",
+    accent: "#10b981",
+    available: true,
+    badge: "NEW",
+    tags: ["json", "포맷터", "formatter", "jsonpath", "정렬", "beautify", "압축", "뷰티파이", "api"],
+  },
+  {
     id: "unattend-maker",
     href: "unattend-maker/",
     title: "Unattend Maker",

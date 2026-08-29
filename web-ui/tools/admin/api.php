@@ -30,6 +30,7 @@ const ALLOWED_TOOL_IDS = array(
   'ico-maker',
   'unattend-maker',
   'online-clock',
+  'json-formatter',
 );
 
 const ALLOWED_AD_UNITS = array(
@@ -133,7 +134,7 @@ function parse_tool_id_list($raw) {
 }
 
 function default_mobile_enabled_tool_ids() {
-  $ids = array('thumbnail-grabber', 'ico-maker', 'online-clock', 'unattend-maker');
+  $ids = array('thumbnail-grabber', 'ico-maker', 'online-clock', 'unattend-maker', 'json-formatter');
   return parse_tool_id_list($ids);
 }
 

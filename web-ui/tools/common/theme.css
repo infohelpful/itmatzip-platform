@@ -1,6 +1,10 @@
-/* Dark (default) / light theme. html[data-theme] beats :root custom properties. */
+/* Light (default) / dark theme. html[data-theme] beats :root custom properties. */
 
 html {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
   color-scheme: dark;
 }
 

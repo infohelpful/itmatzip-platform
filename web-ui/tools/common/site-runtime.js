@@ -9,9 +9,9 @@
 
   function readTheme() {
     try {
-      return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+      return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
     } catch (e) {
-      return "dark";
+      return "light";
     }
   }
 
@@ -34,7 +34,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=9";
+    var href = "common/theme.css?v=10";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -49,7 +49,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=9");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=10");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";

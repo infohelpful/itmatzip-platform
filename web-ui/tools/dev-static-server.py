@@ -50,6 +50,7 @@ ALLOWED_TOOL_IDS = frozenset(
         "ico-maker",
         "unattend-maker",
         "online-clock",
+        "json-formatter",
     }
 )
 ALLOWED_AD_UNITS = (
@@ -106,7 +107,7 @@ def parse_tool_id_list(raw) -> list:
 
 def default_mobile_enabled_tool_ids() -> list:
     return parse_tool_id_list(
-        ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker"]
+        ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker", "json-formatter"]
     )
 
 
