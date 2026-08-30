@@ -58,7 +58,7 @@
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=18">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="../common/tool-guide.css?v=6">
 </head>
@@ -89,6 +89,7 @@
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
 
+      <div class="clock-main" id="clock-main">
       <section id="view-clock" class="view" data-view="clock">
         <div class="stage clock-stage" id="clock-stage">
           <div class="clock-hero">
@@ -116,7 +117,7 @@
               </svg>
             </div>
             <div class="digital-wrap">
-              <p class="clock-kicker" data-i18n="clock.now">현재 시각</p>
+              <div class="clock-place" id="clock-place"></div>
               <p class="digital-time" id="digital-time">00:00:00</p>
               <p class="digital-date" id="digital-date"></p>
               <p class="digital-zone" id="digital-zone"></p>
@@ -146,11 +147,7 @@
         <section class="panel world-panel" aria-labelledby="world-heading">
           <div class="panel-head">
             <h2 id="world-heading" data-i18n="clock.world">세계 시계</h2>
-            <div class="world-add">
-              <label class="visually-hidden" for="city-select" data-i18n="clock.addCity">도시 추가</label>
-              <select id="city-select"></select>
-              <button type="button" class="btn-primary" id="btn-add-city" data-i18n="add">추가</button>
-            </div>
+            <button type="button" class="btn-primary" id="btn-add-city" data-i18n="add">추가</button>
           </div>
           <div class="world-grid" id="world-grid"></div>
         </section>
@@ -268,6 +265,23 @@
         </section>
       </section>
 
+      <div id="country-picker" class="picker-overlay" hidden>
+        <div class="picker-card" role="dialog" aria-modal="true" aria-labelledby="picker-title">
+          <div class="picker-head">
+            <h2 id="picker-title" data-i18n="clock.pickTitle">국가 선택</h2>
+            <button type="button" class="picker-x" id="picker-close" data-i18n-aria="close" aria-label="닫기">×</button>
+          </div>
+          <input type="search" id="picker-search" class="picker-search" autocomplete="off" spellcheck="false" data-i18n-placeholder="clock.searchCountry" placeholder="국기·국가 이름으로 검색">
+          <p class="picker-count" id="picker-count"></p>
+          <div class="picker-list" id="picker-list" role="list"></div>
+          <div class="picker-actions">
+            <button type="button" class="btn-ghost" id="picker-cancel" data-i18n="clock.cancel">취소</button>
+            <button type="button" class="btn-primary" id="picker-save" data-i18n="clock.save">저장</button>
+          </div>
+        </div>
+      </div>
+      </div>
+
       <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
 
       <section class="tool-guide" aria-label="온라인 시계 안내">
@@ -312,6 +326,6 @@
   <script type="module" src="../common/site-modal-boot.js"></script>
   <script src="../common/site-guard.js?v=11"></script>
   <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=5"></script>
+  <script type="module" src="script.js?v=10"></script>
 </body>
 </html>

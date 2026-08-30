@@ -1,4 +1,5 @@
 import { showAdSense } from "../common/adsense.js?v=4";
+import { LEGACY_IDS, PLACES } from "./countries.js";
 import {
   LOCALE_OPTIONS,
   applyI18n,
@@ -6,7 +7,7 @@ import {
   getLocale,
   setLocale,
   t,
-} from "./i18n.js?v=2";
+} from "./i18n.js?v=4";
 
 const STORE_KEY = "itmatzip-online-clock-v1";
 const MODES = ["clock", "alarm", "timer", "stopwatch"];
@@ -20,28 +21,6 @@ const COLOR_HEX = {
   snow: "#f8fafc",
 };
 const SOUNDS = ["chime", "beep", "bell", "digital", "soft"];
-const CITIES = [
-  { id: "seoul", tz: "Asia/Seoul" },
-  { id: "tokyo", tz: "Asia/Tokyo" },
-  { id: "beijing", tz: "Asia/Shanghai" },
-  { id: "hongkong", tz: "Asia/Hong_Kong" },
-  { id: "taipei", tz: "Asia/Taipei" },
-  { id: "singapore", tz: "Asia/Singapore" },
-  { id: "bangkok", tz: "Asia/Bangkok" },
-  { id: "dubai", tz: "Asia/Dubai" },
-  { id: "mumbai", tz: "Asia/Kolkata" },
-  { id: "sydney", tz: "Australia/Sydney" },
-  { id: "london", tz: "Europe/London" },
-  { id: "paris", tz: "Europe/Paris" },
-  { id: "berlin", tz: "Europe/Berlin" },
-  { id: "moscow", tz: "Europe/Moscow" },
-  { id: "newyork", tz: "America/New_York" },
-  { id: "chicago", tz: "America/Chicago" },
-  { id: "losangeles", tz: "America/Los_Angeles" },
-  { id: "toronto", tz: "America/Toronto" },
-  { id: "saopaulo", tz: "America/Sao_Paulo" },
-  { id: "utc", tz: "UTC" },
-];
 const TIMER_PRESETS = [
   { sec: 60, label: "1" },
   { sec: 180, label: "3" },
@@ -114,7 +93,7 @@ function defaultSettings() {
     showSeconds: true,
     showAnalog: true,
     color: "cyan",
-    cities: ["tokyo", "newyork", "london"],
+    cities: ["jp", "us-ny", "gb"],
     alarms: [],
     volume: 80,
     timer: {
@@ -144,7 +123,7 @@ function loadSettings() {
       timer: { ...base.timer, ...(parsed.timer || {}) },
       stopwatch: { ...base.stopwatch, ...(parsed.stopwatch || {}) },
       alarms: Array.isArray(parsed.alarms) ? parsed.alarms : [],
-      cities: Array.isArray(parsed.cities) ? parsed.cities : base.cities,
+      cities: migrateCityIds(Array.isArray(parsed.cities) ? parsed.cities : base.cities),
     };
   } catch {
     return base;
@@ -174,8 +153,59 @@ function localeTag() {
   return { ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN" }[getLocale()] || "ko-KR";
 }
 
-function cityById(id) {
-  return CITIES.find((c) => c.id === id);
+function migrateCityIds(ids) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of ids) {
+    const id = LEGACY_IDS[raw] || raw;
+    if (!placeById(id) || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out.length ? out : ["jp", "us-ny", "gb"];
+}
+
+function placeById(id) {
+  return PLACES.find((p) => p.id === id);
+}
+
+function countryName(cc) {
+  if (!cc) return "UTC";
+  try {
+    return new Intl.DisplayNames([localeTag()], { type: "region" }).of(cc) || cc;
+  } catch {
+    return cc;
+  }
+}
+
+function flagEmoji(cc) {
+  if (!cc || cc.length !== 2) return "🌐";
+  const up = cc.toUpperCase();
+  return String.fromCodePoint(127397 + up.charCodeAt(0), 127397 + up.charCodeAt(1));
+}
+
+function flagEl(cc) {
+  const wrap = document.createElement("span");
+  wrap.className = "world-flag-wrap";
+  if (!cc) {
+    wrap.classList.add("world-flag-emoji");
+    wrap.textContent = "🌐";
+    return wrap;
+  }
+  const img = document.createElement("img");
+  img.className = "world-flag";
+  img.alt = "";
+  img.width = 22;
+  img.height = 16;
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.src = `https://flagcdn.com/w40/${cc.toLowerCase()}.png`;
+  img.addEventListener("error", () => {
+    wrap.textContent = flagEmoji(cc);
+    wrap.classList.add("world-flag-emoji");
+  });
+  wrap.append(img);
+  return wrap;
 }
 
 function formatTime(date, timeZone, withSeconds = settings.showSeconds) {
@@ -278,6 +308,29 @@ function setHand(id, deg) {
 }
 
 let lastWorldKey = "";
+let lastPlaceKey = "";
+
+function placeForTimeZone(tz) {
+  const matches = PLACES.filter((p) => p.tz === tz);
+  if (!matches.length) return null;
+  return matches.find((p) => p.cc && p.id === p.cc.toLowerCase()) || matches[0];
+}
+
+function renderClockPlace(tz) {
+  const el = document.getElementById("clock-place");
+  if (!el) return;
+  const place = placeForTimeZone(tz);
+  const country = place ? countryName(place.cc) || place.city : t("clock.local");
+  const key = `${getLocale()}|${tz}|${country}`;
+  if (key === lastPlaceKey && el.childElementCount) return;
+  lastPlaceKey = key;
+  el.replaceChildren();
+  if (place) el.append(flagEl(place.cc));
+  const name = document.createElement("span");
+  name.className = "clock-place-country";
+  name.textContent = country;
+  el.append(name);
+}
 
 function updateClock() {
   const now = new Date();
@@ -288,6 +341,7 @@ function updateClock() {
   if (timeEl) timeEl.textContent = formatTime(now, tz);
   if (dateEl) dateEl.textContent = formatDate(now, tz);
   if (zoneEl) zoneEl.textContent = `${t("clock.local")} · ${tz} · ${zoneOffsetLabel(tz, now)}`;
+  renderClockPlace(tz);
 
   const ms = now.getMilliseconds();
   const s = now.getSeconds() + ms / 1000;
@@ -310,19 +364,29 @@ function renderWorld(now) {
   if (!grid) return;
   grid.replaceChildren();
   for (const id of settings.cities) {
-    const city = cityById(id);
-    if (!city) continue;
+    const place = placeById(id);
+    if (!place) continue;
     const card = document.createElement("article");
     card.className = "world-card";
-    const name = document.createElement("span");
+    const name = document.createElement("div");
     name.className = "world-name";
-    name.textContent = t(`city.${city.id}`);
+    const textCol = document.createElement("span");
+    textCol.className = "world-name-copy";
+    const country = document.createElement("span");
+    country.className = "world-name-country";
+    country.textContent = countryName(place.cc) || place.city;
+    const city = document.createElement("span");
+    city.className = "world-name-city";
+    city.textContent = place.cc ? place.city : "";
+    textCol.append(country);
+    if (place.cc) textCol.append(city);
+    name.append(flagEl(place.cc), textCol);
     const time = document.createElement("div");
     time.className = "world-time";
-    time.textContent = formatTime(now, city.tz);
+    time.textContent = formatTime(now, place.tz);
     const meta = document.createElement("div");
     meta.className = "world-meta";
-    meta.textContent = `${formatOffset(zoneDiffMinutes(city.tz, now))} · ${zoneOffsetLabel(city.tz, now)}`;
+    meta.textContent = `${formatOffset(zoneDiffMinutes(place.tz, now))} · ${zoneOffsetLabel(place.tz, now)}`;
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "world-remove";
@@ -332,7 +396,6 @@ function renderWorld(now) {
       settings.cities = settings.cities.filter((c) => c !== id);
       lastWorldKey = "";
       saveSettings();
-      fillCitySelect();
       renderWorld(new Date());
     });
     card.append(name, time, meta, remove);
@@ -340,18 +403,225 @@ function renderWorld(now) {
   }
 }
 
-function fillCitySelect() {
-  const sel = document.getElementById("city-select");
-  if (!(sel instanceof HTMLSelectElement)) return;
-  sel.replaceChildren();
-  for (const city of CITIES) {
-    if (settings.cities.includes(city.id)) continue;
-    const opt = document.createElement("option");
-    opt.value = city.id;
-    opt.textContent = t(`city.${city.id}`);
-    sel.appendChild(opt);
+let pickerDraft = new Set();
+
+function placeSearchHay(place) {
+  const country = countryName(place.cc);
+  return `${place.id} ${place.cc} ${place.city} ${country} ${place.tz}`.toLowerCase();
+}
+
+function filteredPlaces(query) {
+  const q = String(query || "").trim().toLowerCase();
+  const list = PLACES.slice();
+  list.sort((a, b) => {
+    const aOn = pickerDraft.has(a.id) ? 0 : 1;
+    const bOn = pickerDraft.has(b.id) ? 0 : 1;
+    if (aOn !== bOn) return aOn - bOn;
+    return countryName(a.cc).localeCompare(countryName(b.cc), localeTag(), { sensitivity: "base" });
+  });
+  if (!q) return list;
+  return list.filter((place) => placeSearchHay(place).includes(q));
+}
+
+function updatePickerCount() {
+  const el = document.getElementById("picker-count");
+  if (el) el.textContent = t("clock.pickedCount", { n: pickerDraft.size });
+}
+
+function renderPickerList() {
+  const list = document.getElementById("picker-list");
+  const search = document.getElementById("picker-search");
+  if (!list) return;
+  const query = search instanceof HTMLInputElement ? search.value : "";
+  const places = filteredPlaces(query);
+  list.replaceChildren();
+  if (!places.length) {
+    const empty = document.createElement("p");
+    empty.className = "picker-empty";
+    empty.textContent = t("clock.noCountry");
+    list.append(empty);
+    updatePickerCount();
+    return;
   }
-  sel.disabled = sel.options.length === 0;
+  for (const place of places) {
+    const row = document.createElement("label");
+    row.className = "picker-row";
+    row.setAttribute("role", "listitem");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = pickerDraft.has(place.id);
+    box.addEventListener("change", () => {
+      if (box.checked) pickerDraft.add(place.id);
+      else pickerDraft.delete(place.id);
+      updatePickerCount();
+    });
+    const copy = document.createElement("span");
+    copy.className = "picker-copy";
+    const country = document.createElement("span");
+    country.className = "picker-country";
+    country.textContent = countryName(place.cc) || place.city;
+    const city = document.createElement("span");
+    city.className = "picker-city";
+    city.textContent = place.cc ? place.city : "";
+    copy.append(country);
+    if (place.cc) copy.append(city);
+    row.append(box, flagEl(place.cc), copy);
+    list.append(row);
+  }
+  updatePickerCount();
+}
+
+function isPickerOpen() {
+  const overlay = document.getElementById("country-picker");
+  return Boolean(overlay && !overlay.hidden);
+}
+
+function boxSize(el) {
+  if (!el) return { w: 0, h: 0 };
+  const r = el.getBoundingClientRect();
+  return { w: r.width, h: r.height };
+}
+
+function measureInitialMainHeight() {
+  const view = document.getElementById("view-clock");
+  const stage = document.getElementById("clock-stage");
+  const panel = document.querySelector("#view-clock .world-panel");
+  const grid = document.getElementById("world-grid");
+  if (!view || !stage) return 520;
+
+  const viewCs = getComputedStyle(view);
+  const viewGap = parseFloat(viewCs.rowGap || viewCs.gap) || 0;
+  const stageCs = getComputedStyle(stage);
+  let height = boxSize(stage).h + (parseFloat(stageCs.marginBottom) || 0);
+
+  if (panel) {
+    const ps = getComputedStyle(panel);
+    const padY = (parseFloat(ps.paddingTop) || 0) + (parseFloat(ps.paddingBottom) || 0);
+    const borderY = (parseFloat(ps.borderTopWidth) || 0) + (parseFloat(ps.borderBottomWidth) || 0);
+    const head = panel.querySelector(".panel-head");
+    const headCs = head ? getComputedStyle(head) : null;
+    const headH =
+      boxSize(head).h + (headCs ? parseFloat(headCs.marginBottom) || 0 : 0);
+    const firstCard = grid?.querySelector(".world-card");
+    const rowH = firstCard ? Math.ceil(boxSize(firstCard).h) : 0;
+    height += viewGap + padY + borderY + headH + rowH;
+  }
+
+  return Math.max(280, Math.round(height));
+}
+
+function applyPickerShellSize() {
+  const main = document.getElementById("clock-main");
+  if (!main) return;
+  const shell = measureInitialMainHeight();
+  const viewH = window.innerHeight || document.documentElement.clientHeight || 800;
+  const topAd = document.getElementById("editor-ad-above-path");
+  const adH = topAd ? Math.ceil(boxSize(topAd).h) : 0;
+  const visibleCap = Math.max(280, Math.floor(viewH - adH - 24));
+  const height = Math.min(shell, visibleCap);
+  main.style.setProperty("--picker-shell-h", `${height}px`);
+}
+
+function waitForScrollSettled(timeoutMs = 520) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    let lastY = window.scrollY;
+    let stable = 0;
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const tick = () => {
+      const y = window.scrollY;
+      if (Math.abs(y - lastY) < 1) stable += 1;
+      else stable = 0;
+      lastY = y;
+      if (stable >= 3 || performance.now() - start > timeoutMs) {
+        done();
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    window.setTimeout(done, timeoutMs);
+  });
+}
+
+function scrollPickerIntoView() {
+  const overlay = document.getElementById("country-picker");
+  if (overlay && typeof overlay.scrollIntoView === "function") {
+    overlay.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  document.getElementById("clock-main")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function openCountryPicker() {
+  const overlay = document.getElementById("country-picker");
+  const search = document.getElementById("picker-search");
+  if (!overlay) return;
+  pickerDraft = new Set(settings.cities);
+  if (search instanceof HTMLInputElement) search.value = "";
+  renderPickerList();
+  applyPickerShellSize();
+  overlay.hidden = false;
+  overlay.classList.add("is-placing");
+  document.body.classList.add("is-picker-open");
+  scrollPickerIntoView();
+  await waitForScrollSettled();
+  requestAnimationFrame(() => {
+    applyPickerShellSize();
+    overlay.classList.remove("is-placing");
+    if (search instanceof HTMLInputElement) search.focus();
+  });
+}
+
+function closeCountryPicker() {
+  const overlay = document.getElementById("country-picker");
+  if (overlay) {
+    overlay.hidden = true;
+    overlay.classList.remove("is-placing");
+  }
+  document.body.classList.remove("is-picker-open");
+}
+
+function saveCountryPicker() {
+  const kept = settings.cities.filter((id) => pickerDraft.has(id));
+  const added = PLACES.filter((p) => pickerDraft.has(p.id) && !kept.includes(p.id)).map((p) => p.id);
+  settings.cities = [...kept, ...added];
+  lastWorldKey = "";
+  saveSettings();
+  closeCountryPicker();
+  renderWorld(new Date());
+}
+
+function bindCountryPicker() {
+  const overlay = document.getElementById("country-picker");
+  const search = document.getElementById("picker-search");
+  document.getElementById("btn-add-city")?.addEventListener("click", () => openCountryPicker());
+  document.getElementById("picker-save")?.addEventListener("click", () => saveCountryPicker());
+  document.getElementById("picker-cancel")?.addEventListener("click", () => closeCountryPicker());
+  document.getElementById("picker-close")?.addEventListener("click", () => closeCountryPicker());
+  overlay?.addEventListener("click", (event) => {
+    if (event.target === overlay) closeCountryPicker();
+  });
+  document.addEventListener("pointerdown", (event) => {
+    if (!isPickerOpen()) return;
+    const overlayEl = document.getElementById("country-picker");
+    if (overlayEl && !overlayEl.contains(event.target)) closeCountryPicker();
+  });
+  search?.addEventListener("input", () => renderPickerList());
+  window.addEventListener("resize", () => {
+    if (isPickerOpen()) applyPickerShellSize();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isPickerOpen()) {
+      event.preventDefault();
+      closeCountryPicker();
+    }
+  });
 }
 
 function fillSelect(el, items, selected, labelFn) {
@@ -1154,10 +1424,10 @@ function fillTimerPresets() {
 
 function refreshLocaleUi() {
   lastWorldKey = "";
+  lastPlaceKey = "";
   titleBase = t("meta.title");
   applyI18n();
   fillStaticSelects();
-  fillCitySelect();
   fillDayPills();
   fillTimerPresets();
   refreshClockChrome();
@@ -1167,11 +1437,13 @@ function refreshLocaleUi() {
   updateStopwatchUi();
   updateClock();
   refreshFullscreenLabel();
+  if (isPickerOpen()) renderPickerList();
   const loop = document.getElementById("timer-loop");
   if (loop instanceof HTMLInputElement) loop.checked = settings.timer.loop;
 }
 
 function bindUi() {
+  bindCountryPicker();
   document.querySelector(".mode-nav")?.addEventListener("click", (ev) => {
     const btn = ev.target instanceof Element ? ev.target.closest("[data-mode]") : null;
     if (btn) setMode(btn.getAttribute("data-mode") || "clock");
@@ -1211,15 +1483,6 @@ function bindUi() {
     saveSettings();
   });
   document.getElementById("btn-fullscreen")?.addEventListener("click", () => void toggleFullscreen());
-  document.getElementById("btn-add-city")?.addEventListener("click", () => {
-    const sel = document.getElementById("city-select");
-    if (!(sel instanceof HTMLSelectElement) || !sel.value) return;
-    settings.cities.push(sel.value);
-    lastWorldKey = "";
-    saveSettings();
-    fillCitySelect();
-    renderWorld(new Date());
-  });
   document.getElementById("alarm-repeat")?.addEventListener("change", (ev) => {
     const days = document.getElementById("alarm-days");
     if (days) days.hidden = !(ev.target instanceof HTMLSelectElement && ev.target.value === "custom");
