@@ -294,7 +294,7 @@ def normalize_tool_entry(raw):
         "title": normalize_lang_map(src.get("title"), 80),
         "subtitle": normalize_lang_map(src.get("subtitle"), 80),
         "description": normalize_lang_map(src.get("description"), 200),
-        "badge": normalize_lang_map(src.get("badge"), 24),
+        "badge": normalize_lang_map(src.get("badge"), 48),
         "meta": normalize_meta_langs(src.get("meta")),
         "ogImage": normalize_og_image(src.get("ogImage") or ""),
         "adsense": {
@@ -391,9 +391,10 @@ def retired_watermark_display(field: str):
     return []
 
 
-def merge_default_tool_display(tools, defaults):
+def merge_default_tool_display(tools, defaults, raw_tools=None):
     def_tools = defaults.get("tools") if isinstance(defaults.get("tools"), dict) else {}
     tools = tools if isinstance(tools, dict) else {}
+    raw_tools = raw_tools if isinstance(raw_tools, dict) else None
     out = {}
     for tool_id in ALLOWED_TOOL_ID_ORDER:
         row = tools.get(tool_id) if isinstance(tools.get(tool_id), dict) else normalize_tool_entry(None)
@@ -405,7 +406,11 @@ def merge_default_tool_display(tools, defaults):
         row["title"] = fill_empty_lang_map(row.get("title"), defn.get("title"), 80, retired_title)
         row["subtitle"] = fill_empty_lang_map(row.get("subtitle"), defn.get("subtitle"), 80, retired_sub)
         row["description"] = fill_empty_lang_map(row.get("description"), defn.get("description"), 200, retired_desc)
-        row["badge"] = fill_empty_lang_map(row.get("badge"), defn.get("badge"), 24)
+        raw_row = raw_tools.get(tool_id) if raw_tools and isinstance(raw_tools.get(tool_id), dict) else None
+        if raw_row is None or "badge" not in raw_row:
+            row["badge"] = fill_empty_lang_map(row.get("badge"), defn.get("badge"), 48)
+        else:
+            row["badge"] = normalize_lang_map(raw_row.get("badge"), 48)
         out[tool_id] = row
     return out
 
@@ -413,15 +418,17 @@ def merge_default_tool_display(tools, defaults):
 def public_config() -> dict:
     runtime = _read_json(RUNTIME_CONFIG)
     base = default_config()
+    raw_tools = None
     if isinstance(runtime, dict):
         if "hub" not in runtime and isinstance(base.get("hub"), dict):
             runtime["hub"] = base["hub"]
         if "legal" not in runtime and isinstance(base.get("legal"), dict):
             runtime["legal"] = base["legal"]
+        raw_tools = runtime.get("tools") if isinstance(runtime.get("tools"), dict) else None
         cfg = normalize_config(runtime)
     else:
         cfg = normalize_config(base)
-    cfg["tools"] = merge_default_tool_display(cfg.get("tools") or {}, normalize_config(base))
+    cfg["tools"] = merge_default_tool_display(cfg.get("tools") or {}, normalize_config(base), raw_tools)
     return cfg
 
 

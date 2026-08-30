@@ -306,7 +306,7 @@ function normalize_tool_entry($raw) {
     'title' => normalize_lang_map($src['title'] ?? null, 80),
     'subtitle' => normalize_lang_map($src['subtitle'] ?? null, 80),
     'description' => normalize_lang_map($src['description'] ?? null, 200),
-    'badge' => normalize_lang_map($src['badge'] ?? null, 24),
+    'badge' => normalize_lang_map($src['badge'] ?? null, 48),
     'meta' => normalize_meta_langs($src['meta'] ?? null),
     'ogImage' => normalize_og_image($src['ogImage'] ?? ''),
     'adsense' => array(
@@ -373,7 +373,7 @@ function retired_watermark_display($field) {
   return array();
 }
 
-function merge_default_tool_display(array $tools, array $defaults) {
+function merge_default_tool_display(array $tools, array $defaults, $raw_tools = null) {
   $def_tools = (isset($defaults['tools']) && is_array($defaults['tools'])) ? $defaults['tools'] : array();
   foreach (ALLOWED_TOOL_IDS as $id) {
     $row = (isset($tools[$id]) && is_array($tools[$id])) ? $tools[$id] : normalize_tool_entry(null);
@@ -384,7 +384,12 @@ function merge_default_tool_display(array $tools, array $defaults) {
     $row['title'] = fill_empty_lang_map($row['title'] ?? null, $def['title'] ?? null, 80, $retired_title);
     $row['subtitle'] = fill_empty_lang_map($row['subtitle'] ?? null, $def['subtitle'] ?? null, 80, $retired_sub);
     $row['description'] = fill_empty_lang_map($row['description'] ?? null, $def['description'] ?? null, 200, $retired_desc);
-    $row['badge'] = fill_empty_lang_map($row['badge'] ?? null, $def['badge'] ?? null, 24);
+    $raw_row = (is_array($raw_tools) && isset($raw_tools[$id]) && is_array($raw_tools[$id])) ? $raw_tools[$id] : null;
+    if ($raw_row === null || !array_key_exists('badge', $raw_row)) {
+      $row['badge'] = fill_empty_lang_map($row['badge'] ?? null, $def['badge'] ?? null, 48);
+    } else {
+      $row['badge'] = normalize_lang_map($raw_row['badge'], 48);
+    }
     $tools[$id] = $row;
   }
   return $tools;
@@ -404,7 +409,10 @@ function public_config() {
   } else {
     $cfg = normalize_config($base);
   }
-  $cfg['tools'] = merge_default_tool_display($cfg['tools'], normalize_config($base));
+  $raw_tools = (is_array($runtime) && isset($runtime['tools']) && is_array($runtime['tools']))
+    ? $runtime['tools']
+    : null;
+  $cfg['tools'] = merge_default_tool_display($cfg['tools'], normalize_config($base), $raw_tools);
   return $cfg;
 }
 

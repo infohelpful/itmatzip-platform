@@ -347,3 +347,22 @@ export function pickLang(map, lang) {
   const v = map[key];
   return typeof v === "string" ? v.trim() : "";
 }
+
+/** @param {LangMap | undefined} map @param {string} [lang] */
+export function pickLangFallback(map, lang) {
+  const order = [lang || uiLang(), "ko", "en", "ja", "zh"];
+  const seen = new Set();
+  for (const key of order) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const v = pickLang(map, key);
+    if (v) return v;
+  }
+  return "";
+}
+
+/** @param {LangMap | undefined} map */
+export function langMapHasValue(map) {
+  if (!map || typeof map !== "object") return false;
+  return SITE_LANGS.some((lang) => typeof map[lang] === "string" && map[lang].trim() !== "");
+}

@@ -1,5 +1,5 @@
 import { showAdSense } from "../common/adsense.js?v=6";
-import { loadSiteConfig, mergeSiteConfig, pickLang, uiLang } from "../common/site-config.js?v=7";
+import { loadSiteConfig, mergeSiteConfig, pickLang, pickLangFallback, langMapHasValue, uiLang } from "../common/site-config.js?v=8";
 import { TOOLS } from "./tools-registry.js?v=20";
 
 const MOBILE_MENU_ONLY_KEY = "itz-mobile-menu-only";
@@ -35,6 +35,14 @@ function tx(key, fallback, vars) {
 /** @type {import("../common/site-config.js").SiteConfig | null} */
 let siteCfg = null;
 
+function resolveCardBadge(admin, tool, lang) {
+  if (admin && typeof admin === "object" && Object.prototype.hasOwnProperty.call(admin, "badge")) {
+    if (langMapHasValue(admin.badge)) return pickLangFallback(admin.badge, lang);
+    return "";
+  }
+  return tool.badge || "";
+}
+
 function localizedTool(tool) {
   const admin = siteCfg?.tools?.[tool.id];
   const lang = uiLang();
@@ -48,7 +56,7 @@ function localizedTool(tool) {
     subtitle,
     description,
     tags: [...(tool.tags || []), ...String(extraTags).split(/\s+/).filter(Boolean)],
-    badge: pickLang(admin?.badge, lang) || tool.badge,
+    badge: resolveCardBadge(admin, tool, lang),
   };
 }
 

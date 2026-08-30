@@ -191,7 +191,14 @@ function langGrid(pathFn, values, kind) {
       const hint = kind === "seo-description" ? "80~160자" : "";
       return textareaField(`${LANG_LABELS[lang]}`, `${pathAttr} rows="3"`, v, hint);
     }
-    const hint = kind === "seo-title" ? "앞에 검색어, 약 40자" : kind === "keywords" ? "5~8개, 쉼표" : "";
+    const hint =
+      kind === "seo-title"
+        ? "앞에 검색어, 약 40자"
+        : kind === "keywords"
+          ? "5~8개, 쉼표"
+          : kind === "badge"
+            ? "비우면 카드에서 숨김"
+            : "";
     return field(`${LANG_LABELS[lang]}`, `type="text" ${pathAttr} value="${escapeHtml(v)}" autocomplete="off"`, hint);
   });
   return `<div class="admin-lang-grid">${rows.join("")}</div>`;
@@ -344,7 +351,7 @@ function renderToolSettings(config) {
     const title = mergeDisplayMap(t.title, catalogLangMap(tool, "title"));
     const subtitle = mergeDisplayMap(t.subtitle, catalogLangMap(tool, "subtitle"));
     const description = mergeDisplayMap(t.description, catalogLangMap(tool, "description"));
-    const badge = mergeDisplayMap(t.badge, catalogLangMap(tool, "badge"));
+    const badge = storedLangMap(t.badge);
     const details = document.createElement("details");
     details.className = "admin-details";
     details.dataset.toolSettings = tool.id;

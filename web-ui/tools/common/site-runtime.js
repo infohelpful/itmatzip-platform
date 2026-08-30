@@ -74,7 +74,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=18";
+    var href = "common/theme.css?v=19";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -89,7 +89,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=18");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=19");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -1346,6 +1346,69 @@
     paintBrandTitle(admin && admin.displayTitle);
   }
 
+  function firstLangMap(map) {
+    if (!map || typeof map !== "object") return "";
+    var order = [currentLang, "ko", "en", "ja", "zh"];
+    var seen = {};
+    var i;
+    for (i = 0; i < order.length; i++) {
+      var lang = order[i];
+      if (seen[lang]) continue;
+      seen[lang] = true;
+      var v = map[lang];
+      if (typeof v === "string" && v.trim()) return v.trim();
+    }
+    return "";
+  }
+
+  function findHeaderBadge() {
+    return document.querySelector(".app-header .badge, .logo-area .badge, .as-topbar .badge");
+  }
+
+  function createHeaderBadge() {
+    var host =
+      document.querySelector(".app-header .logo-area") ||
+      document.querySelector(".as-topbar-left") ||
+      document.querySelector(".app-header .header-copy") ||
+      document.querySelector(".app-header");
+    if (!host) return null;
+    var badge = document.createElement("span");
+    badge.className = "badge";
+    var eyebrow = host.querySelector(".eyebrow");
+    if (eyebrow && eyebrow.parentNode === host) {
+      if (eyebrow.nextSibling) host.insertBefore(badge, eyebrow.nextSibling);
+      else host.appendChild(badge);
+      return badge;
+    }
+    var before = host.querySelector(".logo-title-row, h1, .as-logo");
+    if (before && before.parentNode === host) host.insertBefore(badge, before);
+    else host.insertBefore(badge, host.firstChild);
+    return badge;
+  }
+
+  function applyAdminBadge() {
+    if (isDownloadPage() || isAdminPath(location.pathname)) return;
+    var id = pageI18nId();
+    if (!id || id === "hub" || id.indexOf("legal-") === 0) return;
+    var cfg = window.__itzSiteConfig;
+    if (!cfg || !cfg.tools || !cfg.tools[id]) return;
+    var tool = cfg.tools[id];
+    var text = firstLangMap(tool.badge);
+    var badge = findHeaderBadge();
+    if (!text) {
+      if (badge) {
+        badge.setAttribute("hidden", "");
+        badge.textContent = "";
+      }
+      return;
+    }
+    if (!badge) badge = createHeaderBadge();
+    if (!badge) return;
+    badge.removeAttribute("hidden");
+    badge.removeAttribute("data-i18n");
+    badge.textContent = text;
+  }
+
   function fillEl(el, value) {
     if (!el || value == null || value === "") return;
     if (String(value).indexOf("<") !== -1) el.innerHTML = value;
@@ -1389,6 +1452,7 @@
     var i;
     for (i = 0; i < nodes.length; i++) {
       if (skipH1 && String(nodes[i].tagName || "").toLowerCase() === "h1") continue;
+      if (nodes[i].classList && nodes[i].classList.contains("badge")) continue;
       var id = nodes[i].id || "";
       if (id === "bin-readiness" || id === "compute-capability" || id === "connection-status" || id === "summary-model-ready") continue;
       var key = nodes[i].getAttribute("data-i18n");
@@ -1539,6 +1603,7 @@
     syncThemeToggles();
     refreshFooter();
     applyAdminDisplayTitle();
+    applyAdminBadge();
     if (typeof document !== "undefined" && document.body) {
       document.dispatchEvent(new CustomEvent("itz:lang-change", { detail: { lang: currentLang } }));
     }
@@ -1596,6 +1661,7 @@
           window.__itzSiteConfig = data.config;
           applySeo();
           applyAdminDisplayTitle();
+          applyAdminBadge();
           if (document.body) {
             document.dispatchEvent(new CustomEvent("itz:lang-change", { detail: { lang: currentLang } }));
           }
