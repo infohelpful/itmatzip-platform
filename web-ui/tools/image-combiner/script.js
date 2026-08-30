@@ -165,30 +165,35 @@ function renderCards() {
     card.dataset.id = slot.id;
     card.setAttribute("role", "listitem");
 
-    const handle = document.createElement("button");
-    handle.type = "button";
-    handle.className = "thumb-handle";
-    handle.setAttribute("aria-label", itzT("dragHandle", "순서 이동"));
-    handle.textContent = "↕";
-
+    const shot = document.createElement("div");
+    shot.className = "thumb-shot";
     const img = document.createElement("img");
     img.className = "thumb-img";
     img.src = slot.url;
     img.alt = "";
     img.draggable = false;
+    const num = document.createElement("span");
+    num.className = "thumb-num";
+    num.textContent = String(index + 1);
+    shot.append(img, num);
 
     const meta = document.createElement("div");
     meta.className = "thumb-meta";
     const name = document.createElement("span");
     name.className = "thumb-name";
     name.textContent = slot.name;
+    name.title = slot.name;
     const size = document.createElement("span");
     size.className = "thumb-size";
     size.textContent = `${slot.width}×${slot.height}`;
     meta.append(name, size);
 
-    const moves = document.createElement("div");
-    moves.className = "thumb-moves";
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = "thumb-handle";
+    handle.setAttribute("aria-label", itzT("dragHandle", "순서 이동"));
+    handle.textContent = "↕";
+
     const up = document.createElement("button");
     up.type = "button";
     up.className = "thumb-move";
@@ -209,7 +214,6 @@ function renderCards() {
       event.stopPropagation();
       moveSlot(slot.id, 1);
     });
-    moves.append(up, down);
 
     const remove = document.createElement("button");
     remove.type = "button";
@@ -221,7 +225,11 @@ function renderCards() {
       removeSlot(slot.id);
     });
 
-    card.append(handle, img, meta, moves, remove);
+    const toolbar = document.createElement("div");
+    toolbar.className = "thumb-toolbar";
+    toolbar.append(handle, up, down, remove);
+
+    card.append(shot, meta, toolbar);
     bindCardDrag(card, handle);
     cardList.append(card);
   });
