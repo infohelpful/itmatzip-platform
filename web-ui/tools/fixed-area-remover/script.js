@@ -173,13 +173,13 @@ function updateSourceModeUi() {
   }
   if (els.pathHint) {
     els.pathHint.textContent = folder
-      ? window.itzT("pathHintFolder", "폴더를 선택하면 첫 영상이 표시됩니다. 워터마크 영역을 지정한 뒤 「지우기 실행」하면 폴더 전체에 동일하게 적용됩니다.")
-      : window.itzT("pathHint", "영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.");
+      ? window.itzT("pathHintFolder", "폴더를 선택하면 첫 영상이 표시됩니다. 고정 영역을 지정한 뒤 「지우기 실행」하면 폴더 전체에 동일하게 적용됩니다.")
+      : window.itzT("pathHint", "영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 고정 영역을 지정한 뒤 실행하세요.");
   }
   if (els.canvasHint && !els.canvasHint.hidden) {
     els.canvasHint.textContent = folder
-      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다.")
-      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.");
+      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 고정 영역이 폴더 안 모든 영상에서 제거됩니다.")
+      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 영역은 전 구간에 동일하게 적용됩니다.");
   }
   updateFolderMeta();
 }
@@ -386,13 +386,13 @@ function showCanvasEditor() {
   if (els.canvasHint) {
     els.canvasHint.hidden = false;
     els.canvasHint.textContent = isFolderMode()
-      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다.")
-      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.");
+      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 고정 영역이 폴더 안 모든 영상에서 제거됩니다.")
+      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 영역은 전 구간에 동일하게 적용됩니다.");
   }
   if (els.previewHeading) {
     els.previewHeading.textContent = isFolderMode()
-      ? window.itzT("headingFolderPaint", "첫 영상에서 워터마크 영역을 지정하세요")
-      : window.itzT("headingPaint", "워터마크 영역을 지정하세요");
+      ? window.itzT("headingFolderPaint", "첫 영상에서 고정 영역을 지정하세요")
+      : window.itzT("headingPaint", "고정 영역을 지정하세요");
   }
 }
 
@@ -408,7 +408,7 @@ function showResultVideos() {
     els.compareHint.hidden = false;
     els.compareHint.textContent = isFolderMode()
       ? window.itzT("compareFolderHint", "위는 첫 영상의 원본, 아래는 해당 결과입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요.")
-      : window.itzT("compareHint", "위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.");
+      : window.itzT("compareHint", "위는 원본, 아래는 고정 영역을 제거한 결과입니다. 각각 재생할 수 있습니다.");
   }
   if (els.videoStack) els.videoStack.hidden = false;
   if (els.previewHeading) {
@@ -914,13 +914,13 @@ function updateBinReadiness(data) {
   toolReady = torch && pip && model;
   if (els.readiness) {
     if (toolReady) {
-      els.readiness.textContent = window.itzT("readyOk", "Watermark Remover · 준비 완료");
+      els.readiness.textContent = window.itzT("readyOk", "Fixed Area Remover · 준비 완료");
     } else if (!torch) {
-      els.readiness.textContent = window.itzT("needTorch", "Watermark Remover · PyTorch 설치 필요");
+      els.readiness.textContent = window.itzT("needTorch", "Fixed Area Remover · PyTorch 설치 필요");
     } else if (!pip) {
-      els.readiness.textContent = window.itzT("needPkg", "Watermark Remover · 패키지 설치 필요");
+      els.readiness.textContent = window.itzT("needPkg", "Fixed Area Remover · 패키지 설치 필요");
     } else {
-      els.readiness.textContent = window.itzT("needModel", "Watermark Remover · 모델 다운로드 필요");
+      els.readiness.textContent = window.itzT("needModel", "Fixed Area Remover · 모델 다운로드 필요");
     }
   }
   if (els.summaryReady) {
@@ -988,7 +988,7 @@ async function resumeRunningPrepare() {
   }
 }
 
-function shortenAgentError(message, fallback = "워터마크 제거 실패") {
+function shortenAgentError(message, fallback = "고정 영역 제거 실패") {
   const text = String(message || "").replace(/\r/g, "").trim();
   if (!text) return fallback;
   const missing = text.match(/ModuleNotFoundError:\s*([^\n]+)/);
@@ -1013,7 +1013,7 @@ async function pollEraseStatus() {
     setBusy("erase", true, pct, step, status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(shortenAgentError(status?.message, "워터마크 제거 실패"));
+      throw new Error(shortenAgentError(status?.message, "고정 영역 제거 실패"));
     }
     await new Promise((r) => setTimeout(r, 700));
   }
@@ -1182,7 +1182,7 @@ async function runErase() {
     return;
   }
   if (!hasMaskPaint) {
-    alert(window.itzT("needRegion", "워터마크 영역을 먼저 사각형 또는 원으로 지정하세요."));
+    alert(window.itzT("needRegion", "고정 영역을 먼저 사각형 또는 원으로 지정하세요."));
     return;
   }
   if (!agentOk) {
@@ -1221,7 +1221,7 @@ async function runErase() {
         },
       });
     } else {
-      setBusy("erase", true, 3, window.itzT("startStep", "시작"), window.itzT("eraseStart", "워터마크 제거를 시작합니다…"));
+      setBusy("erase", true, 3, window.itzT("startStep", "시작"), window.itzT("eraseStart", "고정 영역 제거를 시작합니다…"));
       await requestAgent({
         method: "POST",
         path: `${API}/erase`,
@@ -1378,7 +1378,7 @@ function applyPendingHeaderI18n() {
     els.connection.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
   }
   if (!lastReadinessData) {
-    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "Watermark Remover · 환경 준비 대기");
+    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "Fixed Area Remover · 환경 준비 대기");
     if (els.summaryReady) els.summaryReady.textContent = window.itzT("ui.checkingShort", "확인 중");
   }
 }

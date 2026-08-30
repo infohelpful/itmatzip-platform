@@ -7,6 +7,10 @@
   RewriteEngine On
   RewriteBase /
 
+  # 구 공개 경로 → Fixed Area Remover (내부 ID는 watermark-remover 유지)
+  RewriteRule ^(kr|en|ja|zh)/watermark-remover(/.*)?$ /$1/fixed-area-remover$2 [R=301,L]
+  RewriteRule ^watermark-remover(/.*)?$ /kr/fixed-area-remover$1 [R=301,L]
+
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
   RewriteRule ^seo-serve\.php$ - [L]
 

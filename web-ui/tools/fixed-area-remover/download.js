@@ -125,17 +125,17 @@ function startCountdown(outputPath) {
 }
 
 async function initPage() {
-  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Watermark Remover" }) || window.itzT("dl.docTitle", "Watermark Remover · 다운로드");
+  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Fixed Area Remover" }) || window.itzT("dl.docTitle", "Fixed Area Remover · 다운로드");
   const titleEl = document.getElementById("dl-title");
-  if (titleEl) titleEl.textContent = window.itzT("dlTitle", "워터마크 제거 결과 다운로드");
+  if (titleEl) titleEl.textContent = window.itzT("dlTitle", "고정 영역 제거 결과 다운로드");
   const session = readSession();
   if (!session.outputPath) {
-    setStatus(window.itzT("dl.noResult", "다운로드할 결과가 없습니다. 편집 화면에서 먼저 워터마크 제거를 완료해 주세요."), "err");
+    setStatus(window.itzT("dl.noResult", "다운로드할 결과가 없습니다. 편집 화면에서 먼저 고정 영역 제거를 완료해 주세요."), "err");
     if (elMeta) elMeta.textContent = window.itzT("dl.noPath", "결과 파일 경로가 저장되지 않았습니다.");
     return;
   }
   if (elMeta) {
-    const out = window.ITZ_I18N?.tf?.("dl.output", { label: window.itzT("dlTitle", "워터마크 제거 영상") }) || "출력: 워터마크 제거 영상";
+    const out = window.ITZ_I18N?.tf?.("dl.output", { label: window.itzT("dlTitle", "고정 영역 제거 영상") }) || "출력: 고정 영역 제거 영상";
     elMeta.textContent = session.source
       ? `${window.ITZ_I18N?.tf?.("dl.source", { name: session.source }) || `원본: ${session.source}`} · ${out}`
       : out;

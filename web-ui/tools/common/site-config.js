@@ -88,29 +88,29 @@ export const DEFAULT_SITE_CONFIG = {
       ko: {
         title: "무음제거·AI자막·누끼·보컬제거 로컬툴 | ItMatZip",
         description:
-          "영상 무음 제거, AI 자막 추출, 보컬 분리, 누끼·배경제거를 업로드 없이 PC에서 처리합니다. 유튜브 썸네일·워터마크 제거까지 한곳에 모은 무료 로컬 웹 도구입니다.",
+          "영상 무음 제거, AI 자막 추출, 보컬 분리, 누끼·배경제거를 업로드 없이 PC에서 처리합니다. 유튜브 썸네일·고정 영역 제거까지 한곳에 모은 무료 로컬 웹 도구입니다.",
         keywords:
-          "무음 제거, AI 자막 추출, 자막 만들기, 보컬 제거, 누끼, 배경제거, 워터마크 제거, 유튜브 썸네일",
+          "무음 제거, AI 자막 추출, 자막 만들기, 보컬 제거, 누끼, 배경제거, 고정 영역 제거, 유튜브 썸네일",
       },
       en: {
         title: "Silence Remover, Auto Captions & Background Remover | ItMatZip",
         description:
           "Remove silence from video, generate AI captions, isolate vocals, and cut backgrounds on your PC. Files never leave your computer. Free local web tools.",
         keywords:
-          "silence remover, remove silence from video, auto captions, vocal remover, background remover, watermark remover, youtube thumbnail downloader",
+          "silence remover, remove silence from video, auto captions, vocal remover, background remover, fixed area remover, youtube thumbnail downloader",
       },
       ja: {
         title: "無音カット・字幕起こし・背景削除・ボーカル除去 | ItMatZip",
         description:
           "動画の無音カット、字幕起こし、ボーカル除去、背景削除をPC内で処理します。アップロード不要。YouTubeサムネ保存まで揃えた無料ローカルツールです。",
         keywords:
-          "無音カット, 字幕起こし, 文字起こし, ボーカル除去, 背景削除, 切り抜き, 透かし削除, YouTubeサムネイル",
+          "無音カット, 字幕起こし, 文字起こし, ボーカル除去, 背景削除, 切り抜き, 固定領域除去, YouTubeサムネイル",
       },
       zh: {
         title: "去静音、自动字幕、抠图、人声分离 | ItMatZip",
         description:
-          "视频去静音、自动字幕、人声分离、抠图去背景，文件只在电脑处理、不上传。YouTube封面、去水印也在同一套免费本地工具里。",
-        keywords: "去静音, 自动字幕, 字幕提取, 人声分离, 抠图, 去背景, 去水印, YouTube封面",
+          "视频去静音、自动字幕、人声分离、抠图去背景，文件只在电脑处理、不上传。YouTube封面、固定区域去除也在同一套免费本地工具里。",
+        keywords: "去静音, 自动字幕, 字幕提取, 人声分离, 抠图, 去背景, 固定区域去除, YouTube封面",
       },
     },
   },

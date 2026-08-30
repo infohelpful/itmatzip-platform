@@ -330,15 +330,45 @@ function default_config() {
   return $cfg;
 }
 
-function fill_empty_lang_map($current, $fallback, $max) {
+function fill_empty_lang_map($current, $fallback, $max, $retired = null) {
   $out = normalize_lang_map($current, $max);
   $fb = normalize_lang_map($fallback, $max);
+  $retired_set = array();
+  if (is_array($retired)) {
+    foreach ($retired as $item) {
+      $retired_set[$item] = true;
+    }
+  }
   foreach (ALLOWED_LANGS as $lang) {
-    if ($out[$lang] === '' && $fb[$lang] !== '') {
+    $cur = $out[$lang];
+    if (($cur === '' || isset($retired_set[$cur])) && $fb[$lang] !== '') {
       $out[$lang] = $fb[$lang];
     }
   }
   return $out;
+}
+
+function retired_watermark_display($field) {
+  if ($field === 'title') {
+    return array('Watermark Remover');
+  }
+  if ($field === 'subtitle') {
+    return array(
+      '고정 워터마크 제거 · ProPainter',
+      'Fixed watermark · ProPainter',
+      '固定ウォーターマーク除去 · ProPainter',
+      '固定水印去除 · ProPainter',
+    );
+  }
+  if ($field === 'description') {
+    return array(
+      '영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.',
+      'Paint the watermark region; ProPainter fills that area and saves a normal playable video.',
+      '映像の透かし範囲を塗るとProPainterがその部分だけ消し、再生できる動画として保存します。',
+      '涂出视频水印区域后，ProPainter 只修那一块并保存可播放的视频。',
+    );
+  }
+  return array();
 }
 
 function merge_default_tool_display(array $tools, array $defaults) {
@@ -346,9 +376,12 @@ function merge_default_tool_display(array $tools, array $defaults) {
   foreach (ALLOWED_TOOL_IDS as $id) {
     $row = (isset($tools[$id]) && is_array($tools[$id])) ? $tools[$id] : normalize_tool_entry(null);
     $def = (isset($def_tools[$id]) && is_array($def_tools[$id])) ? $def_tools[$id] : array();
-    $row['title'] = fill_empty_lang_map($row['title'] ?? null, $def['title'] ?? null, 80);
-    $row['subtitle'] = fill_empty_lang_map($row['subtitle'] ?? null, $def['subtitle'] ?? null, 80);
-    $row['description'] = fill_empty_lang_map($row['description'] ?? null, $def['description'] ?? null, 200);
+    $retired_title = $id === 'watermark-remover' ? retired_watermark_display('title') : array();
+    $retired_sub = $id === 'watermark-remover' ? retired_watermark_display('subtitle') : array();
+    $retired_desc = $id === 'watermark-remover' ? retired_watermark_display('description') : array();
+    $row['title'] = fill_empty_lang_map($row['title'] ?? null, $def['title'] ?? null, 80, $retired_title);
+    $row['subtitle'] = fill_empty_lang_map($row['subtitle'] ?? null, $def['subtitle'] ?? null, 80, $retired_sub);
+    $row['description'] = fill_empty_lang_map($row['description'] ?? null, $def['description'] ?? null, 200, $retired_desc);
     $row['badge'] = fill_empty_lang_map($row['badge'] ?? null, $def['badge'] ?? null, 24);
     $tools[$id] = $row;
   }

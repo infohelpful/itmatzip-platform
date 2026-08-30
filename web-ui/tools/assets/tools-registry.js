@@ -122,16 +122,16 @@ export const TOOLS = [
   },
   {
     id: "watermark-remover",
-    href: "watermark-remover/",
-    title: "Watermark Remover",
-    subtitle: "고정 워터마크 제거 · ProPainter",
+    href: "fixed-area-remover/",
+    title: "Fixed Area Remover",
+    subtitle: "고정 영역 제거 · ProPainter",
     description:
-      "영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
+      "영상에서 위치가 고정된 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
     icon: "🚫",
     accent: "#eab308",
     available: true,
     badge: "AI",
-    tags: ["워터마크", "watermark", "로고", "제거", "propainter", "영상", "inpaint", "ai"],
+    tags: ["고정영역", "fixed area", "로고", "제거", "propainter", "영상", "inpaint", "ai"],
   },
   {
     id: "thumbnail-grabber",

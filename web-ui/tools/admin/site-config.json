@@ -49,23 +49,23 @@
     "meta": {
       "ko": {
         "title": "무음제거·AI자막·누끼·보컬제거 로컬툴 | ItMatZip",
-        "description": "영상 무음 제거, AI 자막 추출, 보컬 분리, 누끼·배경제거를 업로드 없이 PC에서 처리합니다. 유튜브 썸네일·워터마크 제거까지 한곳에 모은 무료 로컬 웹 도구입니다.",
-        "keywords": "무음 제거, AI 자막 추출, 자막 만들기, 보컬 제거, 누끼, 배경제거, 워터마크 제거, 유튜브 썸네일"
+        "description": "영상 무음 제거, AI 자막 추출, 보컬 분리, 누끼·배경제거를 업로드 없이 PC에서 처리합니다. 유튜브 썸네일·고정 영역 제거까지 한곳에 모은 무료 로컬 웹 도구입니다.",
+        "keywords": "무음 제거, AI 자막 추출, 자막 만들기, 보컬 제거, 누끼, 배경제거, 고정 영역 제거, 유튜브 썸네일"
       },
       "en": {
         "title": "Silence Remover, Auto Captions & Background Remover | ItMatZip",
         "description": "Remove silence from video, generate AI captions, isolate vocals, and cut backgrounds on your PC. Files never leave your computer. Free local web tools.",
-        "keywords": "silence remover, remove silence from video, auto captions, vocal remover, background remover, watermark remover, youtube thumbnail downloader"
+        "keywords": "silence remover, remove silence from video, auto captions, vocal remover, background remover, fixed area remover, youtube thumbnail downloader"
       },
       "ja": {
         "title": "無音カット・字幕起こし・背景削除・ボーカル除去 | ItMatZip",
         "description": "動画の無音カット、字幕起こし、ボーカル除去、背景削除をPC内で処理します。アップロード不要。YouTubeサムネ保存まで揃えた無料ローカルツールです。",
-        "keywords": "無音カット, 字幕起こし, 文字起こし, ボーカル除去, 背景削除, 切り抜き, 透かし削除, YouTubeサムネイル"
+        "keywords": "無音カット, 字幕起こし, 文字起こし, ボーカル除去, 背景削除, 切り抜き, 固定領域除去, YouTubeサムネイル"
       },
       "zh": {
         "title": "去静音、自动字幕、抠图、人声分离 | ItMatZip",
-        "description": "视频去静音、自动字幕、人声分离、抠图去背景，文件只在电脑处理、不上传。YouTube封面、去水印也在同一套免费本地工具里。",
-        "keywords": "去静音, 自动字幕, 字幕提取, 人声分离, 抠图, 去背景, 去水印, YouTube封面"
+        "description": "视频去静音、自动字幕、人声分离、抠图去背景，文件只在电脑处理、不上传。YouTube封面、固定区域去除也在同一套免费本地工具里。",
+        "keywords": "去静音, 自动字幕, 字幕提取, 人声分离, 抠图, 去背景, 固定区域去除, YouTube封面"
       }
     }
   },
@@ -496,22 +496,22 @@
     },
     "watermark-remover": {
       "title": {
-        "ko": "Watermark Remover",
-        "en": "Watermark Remover",
-        "ja": "Watermark Remover",
-        "zh": "Watermark Remover"
+        "ko": "Fixed Area Remover",
+        "en": "Fixed Area Remover",
+        "ja": "Fixed Area Remover",
+        "zh": "Fixed Area Remover"
       },
       "subtitle": {
-        "ko": "고정 워터마크 제거 · ProPainter",
-        "en": "Fixed watermark · ProPainter",
-        "ja": "固定ウォーターマーク除去 · ProPainter",
-        "zh": "固定水印去除 · ProPainter"
+        "ko": "고정 영역 제거 · ProPainter",
+        "en": "Fixed area removal · ProPainter",
+        "ja": "固定領域の除去 · ProPainter",
+        "zh": "固定区域去除 · ProPainter"
       },
       "description": {
-        "ko": "영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
-        "en": "Paint the watermark region; ProPainter fills that area and saves a normal playable video.",
-        "ja": "映像の透かし範囲を塗るとProPainterがその部分だけ消し、再生できる動画として保存します。",
-        "zh": "涂出视频水印区域后，ProPainter 只修那一块并保存可播放的视频。"
+        "ko": "영상에서 위치가 고정된 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
+        "en": "Paint a fixed region in a video; ProPainter fills that area and saves a normal playable file.",
+        "ja": "映像の固定位置を塗るとProPainterがその部分だけ消し、再生できる動画として保存します。",
+        "zh": "涂出视频中位置固定的区域后，ProPainter 只修那一块并保存可播放的视频。"
       },
       "badge": {
         "ko": "AI",

@@ -34,7 +34,7 @@ func toolsWebBase() string {
 
 func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicEraser, voiceChanger, watermarkRemover string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/watermark-remover/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/fixed-area-remover/"
 }
 
 func resolveTrayIconPath() string {
@@ -212,7 +212,7 @@ func onTrayReady(port int, iconData []byte) {
 	mBackgroundRemover := systray.AddMenuItem("Background Remover", backgroundRemoverURL)
 	mMagicEraser := systray.AddMenuItem("MagicEraser", magicEraserURL)
 	mVoiceChanger := systray.AddMenuItem("Voice Changer", voiceChangerURL)
-	mWatermarkRemover := systray.AddMenuItem("Watermark Remover", watermarkRemoverURL)
+	mWatermarkRemover := systray.AddMenuItem("Fixed Area Remover", watermarkRemoverURL)
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 

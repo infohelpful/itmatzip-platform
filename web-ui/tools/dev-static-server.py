@@ -33,6 +33,7 @@ REGISTRY_FILE = ROOT / "assets" / "tools-registry.js"
 LANG_PREFIXES = frozenset({"kr", "ko", "en", "ja", "zh"})
 LANG_TO_URL_PREFIX = {"ko": "kr", "en": "en", "ja": "ja", "zh": "zh"}
 URL_PREFIX_TO_LANG = {"kr": "ko", "ko": "ko", "en": "en", "ja": "ja", "zh": "zh"}
+PUBLIC_SLUG_RENAMES = {"watermark-remover": "fixed-area-remover"}
 SKIP_LANG_REDIRECT_FIRST = frozenset({"admin", "common", "assets"})
 STATIC_FILE_EXT = frozenset(
     {
@@ -356,13 +357,35 @@ def normalize_config(cfg) -> dict:
     }
 
 
-def fill_empty_lang_map(current, fallback, max_len: int):
+def fill_empty_lang_map(current, fallback, max_len: int, retired=None):
     out = normalize_lang_map(current, max_len)
     fb = normalize_lang_map(fallback, max_len)
+    retired_set = set(retired or [])
     for lang in ALLOWED_LANGS:
-        if out[lang] == "" and fb[lang]:
+        cur = out[lang]
+        if (cur == "" or cur in retired_set) and fb[lang]:
             out[lang] = fb[lang]
     return out
+
+
+def retired_watermark_display(field: str):
+    if field == "title":
+        return ["Watermark Remover"]
+    if field == "subtitle":
+        return [
+            "고정 워터마크 제거 · ProPainter",
+            "Fixed watermark · ProPainter",
+            "固定ウォーターマーク除去 · ProPainter",
+            "固定水印去除 · ProPainter",
+        ]
+    if field == "description":
+        return [
+            "영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
+            "Paint the watermark region; ProPainter fills that area and saves a normal playable video.",
+            "映像の透かし範囲を塗るとProPainterがその部分だけ消し、再生できる動画として保存します。",
+            "涂出视频水印区域后，ProPainter 只修那一块并保存可播放的视频。",
+        ]
+    return []
 
 
 def merge_default_tool_display(tools, defaults):
@@ -373,9 +396,12 @@ def merge_default_tool_display(tools, defaults):
         row = tools.get(tool_id) if isinstance(tools.get(tool_id), dict) else normalize_tool_entry(None)
         defn = def_tools.get(tool_id) if isinstance(def_tools.get(tool_id), dict) else {}
         row = dict(row)
-        row["title"] = fill_empty_lang_map(row.get("title"), defn.get("title"), 80)
-        row["subtitle"] = fill_empty_lang_map(row.get("subtitle"), defn.get("subtitle"), 80)
-        row["description"] = fill_empty_lang_map(row.get("description"), defn.get("description"), 200)
+        retired_title = retired_watermark_display("title") if tool_id == "watermark-remover" else []
+        retired_sub = retired_watermark_display("subtitle") if tool_id == "watermark-remover" else []
+        retired_desc = retired_watermark_display("description") if tool_id == "watermark-remover" else []
+        row["title"] = fill_empty_lang_map(row.get("title"), defn.get("title"), 80, retired_title)
+        row["subtitle"] = fill_empty_lang_map(row.get("subtitle"), defn.get("subtitle"), 80, retired_sub)
+        row["description"] = fill_empty_lang_map(row.get("description"), defn.get("description"), 200, retired_desc)
         row["badge"] = fill_empty_lang_map(row.get("badge"), defn.get("badge"), 24)
         out[tool_id] = row
     return out
@@ -716,6 +742,13 @@ class ToolsHandler(SimpleHTTPRequestHandler):
             hl_raw = qs["hl"][0]
         hl = _normalize_hl(hl_raw)
         rest_parts = parts[1:] if first in LANG_PREFIXES else parts
+        slug_changed = False
+        if rest_parts:
+            old_slug = rest_parts[0].lower()
+            new_slug = PUBLIC_SLUG_RENAMES.get(old_slug)
+            if new_slug:
+                rest_parts = [new_slug, *rest_parts[1:]]
+                slug_changed = True
         rest = "/" + "/".join(rest_parts) if rest_parts else "/"
         if raw_path.endswith("/") and rest != "/" and not rest.endswith("/"):
             rest += "/"
@@ -728,8 +761,10 @@ class ToolsHandler(SimpleHTTPRequestHandler):
             return dest + suffix
 
         if first in ("kr", "en", "ja", "zh"):
+            dest_prefix = first
             if hl and LANG_TO_URL_PREFIX.get(hl) != first:
                 dest_prefix = LANG_TO_URL_PREFIX[hl]
+            if (hl and LANG_TO_URL_PREFIX.get(hl) != first) or slug_changed:
                 dest = f"/{dest_prefix}/" if rest == "/" else f"/{dest_prefix}{rest}"
                 return dest + suffix
             return None

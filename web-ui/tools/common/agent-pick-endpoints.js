@@ -4,11 +4,11 @@
  *
  * | 상수 | 툴 |
  * |------|-----|
- * | AGENT_PICK_VIDEO | Silence Detector, Watermark Remover |
+ * | AGENT_PICK_VIDEO | Silence Detector, Fixed Area Remover |
  * | AGENT_PICK_SUBTITLE_MEDIA | Auto Subtitle (영상·오디오 원본) |
  * | AGENT_PICK_AUDIO | Vocal Remover, Create Music, Voice Changer |
  * | AGENT_PICK_IMAGE | Image Enhancer, Auto Subtitle (워터마크 이미지) |
- * | AGENT_PICK_FOLDER | MagicEraser · Watermark Remover 폴더 일괄 지우기 |
+ * | AGENT_PICK_FOLDER | MagicEraser · Fixed Area Remover 폴더 일괄 지우기 |
  * | AGENT_PICK_FONT | Auto Subtitle (자막 폰트) |
  * | AGENT_PICK_PROJECT | Auto Subtitle (.autosub 프로젝트) |
  */
@@ -31,5 +31,5 @@ export const AGENT_PICK_FONT = "/api/agent/pick-local-font-file";
 /** Image Enhancer, Background Remover, MagicEraser, Auto Subtitle 워터마크 이미지 */
 export const AGENT_PICK_IMAGE = "/api/agent/pick-local-image-file";
 
-/** MagicEraser · Watermark Remover 폴더 일괄 지우기 등 — 로컬 폴더 경로 */
+/** MagicEraser · Fixed Area Remover 폴더 일괄 지우기 등 — 로컬 폴더 경로 */
 export const AGENT_PICK_FOLDER = "/api/agent/pick-local-folder";

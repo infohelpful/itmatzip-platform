@@ -68,6 +68,13 @@ function seo_resolve_file($root, $rel) {
   return null;
 }
 
+function seo_html_tool_id($html) {
+  if (preg_match('/data-tool-id=["\']([^"\']+)["\']/', $html, $m)) {
+    return $m[1];
+  }
+  return '';
+}
+
 function seo_page_kind($rel, $html) {
   $norm = str_replace('\\', '/', $rel);
   $norm = ltrim($norm, '/');
@@ -77,14 +84,15 @@ function seo_page_kind($rel, $html) {
   if (preg_match('#^legal/([a-z]+)\.html$#i', $norm, $m)) {
     return array('legal', strtolower($m[1]));
   }
+  $htmlId = seo_html_tool_id($html);
   if (preg_match('#^([a-z0-9-]+)/download\.html$#i', $norm, $m)) {
-    return array('download', $m[1]);
+    return array('download', $htmlId !== '' ? $htmlId : $m[1]);
   }
   if (preg_match('#^([a-z0-9-]+)(?:/index\.html)?$#i', $norm, $m)) {
-    return array('tool', $m[1]);
+    return array('tool', $htmlId !== '' ? $htmlId : $m[1]);
   }
-  if (preg_match('/data-tool-id=["\']([^"\']+)["\']/', $html, $m)) {
-    return array('tool', $m[1]);
+  if ($htmlId !== '') {
+    return array('tool', $htmlId);
   }
   return array('other', '');
 }
