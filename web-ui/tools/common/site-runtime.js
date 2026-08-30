@@ -34,7 +34,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=14";
+    var href = "common/theme.css?v=16";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -49,7 +49,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=14");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=16");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -162,8 +162,130 @@
     document.body.appendChild(footer);
   }
 
+  var SITE_LANG_KEY = "itz-site-lang";
+  var SITE_LANGS = [
+    { id: "ko", label: "한국어" },
+    { id: "en", label: "English" },
+    { id: "ja", label: "日本語" },
+    { id: "zh", label: "中文" }
+  ];
+  var DASH_LABELS = {
+    ko: "대시보드로 이동",
+    en: "Dashboard",
+    ja: "ダッシュボード",
+    zh: "返回首页"
+  };
+
+  function readSiteLang() {
+    try {
+      var v = localStorage.getItem(SITE_LANG_KEY);
+      if (v === "en" || v === "ja" || v === "zh" || v === "ko") return v;
+    } catch (e) {
+      /* ignore */
+    }
+    return "ko";
+  }
+
+  function applyChromeLang(lang) {
+    var dash = document.querySelector(".itz-header-actions .btn-to-dashboard, .logo-title-row .btn-to-dashboard");
+    if (dash && !dash.getAttribute("data-i18n")) {
+      dash.textContent = DASH_LABELS[lang] || DASH_LABELS.ko;
+    }
+  }
+
+  function ensureLangField() {
+    var existing = document.querySelector(".lang-field") || document.getElementById("lang-select");
+    if (existing) {
+      if (existing.id === "lang-select") {
+        var parentField = existing.closest ? existing.closest(".lang-field") : null;
+        if (parentField) return parentField;
+        var wrap = document.createElement("label");
+        wrap.className = "lang-field";
+        if (existing.parentNode) existing.parentNode.insertBefore(wrap, existing);
+        wrap.appendChild(existing);
+        return wrap;
+      }
+      return existing;
+    }
+    var label = document.createElement("label");
+    label.className = "lang-field";
+    var sel = document.createElement("select");
+    sel.id = "lang-select";
+    sel.setAttribute("aria-label", "Language");
+    var current = readSiteLang();
+    for (var i = 0; i < SITE_LANGS.length; i++) {
+      var opt = document.createElement("option");
+      opt.value = SITE_LANGS[i].id;
+      opt.textContent = SITE_LANGS[i].label;
+      if (SITE_LANGS[i].id === current) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", function () {
+      try {
+        localStorage.setItem(SITE_LANG_KEY, sel.value);
+      } catch (e) {
+        /* ignore */
+      }
+      applyChromeLang(sel.value);
+      document.dispatchEvent(new CustomEvent("itz:lang-change", { detail: { lang: sel.value } }));
+    });
+    label.appendChild(sel);
+    return label;
+  }
+
+  function pruneEmpty(el) {
+    if (el && el.parentNode && !el.children.length) {
+      el.parentNode.removeChild(el);
+    }
+  }
+
+  function mountToolHeaderChrome() {
+    if (document.querySelector(".itz-header-actions")) return;
+    if (/\/admin(?:\/|$)/i.test(location.pathname || "")) return;
+    var header = document.querySelector(".app-header") || document.querySelector(".as-topbar");
+    if (!header) return;
+
+    var title =
+      header.querySelector(".logo-title-row > h1") ||
+      header.querySelector(".as-topbar-left > .as-logo") ||
+      header.querySelector(".header-copy > h1") ||
+      header.querySelector("h1");
+    if (!title) return;
+
+    var theme = document.querySelector(".itz-theme-toggle");
+    var lang = ensureLangField();
+    var dashboard = header.querySelector("a.btn-to-dashboard");
+
+    var actions = document.createElement("div");
+    actions.className = "itz-header-actions";
+    if (theme) actions.appendChild(theme);
+    if (lang) actions.appendChild(lang);
+    if (dashboard) actions.appendChild(dashboard);
+
+    var row = title.parentNode;
+    if (
+      row &&
+      row.classList &&
+      (row.classList.contains("logo-title-row") || row.classList.contains("as-topbar-left"))
+    ) {
+      if (title.nextSibling) row.insertBefore(actions, title.nextSibling);
+      else row.appendChild(actions);
+    } else if (row) {
+      var wrap = document.createElement("div");
+      wrap.className = "itz-title-row";
+      row.insertBefore(wrap, title);
+      wrap.appendChild(title);
+      wrap.appendChild(actions);
+    }
+
+    pruneEmpty(header.querySelector(".header-actions"));
+    pruneEmpty(header.querySelector(".header-top"));
+    applyChromeLang(readSiteLang());
+  }
+
   function mountChrome() {
     mountThemeToggle();
+    mountToolHeaderChrome();
     mountSiteFooter();
   }
 

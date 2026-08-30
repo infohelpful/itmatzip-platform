@@ -113,8 +113,8 @@ body {
   display: none;
 }
 
-.logo-title-row {
-  display: none;
+.header-copy .itz-title-row {
+  margin: 0;
 }
 
 .eyebrow {
@@ -829,7 +829,8 @@ html[data-theme="light"] .output-text .s { color: #0f766e; }
 html[data-theme="light"] .output-text .n { color: #1d4ed8; }
 html[data-theme="light"] .output-text .l { color: #6d28d9; }
 
-html[data-tool-id="json-formatter"] .header-actions .itz-theme-toggle {
+html[data-tool-id="json-formatter"] .header-actions .itz-theme-toggle,
+html[data-tool-id="json-formatter"] .itz-header-actions .itz-theme-toggle {
   width: 36px;
   height: 36px;
 }
@@ -1013,7 +1014,7 @@ html[data-tool-id="json-formatter"] .itz-site-footer {
   .header-row {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
+    gap: 8px;
   }
 
   .header-copy h1 {
@@ -1026,12 +1027,14 @@ html[data-tool-id="json-formatter"] .itz-site-footer {
     line-height: 1.55;
   }
 
-  .header-actions {
+  .header-actions,
+  .itz-header-actions {
     flex-wrap: wrap;
     justify-content: flex-start;
   }
 
-  html[data-tool-id="json-formatter"] .header-actions .itz-theme-toggle {
+  html[data-tool-id="json-formatter"] .header-actions .itz-theme-toggle,
+  html[data-tool-id="json-formatter"] .itz-header-actions .itz-theme-toggle {
     width: 44px;
     height: 44px;
   }

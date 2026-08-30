@@ -75,6 +75,83 @@ html[data-theme="light"] body {
   transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
+.app-header .badge,
+.app-header .eyebrow {
+  white-space: nowrap;
+}
+
+.app-header .logo-area {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.app-header .header-status-col {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.itz-title-row,
+.app-header .logo-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.itz-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.itz-header-actions .btn-to-dashboard {
+  white-space: nowrap;
+}
+
+.itz-header-actions .lang-field {
+  display: inline-flex;
+  margin: 0;
+}
+
+.itz-header-actions .lang-field select,
+.itz-header-actions #lang-select {
+  height: 36px;
+  max-width: 7.6rem;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #2d333f);
+  background: var(--bg-input, var(--bg-control, #0c1016));
+  color: var(--text-main, #e2e8f0);
+  font: inherit;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .itz-header-actions .itz-theme-toggle {
+    width: 36px;
+    height: 36px;
+  }
+
+  .itz-header-actions .btn-to-dashboard {
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .itz-header-actions .lang-field select,
+  .itz-header-actions #lang-select {
+    height: 36px;
+    font-size: 16px;
+    max-width: 6.8rem;
+  }
+}
+
 .itz-theme-toggle:hover {
   border-color: var(--accent, var(--as-accent, #3b82f6));
 }
