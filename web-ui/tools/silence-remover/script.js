@@ -11,7 +11,7 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
-import { showAdSense } from "../common/adsense.js?v=4";
+import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
 import {
   STORAGE_CLIP_NAME,

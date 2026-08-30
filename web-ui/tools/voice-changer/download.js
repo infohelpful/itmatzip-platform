@@ -1,5 +1,5 @@
 import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws4";
-import { showAdSense } from "../common/adsense.js?v=4";
+import { showAdSense } from "../common/adsense.js?v=6";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 

@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=5";
+import { showAdSense } from "../common/adsense.js?v=6";
 import { ensureSiteModalStyles } from "../common/site-modal.js?v=sm4";
 import { toPython, toTypeScript } from "./convert.js";
 import { LOCALES, applyI18n, detectLocale, getLocale, t } from "./i18n.js?v=12";

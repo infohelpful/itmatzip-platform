@@ -10,9 +10,9 @@ header('Content-Type: application/xml; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: public, max-age=600');
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . 'site-config-lib.php';
+
 const REGISTRY_FILE = __DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'tools-registry.js';
-const DEFAULT_CONFIG_FILE = __DIR__ . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . 'site-config.json';
-const RUNTIME_CONFIG_FILE = __DIR__ . DIRECTORY_SEPARATOR . 'admin' . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'site-config.json';
 
 function xml_escape($value) {
   return htmlspecialchars((string) $value, ENT_XML1 | ENT_QUOTES, 'UTF-8');
@@ -40,34 +40,6 @@ function public_base_url() {
   }
   $scheme = request_is_https() ? 'https' : 'http';
   return $scheme . '://' . $host;
-}
-
-function read_json_file($path) {
-  if (!is_file($path)) {
-    return null;
-  }
-  $raw = file_get_contents($path);
-  if (!is_string($raw) || $raw === '') {
-    return null;
-  }
-  $data = json_decode($raw, true);
-  return is_array($data) ? $data : null;
-}
-
-function hidden_tool_ids() {
-  $cfg = read_json_file(RUNTIME_CONFIG_FILE);
-  if (!is_array($cfg)) {
-    $cfg = read_json_file(DEFAULT_CONFIG_FILE);
-  }
-  $hidden = array();
-  if (is_array($cfg) && isset($cfg['hiddenToolIds']) && is_array($cfg['hiddenToolIds'])) {
-    foreach ($cfg['hiddenToolIds'] as $id) {
-      if (is_string($id) && $id !== '') {
-        $hidden[$id] = true;
-      }
-    }
-  }
-  return $hidden;
 }
 
 function parse_tools_registry($path) {
@@ -124,11 +96,20 @@ function url_lastmod($relativeHref) {
   return time();
 }
 
+$cfg = public_config();
 $base = public_base_url();
-$hidden = hidden_tool_ids();
+$hidden = array();
+foreach ($cfg['hiddenToolIds'] as $id) {
+  $hidden[$id] = true;
+}
+$configStamp = (int) ($cfg['updatedAt'] ?? 0);
+if (is_file(RUNTIME_CONFIG_FILE)) {
+  $configStamp = max($configStamp, (int) filemtime(RUNTIME_CONFIG_FILE));
+}
 $homeMtime = is_file(__DIR__ . DIRECTORY_SEPARATOR . 'index.html')
   ? filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'index.html')
   : time();
+$homeMtime = max($homeMtime, $configStamp);
 
 $urls = array(
   array(
@@ -136,6 +117,8 @@ $urls = array(
     'lastmod' => iso_date($homeMtime),
     'changefreq' => 'daily',
     'priority' => '1.0',
+    'kind' => 'hub',
+    'id' => '',
   ),
 );
 
@@ -152,9 +135,11 @@ foreach (parse_tools_registry(REGISTRY_FILE) as $tool) {
   }
   $urls[] = array(
     'loc' => $base . '/' . $href,
-    'lastmod' => iso_date(url_lastmod($href)),
+    'lastmod' => iso_date(max(url_lastmod($href), $configStamp)),
     'changefreq' => 'weekly',
     'priority' => '0.8',
+    'kind' => 'tool',
+    'id' => $tool['id'],
   );
 }
 
@@ -174,7 +159,17 @@ function lang_url($baseLoc, $lang) {
   return $host . '/' . $prefix . $path;
 }
 
-function emit_url($loc, $lastmod, $changefreq, $priority, $alternates) {
+function sitemap_abs_image($base, $path) {
+  if ($path === '') {
+    return $base . DEFAULT_OG_IMAGE;
+  }
+  if (preg_match('#^https?://#i', $path)) {
+    return $path;
+  }
+  return $base . $path;
+}
+
+function emit_url($loc, $lastmod, $changefreq, $priority, $alternates, $imageLoc, $imageTitle, $imageCaption) {
   echo "  <url>\n";
   echo '    <loc>' . xml_escape($loc) . "</loc>\n";
   echo '    <lastmod>' . xml_escape($lastmod) . "</lastmod>\n";
@@ -183,15 +178,26 @@ function emit_url($loc, $lastmod, $changefreq, $priority, $alternates) {
   foreach ($alternates as $hreflang => $href) {
     echo '    <xhtml:link rel="alternate" hreflang="' . xml_escape($hreflang) . '" href="' . xml_escape($href) . "\" />\n";
   }
+  if ($imageLoc !== '') {
+    echo "    <image:image>\n";
+    echo '      <image:loc>' . xml_escape($imageLoc) . "</image:loc>\n";
+    if ($imageTitle !== '') {
+      echo '      <image:title>' . xml_escape($imageTitle) . "</image:title>\n";
+    }
+    if ($imageCaption !== '') {
+      echo '      <image:caption>' . xml_escape($imageCaption) . "</image:caption>\n";
+    }
+    echo "    </image:image>\n";
+  }
   echo "  </url>\n";
 }
 
 $legal = array(
-  array('loc' => $base . '/legal/about.html', 'priority' => '0.4'),
-  array('loc' => $base . '/legal/policy.html', 'priority' => '0.4'),
-  array('loc' => $base . '/legal/email.html', 'priority' => '0.3'),
-  array('loc' => $base . '/legal/copyright.html', 'priority' => '0.3'),
-  array('loc' => $base . '/legal/disclaimer.html', 'priority' => '0.4'),
+  array('loc' => $base . '/legal/about.html', 'priority' => '0.4', 'id' => 'about'),
+  array('loc' => $base . '/legal/policy.html', 'priority' => '0.4', 'id' => 'policy'),
+  array('loc' => $base . '/legal/email.html', 'priority' => '0.3', 'id' => 'email'),
+  array('loc' => $base . '/legal/copyright.html', 'priority' => '0.3', 'id' => 'copyright'),
+  array('loc' => $base . '/legal/disclaimer.html', 'priority' => '0.4', 'id' => 'disclaimer'),
 );
 foreach ($legal as $item) {
   $rel = str_replace($base, '', $item['loc']);
@@ -199,14 +205,16 @@ foreach ($legal as $item) {
   $mtime = is_file($path) ? filemtime($path) : $homeMtime;
   $urls[] = array(
     'loc' => $item['loc'],
-    'lastmod' => iso_date($mtime),
+    'lastmod' => iso_date(max($mtime, $configStamp)),
     'changefreq' => 'monthly',
     'priority' => $item['priority'],
+    'kind' => 'legal',
+    'id' => $item['id'],
   );
 }
 
 echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">' . "\n";
+echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">' . "\n";
 foreach ($urls as $url) {
   $alternates = array();
   foreach ($langs as $lang) {
@@ -214,7 +222,18 @@ foreach ($urls as $url) {
   }
   $alternates['x-default'] = lang_url($url['loc'], 'ko');
   foreach ($langs as $lang) {
-    emit_url(lang_url($url['loc'], $lang), $url['lastmod'], $url['changefreq'], $url['priority'], $alternates);
+    $seo = page_seo_fields($cfg, $url['kind'], $url['id'], $lang);
+    $imageLoc = sitemap_abs_image($base, $seo['ogImage']);
+    emit_url(
+      lang_url($url['loc'], $lang),
+      $url['lastmod'],
+      $url['changefreq'],
+      $url['priority'],
+      $alternates,
+      $imageLoc,
+      $seo['title'],
+      $seo['description']
+    );
   }
 }
 echo "</urlset>\n";

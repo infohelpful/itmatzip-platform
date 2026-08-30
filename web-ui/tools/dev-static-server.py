@@ -78,7 +78,25 @@ ALLOWED_TOOL_IDS = frozenset(
         "unattend-maker",
         "online-clock",
         "json-formatter",
+        "currency-calculator",
     }
+)
+ALLOWED_TOOL_ID_ORDER = (
+    "silence-remover",
+    "auto-subtitle",
+    "vocal-remover",
+    "image-enhancer",
+    "background-remover",
+    "create-music",
+    "magic-eraser",
+    "voice-changer",
+    "watermark-remover",
+    "thumbnail-grabber",
+    "ico-maker",
+    "unattend-maker",
+    "online-clock",
+    "json-formatter",
+    "currency-calculator",
 )
 ALLOWED_AD_UNITS = (
     "dashboardBanner",
@@ -87,6 +105,15 @@ ALLOWED_AD_UNITS = (
     "downloadTop",
     "downloadBottom",
 )
+TOOL_AD_UNITS = (
+    "editorAboveWorkspace",
+    "editorBelowExport",
+    "downloadTop",
+    "downloadBottom",
+)
+ALLOWED_LANGS = ("ko", "en", "ja", "zh")
+ALLOWED_LEGAL_IDS = ("about", "policy", "email", "copyright", "disclaimer")
+DEFAULT_ADS_CLIENT = "ca-pub-2088466558007407"
 
 
 def _read_json(path: Path):
@@ -99,9 +126,14 @@ def _read_json(path: Path):
 def _write_json(path: Path, data) -> bool:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
+        tmp.write_text(payload, encoding="utf-8")
+        try:
+            tmp.replace(path)
+        except OSError:
+            path.write_text(payload, encoding="utf-8")
+            tmp.unlink(missing_ok=True)
         return True
     except OSError:
         return False
@@ -116,7 +148,7 @@ def default_config():
         "mobileEnabledToolIds": default_mobile_enabled_tool_ids(),
         "adsense": {
             "enabled": True,
-            "client": "ca-pub-2088466558007407",
+            "client": DEFAULT_ADS_CLIENT,
             "units": {},
         },
     }
@@ -134,8 +166,138 @@ def parse_tool_id_list(raw) -> list:
 
 def default_mobile_enabled_tool_ids() -> list:
     return parse_tool_id_list(
-        ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker", "json-formatter"]
+        [
+            "thumbnail-grabber",
+            "ico-maker",
+            "online-clock",
+            "unattend-maker",
+            "json-formatter",
+            "currency-calculator",
+        ]
     )
+
+
+def itz_clip(value, max_len: int) -> str:
+    s = str(value or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"<[^>]*>", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    if not s:
+        return ""
+    return s[:max_len]
+
+
+def empty_lang_map():
+    return {lang: "" for lang in ALLOWED_LANGS}
+
+
+def normalize_lang_map(raw, max_len: int):
+    out = empty_lang_map()
+    if not isinstance(raw, dict):
+        return out
+    for lang in ALLOWED_LANGS:
+        v = raw.get(lang)
+        if isinstance(v, str):
+            out[lang] = itz_clip(v, max_len)
+        elif isinstance(v, (int, float)):
+            out[lang] = itz_clip(str(v), max_len)
+    return out
+
+
+def normalize_meta_fields(raw):
+    src = raw if isinstance(raw, dict) else {}
+    return {
+        "title": itz_clip(src.get("title") or "", 80),
+        "description": itz_clip(src.get("description") or "", 320),
+        "keywords": itz_clip(src.get("keywords") or "", 500),
+    }
+
+
+def normalize_meta_langs(raw):
+    src = raw if isinstance(raw, dict) else {}
+    return {lang: normalize_meta_fields(src.get(lang)) for lang in ALLOWED_LANGS}
+
+
+def normalize_og_image(value) -> str:
+    s = value.strip() if isinstance(value, str) else ""
+    if not s:
+        return ""
+    if not re.fullmatch(r"/assets/og/[a-zA-Z0-9._-]+\.(png|jpe?g|webp)", s, re.I):
+        return ""
+    return s
+
+
+def normalize_ads_client(value, required: bool) -> str:
+    client = value.strip() if isinstance(value, str) else ""
+    if not client or not re.fullmatch(r"ca-pub-\d{8,22}", client):
+        return DEFAULT_ADS_CLIENT if required else ""
+    return client
+
+
+def normalize_slot(value) -> str:
+    slot = value.strip() if isinstance(value, str) else ""
+    if slot and not re.fullmatch(r"\d{6,20}", slot):
+        return ""
+    return slot
+
+
+def normalize_global_units(in_units, base_units):
+    units = {}
+    in_units = in_units if isinstance(in_units, dict) else {}
+    base_units = base_units if isinstance(base_units, dict) else {}
+    for key in ALLOWED_AD_UNITS:
+        src = {}
+        if isinstance(base_units.get(key), dict):
+            src.update(base_units[key])
+        if isinstance(in_units.get(key), dict):
+            src.update(in_units[key])
+        enabled = src.get("enabled")
+        units[key] = {
+            "enabled": True if enabled is None else bool(enabled),
+            "slot": normalize_slot(src.get("slot") or ""),
+            "adFormat": src["adFormat"] if isinstance(src.get("adFormat"), str) else "horizontal",
+            "fullWidthResponsive": True if src.get("fullWidthResponsive") is None else bool(src.get("fullWidthResponsive")),
+        }
+    return units
+
+
+def normalize_tool_ad_units(raw):
+    out = {}
+    if not isinstance(raw, dict):
+        return out
+    for key in TOOL_AD_UNITS:
+        src = raw.get(key)
+        if not isinstance(src, dict):
+            continue
+        has_enabled = "enabled" in src
+        slot = normalize_slot(src.get("slot") or "")
+        if not has_enabled and slot == "":
+            continue
+        out[key] = {
+            "enabled": bool(src.get("enabled")) if has_enabled else True,
+            "slot": slot,
+            "adFormat": "horizontal",
+            "fullWidthResponsive": True,
+        }
+    return out
+
+
+def normalize_tool_entry(raw):
+    src = raw if isinstance(raw, dict) else {}
+    ads = src.get("adsense") if isinstance(src.get("adsense"), dict) else {}
+    return {
+        "title": normalize_lang_map(src.get("title"), 80),
+        "subtitle": normalize_lang_map(src.get("subtitle"), 80),
+        "description": normalize_lang_map(src.get("description"), 200),
+        "badge": normalize_lang_map(src.get("badge"), 24),
+        "meta": normalize_meta_langs(src.get("meta")),
+        "ogImage": normalize_og_image(src.get("ogImage") or ""),
+        "adsense": {
+            "client": normalize_ads_client(ads.get("client") or "", False),
+            "units": normalize_tool_ad_units(ads.get("units")),
+        },
+    }
 
 
 def normalize_config(cfg) -> dict:
@@ -148,51 +310,90 @@ def normalize_config(cfg) -> dict:
         mobile = default_mobile_enabled_tool_ids()
 
     ads = cfg.get("adsense") if isinstance(cfg.get("adsense"), dict) else {}
-    client = ads.get("client") if isinstance(ads.get("client"), str) else ""
-    client = client.strip()
-    if not client or not re.fullmatch(r"ca-pub-\d{8,22}", client):
-        client = "ca-pub-2088466558007407"
+    client = normalize_ads_client(ads.get("client") or "", True)
 
     defaults = default_config()
     base_units = {}
     if isinstance(defaults.get("adsense"), dict) and isinstance(defaults["adsense"].get("units"), dict):
         base_units = defaults["adsense"]["units"]
     in_units = ads.get("units") if isinstance(ads.get("units"), dict) else {}
+    units = normalize_global_units(in_units, base_units)
 
-    units = {}
-    for key in ALLOWED_AD_UNITS:
-        src = {}
-        if isinstance(base_units.get(key), dict):
-            src.update(base_units[key])
-        if isinstance(in_units.get(key), dict):
-            src.update(in_units[key])
-        slot = src.get("slot") if isinstance(src.get("slot"), str) else ""
-        slot = slot.strip()
-        if slot and not re.fullmatch(r"\d{6,20}", slot):
-            slot = ""
-        ad_format = src.get("adFormat") if isinstance(src.get("adFormat"), str) else "horizontal"
-        units[key] = {
-            "slot": slot,
-            "adFormat": ad_format,
-            "fullWidthResponsive": bool(src.get("fullWidthResponsive", True)),
-        }
+    hub_src = cfg.get("hub") if isinstance(cfg.get("hub"), dict) else {}
+    hub = {
+        "meta": normalize_meta_langs(hub_src.get("meta")),
+        "ogImage": normalize_og_image(hub_src.get("ogImage") or ""),
+    }
+
+    legal_src = cfg.get("legal") if isinstance(cfg.get("legal"), dict) else {}
+    legal = {}
+    for legal_id in ALLOWED_LEGAL_IDS:
+        row = legal_src.get(legal_id) if isinstance(legal_src.get(legal_id), dict) else {}
+        legal[legal_id] = {"meta": normalize_meta_langs(row.get("meta"))}
+
+    tools_src = cfg.get("tools") if isinstance(cfg.get("tools"), dict) else {}
+    tools = {tool_id: normalize_tool_entry(tools_src.get(tool_id)) for tool_id in ALLOWED_TOOL_ID_ORDER}
+
+    updated = 0
+    if "updatedAt" in cfg:
+        try:
+            updated = int(cfg.get("updatedAt") or 0)
+        except (TypeError, ValueError):
+            updated = 0
 
     return {
         "hiddenToolIds": hidden,
         "mobileEnabledToolIds": mobile,
         "adsense": {
-            "enabled": bool(ads.get("enabled", True)),
+            "enabled": True if ads.get("enabled") is None else bool(ads.get("enabled")),
             "client": client,
             "units": units,
         },
+        "hub": hub,
+        "legal": legal,
+        "tools": tools,
+        "updatedAt": updated,
     }
+
+
+def fill_empty_lang_map(current, fallback, max_len: int):
+    out = normalize_lang_map(current, max_len)
+    fb = normalize_lang_map(fallback, max_len)
+    for lang in ALLOWED_LANGS:
+        if out[lang] == "" and fb[lang]:
+            out[lang] = fb[lang]
+    return out
+
+
+def merge_default_tool_display(tools, defaults):
+    def_tools = defaults.get("tools") if isinstance(defaults.get("tools"), dict) else {}
+    tools = tools if isinstance(tools, dict) else {}
+    out = {}
+    for tool_id in ALLOWED_TOOL_ID_ORDER:
+        row = tools.get(tool_id) if isinstance(tools.get(tool_id), dict) else normalize_tool_entry(None)
+        defn = def_tools.get(tool_id) if isinstance(def_tools.get(tool_id), dict) else {}
+        row = dict(row)
+        row["title"] = fill_empty_lang_map(row.get("title"), defn.get("title"), 80)
+        row["subtitle"] = fill_empty_lang_map(row.get("subtitle"), defn.get("subtitle"), 80)
+        row["description"] = fill_empty_lang_map(row.get("description"), defn.get("description"), 200)
+        row["badge"] = fill_empty_lang_map(row.get("badge"), defn.get("badge"), 24)
+        out[tool_id] = row
+    return out
 
 
 def public_config() -> dict:
     runtime = _read_json(RUNTIME_CONFIG)
+    base = default_config()
     if isinstance(runtime, dict):
-        return normalize_config(runtime)
-    return normalize_config(default_config())
+        if "hub" not in runtime and isinstance(base.get("hub"), dict):
+            runtime["hub"] = base["hub"]
+        if "legal" not in runtime and isinstance(base.get("legal"), dict):
+            runtime["legal"] = base["legal"]
+        cfg = normalize_config(runtime)
+    else:
+        cfg = normalize_config(base)
+    cfg["tools"] = merge_default_tool_display(cfg.get("tools") or {}, normalize_config(base))
+    return cfg
 
 
 def parse_tools_registry():
@@ -697,7 +898,20 @@ class ToolsHandler(SimpleHTTPRequestHandler):
             if not self._csrf_ok(sess, body):
                 self._json({"ok": False, "error": "세션이 만료되었습니다. 다시 로그인해 주세요."}, 403)
                 return
-            cfg = normalize_config(body.get("config") if isinstance(body.get("config"), dict) else {})
+            incoming = body.get("config") if isinstance(body.get("config"), dict) else None
+            if incoming is None:
+                self._json({"ok": False, "error": "설정 데이터가 없습니다. 페이지를 새로고침한 뒤 다시 저장해 주세요."}, 400)
+                return
+            existing = public_config()
+            if "hub" not in incoming and isinstance(existing.get("hub"), dict):
+                incoming["hub"] = existing["hub"]
+            if "legal" not in incoming and isinstance(existing.get("legal"), dict):
+                incoming["legal"] = existing["legal"]
+            tools_in = incoming.get("tools") if isinstance(incoming.get("tools"), dict) else None
+            if (tools_in is None or len(tools_in) == 0) and isinstance(existing.get("tools"), dict) and existing["tools"]:
+                incoming["tools"] = existing["tools"]
+            cfg = normalize_config(incoming)
+            cfg["updatedAt"] = int(time.time())
             if not _write_json(RUNTIME_CONFIG, cfg):
                 self._json({"ok": False, "error": "설정을 저장하지 못했습니다."}, 500)
                 return

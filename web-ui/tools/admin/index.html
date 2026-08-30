@@ -6,7 +6,7 @@
   <meta name="robots" content="noindex,nofollow">
   <title>ItMatZip Admin</title>
   <link rel="stylesheet" href="../assets/dashboard.css?v=11">
-  <link rel="stylesheet" href="admin.css?v=3">
+  <link rel="stylesheet" href="admin.css?v=4">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
     <form id="login-form" class="admin-login-card" autocomplete="on">
       <span class="hub-eyebrow">ItMatZip</span>
       <h1>관리자 로그인</h1>
-      <p class="admin-login-lead">메뉴 공개, 모바일 접속, 애드센스 연동을 설정합니다.</p>
+      <p class="admin-login-lead">메뉴 공개, 전 사이트 광고, 검색 메타를 설정합니다.</p>
       <label class="admin-field">
         <span>아이디</span>
         <input id="login-username" name="username" type="text" autocomplete="username" required>
@@ -35,7 +35,7 @@
           <div>
             <span class="hub-eyebrow">ItMatZip</span>
             <h1 class="hub-title">관리자 <span class="accent">설정</span></h1>
-            <p class="hub-lead">저장하면 방문객 전체에 바로 적용됩니다. 숨긴 도구는 대시보드에서 빠지고 주소로도 열리지 않습니다. 로컬 AI 도구는 모바일이 꺼져 있고, 브라우저만 쓰는 도구는 켜져 있습니다.</p>
+            <p class="hub-lead">저장하면 방문객과 검색 크롤러에 바로 반영됩니다. 전역 광고는 모든 도구·대시보드 기본값이고, 도구에서 바꾼 광고·메타가 그 사이트만 덮어씁니다.</p>
           </div>
           <button type="button" class="admin-btn admin-btn-ghost" id="logout-btn">로그아웃</button>
         </header>
@@ -43,13 +43,13 @@
         <form id="settings-form" class="admin-grid">
           <section class="admin-card">
             <h2>메뉴 표시</h2>
-            <p class="admin-card-lead">공개를 끄면 목록과 직접 URL이 막힙니다. 모바일은 휴대폰에서 열 수 있는지 정합니다. 로컬 AI 도구는 기본 꺼짐, 시계·썸네일·ICO·Unattend는 기본 켜짐입니다.</p>
+            <p class="admin-card-lead">공개를 끄면 목록과 직접 URL이 막힙니다. 모바일은 휴대폰에서 열 수 있는지 정합니다.</p>
             <div id="tool-toggles" class="admin-tool-list"></div>
           </section>
 
           <section class="admin-card">
-            <h2>애드센스</h2>
-            <p class="admin-card-lead">게시자 ID와 슬롯 번호입니다. 상단·하단 광고에 현재 사용 중인 값을 미리 넣어 두었습니다.</p>
+            <h2>전역 애드센스</h2>
+            <p class="admin-card-lead">모든 도구와 대시보드에 적용되는 기본 광고입니다. 도구에서 따로 저장한 칸만 그 도구 설정이 먼저 적용됩니다.</p>
             <label class="admin-check">
               <input type="checkbox" id="ads-enabled">
               <span>사이트에 애드센스 광고 표시</span>
@@ -61,6 +61,25 @@
             <div id="ad-units" class="admin-unit-list"></div>
           </section>
 
+          <section class="admin-card">
+            <h2>대시보드 검색 메타</h2>
+            <p class="admin-card-lead">검색 결과의 제목·설명입니다. 화면 카드 이름과는 별개입니다. 비우면 코드 기본값을 씁니다. 한국어 약 40자, 설명 80~160자.</p>
+            <div id="hub-meta"></div>
+            <div id="hub-og" class="admin-og"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>법적 페이지 메타</h2>
+            <p class="admin-card-lead">소개·정책 등 문서의 검색 title / description / keywords입니다. 본문은 바꾸지 않습니다.</p>
+            <div id="legal-meta" class="admin-accordion"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>도구별 표시·검색·광고</h2>
+            <p class="admin-card-lead">지금 카드에 보이는 제목·부제·설명·뱃지를 칸에 채워 둡니다. 비운 칸은 저장하지 않고 기존 문구를 유지합니다. 검색 메타는 포털·SNS용입니다.</p>
+            <div id="tool-settings" class="admin-accordion"></div>
+          </section>
+
           <div class="admin-actions">
             <p id="save-status" class="admin-status" role="status"></p>
             <button type="submit" class="admin-btn admin-btn-primary" id="save-btn">설정 저장</button>
@@ -70,6 +89,6 @@
     </main>
   </div>
 
-  <script type="module" src="admin.js?v=6"></script>
+  <script type="module" src="admin.js?v=13"></script>
 </body>
 </html>

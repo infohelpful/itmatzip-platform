@@ -19,7 +19,7 @@ import {
 } from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_FONT, AGENT_PICK_IMAGE, AGENT_PICK_PROJECT, AGENT_PICK_SUBTITLE_MEDIA } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
-import { showAdSense } from "../common/adsense.js?v=4";
+import { showAdSense } from "../common/adsense.js?v=6";
 import {
   LOCAL_HELPER_NAME,
   MSG_SUBTITLE_JOB_BUSY,

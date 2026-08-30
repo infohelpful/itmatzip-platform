@@ -13,29 +13,856 @@
     "client": "ca-pub-2088466558007407",
     "units": {
       "dashboardBanner": {
+        "enabled": true,
         "slot": "5724069500",
         "adFormat": "horizontal",
         "fullWidthResponsive": true
       },
       "editorAboveWorkspace": {
+        "enabled": true,
         "slot": "5724069500",
         "adFormat": "horizontal",
         "fullWidthResponsive": true
       },
       "editorBelowExport": {
+        "enabled": true,
         "slot": "5724069500",
         "adFormat": "horizontal",
         "fullWidthResponsive": true
       },
       "downloadTop": {
+        "enabled": true,
         "slot": "5724069500",
         "adFormat": "horizontal",
         "fullWidthResponsive": true
       },
       "downloadBottom": {
+        "enabled": true,
         "slot": "5724069500",
         "adFormat": "horizontal",
         "fullWidthResponsive": true
+      }
+    }
+  },
+  "hub": {
+    "ogImage": "",
+    "meta": {
+      "ko": {
+        "title": "무음제거·AI자막·누끼·보컬제거 로컬툴 | ItMatZip",
+        "description": "영상 무음 제거, AI 자막 추출, 보컬 분리, 누끼·배경제거를 업로드 없이 PC에서 처리합니다. 유튜브 썸네일·워터마크 제거까지 한곳에 모은 무료 로컬 웹 도구입니다.",
+        "keywords": "무음 제거, AI 자막 추출, 자막 만들기, 보컬 제거, 누끼, 배경제거, 워터마크 제거, 유튜브 썸네일"
+      },
+      "en": {
+        "title": "Silence Remover, Auto Captions & Background Remover | ItMatZip",
+        "description": "Remove silence from video, generate AI captions, isolate vocals, and cut backgrounds on your PC. Files never leave your computer. Free local web tools.",
+        "keywords": "silence remover, remove silence from video, auto captions, vocal remover, background remover, watermark remover, youtube thumbnail downloader"
+      },
+      "ja": {
+        "title": "無音カット・字幕起こし・背景削除・ボーカル除去 | ItMatZip",
+        "description": "動画の無音カット、字幕起こし、ボーカル除去、背景削除をPC内で処理します。アップロード不要。YouTubeサムネ保存まで揃えた無料ローカルツールです。",
+        "keywords": "無音カット, 字幕起こし, 文字起こし, ボーカル除去, 背景削除, 切り抜き, 透かし削除, YouTubeサムネイル"
+      },
+      "zh": {
+        "title": "去静音、自动字幕、抠图、人声分离 | ItMatZip",
+        "description": "视频去静音、自动字幕、人声分离、抠图去背景，文件只在电脑处理、不上传。YouTube封面、去水印也在同一套免费本地工具里。",
+        "keywords": "去静音, 自动字幕, 字幕提取, 人声分离, 抠图, 去背景, 去水印, YouTube封面"
+      }
+    }
+  },
+  "tools": {
+    "silence-remover": {
+      "title": {
+        "ko": "Silence Detector",
+        "en": "Silence Detector",
+        "ja": "Silence Detector",
+        "zh": "Silence Detector"
+      },
+      "subtitle": {
+        "ko": "무음 구간 분석 · XML",
+        "en": "Silence detection · FCP7 XML",
+        "ja": "無音区間の解析 · XML",
+        "zh": "静音分析 · XML"
+      },
+      "description": {
+        "ko": "영상의 무음 구간을 자동 분석하고 편집 프로그램용 FCP7 XML을 생성합니다. 로컬 에이전트로 파일은 PC에서만 처리됩니다.",
+        "en": "Find silent gaps in a video and export FCP7 XML for Premiere or DaVinci. The local agent keeps files on your PC.",
+        "ja": "映像の無音区間を自動解析し、PremiereやDaVinci向けFCP7 XMLを作ります。ファイルはPC内だけで処理されます。",
+        "zh": "自动分析视频静音段，生成 Premiere、达芬奇可用的 FCP7 XML。文件只在电脑本地处理。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "auto-subtitle": {
+      "title": {
+        "ko": "Auto Subtitle",
+        "en": "Auto Subtitle",
+        "ja": "Auto Subtitle",
+        "zh": "Auto Subtitle"
+      },
+      "subtitle": {
+        "ko": "AI 자막 추출 · SRT",
+        "en": "AI captions · SRT",
+        "ja": "AI字幕起こし · SRT",
+        "zh": "AI 字幕提取 · SRT"
+      },
+      "description": {
+        "ko": "로컬 영상·오디오에서 Faster-Whisper로 자막을 생성합니다. AI 모델은 추출 시 PC에 다운로드됩니다.",
+        "en": "Build captions from local video or audio with Faster-Whisper. The model downloads to your PC when you transcribe.",
+        "ja": "ローカルの映像・音声からFaster-Whisperで字幕を作ります。モデルは抽出時にPCへダウンロードされます。",
+        "zh": "用 Faster-Whisper 从本地视频或音频生成字幕。提取时模型下载到电脑。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "vocal-remover": {
+      "title": {
+        "ko": "Vocal Remover",
+        "en": "Vocal Remover",
+        "ja": "Vocal Remover",
+        "zh": "Vocal Remover"
+      },
+      "subtitle": {
+        "ko": "보컬 분리 · MR/보컬 추출",
+        "en": "Vocal remover · karaoke MR",
+        "ja": "ボーカル除去 · カラオケMR",
+        "zh": "人声分离 · 伴奏/人声"
+      },
+      "description": {
+        "ko": "로컬 오디오 파일에서 보컬과 반주를 분리하고, MR 또는 보컬만 원하는 포맷으로 다운로드합니다.",
+        "en": "Split a local track into vocals and instrumental, then download the karaoke bed or vocal stem you need.",
+        "ja": "ローカル音源からボーカルと伴奏を分け、MRまたはボーカルだけを好きな形式で保存します。",
+        "zh": "从本地音频分离人声和伴奏，按需要下载伴奏或人声。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "image-enhancer": {
+      "title": {
+        "ko": "Image Enhancer",
+        "en": "Image Enhancer",
+        "ja": "Image Enhancer",
+        "zh": "Image Enhancer"
+      },
+      "subtitle": {
+        "ko": "AI 얼굴·화질 복원 · CodeFormer",
+        "en": "Face restore · CodeFormer",
+        "ja": "顔・画質復元 · CodeFormer",
+        "zh": "人脸画质修复 · CodeFormer"
+      },
+      "description": {
+        "ko": "저화질 사진의 얼굴과 디테일을 로컬 PC에서 복원합니다. CodeFormer AI 모델은 최초 사용 시 다운로드됩니다.",
+        "en": "Restore faces and detail in low-res photos on your PC. The CodeFormer model downloads the first time you run it.",
+        "ja": "低画質写真の顔とディテールをPC上で復元します。CodeFormerモデルは初回利用時にダウンロードされます。",
+        "zh": "在电脑上修复低清照片的人脸和细节。CodeFormer 模型首次使用时下载。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "background-remover": {
+      "title": {
+        "ko": "Background Remover",
+        "en": "Background Remover",
+        "ja": "Background Remover",
+        "zh": "Background Remover"
+      },
+      "subtitle": {
+        "ko": "AI 배경제거 · BiRefNet",
+        "en": "Background remover · BiRefNet",
+        "ja": "背景削除 · BiRefNet",
+        "zh": "去背景 · BiRefNet"
+      },
+      "description": {
+        "ko": "로컬 이미지에서 배경을 제거하고 투명 PNG와 마스크를 만듭니다. BiRefNet 모델은 최초 사용 시 다운로드됩니다.",
+        "en": "Cut the background from a local image and export a transparent PNG plus mask. BiRefNet downloads on first use.",
+        "ja": "ローカル画像の背景を消し、透過PNGとマスクを作ります。BiRefNetは初回にダウンロードされます。",
+        "zh": "从本地图片去掉背景，导出透明 PNG 和蒙版。BiRefNet 首次使用时下载。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "create-music": {
+      "title": {
+        "ko": "Create Music",
+        "en": "Create Music",
+        "ja": "Create Music",
+        "zh": "Create Music"
+      },
+      "subtitle": {
+        "ko": "AI 음악 생성 · ACE-Step 1.5",
+        "en": "AI music · ACE-Step 1.5",
+        "ja": "AI作曲 · ACE-Step 1.5",
+        "zh": "AI 作曲 · ACE-Step 1.5"
+      },
+      "description": {
+        "ko": "텍스트와 가사로 AI 음악을 생성합니다. LoRA 학습으로 나만의 스타일을 커스터마이징할 수 있습니다.",
+        "en": "Generate music from text and lyrics on your PC. Train a LoRA when you want a tighter house style.",
+        "ja": "テキストと歌詞からAI音楽を生成します。LoRA学習で自分のトーンに寄せられます。",
+        "zh": "用文本和歌词生成 AI 音乐。可用 LoRA 训练贴近自己的风格。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "magic-eraser": {
+      "title": {
+        "ko": "MagicEraser",
+        "en": "MagicEraser",
+        "ja": "MagicEraser",
+        "zh": "MagicEraser"
+      },
+      "subtitle": {
+        "ko": "객체 지우기 · LaMa Erase",
+        "en": "Object eraser · LaMa",
+        "ja": "オブジェクト消去 · LaMa",
+        "zh": "物体擦除 · LaMa"
+      },
+      "description": {
+        "ko": "브러시로 지울 영역을 칠하면 AI가 객체를 제거하고 주변 배경으로 자연스럽게 채웁니다.",
+        "en": "Paint over what you want gone; AI removes the object and fills from nearby pixels.",
+        "ja": "消したい範囲をブラシで塗ると、AIが物体を消し周囲の背景で自然に埋めます。",
+        "zh": "用画笔涂要删的区域，AI 去掉物体并用周围背景自然填上。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "voice-changer": {
+      "title": {
+        "ko": "Voice Changer",
+        "en": "Voice Changer",
+        "ja": "Voice Changer",
+        "zh": "Voice Changer"
+      },
+      "subtitle": {
+        "ko": "AI 목소리 변환 · Seed-VC",
+        "en": "Voice changer · Seed-VC",
+        "ja": "声質変換 · Seed-VC",
+        "zh": "AI 变声 · Seed-VC"
+      },
+      "description": {
+        "ko": "소스 음성을 레퍼런스 음색으로 로컬에서 변환합니다. Seed-VC 모델은 최초 사용 시 다운로드됩니다.",
+        "en": "Convert a source recording into a reference timbre on your PC. Seed-VC downloads on first use.",
+        "ja": "ソース音声を参照声の音色へPC上で変換します。Seed-VCモデルは初回にダウンロードされます。",
+        "zh": "在电脑上把源语音转成参考音色。Seed-VC 模型首次使用时下载。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "watermark-remover": {
+      "title": {
+        "ko": "Watermark Remover",
+        "en": "Watermark Remover",
+        "ja": "Watermark Remover",
+        "zh": "Watermark Remover"
+      },
+      "subtitle": {
+        "ko": "고정 워터마크 제거 · ProPainter",
+        "en": "Fixed watermark · ProPainter",
+        "ja": "固定ウォーターマーク除去 · ProPainter",
+        "zh": "固定水印去除 · ProPainter"
+      },
+      "description": {
+        "ko": "영상에서 워터마크 영역을 칠하면 ProPainter가 해당 부분만 지우고 일반 재생 가능한 영상으로 저장합니다.",
+        "en": "Paint the watermark region; ProPainter fills that area and saves a normal playable video.",
+        "ja": "映像の透かし範囲を塗るとProPainterがその部分だけ消し、再生できる動画として保存します。",
+        "zh": "涂出视频水印区域后，ProPainter 只修那一块并保存可播放的视频。"
+      },
+      "badge": {
+        "ko": "AI",
+        "en": "AI",
+        "ja": "AI",
+        "zh": "AI"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "thumbnail-grabber": {
+      "title": {
+        "ko": "Thumbnail Grabber",
+        "en": "Thumbnail Grabber",
+        "ja": "Thumbnail Grabber",
+        "zh": "Thumbnail Grabber"
+      },
+      "subtitle": {
+        "ko": "유튜브 썸네일 저장",
+        "en": "YouTube thumbnail saver",
+        "ja": "YouTubeサムネ保存",
+        "zh": "YouTube 封面保存"
+      },
+      "description": {
+        "ko": "유튜브 영상 주소만 붙여넣으면 공개 썸네일을 미리보고 원하는 화질로 저장합니다. AI·에이전트 없이 바로 동작합니다.",
+        "en": "Paste a YouTube URL to preview public thumbnails and save the size you want. No AI, no agent.",
+        "ja": "YouTubeのURLを貼るだけで公開サムネをプレビューし、好きな画質で保存します。AIもエージェントも不要です。",
+        "zh": "粘贴 YouTube 地址即可预览公开封面并按清晰度保存。无需 AI 和代理。"
+      },
+      "badge": {
+        "ko": "",
+        "en": "",
+        "ja": "",
+        "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "ico-maker": {
+      "title": {
+        "ko": "ICO Maker",
+        "en": "ICO Maker",
+        "ja": "ICO Maker",
+        "zh": "ICO Maker"
+      },
+      "subtitle": {
+        "ko": "PNG → 다중 해상도 ICO",
+        "en": "PNG → multi-size ICO",
+        "ja": "PNG → 複数サイズICO",
+        "zh": "PNG → 多尺寸 ICO"
+      },
+      "description": {
+        "ko": "PNG를 올리면 16부터 256까지 Windows용 해상도를 한 .ico 파일로 묶어 저장합니다. AI·에이전트 없이 바로 동작합니다.",
+        "en": "Drop a PNG and pack 16 through 256 px Windows sizes into one .ico. Runs in the browser—no agent.",
+        "ja": "PNGを上げると16〜256のWindows用サイズを1つの.icoにまとめます。ブラウザだけで動作します。",
+        "zh": "上传 PNG，把 16 到 256 的 Windows 尺寸打进一个 .ico。浏览器即可，无需代理。"
+      },
+      "badge": {
+        "ko": "",
+        "en": "",
+        "ja": "",
+        "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "online-clock": {
+      "title": {
+        "ko": "온라인 시계",
+        "en": "온라인 시계",
+        "ja": "온라인 시계",
+        "zh": "온라인 시계"
+      },
+      "subtitle": {
+        "ko": "알람 · 타이머 · 스톱워치 · 세계 시계",
+        "en": "Alarm · timer · stopwatch · world clock",
+        "ja": "アラーム · タイマー · ストップウォッチ · 世界時計",
+        "zh": "闹钟 · 计时器 · 秒表 · 世界时钟"
+      },
+      "description": {
+        "ko": "현재 시각과 세계 시계, 여러 개의 알람, 카운트다운 타이머, 랩 스톱워치를 브라우저에서 바로 사용합니다. 설치 없이 동작하며 한국어·영어·일본어·중국어를 지원합니다.",
+        "en": "Use the current time, world clocks, multiple alarms, a countdown timer, and a lap stopwatch in the browser. No install; Korean, English, Japanese, and Chinese.",
+        "ja": "現在時刻と世界時計、複数アラーム、カウントダウン、ラップ計測をブラウザで使えます。インストール不要で日英中韓に対応します。",
+        "zh": "在浏览器使用当前时间、世界时钟、多个闹钟、倒计时和计圈秒表。免安装，支持中英日韩。"
+      },
+      "badge": {
+        "ko": "",
+        "en": "",
+        "ja": "",
+        "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "json-formatter": {
+      "title": {
+        "ko": "JSON Formatter",
+        "en": "JSON Formatter",
+        "ja": "JSON Formatter",
+        "zh": "JSON Formatter"
+      },
+      "subtitle": {
+        "ko": "정렬 · 압축 · 복구",
+        "en": "Beautify · minify · repair",
+        "ja": "整形 · 圧縮 · 修復",
+        "zh": "美化 · 压缩 · 修复"
+      },
+      "description": {
+        "ko": "붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 오류가 있으면 고칩니다. 설치 없이 브라우저에서 씁니다.",
+        "en": "Paste JSON to pretty-print or minify it. Broken syntax gets flagged and fixed. Free, in the browser, no install.",
+        "ja": "貼り付けたJSONをすぐ整形し、1行に圧縮します。誤りがあれば直します。インストール不要です。",
+        "zh": "粘贴 JSON 立刻排版或压成一行。有错误会修。浏览器免安装。"
+      },
+      "badge": {
+        "ko": "",
+        "en": "",
+        "ja": "",
+        "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "currency-calculator": {
+      "title": {
+        "ko": "환율 계산기",
+        "en": "환율 계산기",
+        "ja": "환율 계산기",
+        "zh": "환율 계산기"
+      },
+      "subtitle": {
+        "ko": "실시간 교차환율 · 다중 통화",
+        "en": "Live cross rates · multi-currency",
+        "ja": "リアルタイム交差レート · 多通貨",
+        "zh": "实时交叉汇率 · 多币种"
+      },
+      "description": {
+        "ko": "위치 기반 기본 통화로 금액을 입력하면 USD·JPY·EUR 등 여러 통화를 바로 환산합니다. 계산기와 국가 추가로 브라우저에서 바로 씁니다.",
+        "en": "Type an amount in your locale currency and convert to USD, JPY, EUR, and more. Keypad plus extra countries, all in the browser.",
+        "ja": "ロケールの基準通貨で金額を入れるとUSD・JPY・EURなどをすぐ換算します。電卓と通貨追加でブラウザ完結です。",
+        "zh": "按所在地默认货币输入金额，立刻换算美元、日元、欧元等。计算器加国家，浏览器即用。"
+      },
+      "badge": {
+        "ko": "NEW",
+        "en": "NEW",
+        "ja": "NEW",
+        "zh": "NEW"
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "unattend-maker": {
+      "title": {
+        "ko": "Unattend Maker",
+        "en": "Unattend Maker",
+        "ja": "Unattend Maker",
+        "zh": "Unattend Maker"
+      },
+      "subtitle": {
+        "ko": "윈도우 자동설치 · XML",
+        "en": "Windows unattend XML",
+        "ja": "Windows自動インストール · XML",
+        "zh": "Windows 自动安装 · XML"
+      },
+      "description": {
+        "ko": "Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다. 자주 쓰는 설정으로 채운 뒤 원하는 항목만 바꾸면 됩니다.",
+        "en": "Pre-answer language, account, and Wi-Fi for Windows Setup. Start from a common preset, then change only what you need.",
+        "ja": "セットアップで聞かれる言語、アカウント、Wi-Fiを先に決めた応答ファイルを作ります。定番設定を入れて必要な項目だけ変えれば十分です。",
+        "zh": "预先填好安装时询问的语言、账户、Wi-Fi。用常用预设打底，只改需要的项。"
+      },
+      "badge": {
+        "ko": "",
+        "en": "",
+        "ja": "",
+        "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
       }
     }
   }

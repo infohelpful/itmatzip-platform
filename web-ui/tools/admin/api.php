@@ -6,49 +6,35 @@ declare(strict_types=1);
  * Login uses one-way PBKDF2 hashes from _auth.json (no plaintext credentials).
  */
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'site-config-lib.php';
+
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: same-origin');
 header('Cache-Control: no-store, no-cache, must-revalidate');
 
 const AUTH_FILE = __DIR__ . DIRECTORY_SEPARATOR . '_auth.json';
-const DEFAULT_CONFIG_FILE = __DIR__ . DIRECTORY_SEPARATOR . 'site-config.json';
-const DATA_DIR = __DIR__ . DIRECTORY_SEPARATOR . 'data';
-const RUNTIME_CONFIG_FILE = DATA_DIR . DIRECTORY_SEPARATOR . 'site-config.json';
 const RATE_FILE = DATA_DIR . DIRECTORY_SEPARATOR . 'login-rate.json';
-
-const ALLOWED_TOOL_IDS = array(
-  'silence-remover',
-  'auto-subtitle',
-  'vocal-remover',
-  'image-enhancer',
-  'background-remover',
-  'create-music',
-  'magic-eraser',
-  'voice-changer',
-  'watermark-remover',
-  'thumbnail-grabber',
-  'ico-maker',
-  'unattend-maker',
-  'online-clock',
-  'json-formatter',
-);
-
-const ALLOWED_AD_UNITS = array(
-  'dashboardBanner',
-  'editorAboveWorkspace',
-  'editorBelowExport',
-  'downloadTop',
-  'downloadBottom',
-);
+const OG_MAX_BYTES = 2097152;
 
 const RATE_WINDOW_SEC = 900;
 const RATE_MAX_ATTEMPTS = 8;
 const SESSION_IDLE_SEC = 43200;
 
 function json_out(array $data, int $code = 200) {
+  $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES;
+  if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+    $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+  }
+  $json = json_encode($data, $flags);
+  if ($json === false) {
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    echo '{"ok":false,"error":"응답을 만들지 못했습니다."}';
+    exit;
+  }
   http_response_code($code);
   header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($data, JSON_UNESCAPED_UNICODE);
+  echo $json;
   exit;
 }
 
@@ -58,7 +44,19 @@ function request_action() {
     $action = $_GET['action'];
   }
   $raw = file_get_contents('php://input');
-  $body = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+  $body = null;
+  if (is_string($raw) && $raw !== '') {
+    $flags = 0;
+    if (defined('JSON_INVALID_UTF8_SUBSTITUTE')) {
+      $flags |= JSON_INVALID_UTF8_SUBSTITUTE;
+    }
+    $decoded = json_decode($raw, true, 512, $flags);
+    if (is_array($decoded)) {
+      $body = $decoded;
+    } elseif (json_last_error() !== JSON_ERROR_NONE) {
+      json_out(array('ok' => false, 'error' => '요청을 읽지 못했습니다. 페이지를 새로고침한 뒤 다시 저장해 주세요.'), 400);
+    }
+  }
   if (is_array($body) && isset($body['action']) && is_string($body['action'])) {
     $action = $body['action'];
   }
@@ -84,134 +82,6 @@ function client_ip() {
     return $_SERVER['REMOTE_ADDR'];
   }
   return '0.0.0.0';
-}
-
-function ensure_data_dir() {
-  if (!is_dir(DATA_DIR)) {
-    mkdir(DATA_DIR, 0700, true);
-  }
-}
-
-function read_json_file($path) {
-  if (!is_file($path)) {
-    return null;
-  }
-  $raw = file_get_contents($path);
-  if (!is_string($raw) || $raw === '') {
-    return null;
-  }
-  $data = json_decode($raw, true);
-  return is_array($data) ? $data : null;
-}
-
-function write_json_file($path, array $data) {
-  $dir = dirname($path);
-  if (!is_dir($dir)) {
-    mkdir($dir, 0700, true);
-  }
-  $tmp = $path . '.tmp';
-  $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-  if ($json === false) {
-    return false;
-  }
-  if (file_put_contents($tmp, $json . "\n", LOCK_EX) === false) {
-    return false;
-  }
-  return rename($tmp, $path);
-}
-
-function parse_tool_id_list($raw) {
-  $out = array();
-  if (!is_array($raw)) {
-    return $out;
-  }
-  foreach ($raw as $id) {
-    if (is_string($id) && in_array($id, ALLOWED_TOOL_IDS, true)) {
-      $out[] = $id;
-    }
-  }
-  return array_values(array_unique($out));
-}
-
-function default_mobile_enabled_tool_ids() {
-  $ids = array('thumbnail-grabber', 'ico-maker', 'online-clock', 'unattend-maker', 'json-formatter');
-  return parse_tool_id_list($ids);
-}
-
-function default_config() {
-  $cfg = read_json_file(DEFAULT_CONFIG_FILE);
-  if (!is_array($cfg)) {
-    $cfg = array(
-      'hiddenToolIds' => array(),
-      'mobileEnabledToolIds' => default_mobile_enabled_tool_ids(),
-      'adsense' => array(
-        'enabled' => true,
-        'client' => 'ca-pub-2088466558007407',
-        'units' => array(),
-      ),
-    );
-  }
-  return $cfg;
-}
-
-function public_config() {
-  $runtime = read_json_file(RUNTIME_CONFIG_FILE);
-  if (is_array($runtime)) {
-    return normalize_config($runtime);
-  }
-  return normalize_config(default_config());
-}
-
-function normalize_config(array $cfg) {
-  $hidden = parse_tool_id_list($cfg['hiddenToolIds'] ?? null);
-  if (array_key_exists('mobileEnabledToolIds', $cfg)) {
-    $mobile = parse_tool_id_list($cfg['mobileEnabledToolIds']);
-  } else {
-    $mobile = default_mobile_enabled_tool_ids();
-  }
-
-  $ads = (isset($cfg['adsense']) && is_array($cfg['adsense'])) ? $cfg['adsense'] : array();
-  $client = isset($ads['client']) && is_string($ads['client']) ? trim($ads['client']) : '';
-  if ($client === '' || !preg_match('/^ca-pub-\d{8,22}$/', $client)) {
-    $client = 'ca-pub-2088466558007407';
-  }
-
-  $base_units = array();
-  $defaults = default_config();
-  if (isset($defaults['adsense']['units']) && is_array($defaults['adsense']['units'])) {
-    $base_units = $defaults['adsense']['units'];
-  }
-
-  $in_units = (isset($ads['units']) && is_array($ads['units'])) ? $ads['units'] : array();
-  $units = array();
-  foreach (ALLOWED_AD_UNITS as $key) {
-    $src = array();
-    if (isset($base_units[$key]) && is_array($base_units[$key])) {
-      $src = $base_units[$key];
-    }
-    if (isset($in_units[$key]) && is_array($in_units[$key])) {
-      $src = array_merge($src, $in_units[$key]);
-    }
-    $slot = isset($src['slot']) && is_string($src['slot']) ? trim($src['slot']) : '';
-    if ($slot !== '' && !preg_match('/^\d{6,20}$/', $slot)) {
-      $slot = '';
-    }
-    $units[$key] = array(
-      'slot' => $slot,
-      'adFormat' => isset($src['adFormat']) && is_string($src['adFormat']) ? $src['adFormat'] : 'horizontal',
-      'fullWidthResponsive' => !isset($src['fullWidthResponsive']) || (bool) $src['fullWidthResponsive'],
-    );
-  }
-
-  return array(
-    'hiddenToolIds' => $hidden,
-    'mobileEnabledToolIds' => $mobile,
-    'adsense' => array(
-      'enabled' => !isset($ads['enabled']) || (bool) $ads['enabled'],
-      'client' => $client,
-      'units' => $units,
-    ),
-  );
 }
 
 function load_auth() {
@@ -332,7 +202,62 @@ function require_login() {
   }
 }
 
+function og_target_prefix($target) {
+  if ($target === 'hub') {
+    return 'hub';
+  }
+  if (in_array($target, ALLOWED_TOOL_IDS, true)) {
+    return $target;
+  }
+  return '';
+}
+
+function og_ext_from_upload($tmp, $name) {
+  $ext = strtolower(pathinfo((string) $name, PATHINFO_EXTENSION));
+  $ok = array('png' => true, 'jpg' => true, 'jpeg' => true, 'webp' => true);
+  if (!isset($ok[$ext])) {
+    return '';
+  }
+  if (function_exists('finfo_open')) {
+    $f = finfo_open(FILEINFO_MIME_TYPE);
+    $mime = $f ? finfo_file($f, $tmp) : '';
+    if ($f) {
+      finfo_close($f);
+    }
+    $allowed = array(
+      'image/png' => true,
+      'image/jpeg' => true,
+      'image/webp' => true,
+    );
+    if (!is_string($mime) || !isset($allowed[$mime])) {
+      return '';
+    }
+    if ($mime === 'image/jpeg' && $ext === 'png') {
+      return '';
+    }
+  }
+  return $ext === 'jpeg' ? 'jpg' : $ext;
+}
+
+function delete_og_prefix($prefix) {
+  if ($prefix === '' || !is_dir(OG_FS_DIR)) {
+    return;
+  }
+  $files = glob(OG_FS_DIR . DIRECTORY_SEPARATOR . $prefix . '-*.*');
+  if (!is_array($files)) {
+    return;
+  }
+  foreach ($files as $file) {
+    if (is_file($file)) {
+      @unlink($file);
+    }
+  }
+}
+
 list($action, $body) = request_action();
+if ($action === '' && isset($_POST['action']) && is_string($_POST['action'])) {
+  $action = $_POST['action'];
+}
 
 if ($action === 'public') {
   json_out(array('ok' => true, 'config' => public_config()));
@@ -406,13 +331,72 @@ if ($action === 'save') {
   }
   require_login();
   require_csrf($body);
-  $incoming = isset($body['config']) && is_array($body['config']) ? $body['config'] : array();
+  $incoming = isset($body['config']) && is_array($body['config']) ? $body['config'] : null;
+  if ($incoming === null) {
+    json_out(array('ok' => false, 'error' => '설정 데이터가 없습니다. 페이지를 새로고침한 뒤 다시 저장해 주세요.'), 400);
+  }
+  $existing = public_config();
+  if (!isset($incoming['hub']) && isset($existing['hub'])) {
+    $incoming['hub'] = $existing['hub'];
+  }
+  if (!isset($incoming['legal']) && isset($existing['legal'])) {
+    $incoming['legal'] = $existing['legal'];
+  }
+  $tools_in = isset($incoming['tools']) && is_array($incoming['tools']) ? $incoming['tools'] : null;
+  if (($tools_in === null || count($tools_in) === 0)
+    && isset($existing['tools']) && is_array($existing['tools']) && count($existing['tools']) > 0) {
+    $incoming['tools'] = $existing['tools'];
+  }
   $cfg = normalize_config($incoming);
+  $cfg['updatedAt'] = time();
   ensure_data_dir();
   if (!write_json_file(RUNTIME_CONFIG_FILE, $cfg)) {
     json_out(array('ok' => false, 'error' => '설정을 저장하지 못했습니다.'), 500);
   }
   json_out(array('ok' => true, 'config' => $cfg, 'csrf' => csrf_token()));
+}
+
+if ($action === 'upload-og') {
+  if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    json_out(array('ok' => false, 'error' => '허용되지 않은 요청입니다.'), 405);
+  }
+  require_login();
+  require_csrf($_POST);
+  $target = isset($_POST['target']) && is_string($_POST['target']) ? trim($_POST['target']) : '';
+  $prefix = og_target_prefix($target);
+  if ($prefix === '') {
+    json_out(array('ok' => false, 'error' => '올바르지 않은 대상입니다.'), 400);
+  }
+  if (empty($_FILES['og']) || !is_array($_FILES['og'])) {
+    json_out(array('ok' => false, 'error' => '이미지 파일이 없습니다.'), 400);
+  }
+  $file = $_FILES['og'];
+  if (!isset($file['error']) || (int) $file['error'] !== UPLOAD_ERR_OK) {
+    json_out(array('ok' => false, 'error' => '이미지를 받지 못했습니다.'), 400);
+  }
+  if ((int) $file['size'] > OG_MAX_BYTES) {
+    json_out(array('ok' => false, 'error' => '이미지는 2MB 이하여야 합니다.'), 400);
+  }
+  $tmp = isset($file['tmp_name']) ? (string) $file['tmp_name'] : '';
+  if ($tmp === '' || !is_uploaded_file($tmp)) {
+    json_out(array('ok' => false, 'error' => '이미지를 받지 못했습니다.'), 400);
+  }
+  $ext = og_ext_from_upload($tmp, (string) ($file['name'] ?? ''));
+  if ($ext === '') {
+    json_out(array('ok' => false, 'error' => 'PNG, JPG, WebP만 올릴 수 있습니다.'), 400);
+  }
+  ensure_og_dir();
+  delete_og_prefix($prefix);
+  $name = $prefix . '-' . bin2hex(random_bytes(4)) . '.' . $ext;
+  $dest = OG_FS_DIR . DIRECTORY_SEPARATOR . $name;
+  if (!move_uploaded_file($tmp, $dest)) {
+    json_out(array('ok' => false, 'error' => '이미지를 저장하지 못했습니다.'), 500);
+  }
+  json_out(array(
+    'ok' => true,
+    'url' => '/' . OG_PUBLIC_DIR . '/' . $name,
+    'csrf' => csrf_token(),
+  ));
 }
 
 json_out(array('ok' => false, 'error' => '알 수 없는 요청입니다.'), 400);

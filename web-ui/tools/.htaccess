@@ -8,6 +8,7 @@
   RewriteBase /
 
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
+  RewriteRule ^seo-serve\.php$ - [L]
 
   # 관리자 경로는 언어 prefix 없음
   RewriteRule ^admin(/|$) - [L]
@@ -48,7 +49,15 @@
   RewriteCond %{DOCUMENT_ROOT}/$2 -d
   RewriteRule ^(kr|en|ja|zh)/(.+[^/])$ /$1/$2/ [R=301,L]
 
-  # 브라우저 URL은 /en/vocal-remover/ 그대로, 실제 파일은 prefix 제거
-  RewriteRule ^(kr|en|ja|zh)/?$ /index.html [L]
+  # HTML은 seo-serve.php가 언어별 메타를 넣어 응답
+  RewriteRule ^(kr|en|ja|zh)/?$ /seo-serve.php [L]
+  RewriteCond %{REQUEST_URI} \.html$ [NC]
+  RewriteRule ^(kr|en|ja|zh)/(.+)$ /seo-serve.php [L]
+  RewriteCond %{DOCUMENT_ROOT}/$2 -d
+  RewriteRule ^(kr|en|ja|zh)/(.+)/$ /seo-serve.php [L]
+  RewriteCond %{DOCUMENT_ROOT}/$2/index.html -f
+  RewriteRule ^(kr|en|ja|zh)/(.+)/?$ /seo-serve.php [L]
+
+  # CSS/JS/이미지는 prefix만 제거하고 파일로
   RewriteRule ^(kr|en|ja|zh)/(.*)$ $2 [L]
 </IfModule>

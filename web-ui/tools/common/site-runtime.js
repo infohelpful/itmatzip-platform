@@ -74,7 +74,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=16";
+    var href = "common/theme.css?v=17";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -89,7 +89,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=16");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=17");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -1167,19 +1167,71 @@
     el.setAttribute("href", href);
   }
 
+  function isDownloadPage() {
+    return /download\.html$/i.test(contentPathname(location.pathname || ""));
+  }
+
+  function adminLangMap(map) {
+    if (!map || typeof map !== "object") return "";
+    var v = map[currentLang] || "";
+    return typeof v === "string" ? v.trim() : "";
+  }
+
+  function adminPageMeta() {
+    var cfg = window.__itzSiteConfig;
+    if (!cfg) return null;
+    var id = pageI18nId();
+    var meta = null;
+    var ogImage = "";
+    var displayTitle = "";
+    if (id === "hub" && cfg.hub) {
+      meta = cfg.hub.meta && cfg.hub.meta[currentLang];
+      ogImage = cfg.hub.ogImage || "";
+    } else if (id.indexOf("legal-") === 0 && cfg.legal) {
+      var legalId = id.slice(6);
+      if (cfg.legal[legalId] && cfg.legal[legalId].meta) {
+        meta = cfg.legal[legalId].meta[currentLang];
+      }
+      ogImage = (cfg.hub && cfg.hub.ogImage) || "";
+    } else if (cfg.tools && cfg.tools[id]) {
+      var tool = cfg.tools[id];
+      if (tool.meta) meta = tool.meta[currentLang];
+      ogImage = tool.ogImage || (cfg.hub && cfg.hub.ogImage) || "";
+      displayTitle = adminLangMap(tool.title);
+    }
+    return {
+      title: meta && typeof meta.title === "string" ? meta.title.trim() : "",
+      description: meta && typeof meta.description === "string" ? meta.description.trim() : "",
+      keywords: meta && typeof meta.keywords === "string" ? meta.keywords.trim() : "",
+      ogImage: typeof ogImage === "string" ? ogImage.trim() : "",
+      displayTitle: displayTitle,
+    };
+  }
+
   function applySeo() {
     var pack = pagePack();
+    var admin = isDownloadPage() ? null : adminPageMeta();
+    var title = (admin && admin.title) || pack.title;
+    var description = (admin && admin.description) || pack.description;
+    var keywords = (admin && admin.keywords) || pack.keywords;
     document.documentElement.lang = HTML_LANG[currentLang] || currentLang;
-    if (pack.title) document.title = pack.title;
-    setMeta('meta[name="description"]', "content", pack.description);
-    setMeta('meta[name="keywords"]', "content", pack.keywords);
-    setMeta('meta[property="og:title"]', "content", pack.title);
-    setMeta('meta[property="og:description"]', "content", pack.description);
+    if (title) document.title = title;
+    setMeta('meta[name="description"]', "content", description);
+    setMeta('meta[name="keywords"]', "content", keywords);
+    setMeta('meta[property="og:title"]', "content", title);
+    setMeta('meta[property="og:description"]', "content", description);
     setMeta('meta[property="og:locale"]', "content", OG_LOCALE[currentLang] || "ko_KR");
-    setMeta('meta[name="twitter:title"]', "content", pack.title);
-    setMeta('meta[name="twitter:description"]', "content", pack.description);
+    setMeta('meta[name="twitter:title"]', "content", title);
+    setMeta('meta[name="twitter:description"]', "content", description);
     var selfUrl = publicPageUrl(currentLang);
     setMeta('meta[property="og:url"]', "content", selfUrl);
+    var ogImage = admin && admin.ogImage;
+    if (ogImage) {
+      var abs = ogImage.indexOf("http") === 0 ? ogImage : (location.origin || "") + ogImage;
+      setMeta('meta[property="og:image"]', "content", abs);
+      setMeta('meta[name="twitter:image"]', "content", abs);
+      setMeta('meta[property="og:image:alt"]', "content", title || pack.ldName || "ItMatZip Tools");
+    }
     var canonical = document.querySelector('link[rel="canonical"]');
     if (canonical) canonical.setAttribute("href", selfUrl);
 
@@ -1189,17 +1241,18 @@
     upsertLink("alternate", "x-default", publicPageUrl("ko"));
 
     var ld = document.querySelector('script[type="application/ld+json"]');
-    if (ld && (pack.title || pack.description || pack.ldName)) {
+    if (ld && (title || description || pack.ldName || (admin && admin.displayTitle))) {
       try {
         var data = JSON.parse(ld.textContent);
         var nodes = data["@graph"] ? data["@graph"] : [data];
+        var ldName = (admin && admin.displayTitle) || pack.ldName;
         for (i = 0; i < nodes.length; i++) {
           var node = nodes[i];
           if (!node || typeof node !== "object") continue;
-          if (pack.ldName) node.name = pack.ldName;
+          if (ldName) node.name = ldName;
           if (pack.ldAlternate) node.alternateName = pack.ldAlternate;
-          if (pack.description && (node["@type"] === "WebApplication" || node["@type"] === "WebSite" || node["@type"] === "WebPage")) {
-            node.description = pack.description;
+          if (description && (node["@type"] === "WebApplication" || node["@type"] === "WebSite" || node["@type"] === "WebPage")) {
+            node.description = description;
             node.inLanguage = HTML_LANG[currentLang] || currentLang;
           }
         }
@@ -1208,6 +1261,25 @@
         /* ignore */
       }
     }
+  }
+
+  function applyAdminDisplayTitle() {
+    if (isDownloadPage()) return;
+    var admin = adminPageMeta();
+    if (!admin || !admin.displayTitle) return;
+    var header =
+      document.querySelector(".app-header") ||
+      document.querySelector(".as-topbar") ||
+      document.querySelector(".hub-header") ||
+      document.querySelector(".itz-legal-shell > header");
+    var titleEl = header
+      ? header.querySelector(".logo-title-row > h1") ||
+        header.querySelector(".as-topbar-left > .as-logo") ||
+        header.querySelector("h1.as-logo") ||
+        header.querySelector(".header-copy > h1") ||
+        header.querySelector(".hub-title-cluster > .hub-title")
+      : null;
+    if (titleEl) fillEl(titleEl, admin.displayTitle);
   }
 
   function fillEl(el, value) {
@@ -1247,9 +1319,12 @@
   }
 
   function applyMarked(pack) {
+    var admin = adminPageMeta();
+    var skipH1 = !!(admin && admin.displayTitle);
     var nodes = document.querySelectorAll("[data-i18n]");
     var i;
     for (i = 0; i < nodes.length; i++) {
+      if (skipH1 && String(nodes[i].tagName || "").toLowerCase() === "h1") continue;
       var id = nodes[i].id || "";
       if (id === "bin-readiness" || id === "compute-capability" || id === "connection-status" || id === "summary-model-ready") continue;
       var key = nodes[i].getAttribute("data-i18n");
@@ -1399,6 +1474,7 @@
     syncLangSelect();
     syncThemeToggles();
     refreshFooter();
+    applyAdminDisplayTitle();
     if (typeof document !== "undefined" && document.body) {
       document.dispatchEvent(new CustomEvent("itz:lang-change", { detail: { lang: currentLang } }));
     }
@@ -1444,6 +1520,26 @@
       if (s.indexOf("site-runtime.js") !== -1) return scripts[i].src || s;
     }
     return "";
+  }
+
+  function loadPublicSeoConfig() {
+    fetch("/admin/api.php?action=public", { cache: "no-store", credentials: "same-origin" })
+      .then(function (res) {
+        return res.ok ? res.json() : Promise.reject();
+      })
+      .then(function (data) {
+        if (data && data.ok && data.config) {
+          window.__itzSiteConfig = data.config;
+          applySeo();
+          applyAdminDisplayTitle();
+          if (document.body) {
+            document.dispatchEvent(new CustomEvent("itz:lang-change", { detail: { lang: currentLang } }));
+          }
+        }
+      })
+      .catch(function () {
+        /* ignore */
+      });
   }
 
   function loadPageCatalog() {
@@ -1703,6 +1799,7 @@
   document.documentElement.lang = HTML_LANG[currentLang] || currentLang;
   applySeo();
   loadPageCatalog();
+  loadPublicSeoConfig();
 
   function pruneEmpty(el) {
     if (el && el.parentNode && !el.children.length) {
@@ -1862,6 +1959,7 @@
         });
       })
       .then(function (cfg) {
+        window.__itzSiteConfig = cfg;
         window.clearTimeout(timer);
         apply(cfg);
       })

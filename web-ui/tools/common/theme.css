@@ -233,6 +233,20 @@ ins.adsbygoogle.itz-ad-unit {
   max-height: var(--itz-ad-height) !important;
 }
 
+.hub-ad-banner.is-ad-off,
+.editor-ad.is-ad-off,
+.dl-ad.is-ad-off,
+.as-ad-slot.editor-ad.is-ad-off {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+}
+
 html[data-theme="light"] .hub-card:not(.is-disabled):hover {
   box-shadow:
     0 12px 36px rgba(15, 23, 42, 0.1),

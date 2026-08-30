@@ -2,11 +2,11 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js?v=5";
+ *   import { showAdSense } from "../common/adsense.js?v=6";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
-import { loadSiteConfig } from "./site-config.js?v=1";
+import { loadSiteConfig } from "./site-config.js?v=6";
 
 /** @type {string} */
 let _client = "ca-pub-2088466558007407";
@@ -148,18 +148,60 @@ export function configureAdSense(cfg = {}) {
   if (cfg.client?.trim()) _client = cfg.client.trim();
 }
 
+/** @type {import("./site-config.js").SiteConfig | null} */
+let _siteCfg = null;
+
+function currentToolId() {
+  try {
+    return (document.documentElement.getAttribute("data-tool-id") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function pageClient(cfg, toolId) {
+  const toolClient = toolId && cfg?.tools?.[toolId]?.adsense?.client;
+  if (typeof toolClient === "string" && /^ca-pub-\d{8,22}$/.test(toolClient.trim())) {
+    return toolClient.trim();
+  }
+  const globalClient = cfg?.adsense?.client;
+  return typeof globalClient === "string" && globalClient.trim() ? globalClient.trim() : _client;
+}
+
+/**
+ * @param {import("./site-config.js").SiteConfig} cfg
+ * @param {string} unitKey
+ * @returns {{ off: boolean, slot: string, client: string }}
+ */
+export function resolveAdUnit(cfg, unitKey) {
+  let key = unitKey === "editorAbovePath" ? "editorAboveWorkspace" : unitKey;
+  if (!cfg || cfg.adsense?.enabled === false) {
+    return { off: true, slot: "", client: _client };
+  }
+  const toolId = currentToolId();
+  const client = pageClient(cfg, toolId);
+  const toolUnit = toolId && cfg.tools?.[toolId]?.adsense?.units?.[key];
+  if (toolUnit && typeof toolUnit === "object") {
+    if (toolUnit.enabled === false) return { off: true, slot: "", client };
+    const slot = String(toolUnit.slot || "").trim();
+    if (slot) return { off: false, slot, client };
+  }
+  const global = cfg.adsense?.units?.[key] || AD_UNITS[key];
+  if (global && global.enabled === false) return { off: true, slot: "", client };
+  const slot = String(global?.slot || AD_UNITS[key]?.slot || "").trim();
+  if (!slot) return { off: true, slot: "", client };
+  return { off: false, slot, client };
+}
+
 function applyRuntimeAdSense() {
   if (_runtimePromise) return _runtimePromise;
   _runtimePromise = (async () => {
     try {
       const cfg = await loadSiteConfig();
+      _siteCfg = cfg;
       _adsDisabled = cfg.adsense?.enabled === false;
-      if (cfg.adsense?.client?.trim()) configureAdSense({ client: cfg.adsense.client });
-      const units = cfg.adsense?.units || {};
-      for (const [key, unit] of Object.entries(units)) {
-        if (!AD_UNITS[key] || !unit) continue;
-        if (typeof unit.slot === "string") AD_UNITS[key].slot = unit.slot.trim();
-      }
+      const toolId = currentToolId();
+      configureAdSense({ client: pageClient(cfg, toolId) });
     } catch {
       _adsDisabled = false;
     }
@@ -259,6 +301,12 @@ function isLocalDevHost() {
  * @param {string | HTMLElement} container 요소 또는 CSS 선택자
  * @returns {Promise<boolean>} 성공 여부
  */
+function markAdSlotOff(el) {
+  el.classList.add("is-ad-off");
+  el.innerHTML = "";
+  el.removeAttribute("data-adsense-empty");
+}
+
 export async function showAdSense(unitKey, container) {
   await applyRuntimeAdSense();
 
@@ -268,12 +316,15 @@ export async function showAdSense(unitKey, container) {
     return false;
   }
 
-  if (_adsDisabled) {
-    markAdSlotEmpty(el);
+  const resolved = resolveAdUnit(_siteCfg || { adsense: { enabled: !_adsDisabled, client: _client, units: {} }, tools: {} }, unitKey);
+  if (resolved.off) {
+    markAdSlotOff(el);
     return false;
   }
+  el.classList.remove("is-ad-off");
+  configureAdSense({ client: resolved.client });
 
-  const unit = AD_UNITS[unitKey];
+  const unit = { ...(AD_UNITS[unitKey === "editorAbovePath" ? "editorAboveWorkspace" : unitKey] || {}), slot: resolved.slot };
   if (!unit || !String(unit.slot || "").trim()) {
     console.warn(`[adsense] unknown or empty unit: ${unitKey}`);
     markAdSlotEmpty(el);
@@ -327,7 +378,7 @@ export async function showAdSense(unitKey, container) {
   const heightPx = bannerAdHeightPx();
   ins.className = "adsbygoogle itz-ad-unit";
   ins.style.cssText = "display:block;width:100%;height:" + heightPx + "px";
-  ins.setAttribute("data-ad-client", _client);
+  ins.setAttribute("data-ad-client", resolved.client || _client);
   ins.setAttribute("data-ad-slot", unit.slot);
 
   el.appendChild(ins);

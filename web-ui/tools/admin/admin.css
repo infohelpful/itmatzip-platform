@@ -38,7 +38,7 @@
 }
 
 .admin-inner {
-  max-width: 880px;
+  max-width: 1040px;
 }
 
 .admin-header {
@@ -262,7 +262,134 @@
   color: var(--admin-danger);
 }
 
+.admin-hint {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.admin-subh {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.admin-lang-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+
+.admin-field textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text-main);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+
+.admin-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.admin-details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  padding: 0 16px 16px;
+  margin-bottom: 10px;
+}
+
+.admin-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 14px 0;
+  list-style: none;
+}
+
+.admin-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-accordion {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-unit-row--global {
+  align-items: center;
+}
+
+.admin-check-inline {
+  margin: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.admin-og-box {
+  margin: 16px 0;
+}
+
+.admin-og-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.admin-og-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-og-preview {
+  width: 200px;
+  height: 105px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+}
+
+.admin-tool-ad-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) 140px 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.admin-tool-ad-row select,
+.admin-tool-ad-row input {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-dark);
+  color: var(--text-main);
+  font: inherit;
+}
+
 @media (max-width: 640px) {
+  .admin-lang-grid,
+  .admin-tool-ad-row {
+    grid-template-columns: 1fr;
+  }
+
   .admin-header,
   .admin-unit-row,
   .admin-actions {

@@ -1,5 +1,5 @@
-import { showAdSense } from "../common/adsense.js?v=4";
-import { loadSiteConfig } from "../common/site-config.js?v=4";
+import { showAdSense } from "../common/adsense.js?v=6";
+import { loadSiteConfig, mergeSiteConfig, pickLang, uiLang } from "../common/site-config.js?v=6";
 import { TOOLS } from "./tools-registry.js?v=18";
 
 const MOBILE_MENU_ONLY_KEY = "itz-mobile-menu-only";
@@ -32,15 +32,23 @@ function tx(key, fallback, vars) {
   return text;
 }
 
+/** @type {import("../common/site-config.js").SiteConfig | null} */
+let siteCfg = null;
+
 function localizedTool(tool) {
-  const subtitle = tx(`tool.${tool.id}.subtitle`, tool.subtitle);
-  const description = tx(`tool.${tool.id}.description`, tool.description);
+  const admin = siteCfg?.tools?.[tool.id];
+  const lang = uiLang();
+  const subtitle = pickLang(admin?.subtitle, lang) || tx(`tool.${tool.id}.subtitle`, tool.subtitle);
+  const description = pickLang(admin?.description, lang) || tx(`tool.${tool.id}.description`, tool.description);
+  const title = pickLang(admin?.title, lang) || tx(`tool.${tool.id}.title`, tool.title);
   const extraTags = tx(`tool.${tool.id}.tags`, "");
   return {
     ...tool,
+    title,
     subtitle,
     description,
     tags: [...(tool.tags || []), ...String(extraTags).split(/\s+/).filter(Boolean)],
+    badge: pickLang(admin?.badge, lang) || tool.badge,
   };
 }
 
@@ -236,11 +244,23 @@ function setupMobileMenuToggle() {
   });
 }
 
+function applyLiveConfig(cfg) {
+  if (!cfg) return;
+  siteCfg = cfg;
+  hiddenToolIds = new Set(cfg.hiddenToolIds || []);
+  mobileEnabledToolIds = new Set(cfg.mobileEnabledToolIds || []);
+}
+
+function liveSiteConfig() {
+  if (typeof window !== "undefined" && window.__itzSiteConfig) {
+    return mergeSiteConfig(window.__itzSiteConfig);
+  }
+  return null;
+}
+
 async function init() {
   try {
-    const cfg = await loadSiteConfig();
-    hiddenToolIds = new Set(cfg.hiddenToolIds || []);
-    mobileEnabledToolIds = new Set(cfg.mobileEnabledToolIds || []);
+    applyLiveConfig(liveSiteConfig() || (await loadSiteConfig()));
   } catch {
     hiddenToolIds = new Set();
     mobileEnabledToolIds = null;
@@ -255,7 +275,11 @@ async function init() {
   void showAdSense("dashboardBanner", "#hub-ad-banner");
 }
 
-document.addEventListener("itz:lang-change", () => renderGrid());
+document.addEventListener("itz:lang-change", () => {
+  const live = liveSiteConfig();
+  if (live) applyLiveConfig(live);
+  renderGrid();
+});
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);
