@@ -8,7 +8,7 @@ import {
   flagStackHtml,
   flagInlineHtml,
 } from "./currencies.js?v=2";
-import { LOCALES, applyI18n, detectLocale, getLocale, numberLocale, t } from "./i18n.js?v=1";
+import { LOCALES, applyI18n, detectLocale, getLocale, numberLocale, t } from "./i18n.js?v=2";
 
 const STORE_KEY = "itz-currency-calculator-v1";
 const RATES_KEY = "itz-currency-rates-usd-v2";
@@ -613,6 +613,17 @@ function bindLang() {
 bootState();
 applyI18n(detectLocale());
 bindLang();
+document.addEventListener("itz:lang-change", (ev) => {
+  const lang = ev && ev.detail && ev.detail.lang;
+    if (lang) {
+    applyI18n(lang);
+    render();
+    if (!picker.hidden) {
+      pickerTitle.textContent = pickerMode === "base" ? t("pickerBase") : t("pickerAdd");
+      fillPicker();
+    }
+  }
+});
 render();
 lockShellHeight();
 window.addEventListener("resize", lockShellHeight);

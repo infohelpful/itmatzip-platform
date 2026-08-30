@@ -11,7 +11,7 @@
  */
 
 import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js";
-import { agentAccessBlockedDialogOptions } from "./agent-install-ui.js?v=lna20";
+import { agentAccessBlockedDialogOptions, agentInstallDialogOptions } from "./agent-install-ui.js?v=lna22";
 import {
   ensureSiteModalStyles,
   hideModalShell,
@@ -23,7 +23,9 @@ import {
   setSiteDialogStatus,
   showModalShell,
   showSiteDialog,
-} from "./site-modal.js?v=sm3";
+  itzT,
+  itzTf,
+} from "./site-modal.js?v=sm4";
 
 installGlobals();
 
@@ -113,7 +115,7 @@ function assertCircuitAllowsRequest() {
       _circuitState = "HALF_OPEN";
     } else {
       throw new Error(
-        "에이전트 통신이 불안정하여 일시적으로 연결이 차단되었습니다. 잠시 후 다시 시도하세요.",
+        itzT("conn.circuitOpen", "에이전트 통신이 불안정하여 일시적으로 연결이 차단되었습니다. 잠시 후 다시 시도하세요."),
       );
     }
   }
@@ -591,8 +593,11 @@ export function formatAgentConnectionError(raw) {
  * @param {boolean} ok
  * @param {{ agentVersion?: string, latencyMs?: number, error?: string, rawError?: string } | null} [detail]
  */
+let lastConnDot = { el: /** @type {HTMLElement | null} */ (null), ok: false, detail: /** @type {any} */ (null) };
+
 export function applyConnectionStatusDot(el, ok, detail) {
   if (!el) return;
+  lastConnDot = { el, ok, detail };
   const apiReady = detail?.apiReady !== false;
   const longOp = detail?.longOp === true || isAgentLongOperationActive();
   if (ok && !apiReady) {
@@ -609,25 +614,30 @@ export function applyConnectionStatusDot(el, ok, detail) {
         ? String(detail.fastapiError || "")
         : "";
     if (state === "failed") {
-      el.textContent = `에이전트 API 시작 실패${ver}`;
+      el.textContent = `${itzT("conn.apiFailed", "에이전트 API 시작 실패")}${ver}`;
       el.style.color = "#ef4444";
       el.title =
         err ||
-        "FastAPI가 시작되지 않았습니다. 트레이에서 에이전트를 재시작하거나 ProgramData\\itmatzip-agent\\logs 를 확인하세요.";
+        itzT(
+          "conn.apiFailedHint",
+          "FastAPI가 시작되지 않았습니다. 트레이에서 에이전트를 재시작하거나 ProgramData\\itmatzip-agent\\logs 를 확인하세요.",
+        );
       return;
     }
     if (longOp) {
-      el.textContent = `에이전트 작업 중${ver}`;
+      el.textContent = `${itzT("conn.busy", "에이전트 작업 중")}${ver}`;
       el.style.color = "#f59e0b";
-      el.title = "긴 작업 중입니다. FastAPI 응답이 느려질 수 있으나 연결은 유지됩니다.";
+      el.title = itzT("conn.busyHint", "긴 작업 중입니다. FastAPI 응답이 느려질 수 있으나 연결은 유지됩니다.");
       return;
     }
     el.textContent =
-      state === "warming" ? `에이전트 API 로딩 중${ver}` : `에이전트 API 준비 중${ver}`;
+      state === "warming"
+        ? `${itzT("conn.apiLoading", "에이전트 API 로딩 중")}${ver}`
+        : `${itzT("conn.apiPrep", "에이전트 API 준비 중")}${ver}`;
     el.style.color = "#f59e0b";
     el.title = err
       ? `FastAPI: ${err}`
-      : "FastAPI가 시작 중입니다. 20초 이상 지속되면 자동 재시작을 시도합니다.";
+      : itzT("conn.apiPrepHint", "FastAPI가 시작 중입니다. 20초 이상 지속되면 자동 재시작을 시도합니다.");
     return;
   }
   if (ok) {
@@ -636,7 +646,7 @@ export function applyConnectionStatusDot(el, ok, detail) {
         ? ` v${detail.agentVersion}`
         : "";
     const ms = detail?.latencyMs != null ? ` (${detail.latencyMs}ms)` : "";
-    el.textContent = `에이전트 연결됨${ver}${ms}`;
+    el.textContent = `${itzT("conn.ok", "에이전트 연결됨")}${ver}${ms}`;
     el.style.color = "#10b981";
     el.title = "";
     return;
@@ -648,12 +658,18 @@ export function applyConnectionStatusDot(el, ok, detail) {
     /** @type {{ failureKind?: AgentFailureKind }} */ (detail)?.failureKind ??
     classifyAgentConnectionFailure(detail?.rawError ?? detail?.error);
   if (kind === "client_blocked" || /ERR_BLOCKED_BY_CLIENT/i.test(errText)) {
-    el.textContent = "에이전트 연결 차단됨";
+    el.textContent = itzT("conn.blocked", "에이전트 연결 차단됨");
   } else {
-    el.textContent = "에이전트 미연결";
+    el.textContent = itzT("conn.down", "에이전트 미연결");
   }
   el.style.color = "#ef4444";
   el.title = errText || "";
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("itz:lang-change", () => {
+    if (lastConnDot.el) applyConnectionStatusDot(lastConnDot.el, lastConnDot.ok, lastConnDot.detail);
+  });
 }
 
 export async function fetchAgent(url, init = {}) {
@@ -1065,16 +1081,30 @@ async function runPersistentAccessBlockedDialog(blocked, onRetry) {
       dialogKind: blocked.dialogKind ?? "agent-block",
       buttons: [
         {
-          label: blocked.primaryLabel ?? "다시 연결 확인",
+          label: blocked.primaryLabel ?? itzT("modal.retry", "다시 연결 확인"),
           primary: true,
           act: "retry",
         },
       ],
+      rebuild: async () => {
+        const next = await agentAccessBlockedDialogOptions(onRetry);
+        return {
+          title: next.title,
+          bodyHtml: next.bodyHtml,
+          buttons: [
+            {
+              label: next.primaryLabel ?? itzT("modal.retry", "다시 연결 확인"),
+              primary: true,
+              act: "retry",
+            },
+          ],
+        };
+      },
     });
     if (act === "auto") return;
     if (act !== "retry") return;
 
-    setSiteDialogStatus("연결 확인 중…");
+    setSiteDialogStatus(itzT("modal.checking", "연결 확인 중…"));
     let detail = await Promise.resolve(onRetry());
     if (!detail || typeof detail !== "object" || !("ok" in detail)) {
       detail = await checkAgentConnection();
@@ -1086,8 +1116,8 @@ async function runPersistentAccessBlockedDialog(blocked, onRetry) {
     const err =
       detail && typeof detail === "object" && "error" in detail && detail.error
         ? String(detail.error)
-        : "연결할 수 없습니다";
-    setSiteDialogStatus(`아직 연결되지 않았습니다. (${err})`, "err");
+        : itzT("modal.cannotConnect", "연결할 수 없습니다");
+    setSiteDialogStatus(itzTf("modal.notConnected", `아직 연결되지 않았습니다. (${err})`, { err }), "err");
   }
 }
 
@@ -1279,7 +1309,7 @@ async function _retryInstallDialogConnection() {
   const retryBtn = dlg.querySelector('button[data-act="retry"]');
   if (retryBtn instanceof HTMLButtonElement) retryBtn.disabled = true;
   if (statusEl) {
-    statusEl.textContent = "연결 확인 중…";
+    statusEl.textContent = itzT("modal.checking", "연결 확인 중…");
     statusEl.className = "itz-install__status";
   }
 
@@ -1291,22 +1321,22 @@ async function _retryInstallDialogConnection() {
     if (detail?.ok) {
       _installAutoShowSuppressedUntil = 0;
       if (statusEl) {
-        statusEl.textContent = "연결되었습니다.";
+        statusEl.textContent = itzT("modal.connected", "연결되었습니다.");
         statusEl.className = "itz-install__status is-ok";
       }
       _finishInstallDialogPromise();
       _closeInstallDialogElement();
       return;
     }
-    const err = detail?.error || "연결할 수 없습니다.";
+    const err = detail?.error || itzT("modal.cannotConnect", "연결할 수 없습니다.");
     if (statusEl) {
-      statusEl.textContent = `아직 연결되지 않았습니다. (${err})`;
+      statusEl.textContent = itzTf("modal.notConnected", `아직 연결되지 않았습니다. (${err})`, { err });
       statusEl.className = "itz-install__status is-err";
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (statusEl) {
-      statusEl.textContent = `확인 실패: ${msg}`;
+      statusEl.textContent = itzTf("modal.checkFailed", `확인 실패: ${msg}`, { msg });
       statusEl.className = "itz-install__status is-err";
     }
   } finally {
@@ -1332,21 +1362,43 @@ function _bindInstallDialogHandlersOnce() {
   });
 }
 
-export function showInstallAgentDialog(options = {}) {
-  if (Date.now() < _installAutoShowSuppressedUntil) {
-    return Promise.resolve();
-  }
+let _installLangBound = false;
 
-  ensureInstallDialog();
+function bindInstallDialogLangListener() {
+  if (typeof document === "undefined" || _installLangBound) return;
+  _installLangBound = true;
+  document.addEventListener("itz:lang-change", () => {
+    void refreshOpenInstallDialogLanguage();
+  });
+}
+
+async function refreshOpenInstallDialogLanguage() {
+  if (!_installDialog || _installDialog.hasAttribute("hidden")) return;
+  const opts = _installDialogOptions || {};
+  const statusEl = _installDialog.querySelector("[data-install-status]");
+  const statusText = statusEl ? statusEl.textContent : "";
+  const statusClass = statusEl ? statusEl.className : "";
+  const fresh = await agentInstallDialogOptions(opts.onPrimary);
+  const merged = { ...opts, ...fresh };
+  _installDialogOptions = merged;
+  renderInstallDialogContent(merged);
+  const nextStatus = _installDialog.querySelector("[data-install-status]");
+  if (nextStatus && statusText) {
+    nextStatus.textContent = statusText;
+    nextStatus.className = statusClass || "itz-install__status";
+  }
+}
+
+/**
+ * @param {InstallDialogOptions} options
+ */
+function renderInstallDialogContent(options) {
   const dlg = _installDialog;
-  _bindInstallDialogHandlersOnce();
-  _installDialogOptions = options;
-  const alreadyOpen = _installDialog && !_installDialog.hasAttribute("hidden");
-  const title = options.title ?? "로컬 에이전트에 연결할 수 없습니다";
+  if (!dlg) return;
+  const title = options.title ?? itzT("agent.installTitle", "로컬 에이전트에 연결할 수 없습니다");
   const body =
     options.bodyHtml ??
-    `<p style="margin:0">PC에서 ItMatZip 로컬 에이전트를 실행한 뒤 다시 연결해 주세요.</p>`;
-
+    `<p style="margin:0">${itzT("agent.installFallback", "PC에서 ItMatZip 로컬 에이전트를 실행한 뒤 다시 연결해 주세요.")}</p>`;
   dlg.innerHTML = `
     <div class="itz-install">
       <header class="itz-install__head">
@@ -1358,11 +1410,25 @@ export function showInstallAgentDialog(options = {}) {
       </div>
       <footer class="itz-install__foot">
         <button type="button" class="itz-install__btn itz-install__btn--primary" data-act="retry">${escapeHtml(
-          options.primaryLabel ?? "다시 연결 확인"
+          options.primaryLabel ?? itzT("modal.retry", "다시 연결 확인")
         )}</button>
       </footer>
     </div>
   `;
+}
+
+export function showInstallAgentDialog(options = {}) {
+  if (Date.now() < _installAutoShowSuppressedUntil) {
+    return Promise.resolve();
+  }
+
+  ensureInstallDialog();
+  bindInstallDialogLangListener();
+  const dlg = _installDialog;
+  _bindInstallDialogHandlersOnce();
+  _installDialogOptions = options;
+  const alreadyOpen = _installDialog && !_installDialog.hasAttribute("hidden");
+  renderInstallDialogContent(options);
 
   return new Promise((resolve) => {
     _installPendingResolve = resolve;

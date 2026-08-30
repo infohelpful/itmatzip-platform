@@ -6,7 +6,7 @@
  */
 
 import { diagLogBufferPush } from "./diag-log-export.js?v=1";
-import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
+import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as10";
 import { DEFAULT_TARGET_NTSC_FPS, ntscFpsFractionsEqual } from "./media-timing-ssot.js?v=6";
 
 const STORAGE_KEY = "auto-subtitle:burn-in-pipeline-diag";

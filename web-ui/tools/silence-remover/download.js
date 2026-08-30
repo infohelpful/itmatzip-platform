@@ -2,7 +2,7 @@ import {
   checkAgentConnection,
   configureBridge,
   requestAgent,
-} from "../common/bridge.js?v=lna15";
+} from "../common/bridge.js?v=lna16";
 import { showAdSense } from "../common/adsense.js?v=4";
 import {
   buildFcpXmlViaAgent,
@@ -34,10 +34,10 @@ const elBtnNow = document.getElementById("dl-btn-now");
 const elBtnBack = document.getElementById("dl-btn-back");
 
 function applyLabels() {
-  if (elTitle) elTitle.textContent = "XML 파일 다운로드";
-  document.title = "XML 다운로드";
-  if (elBtnNow) elBtnNow.textContent = "지금 다운로드";
-  if (elBtnBack) elBtnBack.textContent = "편집 화면으로 돌아가기";
+  if (elTitle) elTitle.textContent = window.itzT("dlTitle", "XML 파일 다운로드");
+  document.title = window.itzT("dlDocTitle", "XML 다운로드");
+  if (elBtnNow) elBtnNow.textContent = window.itzT("dlNow", "지금 다운로드");
+  if (elBtnBack) elBtnBack.textContent = window.itzT("dl.back", "편집 화면으로 돌아가기");
 }
 
 function setStatus(text, kind = "") {
@@ -66,14 +66,14 @@ function setBusy(busy) {
 function enableBackNavigation() {
   if (elBtnBack) {
     elBtnBack.disabled = false;
-    elBtnBack.textContent = "편집 화면으로 돌아가기";
+    elBtnBack.textContent = window.itzT("dl.back", "편집 화면으로 돌아가기");
   }
 }
 
 function enableBackOnAgentFailure() {
   if (elBtnBack) {
     elBtnBack.disabled = false;
-    elBtnBack.textContent = "편집 화면으로 돌아가기 (다운로드 취소)";
+    elBtnBack.textContent = window.itzT("dlBackCancel", "편집 화면으로 돌아가기 (다운로드 취소)");
   }
 }
 
@@ -83,7 +83,7 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
@@ -99,13 +99,17 @@ async function saveCachedExportFromSession(opts = {}) {
   });
   if (saveResult.cancelled) {
     setStatus(
-      "저장 대화상자를 닫았습니다. 저장하려면 지금 다운로드를 다시 눌러 주세요.",
+      window.itzT("dlCancelled", "저장 대화상자를 닫았습니다. 저장하려면 지금 다운로드를 다시 눌러 주세요."),
       "err",
     );
     return true;
   }
   setStatus(
-    `파일 저장을 시작했습니다. (분석 완료 XML, ${cachedXml.split("\n").length}줄)`,
+    window.ITZ_I18N?.tf?.("dlSavedCached", { n: cachedXml.split("\n").length }) ||
+      window.itzT("dlSavedCached", "파일 저장을 시작했습니다. (분석 완료 XML, {n}줄)").replace(
+        "{n}",
+        String(cachedXml.split("\n").length),
+      ),
     "ok",
   );
   return true;
@@ -119,7 +123,7 @@ async function runDownload(opts = {}) {
 
   const prereq = validateExportPrerequisitesFromSession();
   if (!prereq.ok) {
-    setStatus(prereq.message || "분석 데이터가 없습니다.", "err");
+    setStatus(prereq.message || window.itzT("dlNoData", "분석 데이터가 없습니다."), "err");
     enableBackOnAgentFailure();
     return;
   }
@@ -136,15 +140,15 @@ async function runDownload(opts = {}) {
 
     const agentOk = await ensureAgentConnected();
     if (!agentOk) {
-      setStatus(MSG_HELPER_NEED_APP, "err");
+      setStatus(MSG_HELPER_NEED_APP(), "err");
       enableBackOnAgentFailure();
       return;
     }
 
-    setStatus("XML 생성 중… (캐시 없음, 에이전트에서 생성)");
+    setStatus(window.itzT("dlBuilding", "XML 생성 중… (캐시 없음, 에이전트에서 생성)"));
     const result = await buildFcpXmlViaAgent(requestAgent, { forceFresh: false });
     if (!result.ok || !result.fcp_xml) {
-      setStatus(result.error || "XML 생성에 실패했습니다.", "err");
+      setStatus(result.error || window.itzT("dlBuildFail", "XML 생성에 실패했습니다."), "err");
       enableBackOnAgentFailure();
       return;
     }
@@ -153,18 +157,18 @@ async function runDownload(opts = {}) {
     });
     if (saveResult.cancelled) {
       setStatus(
-        "저장 대화상자를 닫았습니다. 저장하려면 지금 다운로드를 다시 눌러 주세요.",
+        window.itzT("dlCancelled", "저장 대화상자를 닫았습니다. 저장하려면 지금 다운로드를 다시 눌러 주세요."),
         "err",
       );
       return;
     }
     const lineCount = result.fcp_xml.split("\n").length;
-    const cacheNote = result.fromCache ? " (분석 완료 XML)" : "";
-    setStatus(`파일 저장을 시작했습니다.${cacheNote} (${lineCount}줄)`, "ok");
+    const cacheNote = result.fromCache ? window.itzT("dlCacheNote", " (분석 완료 XML)") : "";
+    setStatus(window.ITZ_I18N?.tf?.("dlSaved", { note: cacheNote, n: lineCount }) || `파일 저장을 시작했습니다.${cacheNote} (${lineCount}줄)`, "ok");
     enableBackNavigation();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    setStatus(`다운로드에 실패했습니다.\n\n${msg}`, "err");
+    setStatus(window.ITZ_I18N?.tf?.("dlFail", { msg }) || `다운로드에 실패했습니다.\n\n${msg}`, "err");
     enableBackOnAgentFailure();
   } finally {
     downloadInFlight = false;
@@ -182,7 +186,7 @@ async function initPage() {
 
   if (!canExportFromSession()) {
     setStatus(
-      "분석 결과가 없습니다. 편집 화면에서 무음 구간 분석을 실행한 뒤 다시 시도해 주세요.",
+      window.itzT("dlNoAnalyze", "분석 결과가 없습니다. 편집 화면에서 무음 구간 분석을 실행한 뒤 다시 시도해 주세요."),
       "err",
     );
     enableBackOnAgentFailure();
@@ -192,9 +196,9 @@ async function initPage() {
   setDownloadFormatForSession("fcp");
 
   if (hasCachedExportForDownload("fcp")) {
-    setStatus("분석 완료 XML 저장 중…");
+    setStatus(window.itzT("dlSavingCached", "분석 완료 XML 저장 중…"));
   } else {
-    setStatus("분석 XML이 없습니다. 에이전트 연결 후 생성합니다…");
+    setStatus(window.itzT("dlNeedAgent", "분석 XML이 없습니다. 에이전트 연결 후 생성합니다…"));
   }
 
   if (elBtnBack) {
@@ -213,7 +217,7 @@ async function initPage() {
           fileHandle = await pickFcpSaveFileHandle();
         } catch (e) {
           if (e && typeof e === "object" && e.name === "AbortError") {
-            setStatus("저장을 취소했습니다.", "err");
+            setStatus(window.itzT("dlCancelSave", "저장을 취소했습니다."), "err");
             return;
           }
         }
@@ -229,3 +233,4 @@ async function initPage() {
 }
 
 initPage();
+document.addEventListener("itz:lang-change", () => applyLabels());

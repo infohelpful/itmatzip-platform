@@ -619,6 +619,14 @@ function browserLanguageCandidates() {
 
 export function detectLocale() {
   try {
+    if (window.ITZ_I18N && typeof window.ITZ_I18N.getLang === "function") {
+      const shared = normalizeLocale(window.ITZ_I18N.getLang());
+      if (shared) return shared;
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
     const saved = normalizeLocale(localStorage.getItem(LANG_KEY) || "");
     if (saved) return saved;
   } catch {

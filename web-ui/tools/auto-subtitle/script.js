@@ -16,16 +16,16 @@ import {
   setAgentLongOperationActive,
   isAgentLongOperationActive,
   getAgentCircuitBreakerState,
-} from "../common/bridge.js?v=lna20";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_FONT, AGENT_PICK_IMAGE, AGENT_PICK_PROJECT, AGENT_PICK_SUBTITLE_MEDIA } from "../common/agent-pick-endpoints.js";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { showAdSense } from "../common/adsense.js?v=4";
 import {
   LOCAL_HELPER_NAME,
   MSG_SUBTITLE_JOB_BUSY,
   MSG_SUBTITLE_NEED_APP,
   MSG_SUBTITLE_PREPARE,
-} from "../common/local-helper-ui.js?v=1";
+} from "../common/local-helper-ui.js?v=2";
 import {
   renderSubtitleCards,
   readCuesFromCards,
@@ -315,12 +315,12 @@ const STORAGE_USER_PREFS = "auto-subtitle:user-preferences";
 const USER_PREFS_VERSION = 2;
 
 const WATERMARK_POSITIONS = [
-  { value: "top-left", label: "왼쪽 상단" },
-  { value: "top-center", label: "중앙 상단" },
-  { value: "top-right", label: "우측 상단" },
-  { value: "bottom-left", label: "왼쪽 하단" },
-  { value: "bottom-center", label: "중앙 하단" },
-  { value: "bottom-right", label: "우측 하단" },
+  { value: "top-left", i18nKey: "wm.topLeft", label: "왼쪽 상단" },
+  { value: "top-center", i18nKey: "wm.topCenter", label: "중앙 상단" },
+  { value: "top-right", i18nKey: "wm.topRight", label: "우측 상단" },
+  { value: "bottom-left", i18nKey: "wm.bottomLeft", label: "왼쪽 하단" },
+  { value: "bottom-center", i18nKey: "wm.bottomCenter", label: "중앙 하단" },
+  { value: "bottom-right", i18nKey: "wm.bottomRight", label: "우측 하단" },
 ];
 
 const DEFAULT_WATERMARK_POSITION = "top-right";
@@ -2939,7 +2939,7 @@ function initWatermarkPositionGrid() {
     input.value = item.value;
     if (item.value === DEFAULT_WATERMARK_POSITION) input.checked = true;
     label.appendChild(input);
-    label.appendChild(document.createTextNode(item.label));
+    label.appendChild(document.createTextNode(window.itzT(item.i18nKey, item.label)));
     watermarkPositionGrid.appendChild(label);
   }
 }
@@ -5486,10 +5486,10 @@ function ensureFontSelectShell() {
   if (styleFontFamily.querySelector('optgroup[data-font-group="custom"]')) return;
   styleFontFamily.replaceChildren();
   const customGroup = document.createElement("optgroup");
-  customGroup.label = "커스텀 폰트";
+  customGroup.label = window.itzT("font.custom", "커스텀 폰트");
   customGroup.dataset.fontGroup = "custom";
   const systemGroup = document.createElement("optgroup");
-  systemGroup.label = "기본 폰트";
+  systemGroup.label = window.itzT("font.system", "기본 폰트");
   systemGroup.dataset.fontGroup = "system";
   styleFontFamily.appendChild(customGroup);
   styleFontFamily.appendChild(systemGroup);
@@ -5506,7 +5506,7 @@ function getFontOptGroup(kind) {
   let group = styleFontFamily.querySelector(sel);
   if (!(group instanceof HTMLOptGroupElement)) {
     group = document.createElement("optgroup");
-    group.label = kind === "custom" ? "커스텀 폰트" : "기본 폰트";
+    group.label = window.itzT(kind === "custom" ? "font.custom" : "font.system", kind === "custom" ? "커스텀 폰트" : "기본 폰트");
     group.dataset.fontGroup = kind;
     if (kind === "custom") {
       styleFontFamily.insertBefore(group, styleFontFamily.firstChild);
@@ -5938,9 +5938,9 @@ function installDialogOpts() {
 
 function friendlyAgentError(err) {
   const msg = formatAgentConnectionError(err);
-  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY;
-  if (/Failed to fetch|연결|fetch/i.test(msg)) return MSG_SUBTITLE_NEED_APP;
-  return msg || "요청에 실패했습니다. 잠시 후 다시 시도해 주세요.";
+  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY();
+  if (/Failed to fetch|연결|fetch/i.test(msg)) return MSG_SUBTITLE_NEED_APP();
+  return msg || window.itzT("reqFail", "요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
 }
 
 function formatTime(sec) {
@@ -6051,9 +6051,10 @@ function setPreviewMediaLoading(active, { title, step, message, showOk = false }
     previewMediaLoading.hidden = false;
     previewMediaLoading.classList.add("is-active");
     previewMediaLoading.setAttribute("aria-hidden", "false");
-    if (title && previewMediaLoadingTitle) previewMediaLoadingTitle.textContent = title;
-    if (previewMediaLoadingStep) previewMediaLoadingStep.textContent = step || "";
-    if (previewMediaLoadingMessage && message) previewMediaLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && previewMediaLoadingTitle) previewMediaLoadingTitle.textContent = agentText(title) || title;
+    if (previewMediaLoadingStep) previewMediaLoadingStep.textContent = agentText(step) || "";
+    if (previewMediaLoadingMessage && message) previewMediaLoadingMessage.textContent = agentText(message) || message;
     if (previewMediaLoadingTrack) previewMediaLoadingTrack.hidden = showOk;
     if (previewMediaLoadingActions) previewMediaLoadingActions.hidden = !showOk;
     if (previewMediaLoadingBar && previewMediaLoadingTrack && !showOk) {
@@ -6097,9 +6098,10 @@ function setSetupLoading(active, { title, step, message, progress } = {}) {
     setupLoading.hidden = false;
     setupLoading.classList.add("is-active");
     setupLoading.setAttribute("aria-hidden", "false");
-    if (title && setupLoadingTitle) setupLoadingTitle.textContent = title;
-    if (setupLoadingStep) setupLoadingStep.textContent = step || "";
-    if (message && setupLoadingMessage) setupLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && setupLoadingTitle) setupLoadingTitle.textContent = agentText(title) || title;
+    if (setupLoadingStep) setupLoadingStep.textContent = agentText(step) || "";
+    if (message && setupLoadingMessage) setupLoadingMessage.textContent = agentText(message) || message;
     if (setupLoadingBar && setupLoadingTrack) {
       if (typeof progress === "number") {
         const pct = Math.max(0, Math.min(100, progress));
@@ -6142,9 +6144,10 @@ function setTranscribeLoading(active, { title, step, message, progress } = {}) {
     transcribeLoading.hidden = false;
     transcribeLoading.classList.add("is-active");
     transcribeLoading.setAttribute("aria-hidden", "false");
-    if (title && transcribeLoadingTitle) transcribeLoadingTitle.textContent = title;
-    if (transcribeLoadingStep) transcribeLoadingStep.textContent = step || "";
-    if (message && transcribeLoadingMessage) transcribeLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && transcribeLoadingTitle) transcribeLoadingTitle.textContent = agentText(title) || title;
+    if (transcribeLoadingStep) transcribeLoadingStep.textContent = agentText(step) || "";
+    if (message && transcribeLoadingMessage) transcribeLoadingMessage.textContent = agentText(message) || message;
     if (transcribeLoadingBar && transcribeLoadingTrack) {
       if (typeof progress === "number") {
         const pct = Math.max(0, Math.min(100, progress));
@@ -6196,7 +6199,7 @@ function syncWordAlignButtonState() {
       spokenWords >= 2 && Boolean(mediaPath) && agentConnected && !opRunning;
     btnWordValleyAlign.disabled = !valleyOk;
     btnWordValleyAlign.title = !agentConnected
-      ? MSG_SUBTITLE_NEED_APP
+      ? MSG_SUBTITLE_NEED_APP()
       : spokenWords < 2
         ? "타이밍 맞출 말소리 단어가 2개 이상 필요합니다"
         : !mediaPath
@@ -6276,9 +6279,10 @@ function setWordAlignLoading(active, { title, step, message, progress, showKiwiL
     wordAlignLoading.hidden = false;
     wordAlignLoading.classList.add("is-active");
     wordAlignLoading.setAttribute("aria-hidden", "false");
-    if (title && wordAlignLoadingTitle) wordAlignLoadingTitle.textContent = title;
-    if (wordAlignLoadingStep) wordAlignLoadingStep.textContent = step || "";
-    if (message && wordAlignLoadingMessage) wordAlignLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && wordAlignLoadingTitle) wordAlignLoadingTitle.textContent = agentText(title) || title;
+    if (wordAlignLoadingStep) wordAlignLoadingStep.textContent = agentText(step) || "";
+    if (message && wordAlignLoadingMessage) wordAlignLoadingMessage.textContent = agentText(message) || message;
     if (wordAlignLoadingBar && wordAlignLoadingTrack) {
       if (typeof progress === "number") {
         const pct = Math.max(0, Math.min(100, progress));
@@ -6308,8 +6312,8 @@ function wordAlignFriendlyError(err) {
   if (/kiwipiepy|Kiwi|_kiwipiepy|Prepare|DLL load failed|Permission denied|액세스가 거부/i.test(msg)) {
     return msg;
   }
-  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY;
-  if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) return MSG_SUBTITLE_NEED_APP;
+  if (/409|진행 중|busy/i.test(msg)) return MSG_SUBTITLE_JOB_BUSY();
+  if (/Failed to fetch|NetworkError|ERR_FAILED|Load failed/i.test(msg)) return MSG_SUBTITLE_NEED_APP();
   if (/연결.*차단|일시적으로 연결/i.test(msg)) {
     return "에이전트 통신이 일시적으로 제한되었습니다. 잠시 후 다시 시도하거나 에이전트를 재시작해 주세요.";
   }
@@ -6318,7 +6322,7 @@ function wordAlignFriendlyError(err) {
 
 async function onWordValleyAlignClick() {
   if (!agentConnected) {
-    alert(MSG_SUBTITLE_NEED_APP);
+    alert(MSG_SUBTITLE_NEED_APP());
     return;
   }
   if (wordAlignRunning) return;
@@ -6515,7 +6519,7 @@ async function runLineReflow() {
 async function onWordAutoAlignClick() {
   if (!isKoreanLanguageSelected(languageSelect?.value)) return;
   if (!agentConnected) {
-    alert(MSG_SUBTITLE_NEED_APP);
+    alert(MSG_SUBTITLE_NEED_APP());
     return;
   }
   if (wordAlignRunning) return;
@@ -6592,9 +6596,10 @@ function setExportLoading(active, { title, step, message, progress } = {}) {
     exportLoading.hidden = false;
     exportLoading.classList.add("is-active");
     exportLoading.setAttribute("aria-hidden", "false");
-    if (title && exportLoadingTitle) exportLoadingTitle.textContent = title;
-    if (exportLoadingStep) exportLoadingStep.textContent = step || "";
-    if (message && exportLoadingMessage) exportLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && exportLoadingTitle) exportLoadingTitle.textContent = agentText(title) || title;
+    if (exportLoadingStep) exportLoadingStep.textContent = agentText(step) || "";
+    if (message && exportLoadingMessage) exportLoadingMessage.textContent = agentText(message) || message;
     if (exportLoadingBar && exportLoadingTrack && typeof progress === "number") {
       const pct = Math.max(0, Math.min(100, progress));
       exportLoadingBar.style.width = `${pct}%`;
@@ -7290,7 +7295,7 @@ function buildSubtitleCardOpts(cues, { scrollActive = false } = {}) {
       if (subtitleHub.undo()) handleHubHistoryRestore();
     },
     onMicroRealign: async (cueIndex, wordIndex) => {
-      if (!agentConnected) throw new Error(MSG_SUBTITLE_NEED_APP);
+      if (!agentConnected) throw new Error(MSG_SUBTITLE_NEED_APP());
       const mediaPath = await resolveValleyAlignMediaPath();
       if (!mediaPath) throw new Error("미디어 경로가 없습니다.");
       const result = await runMicroRealign(subtitleHub, mediaPath, cueIndex, wordIndex);
@@ -7688,7 +7693,7 @@ async function loadProjectViaFilePicker() {
 
 async function onLoadProjectViaAgent() {
   if (!agentConnected) {
-    alert(MSG_SUBTITLE_NEED_APP);
+    alert(MSG_SUBTITLE_NEED_APP());
     return;
   }
   await beginProjectLoadUi("파일 선택", "프로젝트 파일 선택 중…");
@@ -7776,8 +7781,8 @@ function setComputeCapabilityBadge(data) {
   if (!agentConnected) {
     setComputeCapabilityPending(
       el,
-      "연산 장치 확인 불가",
-      "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.",
+      window.itzT("gpuUnknown", "연산 장치 확인 불가"),
+      window.itzT("gpuUnknownTitle", "에이전트에 연결되면 GPU/CPU 여부를 표시합니다."),
     );
     return;
   }
@@ -7786,7 +7791,7 @@ function setComputeCapabilityBadge(data) {
   const model = data?.model || {};
 
   if (!b.gpu_detected && !b.gpu_runtime_installed && !model.device) {
-    setComputeCapabilityPending(el, "연산 장치 확인 중…");
+    setComputeCapabilityPending(el, window.itzT("ui.gpuChecking", "연산 장치 확인 중…"));
     return;
   }
 
@@ -7794,21 +7799,21 @@ function setComputeCapabilityBadge(data) {
 
   if (device === "cuda" || b.gpu_runtime_installed) {
     el.classList.add("is-gpu");
-    el.textContent = "GPU · CUDA 사용 중";
-    el.title = "CUDA GPU로 자막 추출이 동작합니다.";
+    el.textContent = window.itzT("gpuCudaOk", "GPU · CUDA 사용 중");
+    el.title = window.itzT("gpuCudaOkTitle", "CUDA GPU로 자막 추출이 동작합니다.");
     return;
   }
 
   if (b.gpu_detected && !b.gpu_runtime_installed) {
     el.classList.add("is-warn");
-    el.textContent = "GPU 감지됨 · CUDA 미설치";
-    el.title = "NVIDIA GPU가 있습니다. 환경 준비에서 CUDA DLL을 설치하면 GPU를 사용할 수 있습니다.";
+    el.textContent = window.itzT("gpuDetected", "GPU 감지됨 · CUDA 미설치");
+    el.title = window.itzT("gpuDetectedTitle", "NVIDIA GPU가 있습니다. 환경 준비에서 CUDA DLL을 설치하면 GPU를 사용할 수 있습니다.");
     return;
   }
 
   el.classList.add("is-cpu");
-  el.textContent = "CPU만 가능";
-  el.title = "NVIDIA GPU가 감지되지 않았습니다. CPU로 자막 추출이 동작합니다.";
+  el.textContent = window.itzT("cpuOnly", "CPU만 가능");
+  el.title = window.itzT("cpuOnlyTitle", "NVIDIA GPU가 감지되지 않았습니다. CPU로 자막 추출이 동작합니다.");
 }
 
 let gpuDialogShown = false;
@@ -8184,7 +8189,7 @@ async function ensurePrepared() {
       setSetupLoading(true, {
         title: "AI 환경 준비",
         step: "시작",
-        message: MSG_SUBTITLE_PREPARE,
+        message: MSG_SUBTITLE_PREPARE(),
         progress: 2,
       });
     }
@@ -8204,7 +8209,7 @@ async function ensurePrepared() {
     setSetupLoading(true, {
       title: resolvePrepareModalTitle(prepareStatus?.step, prepareStatus?.detail, prepareStatus?.phase),
       step: prepareStatus?.step || "진행 중",
-      message: prepareStatus?.detail || prepareStatus?.message || MSG_SUBTITLE_PREPARE,
+      message: prepareStatus?.detail || prepareStatus?.message || MSG_SUBTITLE_PREPARE(),
       progress: typeof prepareStatus?.progress === "number" ? prepareStatus.progress : 2,
     });
   }
@@ -9424,7 +9429,7 @@ async function updatePreviewInner(videoPath, opts = {}) {
     previewBridge.clearMedia();
     if (previewEmpty) {
       previewEmpty.hidden = false;
-      previewEmpty.textContent = "영상·오디오 파일을 선택하세요.";
+      previewEmpty.textContent = window.itzT("previewEmpty", "영상·오디오 파일을 선택하세요.");
     }
     layoutPreviewMediaFrame();
     updatePreviewOverlay();
@@ -9440,7 +9445,7 @@ async function updatePreviewInner(videoPath, opts = {}) {
     if (!useTranscribeShell) setPreviewMediaLoading(false);
     if (previewEmpty) {
       previewEmpty.hidden = false;
-      previewEmpty.textContent = "미리보기 준비 실패 — 찾아보기로 영상을 다시 선택하세요.";
+      previewEmpty.textContent = window.itzT("previewFail", "미리보기 준비 실패 — 찾아보기로 영상을 다시 선택하세요.");
     }
     return;
   }
@@ -9449,7 +9454,7 @@ async function updatePreviewInner(videoPath, opts = {}) {
   previewMediaDirectUrl = `post:${TOOL_PREFIX}:${p}`;
   if (previewEmpty) {
     previewEmpty.hidden = false;
-    previewEmpty.textContent = "미디어 불러오는 중…";
+    previewEmpty.textContent = window.itzT("previewLoading", "미디어 불러오는 중…");
   }
 
   if (useTranscribeShell) {
@@ -9602,10 +9607,11 @@ function setPickBusy(busy) {
   if (btnPick) {
     btnPick.disabled = busy;
     if (busy) {
-      savedPickBtnLabel = btnPick.textContent || "찾아보기";
-      btnPick.textContent = "파일 선택 중…";
+      btnPick.setAttribute("data-i18n-busy", "pick");
+      btnPick.textContent = window.itzT("pickBusy", "파일 선택 중…");
     } else {
-      btnPick.textContent = savedPickBtnLabel || "찾아보기";
+      btnPick.removeAttribute("data-i18n-busy");
+      btnPick.textContent = window.itzT("browse", "찾아보기");
     }
   }
 }
@@ -10229,10 +10235,10 @@ const connectionMonitor = startConnectionMonitor({
     if (connected && !apiReady && !longOp) {
       const pendingLabel =
         fastapiState === "failed"
-          ? "API 시작 실패"
+          ? window.itzT("conn.apiFailed", "API 시작 실패")
           : fastapiState === "warming"
-            ? "API 로딩 중…"
-            : "API 준비 중…";
+            ? window.itzT("conn.apiLoading", "API 로딩 중…")
+            : window.itzT("conn.apiPrep", "API 준비 중…");
       const pendingTitle = fastapiError
         ? fastapiError
         : fastapiState === "failed"
@@ -10242,8 +10248,8 @@ const connectionMonitor = startConnectionMonitor({
     } else if (!connected) {
       setComputeCapabilityPending(
         computeEl,
-        "연산 장치 확인 불가",
-        "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.",
+        window.itzT("gpuUnknown", "연산 장치 확인 불가"),
+        window.itzT("gpuUnknownTitle", "에이전트에 연결되면 GPU/CPU 여부를 표시합니다."),
       );
     }
     if (!agentConnected) {

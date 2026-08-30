@@ -7,7 +7,7 @@
   <meta charset="UTF-8">
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
 
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
 
@@ -137,17 +137,17 @@
 
           <div class="path-input-group">
 
-            <label for="audio-path">오디오 파일 경로</label>
+            <label for="audio-path" data-i18n="pathLabel">오디오 파일 경로</label>
 
-            <p class="path-hint" id="path-hint">오디오를 선택한 뒤 분석하기를 누르면 MR·보컬을 분리합니다.</p>
+            <p class="path-hint" id="path-hint" data-i18n="pathHint">오디오를 선택한 뒤 분석하기를 누르면 MR·보컬을 분리합니다.</p>
 
             <div class="path-row">
 
-              <input type="text" id="audio-path" autocomplete="off" spellcheck="false" placeholder="파일 경로">
+              <input type="text" id="audio-path" autocomplete="off" spellcheck="false" placeholder="파일 경로" data-i18n-placeholder="ui.pathPh">
 
-              <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
 
-              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+              <button type="button" id="btn-new-job" class="btn-new-job" data-i18n="ui.newJob">새 작업 시작</button>
 
             </div>
 
@@ -167,9 +167,9 @@
 
                 <div class="option-card">
 
-                  <label for="output-format">출력 포맷 (MR 다운로드)</label>
+                  <label for="output-format" data-i18n="outputMr">출력 포맷 (MR 다운로드)</label>
 
-                  <p class="option-hint">WAV는 무손실, MP3·FLAC은 FFmpeg로 변환합니다.</p>
+                  <p class="option-hint" data-i18n="fmtHint">WAV는 무손실, MP3·FLAC은 FFmpeg로 변환합니다.</p>
 
                   <select id="output-format" class="option-select">
 
@@ -185,13 +185,13 @@
 
                 <div class="option-card">
 
-                  <label for="device-select">실행 장치</label>
+                  <label for="device-select" data-i18n="ui.device">실행 장치</label>
 
-                  <p class="option-hint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
+                  <p class="option-hint" data-i18n="devHint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
 
                   <select id="device-select" class="option-select">
 
-                    <option value="auto">자동 (권장)</option>
+                    <option value="auto" data-i18n="ui.deviceAuto">자동 (권장)</option>
 
                     <option value="cuda">CUDA (GPU)</option>
 
@@ -207,13 +207,13 @@
 
             <aside class="media-summary-panel" id="job-summary-panel" aria-label="작업 요약">
 
-              <h4 class="media-summary-title">작업 상태</h4>
+              <h4 class="media-summary-title" data-i18n="ui.jobStatus">작업 상태</h4>
 
               <dl class="media-summary-list">
 
                 <div class="media-summary-item">
 
-                  <dt>준비</dt>
+                  <dt data-i18n="dtReady">준비</dt>
 
                   <dd id="summary-model-ready">확인 중</dd>
 
@@ -221,15 +221,15 @@
 
                 <div class="media-summary-item">
 
-                  <dt>스템</dt>
+                  <dt data-i18n="dtStem">스템</dt>
 
-                  <dd id="summary-stems">MR · 보컬</dd>
+                  <dd id="summary-stems" data-i18n="stemsBoth">MR · 보컬</dd>
 
                 </div>
 
                 <div class="media-summary-item">
 
-                  <dt>포맷</dt>
+                  <dt data-i18n="dtFormat">포맷</dt>
 
                   <dd id="summary-format">WAV</dd>
 
@@ -245,7 +245,7 @@
 
 
 
-        <section class="dual-waveform-section" id="dual-waveform-section" aria-label="오디오 파형 및 미리듣기">
+        <section class="dual-waveform-section" id="dual-waveform-section" aria-label="오디오 파형 및 미리듣기" data-i18n-aria="waveAria">
 
           <div class="dual-waveform-stack" id="dual-waveform-stack">
 
@@ -259,15 +259,15 @@
 
               <div class="stem-side">
 
-                <span class="stem-label">음악</span>
+                <span class="stem-label" data-i18n="stemMusic">음악</span>
 
-                <input type="range" class="vol-slider" id="vol-music" min="0" max="100" value="100" aria-label="음악 볼륨">
+                <input type="range" class="vol-slider" id="vol-music" min="0" max="100" value="100" aria-label="음악 볼륨" data-i18n-aria="musicVol">
 
               </div>
 
               <div class="stem-wave-column">
 
-                <span class="stem-file" id="music-file-label">MR (분리 대기)</span>
+                <span class="stem-file" id="music-file-label" data-i18n="musicWait">MR (분리 대기)</span>
 
                 <canvas id="wave-music" class="stem-canvas" height="132" aria-label="MR 파형"></canvas>
 
@@ -279,15 +279,15 @@
 
               <div class="stem-side">
 
-                <span class="stem-label">보컬</span>
+                <span class="stem-label" data-i18n="stemVocal">보컬</span>
 
-                <input type="range" class="vol-slider" id="vol-vocal" min="0" max="100" value="0" aria-label="보컬 볼륨">
+                <input type="range" class="vol-slider" id="vol-vocal" min="0" max="100" value="0" aria-label="보컬 볼륨" data-i18n-aria="vocalVol">
 
               </div>
 
               <div class="stem-wave-column">
 
-                <span class="stem-file" id="vocal-file-label">보컬 (분리 대기)</span>
+                <span class="stem-file" id="vocal-file-label" data-i18n="vocalWait">보컬 (분리 대기)</span>
 
                 <canvas id="wave-vocal" class="stem-canvas" height="132" aria-label="보컬 파형"></canvas>
 
@@ -307,7 +307,7 @@
 
             <span id="time-total" class="transport-time">0:00.0</span>
 
-            <span class="transport-hint">파형 클릭으로 이동 · 보컬 볼륨 0이면 MR만 재생</span>
+            <span class="transport-hint" data-i18n="transportHint">파형 클릭으로 이동 · 보컬 볼륨 0이면 MR만 재생</span>
 
           </div>
 
@@ -317,9 +317,9 @@
 
               <div class="vocal-task-loading__spinner" aria-hidden="true"></div>
 
-              <p class="vocal-task-loading__title" id="separation-loading-title">보컬·MR 분리</p>
+              <p class="vocal-task-loading__title" id="separation-loading-title" data-i18n="sepTitle">보컬·MR 분리</p>
 
-              <p class="vocal-task-loading__step" id="separation-loading-step">Demucs AI 분리 준비 중…</p>
+              <p class="vocal-task-loading__step" id="separation-loading-step" data-i18n="sepPrepStep">Demucs AI 분리 준비 중…</p>
 
               <div
                 class="vocal-task-loading__track"
@@ -337,7 +337,7 @@
 
               <p class="vocal-task-loading__percent" id="separation-loading-percent">0%</p>
 
-              <p class="vocal-task-loading__message" id="separation-loading-message">MR·보컬 스템을 생성하고 있습니다.</p>
+              <p class="vocal-task-loading__message" id="separation-loading-message" data-i18n="sepPrepMsg">MR·보컬 스템을 생성하고 있습니다.</p>
 
             </div>
 
@@ -353,11 +353,11 @@
 
             <div class="vocal-setup-loading__spinner" aria-hidden="true"></div>
 
-            <p class="vocal-setup-loading__title" id="setup-loading-title">AI 환경 준비 중</p>
+            <p class="vocal-setup-loading__title" id="setup-loading-title" data-i18n="setupTitle">AI 환경 준비 중</p>
 
             <p class="vocal-setup-loading__step" id="setup-loading-step"></p>
 
-            <p class="vocal-setup-loading__message" id="setup-loading-message">Demucs·PyTorch를 설치하고 있습니다.</p>
+            <p class="vocal-setup-loading__message" id="setup-loading-message" data-i18n="setupMsg">Demucs·PyTorch를 설치하고 있습니다.</p>
 
             <div
               class="vocal-setup-loading__track"
@@ -382,11 +382,11 @@
 
       <div class="action-center">
 
-        <button id="btn-start-separation" type="button" class="btn-main" disabled>분석하기</button>
+        <button id="btn-start-separation" type="button" class="btn-main" disabled data-i18n="analyze">분석하기</button>
 
         <div class="export-block">
           <a href="download.html" id="export-link" class="btn-export is-disabled" role="button">
-            <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
+            <span class="icon" aria-hidden="true">📥</span> <span data-i18n="download">결과 다운로드</span>
           </a>
         </div>
 
@@ -436,10 +436,10 @@
 
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=41"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=49"></script>
 
 </body>
 

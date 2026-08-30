@@ -512,6 +512,10 @@ const I18N = {
 let locale = "ko";
 
 export function detectLocale() {
+  if (window.ITZ_I18N && typeof window.ITZ_I18N.getLang === "function") {
+    const shared = window.ITZ_I18N.getLang();
+    if (I18N[shared]) return shared;
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && I18N[saved]) return saved;
@@ -550,11 +554,6 @@ export function t(key, vars) {
 export function applyI18n(next) {
   if (next && I18N[next]) {
     locale = next;
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
   }
   document.documentElement.lang = locale === "zh" ? "zh-CN" : locale;
   document.title = t("title");

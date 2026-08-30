@@ -6,5 +6,49 @@
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
+
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
+  # 관리자 경로는 언어 prefix 없음
+  RewriteRule ^admin(/|$) - [L]
+
+  # /ko/... → /kr/... (공개 한국어 prefix는 kr)
+  RewriteRule ^ko(?:/(.*))?$ /kr/$1 [R=301,L]
+
+  # 구 URL ?hl= → /en/ /ja/ /zh/ /kr/
+  RewriteCond %{REQUEST_URI} !^/admin [NC]
+  RewriteCond %{QUERY_STRING} (^|&)hl=en(&|$) [NC]
+  RewriteCond %{REQUEST_URI} !^/en(/|$) [NC]
+  RewriteRule ^(?:(?:kr|ko|en|ja|zh)/)?(.*)$ /en/$1? [R=301,L]
+
+  RewriteCond %{REQUEST_URI} !^/admin [NC]
+  RewriteCond %{QUERY_STRING} (^|&)hl=ja(&|$) [NC]
+  RewriteCond %{REQUEST_URI} !^/ja(/|$) [NC]
+  RewriteRule ^(?:(?:kr|ko|en|ja|zh)/)?(.*)$ /ja/$1? [R=301,L]
+
+  RewriteCond %{REQUEST_URI} !^/admin [NC]
+  RewriteCond %{QUERY_STRING} (^|&)hl=zh(&|$) [NC]
+  RewriteCond %{REQUEST_URI} !^/zh(/|$) [NC]
+  RewriteRule ^(?:(?:kr|ko|en|ja|zh)/)?(.*)$ /zh/$1? [R=301,L]
+
+  RewriteCond %{REQUEST_URI} !^/admin [NC]
+  RewriteCond %{QUERY_STRING} (^|&)hl=(ko|kr)(&|$) [NC]
+  RewriteCond %{REQUEST_URI} !^/kr(/|$) [NC]
+  RewriteRule ^(?:(?:kr|ko|en|ja|zh)/)?(.*)$ /kr/$1? [R=301,L]
+
+  # prefix 없는 공개 HTML → /kr/... (파일 4벌 복사 없음)
+  RewriteCond %{REQUEST_URI} !^/(kr|ko|en|ja|zh)(/|$) [NC]
+  RewriteCond %{REQUEST_URI} !^/admin [NC]
+  RewriteCond %{REQUEST_URI} !^/(common|assets)/ [NC]
+  RewriteCond %{REQUEST_URI} !^/sitemap\.(xml|php)$ [NC]
+  RewriteCond %{REQUEST_URI} !\.(css|js|mjs|map|png|jpe?g|gif|webp|svg|ico|woff2?|json|txt|xml|php|webmanifest)$ [NC]
+  RewriteRule ^(.*)$ /kr/$1 [R=301,L]
+
+  # 디렉터리 슬래시는 언어 prefix를 유지한 채 붙임
+  RewriteCond %{DOCUMENT_ROOT}/$2 -d
+  RewriteRule ^(kr|en|ja|zh)/(.+[^/])$ /$1/$2/ [R=301,L]
+
+  # 브라우저 URL은 /en/vocal-remover/ 그대로, 실제 파일은 prefix 제거
+  RewriteRule ^(kr|en|ja|zh)/?$ /index.html [L]
+  RewriteRule ^(kr|en|ja|zh)/(.*)$ $2 [L]
 </IfModule>

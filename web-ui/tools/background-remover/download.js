@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws3";
+import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws4";
 import { showAdSense } from "../common/adsense.js?v=4";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
@@ -96,25 +96,25 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
 async function runDownload(filePath, label) {
   const ok = await ensureAgentConnected();
   if (!ok) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     return;
   }
   clearCountdown();
   if (elSpinner) elSpinner.classList.add("is-hidden");
   openDownload(getDownloadUrl(filePath));
-  setStatus(`${label} 다운로드가 시작되었습니다.`, "ok");
+  setStatus(window.ITZ_I18N?.tf?.("dl.startedNamed", { label }) || `${label} ${window.itzT("dl.started", "다운로드가 시작되었습니다.")}`, "ok");
 }
 
 function startCountdown(cutoutPath) {
   countdownLeft = AUTO_START_SEC;
-  setStatus(`${AUTO_START_SEC}초 후 투명 PNG를 자동 다운로드합니다…`);
+  setStatus(window.ITZ_I18N?.tf?.("dl.autoStart", { n: AUTO_START_SEC }) || `${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
   showCountdown(countdownLeft);
   countdownTimer = window.setInterval(() => {
     countdownLeft -= 1;
@@ -123,27 +123,30 @@ function startCountdown(cutoutPath) {
       return;
     }
     clearCountdown();
-    void runDownload(cutoutPath, "투명 PNG");
+    void runDownload(cutoutPath, "PNG");
   }, 1000);
 }
 
 async function initPage() {
-  document.title = "Background Remover · 다운로드";
+  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Background Remover" }) || window.itzT("dl.docTitle", "Background Remover · 다운로드");
+  const titleEl = document.getElementById("dl-title");
+  if (titleEl) titleEl.textContent = window.itzT("dlTitle", "배경 제거 결과 다운로드");
   const session = readSession();
   if (!session.cutoutPath) {
-    setStatus("다운로드할 결과가 없습니다. 편집 화면에서 먼저 배경 제거를 완료해 주세요.", "err");
-    if (elMeta) elMeta.textContent = "결과 파일 경로가 저장되지 않았습니다.";
+    setStatus(window.itzT("dl.noResult", "다운로드할 결과가 없습니다. 편집 화면에서 먼저 배경 제거를 완료해 주세요."), "err");
+    if (elMeta) elMeta.textContent = window.itzT("dl.noPath", "결과 파일 경로가 저장되지 않았습니다.");
     return;
   }
   if (elMeta) {
+    const out = window.ITZ_I18N?.tf?.("dl.output", { label: "PNG" }) || "출력: 투명 PNG + 마스크";
     elMeta.textContent = session.source
-      ? `원본: ${session.source} · 출력: 투명 PNG + 마스크`
-      : "출력: 투명 PNG + 마스크";
+      ? `${window.ITZ_I18N?.tf?.("dl.source", { name: session.source }) || `원본: ${session.source}`} · ${out}`
+      : out;
   }
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnCutout) elBtnCutout.disabled = false;
     if (elBtnMask) elBtnMask.disabled = !session.maskPath;
     return;
@@ -158,14 +161,14 @@ elBtnCutout?.addEventListener("click", () => {
   const { cutoutPath } = readSession();
   if (!cutoutPath) return;
   clearCountdown();
-  void runDownload(cutoutPath, "투명 PNG");
+  void runDownload(cutoutPath, "PNG");
 });
 
 elBtnMask?.addEventListener("click", () => {
   const { maskPath } = readSession();
   if (!maskPath) return;
   clearCountdown();
-  void runDownload(maskPath, "마스크");
+  void runDownload(maskPath, window.itzT("mask", "마스크"));
 });
 
 elBtnBack?.addEventListener("click", (ev) => {

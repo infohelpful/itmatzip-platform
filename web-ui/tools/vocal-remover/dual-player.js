@@ -40,6 +40,29 @@ const WAVEFORM_WIDTH_MAX = 34000;
 
 
 
+function itzT(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+
+function itzTf(key, fallback, vars) {
+  try {
+    const api = window.ITZ_I18N;
+    if (api && typeof api.tf === "function") {
+      const v = api.tf(key, vars);
+      if (v && v !== key) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  let s = fallback;
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = String(s).split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
+
 function formatClock(sec) {
 
   if (!Number.isFinite(sec) || sec < 0) return "0:00.0";
@@ -121,6 +144,25 @@ export function createVocalDualPlayer(deps) {
   let vocalsPath = "";
 
   let hasStems = false;
+  let lastPickBase = "";
+  let labelPhase = "wait";
+
+  function applyStemLabels() {
+    const base = lastPickBase;
+    if (labelPhase === "done") {
+      if (labelMusic) labelMusic.textContent = base ? itzTf("musicDoneNamed", `${base} · MR`, { name: base }) : "MR";
+      if (labelVocal) labelVocal.textContent = base ? itzTf("vocalDoneNamed", `${base} · 보컬`, { name: base }) : itzT("stemVocal", "보컬");
+      return;
+    }
+    if (labelPhase === "separating") {
+      if (labelMusic) labelMusic.textContent = base ? itzTf("musicSepNamed", `${base} · MR (분리 중)`, { name: base }) : itzT("musicWait", "MR (분리 대기)");
+      if (labelVocal) labelVocal.textContent = base ? itzTf("vocalSepNamed", `${base} · 보컬 (분리 중)`, { name: base }) : itzT("vocalWait", "보컬 (분리 대기)");
+      return;
+    }
+    if (labelMusic) labelMusic.textContent = base ? itzTf("musicWaitNamed", `${base} · MR (분리 대기)`, { name: base }) : itzT("musicWait", "MR (분리 대기)");
+    if (labelVocal) labelVocal.textContent = base ? itzTf("vocalWaitNamed", `${base} · 보컬 (분리 대기)`, { name: base }) : itzT("vocalWait", "보컬 (분리 대기)");
+  }
+
 
 
 
@@ -619,10 +661,9 @@ export function createVocalDualPlayer(deps) {
 
 
     const base = filePath.split(/[/\\]/).pop() || filePath;
-
-    if (labelMusic) labelMusic.textContent = base ? `${base} · MR (분리 대기)` : "MR (분리 대기)";
-
-    if (labelVocal) labelVocal.textContent = base ? `${base} · 보컬 (분리 대기)` : "보컬 (분리 대기)";
+    lastPickBase = base;
+    labelPhase = "wait";
+    applyStemLabels();
 
     if (timeTotal) timeTotal.textContent = "0:00.0";
 
@@ -643,10 +684,9 @@ export function createVocalDualPlayer(deps) {
     prepareForFilePick(filePath);
 
     const base = filePath.split(/[/\\]/).pop() || filePath;
-
-    if (base && labelMusic) labelMusic.textContent = `${base} · MR (분리 중)`;
-
-    if (base && labelVocal) labelVocal.textContent = `${base} · 보컬 (분리 중)`;
+    lastPickBase = base;
+    labelPhase = "separating";
+    applyStemLabels();
 
   }
 
@@ -673,10 +713,9 @@ export function createVocalDualPlayer(deps) {
 
 
     const base = (payload.original_path || instrumentalPath).split(/[/\\]/).pop() || "";
-
-    if (labelMusic) labelMusic.textContent = `${base} · MR`;
-
-    if (labelVocal) labelVocal.textContent = `${base} · 보컬`;
+    lastPickBase = base;
+    labelPhase = "done";
+    applyStemLabels();
 
 
 
@@ -742,8 +781,9 @@ export function createVocalDualPlayer(deps) {
 
 
   setSectionVisible(true);
-  if (labelMusic) labelMusic.textContent = "MR (분리 대기)";
-  if (labelVocal) labelVocal.textContent = "보컬 (분리 대기)";
+  lastPickBase = "";
+  labelPhase = "wait";
+  applyStemLabels();
   resetVolumes();
   requestAnimationFrame(() => redrawAll());
 
@@ -756,6 +796,8 @@ export function createVocalDualPlayer(deps) {
     prepareForSeparation,
 
     onSeparationComplete,
+
+    applyLang: applyStemLabels,
 
     destroy() {
 

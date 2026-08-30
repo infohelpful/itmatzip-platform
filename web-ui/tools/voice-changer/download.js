@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws3";
+import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws4";
 import { showAdSense } from "../common/adsense.js?v=4";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
@@ -95,25 +95,25 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
 async function runDownload(filePath, label) {
   const ok = await ensureAgentConnected();
   if (!ok) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     return;
   }
   clearCountdown();
   if (elSpinner) elSpinner.classList.add("is-hidden");
   openDownload(getDownloadUrl(filePath));
-  setStatus(`${label} 다운로드가 시작되었습니다.`, "ok");
+  setStatus(window.ITZ_I18N?.tf?.("dl.startedNamed", { label }) || `${label} ${window.itzT("dl.started", "다운로드가 시작되었습니다.")}`, "ok");
 }
 
 function startCountdown(outputPath) {
   countdownLeft = AUTO_START_SEC;
-  setStatus(`${AUTO_START_SEC}초 후 변환 음성을 자동 다운로드합니다…`);
+  setStatus(window.ITZ_I18N?.tf?.("dl.autoStart", { n: AUTO_START_SEC }) || `${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
   showCountdown(countdownLeft);
   countdownTimer = window.setInterval(() => {
     countdownLeft -= 1;
@@ -122,28 +122,30 @@ function startCountdown(outputPath) {
       return;
     }
     clearCountdown();
-    void runDownload(outputPath, "변환 음성");
+    void runDownload(outputPath, window.itzT("resultTitle", "변환 음성"));
   }, 1000);
 }
 
 async function initPage() {
-  document.title = "Voice Changer · 다운로드";
+  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Voice Changer" }) || window.itzT("dl.docTitle", "Voice Changer · 다운로드");
+  const titleEl = document.getElementById("dl-title");
+  if (titleEl) titleEl.textContent = window.itzT("dlTitle", "변환 결과 다운로드");
   const session = readSession();
   if (!session.outputPath) {
-    setStatus("다운로드할 결과가 없습니다. 편집 화면에서 먼저 변환을 완료해 주세요.", "err");
-    if (elMeta) elMeta.textContent = "결과 파일 경로가 저장되지 않았습니다.";
+    setStatus(window.itzT("dl.noResult", "다운로드할 결과가 없습니다. 편집 화면에서 먼저 변환을 완료해 주세요."), "err");
+    if (elMeta) elMeta.textContent = window.itzT("dl.noPath", "결과 파일 경로가 저장되지 않았습니다.");
     return;
   }
   if (elMeta) {
     const parts = [];
-    if (session.source) parts.push(`원본: ${session.source}`);
-    parts.push(`포맷: ${session.format}`);
+    if (session.source) parts.push(window.ITZ_I18N?.tf?.("dl.source", { name: session.source }) || `원본: ${session.source}`);
+    parts.push(window.ITZ_I18N?.tf?.("dl.formatLine", { fmt: session.format }) || `포맷: ${session.format}`);
     elMeta.textContent = parts.join(" · ");
   }
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnOutput) elBtnOutput.disabled = false;
     return;
   }
@@ -156,7 +158,7 @@ elBtnOutput?.addEventListener("click", () => {
   const { outputPath } = readSession();
   if (!outputPath) return;
   clearCountdown();
-  void runDownload(outputPath, "변환 음성");
+  void runDownload(outputPath, window.itzT("resultTitle", "변환 음성"));
 });
 
 elBtnBack?.addEventListener("click", (ev) => {

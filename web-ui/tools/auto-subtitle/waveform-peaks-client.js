@@ -2,7 +2,7 @@
  * 웹용 파형 peaks 로드 — audiowaveform(있을 때) → pcm_columns 폴백.
  */
 
-import { requestAgent } from "../common/bridge.js?v=as9";
+import { requestAgent } from "../common/bridge.js?v=as10";
 import { resolvePeaksTimelineMetrics } from "./peaks-metrics.js?v=30";
 
 const TOOL_PREFIX = "/api/tools/auto-subtitle";

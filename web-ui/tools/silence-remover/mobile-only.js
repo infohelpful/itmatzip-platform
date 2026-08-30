@@ -81,9 +81,38 @@
     return mobileEnabledIds(cfg).indexOf(toolId) !== -1;
   }
 
+  function itzT(key, fallback) {
+    try {
+      var v = window.ITZ_I18N && window.ITZ_I18N.t && window.ITZ_I18N.t(key);
+      if (v && v !== key) return v;
+    } catch (e) {
+      /* ignore */
+    }
+    return fallback;
+  }
+
+  function applyMobileCopy(overlay) {
+    if (!overlay) overlay = document.getElementById("mobile-only-overlay");
+    if (!overlay) return;
+    var title = overlay.querySelector(".mobile-only-title") || overlay.querySelector("#mobile-only-title");
+    var desc = overlay.querySelector(".mobile-only-desc");
+    if (title) title.textContent = itzT("mobileTitle", "PC에서만 이용할 수 있습니다");
+    if (desc) {
+      var html = itzT(
+        "mobileDesc",
+        "이 도구는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.",
+      );
+      if (String(html).indexOf("<") !== -1) desc.innerHTML = html;
+      else desc.textContent = html;
+    }
+  }
+
   function ensureOverlay() {
     let overlay = document.getElementById("mobile-only-overlay");
-    if (overlay) return overlay;
+    if (overlay) {
+      applyMobileCopy(overlay);
+      return overlay;
+    }
     if (!document.getElementById("itz-mobile-only-fallback-css")) {
       const style = document.createElement("style");
       style.id = "itz-mobile-only-fallback-css";
@@ -101,13 +130,15 @@
     overlay.hidden = true;
     overlay.setAttribute("role", "alertdialog");
     overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-labelledby", "mobile-only-title");
     overlay.innerHTML =
       '<div class="mobile-only-card">' +
       '<div class="mobile-only-icon" aria-hidden="true">🖥️</div>' +
-      '<h2 class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>' +
+      '<h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>' +
       '<p class="mobile-only-desc">이 도구는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>' +
       "</div>";
     document.body.appendChild(overlay);
+    applyMobileCopy(overlay);
     return overlay;
   }
 
@@ -117,6 +148,7 @@
     overlay.classList.add("is-open");
     overlay.classList.remove("is-hidden");
     document.body.classList.add("mobile-only-active");
+    applyMobileCopy(overlay);
   }
 
   function hideMobileOnlyOverlay() {
@@ -200,4 +232,7 @@
   } else {
     init();
   }
+  document.addEventListener("itz:lang-change", function () {
+    applyMobileCopy();
+  });
 })();

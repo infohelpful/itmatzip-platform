@@ -10,10 +10,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 configureBridge({
@@ -112,7 +112,9 @@ function setExportEnabled(enabled) {
 }
 
 function variantLabel(value) {
-  return value === "hr" ? "고해상도 (2048)" : "일반 (1024)";
+  return value === "hr"
+    ? window.itzT("variantHrShort", "고해상도 (2048)")
+    : window.itzT("variantShort", "일반 (1024)");
 }
 
 function updateSummary() {
@@ -120,18 +122,21 @@ function updateSummary() {
   if (els.summaryDevice) {
     const device = els.device?.value || "auto";
     els.summaryDevice.textContent =
-      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : "자동";
+      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : window.itzT("ui.auto", "자동");
   }
   if (els.summaryOptions) {
     const parts = [];
     if (els.useHalf?.checked) parts.push("fp16");
     const feather = Number(els.feather?.value || 0);
-    if (feather > 0) parts.push(`블러 ${feather}`);
+    if (feather > 0) parts.push(window.ITZ_I18N?.tf?.("optBlur", { n: feather }) || `블러 ${feather}`);
     const threshold = Number(els.threshold?.value || 0) / 100;
-    if (threshold > 0) parts.push(`임계 ${threshold.toFixed(2)}`);
+    if (threshold > 0) {
+      const n = threshold.toFixed(2);
+      parts.push(window.ITZ_I18N?.tf?.("optThresh", { n }) || `임계 ${n}`);
+    }
     const maxSize = Number(els.maxSize?.value || 0);
     if (maxSize > 0) parts.push(`${maxSize}px`);
-    els.summaryOptions.textContent = parts.join(" · ") || "기본";
+    els.summaryOptions.textContent = parts.join(" · ") || window.itzT("ui.default", "기본");
   }
 }
 
@@ -166,8 +171,9 @@ function setBusy(kind, visible, pct = 0, step = "", message = "") {
   // CSS 는 .is-active 없이는 display:none 이라 hidden 속성만 바꿔도 보이지 않는다.
   overlay.classList.toggle("is-active", visible);
   overlay.setAttribute("aria-hidden", visible ? "false" : "true");
-  if (stepEl) stepEl.textContent = step || "";
-  if (msgEl) msgEl.textContent = message || (visible ? "처리 중…" : "");
+  const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+  if (stepEl) stepEl.textContent = agentText(step) || "";
+  if (msgEl) msgEl.textContent = agentText(message) || (visible ? window.itzT("ui.processing", "처리 중…") : "");
   const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
   if (bar) bar.style.width = `${clamped}%`;
   if (track) track.setAttribute("aria-valuenow", String(Math.round(clamped)));
@@ -264,7 +270,7 @@ async function fetchImageBlobUrlFromAgentPath(path, directUrl = "") {
       lastErr = err;
     }
   }
-  throw lastErr || new Error("미리보기 로드 실패");
+  throw lastErr || new Error(window.itzT("previewLoadFail", "미리보기 로드 실패"));
 }
 
 async function loadImageInto(imgEl, path, directUrl = "") {
@@ -286,7 +292,10 @@ function showSourcePreview() {
   els.previewSingle.hidden = false;
   els.compare.hidden = true;
   if (els.compareHint) els.compareHint.hidden = true;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 미리보기";
+  if (els.previewHeading) {
+    els.previewHeading.removeAttribute("data-preview-mode");
+    els.previewHeading.textContent = window.itzT("ui.previewOriginal", "원본 미리보기");
+  }
 }
 
 function showComparePreview() {
@@ -295,7 +304,10 @@ function showComparePreview() {
   els.previewSingle.hidden = true;
   els.compare.hidden = false;
   if (els.compareHint) els.compareHint.hidden = false;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 ↔ 결과 비교";
+  if (els.previewHeading) {
+    els.previewHeading.setAttribute("data-preview-mode", "compare");
+    els.previewHeading.textContent = window.itzT("ui.previewCompareSlider", "원본 ↔ 결과 비교");
+  }
   setCompareSplit(50);
 }
 
@@ -311,7 +323,10 @@ function persistDownloadSession() {
   sessionStorage.setItem(SS.editorPath, currentImagePath || "");
 }
 
+let lastReadinessData = null;
+
 function setComputeCapabilityBadge(data) {
+  lastReadinessData = data;
   if (!els.compute) return;
   const gpu = Boolean(data?.pytorch?.gpu_detected);
   const cuda = Boolean(data?.binaries?.cuda_available);
@@ -319,18 +334,20 @@ function setComputeCapabilityBadge(data) {
   els.compute.classList.remove("is-pending", "is-cpu", "is-gpu", "is-warn");
   if (cuda) {
     els.compute.classList.add("is-gpu");
-    els.compute.textContent = `GPU · CUDA${installed === "gpu" ? "" : " 준비됨"}`;
+    els.compute.textContent = installed === "gpu"
+      ? window.itzT("ui.gpuCuda", "GPU · CUDA")
+      : window.itzT("ui.gpuCudaReady", "GPU · CUDA 준비됨");
     els.compute.title = data?.pytorch?.torch_version
       ? `torch ${data.pytorch.torch_version}`
       : "";
   } else if (gpu) {
     els.compute.classList.add("is-warn");
-    els.compute.textContent = "GPU 감지 · CUDA 미사용";
-    els.compute.title = "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.";
+    els.compute.textContent = window.itzT("ui.gpuDetectNoCuda", "GPU 감지 · CUDA 미사용");
+    els.compute.title = window.itzT("ui.gpuCudaInstallHint", "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.");
   } else {
     els.compute.classList.add("is-cpu");
-    els.compute.textContent = "CPU";
-    els.compute.title = "NVIDIA GPU가 없으면 CPU로 처리됩니다.";
+    els.compute.textContent = window.itzT("ui.cpu", "CPU");
+    els.compute.title = window.itzT("ui.cpuNoNvidia", "NVIDIA GPU가 없으면 CPU로 처리됩니다.");
   }
 }
 
@@ -341,17 +358,19 @@ function updateBinReadiness(data) {
   toolReady = torch && pip && model;
   if (els.readiness) {
     if (toolReady) {
-      els.readiness.textContent = "Background Remover · 준비 완료";
+      els.readiness.textContent = window.itzT("readyOk", "Background Remover · 준비 완료");
     } else if (!torch) {
-      els.readiness.textContent = "Background Remover · PyTorch 설치 필요";
+      els.readiness.textContent = window.itzT("needTorch", "Background Remover · PyTorch 설치 필요");
     } else if (!pip) {
-      els.readiness.textContent = "Background Remover · 패키지 설치 필요";
+      els.readiness.textContent = window.itzT("needPkg", "Background Remover · 패키지 설치 필요");
     } else {
-      els.readiness.textContent = "Background Remover · 모델 다운로드 필요";
+      els.readiness.textContent = window.itzT("needModel", "Background Remover · 모델 다운로드 필요");
     }
   }
   if (els.summaryReady) {
-    els.summaryReady.textContent = toolReady ? "준비됨" : "미준비";
+    els.summaryReady.textContent = toolReady
+      ? window.itzT("ui.readyOk", "준비됨")
+      : window.itzT("ui.notReady", "미준비");
   }
 }
 
@@ -369,7 +388,7 @@ async function pollPrepareStatus() {
     setBusy("setup", true, pct, status?.step || "", status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "환경 준비 실패");
+      throw new Error(status?.message || window.itzT("ui.prepFail", "환경 준비 실패"));
     }
     await new Promise((r) => setTimeout(r, 600));
   }
@@ -378,7 +397,7 @@ async function pollPrepareStatus() {
 async function prepareModel({ force = false } = {}) {
   setAgentLongOperationActive(true);
   try {
-    setBusy("setup", true, 5, "설치 시작", "BiRefNet 환경을 준비합니다…");
+    setBusy("setup", true, 5, window.itzT("installStart", "설치 시작"), window.itzT("prepBiref", "BiRefNet 환경을 준비합니다…"));
     await requestAgent({
       method: "POST",
       path: `${API}/prepare${force ? "?force=true" : ""}`,
@@ -417,9 +436,9 @@ async function resumeRunningPrepare() {
 }
 
 function removePhaseLabel(phase) {
-  if (phase === "running") return "처리 중";
-  if (phase === "ready") return "완료";
-  if (phase === "failed") return "실패";
+  if (phase === "running") return window.itzT("phaseRun", "처리 중");
+  if (phase === "ready") return window.itzT("phaseDone", "완료");
+  if (phase === "failed") return window.itzT("phaseFail", "실패");
   return "";
 }
 
@@ -430,7 +449,7 @@ async function pollRemoveStatus() {
     setBusy("remove", true, pct, removePhaseLabel(status?.phase), status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "배경 제거 실패");
+      throw new Error(status?.message || window.itzT("removeFail", "배경 제거 실패"));
     }
     await new Promise((r) => setTimeout(r, 450));
   }
@@ -451,7 +470,7 @@ async function pickLocalImage() {
     path: AGENT_PICK_IMAGE,
   });
   const path = String(data?.path || "").trim();
-  if (!path) throw new Error("이미지를 선택하지 않았습니다.");
+  if (!path) throw new Error(window.itzT("noImagePick", "이미지를 선택하지 않았습니다."));
   currentImagePath = path;
   cutoutPath = "";
   maskPath = "";
@@ -485,7 +504,7 @@ async function adoptTypedImagePath() {
 
 async function runRemove() {
   if (!currentImagePath) {
-    alert("이미지를 먼저 선택하세요.");
+    alert(window.itzT("needImage", "이미지를 먼저 선택하세요."));
     return;
   }
   if (!agentOk) {
@@ -495,14 +514,14 @@ async function runRemove() {
   if (!toolReady) {
     await prepareModel();
     if (!toolReady) {
-      alert("환경 준비가 완료되지 않았습니다.");
+      alert(window.itzT("needPrep", "환경 준비가 완료되지 않았습니다."));
       return;
     }
   }
 
   setAgentLongOperationActive(true);
   try {
-    setBusy("remove", true, 3, "시작", "배경 제거를 시작합니다…");
+    setBusy("remove", true, 3, window.itzT("installStart", "시작"), window.itzT("removeStart", "배경 제거를 시작합니다…"));
     const body = {
       image_path: currentImagePath,
       variant: els.variant?.value || "general",
@@ -517,7 +536,7 @@ async function runRemove() {
     const status = await pollRemoveStatus();
     cutoutPath = String(status?.cutout_path || "");
     maskPath = String(status?.mask_path || "");
-    if (!cutoutPath) throw new Error("결과 경로가 없습니다.");
+    if (!cutoutPath) throw new Error(window.itzT("noResult", "결과 경로가 없습니다."));
     persistDownloadSession();
     setExportEnabled(true);
     showComparePreview();
@@ -541,7 +560,10 @@ async function resetEditor() {
   if (els.previewSingle) els.previewSingle.hidden = true;
   if (els.compare) els.compare.hidden = true;
   if (els.compareHint) els.compareHint.hidden = true;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 미리보기";
+  if (els.previewHeading) {
+    els.previewHeading.removeAttribute("data-preview-mode");
+    els.previewHeading.textContent = window.itzT("ui.previewOriginal", "원본 미리보기");
+  }
   sessionStorage.removeItem(SS.cutout);
   sessionStorage.removeItem(SS.mask);
   sessionStorage.removeItem(SS.original);
@@ -605,7 +627,21 @@ function wireControls() {
   });
 }
 
+function applyPendingHeaderI18n() {
+  if (els.compute && els.compute.classList.contains("is-pending")) {
+    els.compute.textContent = window.itzT("ui.checking", "확인 중…");
+  }
+  if (els.connection && /확인|Checking|確認|检查/.test(els.connection.textContent || "")) {
+    els.connection.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
+  }
+  if (!lastReadinessData) {
+    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "Background Remover · 환경 준비 대기");
+    if (els.summaryReady) els.summaryReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  }
+}
+
 async function boot() {
+  applyPendingHeaderI18n();
   initCompareSlider();
   wireControls();
   updateSummary();
@@ -622,7 +658,7 @@ async function boot() {
       void resumeRunningPrepare();
     } catch (err) {
       if (els.readiness) {
-        els.readiness.textContent = `준비 상태 확인 실패 · ${formatAgentConnectionError(err)}`;
+        els.readiness.textContent = (window.ITZ_I18N?.tf?.("readyCheckFail", { msg: formatAgentConnectionError(err) }) || `준비 상태 확인 실패 · ${formatAgentConnectionError(err)}`);
       }
     }
   } else {
@@ -643,5 +679,14 @@ async function boot() {
 
   await restoreEditorAfterDownload();
 }
+
+document.addEventListener("itz:lang-change", () => {
+  updateSummary();
+  applyPendingHeaderI18n();
+  if (lastReadinessData) {
+    setComputeCapabilityBadge(lastReadinessData);
+    updateBinReadiness(lastReadinessData);
+  }
+});
 
 void boot();

@@ -14,9 +14,44 @@ const mobileMenuOnlyEl = document.getElementById("hub-mobile-menu-only");
  * @param {import("./tools-registry.js").ToolEntry} tool
  * @param {string} q
  */
+function tx(key, fallback, vars) {
+  let text = fallback;
+  try {
+    if (window.ITZ_I18N && typeof window.ITZ_I18N.t === "function") {
+      const got = window.ITZ_I18N.t(key);
+      if (got && got !== key) text = got;
+    }
+  } catch {
+    /* ignore */
+  }
+  if (vars) {
+    for (const [name, value] of Object.entries(vars)) {
+      text = String(text).split(`{${name}}`).join(String(value));
+    }
+  }
+  return text;
+}
+
+function localizedTool(tool) {
+  const subtitle = tx(`tool.${tool.id}.subtitle`, tool.subtitle);
+  const description = tx(`tool.${tool.id}.description`, tool.description);
+  const extraTags = tx(`tool.${tool.id}.tags`, "");
+  return {
+    ...tool,
+    subtitle,
+    description,
+    tags: [...(tool.tags || []), ...String(extraTags).split(/\s+/).filter(Boolean)],
+  };
+}
+
+/**
+ * @param {import("./tools-registry.js").ToolEntry} tool
+ * @param {string} q
+ */
 function toolMatchesQuery(tool, q) {
   if (!q) return true;
-  const hay = [tool.title, tool.subtitle, tool.description, ...(tool.tags || [])]
+  const loc = localizedTool(tool);
+  const hay = [loc.title, loc.subtitle, loc.description, ...(loc.tags || [])]
     .join(" ")
     .toLowerCase();
   return hay.includes(q);
@@ -83,6 +118,7 @@ function isMobileLocked(tool) {
  * @param {import("./tools-registry.js").ToolEntry} tool
  */
 function renderCard(tool) {
+  tool = localizedTool(tool);
   const comingSoon = tool.available === false;
   const mobileLocked = !comingSoon && isMobileLocked(tool);
   const clickable = !comingSoon && !mobileLocked;
@@ -99,21 +135,25 @@ function renderCard(tool) {
 
   if (clickable) {
     tag.href = tool.href;
-    tag.setAttribute("aria-label", `${tool.title} 열기`);
+    tag.setAttribute("aria-label", tx("openAria", `${tool.title} 열기`, { title: tool.title }));
   } else {
     tag.setAttribute("aria-disabled", "true");
     if (mobileLocked) {
-      tag.setAttribute("aria-label", `${tool.title} — PC에서만 이용할 수 있습니다`);
+      tag.setAttribute("aria-label", tx("pcAria", `${tool.title} — PC에서만 이용할 수 있습니다`, { title: tool.title }));
     }
   }
 
-  const badgeText = comingSoon ? "준비 중" : mobileLocked ? "PC 전용" : tool.badge || "";
+  const badgeText = comingSoon
+    ? tx("badgeSoon", "준비 중")
+    : mobileLocked
+      ? tx("badgePc", "PC 전용")
+      : tool.badge || "";
   const badgeClass =
     "hub-card-badge" + (comingSoon || mobileLocked || !tool.badge ? " is-soon" : "");
 
-  let cta = "도구 열기";
-  if (comingSoon) cta = "곧 공개";
-  else if (mobileLocked) cta = "PC에서만 이용";
+  let cta = tx("ctaOpen", "도구 열기");
+  if (comingSoon) cta = tx("ctaSoon", "곧 공개");
+  else if (mobileLocked) cta = tx("ctaPc", "PC에서만 이용");
 
   tag.innerHTML = `
     ${badgeText ? `<span class="${badgeClass}">${escapeHtml(badgeText)}</span>` : ""}
@@ -155,10 +195,10 @@ function renderGrid() {
     const empty = document.createElement("p");
     empty.className = "hub-empty";
     empty.textContent = q
-      ? "검색 결과가 없습니다. 다른 키워드로 시도해 주세요."
+      ? tx("emptySearch", "검색 결과가 없습니다. 다른 키워드로 시도해 주세요.")
       : isMobileDashboard()
-        ? "모바일에서 이용할 수 있는 도구가 없습니다."
-        : "현재 공개된 도구가 없습니다.";
+        ? tx("emptyMobile", "모바일에서 이용할 수 있는 도구가 없습니다.")
+        : tx("emptyNone", "현재 공개된 도구가 없습니다.");
     gridEl.appendChild(empty);
   } else {
     for (const tool of list) {
@@ -169,8 +209,14 @@ function renderGrid() {
   if (countEl) {
     const usable = catalog.filter((t) => t.available !== false && !isMobileLocked(t)).length;
     countEl.textContent = q
-      ? `${list.length}개 표시 · 이용 가능 ${usable}개`
-      : `이용 가능 ${usable}개 · 전체 ${catalog.length}개`;
+      ? tx("countFiltered", `${list.length}개 표시 · 이용 가능 ${usable}개`, {
+          n: list.length,
+          usable,
+        })
+      : tx("countAll", `이용 가능 ${usable}개 · 전체 ${catalog.length}개`, {
+          usable,
+          total: catalog.length,
+        });
   }
 }
 
@@ -208,6 +254,8 @@ async function init() {
 
   void showAdSense("dashboardBanner", "#hub-ad-banner");
 }
+
+document.addEventListener("itz:lang-change", () => renderGrid());
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", init);

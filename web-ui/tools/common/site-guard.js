@@ -206,29 +206,40 @@
     return typeof navigator !== "undefined" && navigator.brave != null;
   }
 
+  function itzT(key, fallback) {
+    try {
+      const modal = window.ItzSiteModal;
+      if (typeof modal?.itzT === "function") return modal.itzT(key, fallback);
+      const v = window.ITZ_I18N && window.ITZ_I18N.t && window.ITZ_I18N.t(key);
+      if (v && v !== key) return v;
+    } catch {
+      /* ignore */
+    }
+    return fallback;
+  }
+
   function adBlockWallBodyHtml() {
     const brave = isBraveBrowserSync();
     const steps = brave
       ? `
-          <li>주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields(보호) 끔</strong></li>
-          <li>또는 Shields 켠 채 <strong>고급</strong> → 이 사이트 <strong>광고·추적 허용</strong></li>
-          <li><strong>F5</strong> 새로고침</li>
+          <li>${itzT("adblock.stepBrave1", "주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields(보호) 끔</strong>")}</li>
+          <li>${itzT("adblock.stepBrave2", "또는 Shields 켠 채 <strong>고급</strong> → 이 사이트 <strong>광고·추적 허용</strong>")}</li>
+          <li>${itzT("adblock.stepBrave3", "<strong>F5</strong> 새로고침")}</li>
         `
       : `
-          <li>광고 차단 <strong>확장</strong> → 이 사이트 <strong>허용</strong> 또는 <strong>일시 중지</strong></li>
-          <li><strong>F5</strong> 새로고침</li>
+          <li>${itzT("adblock.stepChrome1", "광고 차단 <strong>확장</strong> → 이 사이트 <strong>허용</strong> 또는 <strong>일시 중지</strong>")}</li>
+          <li>${itzT("adblock.stepChrome2", "<strong>F5</strong> 새로고침")}</li>
         `;
     return `
       <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">📢</p>
       <p class="itz-modal__msg">
-        이 사이트는 <strong>광고 수익</strong>으로 무료 운영됩니다.
-        지금 <strong>광고가 표시되지 않고</strong> 있습니다.
+        ${itzT("adblock.lead", "이 사이트는 <strong>광고 수익</strong>으로 무료 운영됩니다. 지금 <strong>광고가 표시되지 않고</strong> 있습니다.")}
       </p>
       <p class="itz-modal__msg itz-modal__sub">
-        PC 프로그램(에이전트) 연결 문제와는 <strong>별개</strong>입니다. 아래는 <strong>광고 표시</strong>만 위한 안내입니다.
+        ${itzT("adblock.sub", "PC 프로그램(에이전트) 연결 문제와는 <strong>별개</strong>입니다. 아래는 <strong>광고 표시</strong>만 위한 안내입니다.")}
       </p>
       <div style="text-align:left;background:#0d1117;border-radius:8px;padding:16px 20px;margin-top:1rem;font-size:0.88rem;color:#8b9cb8">
-        <p style="margin:0 0 8px;color:#e6edf7"><strong>광고 허용 방법</strong></p>
+        <p style="margin:0 0 8px;color:#e6edf7"><strong>${itzT("adblock.how", "광고 허용 방법")}</strong></p>
         <ol style="margin:0;padding-left:20px">${steps}</ol>
       </div>
     `;
@@ -309,12 +320,17 @@
     watchAdsenseSlot();
     startAdBlockDismissWatch();
 
+    const adBlockOptions = () => ({
+      title: braveAdBlockTitle(),
+      bodyHtml: adBlockWallBodyHtml(),
+      dialogKind: "ad-block",
+      buttons: [{ label: itzT("modal.reload", "새로고침"), primary: true, act: "reload" }],
+    });
+
     void modal
       .showSiteDialog({
-        title: braveAdBlockTitle(),
-        bodyHtml: adBlockWallBodyHtml(),
-        dialogKind: "ad-block",
-        buttons: [{ label: "새로고침", primary: true, act: "reload" }],
+        ...adBlockOptions(),
+        rebuild: adBlockOptions,
       })
       .then((act) => {
         if (act === "reload") location.reload();
@@ -323,8 +339,8 @@
 
   function braveAdBlockTitle() {
     return isBraveBrowserSync()
-      ? "광고가 차단되었습니다 (Brave Shields 등)"
-      : "광고가 차단되었습니다";
+      ? itzT("adblock.titleBrave", "광고가 차단되었습니다 (Brave Shields 등)")
+      : itzT("adblock.title", "광고가 차단되었습니다");
   }
 
   function hideAdBlockWall() {

@@ -2,7 +2,7 @@
  * Electron exportByFormat(video) 웹 대응 — 자막 캡처 + 단일 패스 FFmpeg 번인.
  */
 
-import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
+import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as10";
 import { buildOverlayCaptureSchedule, isProgramExportTimeAxis } from "../shared/overlay-capture-schedule.js?v=6";
 import {
   createOverlayTimingContext,

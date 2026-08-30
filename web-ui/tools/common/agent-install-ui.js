@@ -3,6 +3,8 @@
  * 다운로드 URL·버전은 agent-update-manifest.json 을 매번 조회합니다.
  */
 
+import { itzT, itzTf } from "./site-modal.js?v=sm4";
+
 /** @returns {boolean} */
 function isBraveBrowser() {
   return typeof navigator !== "undefined" && navigator.brave != null;
@@ -101,7 +103,9 @@ export async function getAgentDownloadHref() {
 export async function getAgentDownloadButtonLabel() {
   const manifest = await fetchAgentReleaseManifest();
   const v = String(manifest.version ?? "").trim();
-  return v ? `에이전트 다운로드 v${v}` : "에이전트 다운로드";
+  return v
+    ? itzTf("agent.downloadVer", `에이전트 다운로드 v${v}`, { v })
+    : itzT("agent.download", "에이전트 다운로드");
 }
 
 export function escHtml(s) {
@@ -138,45 +142,41 @@ export function buildAgentAccessBlockedDialogBodyHtml() {
   if (isBraveBrowser()) {
     return `
     <p class="itz-modal__msg">
-      광고 허용·Shields 조정을 했어도, <strong>PC 프로그램(에이전트)과의 연결</strong>은
-      여전히 막히고 있습니다.
+      ${itzT("agent.blockBrave1", "광고 허용·Shields 조정을 했어도, <strong>PC 프로그램(에이전트)과의 연결</strong>은 여전히 막히고 있습니다.")}
     </p>
     <p class="itz-modal__msg">
-      광고만 허용하는 설정으로는 <strong>에이전트 통신</strong>이 풀리지 않을 때가 많습니다.
-      <strong>Shields 끔</strong> + 광고 차단 <strong>확장 사용 끔</strong>이 필요합니다.
+      ${itzT("agent.blockBrave2", "광고만 허용하는 설정으로는 <strong>에이전트 통신</strong>이 풀리지 않을 때가 많습니다. <strong>Shields 끔</strong> + 광고 차단 <strong>확장 사용 끔</strong>이 필요합니다.")}
     </p>
     <ol class="itz-modal__steps">
-      <li>주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields 끔</strong></li>
-      <li>광고 차단 <strong>확장 아이콘</strong> 우클릭 → <strong>확장 프로그램 관리</strong> → <strong>사용 끔</strong></li>
-      <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
+      <li>${itzT("agent.blockBraveStep1", "주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields 끔</strong>")}</li>
+      <li>${itzT("agent.blockBraveStep2", "광고 차단 <strong>확장 아이콘</strong> 우클릭 → <strong>확장 프로그램 관리</strong> → <strong>사용 끔</strong>")}</li>
+      <li>${itzT("agent.blockBraveStep3", "<strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong>")}</li>
     </ol>
-    <p class="itz-modal__hint">그래도 안 되면: 자물쇠 → 사이트 설정 → <strong>로컬 네트워크 허용</strong></p>
+    <p class="itz-modal__hint">${itzT("agent.blockBraveHint", "그래도 안 되면: 자물쇠 → 사이트 설정 → <strong>로컬 네트워크 허용</strong>")}</p>
   `.trim();
   }
   return `
     <p class="itz-modal__msg">
-      광고 차단을 이 사이트에서만 해제했어도,
-      <strong>광고 차단 확장</strong>이 PC 프로그램(에이전트)과의 <strong>통신은 계속 막고</strong> 있습니다.
+      ${itzT("agent.blockChrome1", "광고 차단을 이 사이트에서만 해제했어도, <strong>광고 차단 확장</strong>이 PC 프로그램(에이전트)과의 <strong>통신은 계속 막고</strong> 있습니다.")}
     </p>
     <p class="itz-modal__msg">
-      「이 사이트 허용」「일시 중지」로는 부족한 경우가 많습니다.
-      <strong>확장 프로그램 사용을 꺼 주세요.</strong>
+      ${itzT("agent.blockChrome2", "「이 사이트 허용」「일시 중지」로는 부족한 경우가 많습니다. <strong>확장 프로그램 사용을 꺼 주세요.</strong>")}
     </p>
     <ol class="itz-modal__steps">
-      <li>Chrome 위 <strong>광고 차단 확장 아이콘</strong> 우클릭</li>
-      <li><strong>확장 프로그램 관리</strong> → 해당 확장 <strong>사용 끔</strong></li>
-      <li><strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong></li>
+      <li>${itzT("agent.blockChromeStep1", "Chrome 위 <strong>광고 차단 확장 아이콘</strong> 우클릭")}</li>
+      <li>${itzT("agent.blockChromeStep2", "<strong>확장 프로그램 관리</strong> → 해당 확장 <strong>사용 끔</strong>")}</li>
+      <li>${itzT("agent.blockChromeStep3", "<strong>F5</strong> 새로고침 → 아래 <strong>다시 연결 확인</strong>")}</li>
     </ol>
-    <p class="itz-modal__hint">그래도 안 되면: 주소창 <strong>자물쇠</strong> → <strong>로컬 네트워크 허용</strong></p>
+    <p class="itz-modal__hint">${itzT("agent.blockChromeHint", "그래도 안 되면: 주소창 <strong>자물쇠</strong> → <strong>로컬 네트워크 허용</strong>")}</p>
   `.trim();
 }
 
 /** @param {() => Promise<unknown>} onPrimaryCheck */
 export async function agentAccessBlockedDialogOptions(onPrimaryCheck) {
   return {
-    title: "에이전트 통신이 차단되었습니다",
+    title: itzT("agent.blockTitle", "에이전트 통신이 차단되었습니다"),
     bodyHtml: buildAgentAccessBlockedDialogBodyHtml(),
-    primaryLabel: "다시 연결 확인",
+    primaryLabel: itzT("modal.retry", "다시 연결 확인"),
     onPrimary: onPrimaryCheck,
     dialogKind: "agent-block",
   };
@@ -195,49 +195,43 @@ export function buildAgentInstallDialogBodyHtml(
   const linkAttrs = agentDownloadLinkAttrs(downloadHref);
   const verLabel = version ? ` v${escHtml(version)}` : "";
   const downloadBtnText = version
-    ? `에이전트 다운로드 v${escHtml(version)}`
-    : "에이전트 다운로드";
+    ? itzTf("agent.downloadVer", `에이전트 다운로드 v${escHtml(version)}`, {
+        v: escHtml(version),
+      })
+    : itzT("agent.download", "에이전트 다운로드");
   const isMsi = String(packageType).toLowerCase() === "msi";
   const pkgName = isMsi ? "itmatzip-agent.msi" : "itmatzip-agent.exe";
   const installHint = isMsi
-    ? "MSI를 실행해 설치한 뒤, 작업 표시줄 트레이에 ItMatZip 아이콘이 뜨는지 확인하세요."
-    : "실행 파일을 받아 실행하면 설치됩니다.";
+    ? itzT("agent.msiHint", "MSI를 실행해 설치한 뒤, 작업 표시줄 트레이에 ItMatZip 아이콘이 뜨는지 확인하세요.")
+    : itzT("agent.exeHint", "실행 파일을 받아 실행하면 설치됩니다.");
 
   return `
 <div class="itz-install__intro">
   <p>
-    본 웹사이트는 기능을 편리하게 이용할 수 있는 <strong>화면(인터페이스)</strong>만 제공할 뿐,
-    회원님의 소중한 데이터는 <strong>외부 서버로 절대 업로드되거나 저장되지 않습니다</strong>.
+    ${itzT("agent.intro1", "본 웹사이트는 기능을 편리하게 이용할 수 있는 <strong>화면(인터페이스)</strong>만 제공할 뿐, 회원님의 소중한 데이터는 <strong>외부 서버로 절대 업로드되거나 저장되지 않습니다</strong>.")}
   </p>
   <p>
-    모든 기능은 오직 회원님의 컴퓨터 내부에서만 독립적으로 실행되므로 자료 유출 우려가 전혀 없습니다.
-    이 안전하고 강력한 로컬 기능을 정상적으로 이용하기 위해 <strong>최초 1회 전용 프로그램(에이전트) 설치</strong>가 필요합니다.
+    ${itzT("agent.intro2", "모든 기능은 오직 회원님의 컴퓨터 내부에서만 독립적으로 실행되므로 자료 유출 우려가 전혀 없습니다. 이 안전하고 강력한 로컬 기능을 정상적으로 이용하기 위해 <strong>최초 1회 전용 프로그램(에이전트) 설치</strong>가 필요합니다.")}
   </p>
 </div>
 <div class="itz-install__cards">
   <section class="itz-install__card--new">
-    <h3 class="itz-install__card-title">처음 이용하시나요?</h3>
+    <h3 class="itz-install__card-title">${itzT("agent.firstTitle", "처음 이용하시나요?")}</h3>
     <p class="itz-install__card-text">
-      아래에서 <strong>${escHtml(pkgName)}</strong>${verLabel} 을 받아 설치하세요.
-      ${installHint}
+      ${itzTf("agent.firstText", "아래에서 <strong>{pkg}</strong>{ver} 을 받아 설치하세요. {hint}", { pkg: escHtml(pkgName), ver: verLabel, hint: installHint })}
     </p>
     <p class="itz-install__card-text itz-install__card-note">
-      설치 후 웹에서 <strong>다시 연결 확인</strong>을 눌러 주세요.
-      에이전트를 <strong>삭제·제거</strong>했거나 버전을 올릴 때도 여기서 최신 MSI 를 받으면 됩니다.
-      (탭을 오래 켜 둔 경우 <strong>F5 새로고침</strong> 후 다운로드하세요.)
+      ${itzT("agent.firstNote", "설치 후 웹에서 <strong>다시 연결 확인</strong>을 눌러 주세요. 에이전트를 <strong>삭제·제거</strong>했거나 버전을 올릴 때도 여기서 최신 MSI 를 받으면 됩니다. (탭을 오래 켜 둔 경우 <strong>F5 새로고침</strong> 후 다운로드하세요.)")}
     </p>
     <a class="itz-install__download-btn" ${linkAttrs} role="button">${downloadBtnText}</a>
   </section>
   <section class="itz-install__card--installed">
-    <h3 class="itz-install__card-title">이미 설치하셨나요?</h3>
+    <h3 class="itz-install__card-title">${itzT("agent.installedTitle", "이미 설치하셨나요?")}</h3>
     <p class="itz-install__card-text">
-      프로그램이 켜져 있는지 확인하신 후, 하단 <strong>다시 연결 확인</strong>을 눌러 주세요.
-      업데이트 직후에는 트레이 아이콘을 우클릭 → <strong>종료</strong> 후 다시 실행하거나 PC 를 재부팅하세요.
+      ${itzT("agent.installedText", "프로그램이 켜져 있는지 확인하신 후, 하단 <strong>다시 연결 확인</strong>을 눌러 주세요. 업데이트 직후에는 트레이 아이콘을 우클릭 → <strong>종료</strong> 후 다시 실행하거나 PC 를 재부팅하세요.")}
     </p>
     <p class="itz-install__card-text itz-install__card-note">
-      Chrome 사용 시 주소창 왼쪽 <strong>사이트 설정</strong> → <strong>로컬 네트워크</strong>를
-      <strong>허용</strong>해야 합니다. 콘솔에 <code>ERR_BLOCKED_BY_CLIENT</code> 가 보이면
-      <strong>광고 차단 확장</strong>이 <code>127.0.0.1</code> 을 막는 경우가 많습니다.
+      ${itzT("agent.installedNote", "Chrome 사용 시 주소창 왼쪽 <strong>사이트 설정</strong> → <strong>로컬 네트워크</strong>를 <strong>허용</strong>해야 합니다. 콘솔에 <code>ERR_BLOCKED_BY_CLIENT</code> 가 보이면 <strong>광고 차단 확장</strong>이 <code>127.0.0.1</code> 을 막는 경우가 많습니다.")}
     </p>
   </section>
 </div>
@@ -248,13 +242,13 @@ export function buildAgentInstallDialogBodyHtml(
 export async function agentInstallDialogOptions(onPrimaryCheck) {
   const manifest = await fetchAgentReleaseManifest();
   return {
-    title: "로컬 에이전트에 연결할 수 없습니다",
+    title: itzT("agent.installTitle", "로컬 에이전트에 연결할 수 없습니다"),
     bodyHtml: buildAgentInstallDialogBodyHtml(
       manifest.download_url,
       manifest.version,
       manifest.package_type,
     ),
-    primaryLabel: "다시 연결 확인",
+    primaryLabel: itzT("modal.retry", "다시 연결 확인"),
     onPrimary: onPrimaryCheck,
   };
 }

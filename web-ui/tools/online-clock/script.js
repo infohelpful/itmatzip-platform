@@ -7,7 +7,7 @@ import {
   getLocale,
   setLocale,
   t,
-} from "./i18n.js?v=4";
+} from "./i18n.js?v=5";
 
 const STORE_KEY = "itmatzip-online-clock-v1";
 const MODES = ["clock", "alarm", "timer", "stopwatch"];
@@ -1450,8 +1450,19 @@ function bindUi() {
   });
   document.getElementById("lang-select")?.addEventListener("change", (ev) => {
     const value = ev.target instanceof HTMLSelectElement ? ev.target.value : "ko";
-    setLocale(/** @type {import("./i18n.js").Locale} */ (value), { persist: true });
+    if (window.ITZ_I18N && typeof window.ITZ_I18N.setLang === "function") {
+      window.ITZ_I18N.setLang(value);
+    } else {
+      setLocale(/** @type {import("./i18n.js").Locale} */ (value), { persist: true });
+    }
     refreshLocaleUi();
+  });
+  document.addEventListener("itz:lang-change", (ev) => {
+    const lang = ev && ev.detail && ev.detail.lang;
+    if (lang) {
+      setLocale(/** @type {import("./i18n.js").Locale} */ (lang));
+      refreshLocaleUi();
+    }
   });
   document.getElementById("fmt-24")?.addEventListener("click", () => {
     settings.hour12 = false;

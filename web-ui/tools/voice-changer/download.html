@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,follow">
   <link rel="canonical" href="https://tools.itmatzip.com/voice-changer/">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
-  <title>Voice Changer 결과 다운로드</title>
+  <title data-i18n="dlTitle">Voice Changer 결과 다운로드</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
   <link rel="stylesheet" href="../silence-remover/download.css?v=7">
@@ -19,34 +19,34 @@
   <div class="dl-page">
     <div class="dl-ad" id="dl-ad-top" aria-label="광고"></div>
     <div class="dl-card">
-      <h1 id="dl-title">변환 결과 다운로드</h1>
+      <h1 id="dl-title" data-i18n="dlH1">변환 결과 다운로드</h1>
       <p class="dl-status" id="dl-status"></p>
       <p class="dl-meta" id="dl-meta"></p>
       <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
       <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
-        <button type="button" class="dl-btn dl-btn-result" id="dl-btn-output" disabled>변환 음성 다운로드</button>
-        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back">편집 화면으로 돌아가기</a>
+        <button type="button" class="dl-btn dl-btn-result" id="dl-btn-output" disabled data-i18n="dlBtnNow">변환 음성 다운로드</button>
+        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back" data-i18n="dlBack">편집 화면으로 돌아가기</a>
       </div>
     </div>
 
-    <section class="dl-guides" aria-label="다운로드 안내">
+    <section class="dl-guides" aria-label="다운로드 안내" data-i18n-aria="dlGuidesAria">
       <article class="dl-info-card">
         <header class="dl-info-card__head">
           <span class="dl-info-card__icon" aria-hidden="true">🎙️</span>
           <div>
-            <h2 class="dl-info-card__title">파일 안내</h2>
-            <p class="dl-info-card__subtitle">Seed-VC zero-shot 음성 변환 결과입니다</p>
+            <h2 class="dl-info-card__title" data-i18n="dlFileGuide">파일 안내</h2>
+            <p class="dl-info-card__subtitle" data-i18n="dlFileSub">Seed-VC zero-shot 음성 변환 결과입니다</p>
           </div>
         </header>
         <ul class="dl-nle-list">
           <li class="dl-nle-item">
             <div class="dl-nle-item__brand">
               <span class="dl-nle-item__logo dl-nle-item__logo--vc" aria-hidden="true">VC</span>
-              <h3 class="dl-nle-item__name">변환 음성</h3>
+              <h3 class="dl-nle-item__name" data-i18n="dlResultName">변환 음성</h3>
             </div>
-            <p class="dl-nle-item__steps">소스의 말 내용·리듬을 유지한 채 레퍼런스 음색으로 바꾼 파일입니다.</p>
+            <p class="dl-nle-item__steps" data-i18n="dlResultSteps">소스의 말 내용·리듬을 유지한 채 레퍼런스 음색으로 바꾼 파일입니다.</p>
           </li>
         </ul>
       </article>
@@ -55,9 +55,9 @@
     <div class="dl-ad" id="dl-ad-bottom" aria-label="광고"></div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="download.js?v=1"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="download.js?v=2"></script>
 </body>
 </html>

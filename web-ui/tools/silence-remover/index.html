@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=32"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>영상 무음 제거 XML - Silence Detector | ItMatZip</title>
   <meta name="description" content="영상 무음 구간을 자동 분석해 Premiere·DaVinci용 FCP7 XML을 만듭니다. 업로드 없이 PC 로컬에서 처리합니다.">
@@ -94,17 +94,17 @@
         </div>
         <div class="header-status-col">
           <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
-          <div class="bin-readiness" id="bin-readiness">무음 제거 · FFmpeg 준비 대기</div>
+          <div class="bin-readiness" id="bin-readiness" data-i18n="binWait">무음 제거 · FFmpeg 준비 대기</div>
         </div>
       </header>
       <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
       <section class="drop-zone itmatzip-workflow-no-ads">
         <div class="path-input-group">
-          <label for="video-path">영상 파일 경로</label>
-          <p class="path-hint" id="path-hint"></p>
+          <label for="video-path" data-i18n="pathLabel">영상 파일 경로</label>
+          <p class="path-hint" id="path-hint" data-i18n="pathHint"></p>
           <div class="path-row">
             <input type="text" id="video-path" autocomplete="off" spellcheck="false">
-            <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
+            <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
           </div>
         </div>
       </section>
@@ -113,38 +113,38 @@
           <div class="options-main">
             <div class="options-row">
               <div class="option-card">
-                <label for="opt-fps">프레임</label>
-                <p class="option-hint" id="opt-fps-hint">찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다.</p>
+                <label for="opt-fps" data-i18n="fps">프레임</label>
+                <p class="option-hint" id="opt-fps-hint" data-i18n="fpsHint">찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다.</p>
                 <input type="number" id="opt-fps" step="0.01" min="0" value="">
               </div>
               <div class="option-card">
-                <label for="opt-avg-db">평균 볼륨 (dB)</label>
-                <p class="option-hint" id="opt-avg-db-hint">영상의 평균 볼륨 크기이며 수정은 불가능합니다.</p>
+                <label for="opt-avg-db" data-i18n="avgDb">평균 볼륨 (dB)</label>
+                <p class="option-hint" id="opt-avg-db-hint" data-i18n="avgDbHint">영상의 평균 볼륨 크기이며 수정은 불가능합니다.</p>
                 <input type="text" id="opt-avg-db" value="" readonly>
               </div>
             </div>
             <div class="options-row">
               <div class="option-card highlight">
-                <label for="opt-rec-db">추천 무음 민감도 (dB)</label>
-                <p class="option-hint" id="opt-rec-db-hint">자동 계산된 추천 무음 민감도 입니다.</p>
+                <label for="opt-rec-db" data-i18n="recDb">추천 무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-rec-db-hint" data-i18n="recDbHint">자동 계산된 추천 무음 민감도 입니다.</p>
                 <input type="text" id="opt-rec-db" value="" readonly title="">
               </div>
               <div class="option-card">
-                <label for="opt-sensitivity">무음 민감도 (dB)</label>
-                <p class="option-hint" id="opt-sensitivity-hint">추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.</p>
+                <label for="opt-sensitivity" data-i18n="sensitivity">무음 민감도 (dB)</label>
+                <p class="option-hint" id="opt-sensitivity-hint" data-i18n="sensitivityHint">추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.</p>
                 <input type="number" id="opt-sensitivity" step="0.01" min="-60" max="-10" value="-40" inputmode="decimal">
               </div>
             </div>
             <div class="options-duration-stack">
               <div class="option-card option-card-padding">
-                <label for="opt-padding">말소리 앞뒤 여백 (ms, 100ms = 0.1초)</label>
+                <label for="opt-padding" data-i18n="padding">말소리 앞뒤 여백 (ms, 100ms = 0.1초)</label>
                 <div class="range-group range-group-padding">
                   <input type="range" id="opt-padding" min="0" max="1000" step="1" value="100">
                   <span class="range-val" id="opt-padding-val">100ms</span>
                 </div>
               </div>
               <div class="option-card option-card-duration">
-                <label>최소 무음 길이 (초)</label>
+                <label data-i18n="minSilence">최소 무음 길이 (초)</label>
                 <div class="duration-chips">
                   <div class="duration-chip-list" id="duration-chip-list">
                     <button type="button" class="chip" data-val="0.1">0.1s</button>
@@ -169,8 +169,8 @@
             </div>
           </div>
           <aside class="media-summary-panel" id="media-summary-panel" aria-label="summary">
-            <h4 class="media-summary-title" id="media-summary-title"></h4>
-            <p class="media-summary-hint" id="media-summary-hint"></p>
+            <h4 class="media-summary-title" id="media-summary-title" data-i18n="mediaInfo"></h4>
+            <p class="media-summary-hint" id="media-summary-hint" data-i18n="mediaHint"></p>
             <dl class="media-summary-list">
               <div class="media-summary-item summary-media-item"><dt></dt><dd id="summary-duration">?</dd></div>
               <div class="media-summary-item summary-media-item"><dt></dt><dd id="summary-max-db">?</dd></div>
@@ -192,11 +192,11 @@
         </section>
         <section id="waveform-preview-section" class="waveform-preview-section">
           <div class="waveform-preview-head">
-            <h3 id="waveform-preview-title" class="waveform-preview-title"></h3>
+            <h3 id="waveform-preview-title" class="waveform-preview-title" data-i18n="waveform"></h3>
             <div class="waveform-zoom-controls">
-              <span class="waveform-zoom-hint"></span>
+              <span class="waveform-zoom-hint" data-i18n="zoomHint"></span>
               <span id="waveform-zoom-level" class="waveform-zoom-level" aria-live="polite">100%</span>
-              <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" title="">100%</button>
+              <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" data-i18n-title="zoomReset" title="">100%</button>
             </div>
           </div>
           <p id="waveform-preview-status" class="waveform-preview-status" aria-live="polite"></p>
@@ -209,11 +209,11 @@
         <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true" aria-live="polite"></div>
       </div>
       <div class="action-center">
-        <button id="btn-analyze" class="btn-main">무음 구간 분석</button>
+        <button id="btn-analyze" class="btn-main" data-i18n="analyze">무음 구간 분석</button>
         <div class="edl-export-block" style="padding-top: 10px; box-sizing: border-box;">
           <label class="edl-export-option" for="opt-remove-silent">
             <input type="checkbox" id="opt-remove-silent" checked>
-            <span id="opt-remove-silent-caption">무음 구간 자동 제거</span>
+            <span id="opt-remove-silent-caption" data-i18n="removeSilent">무음 구간 자동 제거</span>
           </label>
           <a href="download.html" id="export-xml-link" class="btn-export btn-export--xml is-disabled" role="button"></a>
         </div>
@@ -252,14 +252,14 @@
   <dialog id="probe-loading-dialog" class="probe-loading-dialog" aria-labelledby="probe-loading-title">
     <div class="probe-loading-inner">
       <div class="probe-loading-spinner" aria-hidden="true"></div>
-      <h2 id="probe-loading-title" class="probe-loading-title">영상 불러오는 중</h2>
+      <h2 id="probe-loading-title" class="probe-loading-title" data-i18n="probeTitle">영상 불러오는 중</h2>
       <p id="probe-loading-desc" class="probe-loading-desc"></p>
     </div>
   </dialog>
   <div id="analyze-overlay-root" class="analyze-overlay-root" hidden aria-hidden="true" aria-live="polite">
     <div class="analyze-overlay-backdrop" aria-hidden="true"></div>
     <div class="analyze-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="analyze-overlay-status">
-      <p id="analyze-overlay-status" class="analyze-overlay-status">무음 구간 분석 중…</p>
+      <p id="analyze-overlay-status" class="analyze-overlay-status" data-i18n="analyzing">무음 구간 분석 중…</p>
       <p id="analyze-overlay-meta" class="analyze-overlay-meta">0%</p>
       <div class="analyze-overlay-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <div class="analyze-overlay-progress-bar" id="analyze-overlay-progress-bar"></div>
@@ -267,9 +267,9 @@
       <p id="analyze-overlay-hint" class="analyze-overlay-hint"></p>
     </div>
   </div>
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=lna46"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=lna50"></script>
 </body>
 </html>

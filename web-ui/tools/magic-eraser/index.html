@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>사진 객체 지우기 - MagicEraser | ItMatZip</title>
   <meta name="description" content="지울 곳을 칠하면 AI가 객체를 지우고 배경을 채웁니다. LaMa 인페인팅을 로컬에서 실행합니다.">
@@ -105,124 +105,124 @@
       <div class="enhancer-content-shell" id="enhancer-content-shell">
         <section class="drop-zone">
           <div class="path-input-group">
-            <label for="image-path">이미지 / 폴더 경로</label>
-            <p class="path-hint" id="path-hint">파일 또는 폴더를 선택하세요. 폴더 모드에서는 첫 이미지로 마스크를 그린 뒤 전체에 동일하게 적용합니다.</p>
+            <label for="image-path" data-i18n="pathLabel">이미지 / 폴더 경로</label>
+            <p class="path-hint" id="path-hint" data-i18n="pathHint">파일 또는 폴더를 선택하세요. 폴더 모드에서는 첫 이미지로 마스크를 그린 뒤 전체에 동일하게 적용합니다.</p>
             <div class="path-row">
-              <select id="source-mode" class="source-mode-select" aria-label="선택 방식">
-                <option value="file" selected>파일</option>
-                <option value="folder">폴더</option>
+              <select id="source-mode" class="source-mode-select" aria-label="선택 방식" data-i18n-aria="ui.sourceMode">
+                <option value="file" selected data-i18n="ui.file">파일</option>
+                <option value="folder" data-i18n="ui.folder">폴더</option>
               </select>
-              <input type="text" id="image-path" autocomplete="off" spellcheck="false" placeholder="파일 경로">
-              <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
-              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+              <input type="text" id="image-path" autocomplete="off" spellcheck="false" placeholder="파일 경로" data-i18n-placeholder="ui.pathPh">
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job" data-i18n="ui.newJob">새 작업 시작</button>
             </div>
             <p class="folder-meta" id="folder-meta" hidden></p>
           </div>
         </section>
 
-        <section class="preview-panel" aria-label="이미지 편집">
+        <section class="preview-panel" aria-label="이미지 편집" data-i18n-aria="previewAria">
           <div class="preview-panel-head">
-            <h3 class="preview-panel-heading" id="preview-panel-heading">원본 미리보기</h3>
+            <h3 class="preview-panel-heading" id="preview-panel-heading" data-i18n="ui.previewOriginal">원본 미리보기</h3>
             <div class="brush-toolbar" id="brush-toolbar" hidden>
-              <div class="brush-tool-group" role="group" aria-label="브러시 도구">
+              <div class="brush-tool-group" role="group" aria-label="브러시 도구" data-i18n-aria="brushAria">
                 <button type="button" id="tool-brush" class="brush-tool-btn is-active" aria-pressed="true">
-                  <span aria-hidden="true">🖌</span> 브러시
+                  <span aria-hidden="true">🖌</span> <span data-i18n="ui.brushTool">브러시</span>
                 </button>
                 <button type="button" id="tool-eraser" class="brush-tool-btn" aria-pressed="false">
-                  <span aria-hidden="true">🧹</span> 지우개
+                  <span aria-hidden="true">🧹</span> <span data-i18n="ui.eraserTool">지우개</span>
                 </button>
               </div>
               <div class="brush-size-field">
-                <label for="brush-size-range">브러시 크기</label>
+                <label for="brush-size-range" data-i18n="brush">브러시 크기</label>
                 <input type="range" id="brush-size-range" min="5" max="100" value="24">
                 <output id="brush-size-value" for="brush-size-range">24px</output>
               </div>
-              <button type="button" id="btn-clear-mask" class="brush-clear-btn">마스크 초기화</button>
+              <button type="button" id="btn-clear-mask" class="brush-clear-btn" data-i18n="clearMask">마스크 초기화</button>
             </div>
           </div>
           <div class="preview-viewport" id="preview-viewport">
             <div class="preview-empty" id="preview-empty">
               <span class="preview-empty-icon" aria-hidden="true">🖼</span>
-              <p>이미지를 선택하면 여기에서 지울 영역을 칠할 수 있습니다.</p>
+              <p data-i18n="canvasEmpty">이미지를 선택하면 여기에서 지울 영역을 칠할 수 있습니다.</p>
             </div>
             <div class="canvas-stage" id="canvas-stage" hidden>
               <canvas id="edit-canvas"></canvas>
             </div>
             <div class="compare-slider" id="compare-slider" hidden role="group" aria-label="원본과 결과 비교">
-              <img id="compare-original" class="compare-img compare-layer-base" alt="원본" decoding="async">
-              <img id="compare-result" class="compare-img compare-layer-top" alt="결과" decoding="async">
+              <img id="compare-original" class="compare-img compare-layer-base" alt="원본" data-i18n-alt="ui.original" decoding="async">
+              <img id="compare-result" class="compare-img compare-layer-top" alt="결과" data-i18n-alt="ui.result" decoding="async">
               <div class="compare-divider" id="compare-divider" style="left: 50%">
-                <span class="compare-handle" id="compare-handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="비교 슬라이더"></span>
+                <span class="compare-handle" id="compare-handle" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-label="비교 슬라이더" data-i18n-aria="sliderAria"></span>
               </div>
-              <span class="compare-label compare-label--original">원본</span>
-              <span class="compare-label compare-label--result">결과</span>
+              <span class="compare-label compare-label--original" data-i18n="ui.original">원본</span>
+              <span class="compare-label compare-label--result" data-i18n="ui.result">결과</span>
             </div>
           </div>
-          <p class="canvas-hint" id="canvas-hint" hidden>마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.</p>
-          <p class="compare-hint" id="compare-hint" hidden>슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.</p>
+          <p class="canvas-hint" id="canvas-hint" hidden data-i18n="canvasHint">마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.</p>
+          <p class="compare-hint" id="compare-hint" hidden data-i18n="ui.compareHint">슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.</p>
         </section>
 
         <section class="options-layout" id="options-panel">
           <div class="options-main">
             <div class="options-group options-group--last">
-              <h3 class="options-group-title">실행 장치</h3>
+              <h3 class="options-group-title" data-i18n="ui.device">실행 장치</h3>
               <div class="options-grid options-grid--3">
                 <div class="option-field">
-                  <label class="option-label" for="device-select">실행 장치</label>
+                  <label class="option-label" for="device-select" data-i18n="ui.device">실행 장치</label>
                   <select id="device-select" class="option-select">
-                    <option value="auto">자동 (권장)</option>
+                    <option value="auto" data-i18n="ui.deviceAuto">자동 (권장)</option>
                     <option value="cuda">CUDA (GPU)</option>
                     <option value="cpu">CPU</option>
                   </select>
-                  <p class="option-hint">GPU가 있으면 자동으로 CUDA를 사용합니다. 문제가 있으면 CPU로 전환하세요.</p>
+                  <p class="option-hint" data-i18n="gpuHint">GPU가 있으면 자동으로 CUDA를 사용합니다. 문제가 있으면 CPU로 전환하세요.</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <aside class="media-summary-panel" aria-label="작업 요약">
-            <h4 class="media-summary-title">작업 상태</h4>
+          <aside class="media-summary-panel" aria-label="작업 요약" data-i18n-aria="summaryAria">
+            <h4 class="media-summary-title" data-i18n="ui.jobStatus">작업 상태</h4>
             <dl class="media-summary-list">
               <div class="media-summary-item">
-                <dt>준비</dt>
-                <dd id="summary-model-ready">확인 중</dd>
+                <dt data-i18n="ui.ready">준비</dt>
+                <dd id="summary-model-ready" data-i18n="ui.checkingShort">확인 중</dd>
               </div>
               <div class="media-summary-item">
-                <dt>장치</dt>
-                <dd id="summary-device">자동</dd>
+                <dt data-i18n="ui.deviceShort">장치</dt>
+                <dd id="summary-device" data-i18n="ui.auto">자동</dd>
               </div>
               <div class="media-summary-item">
-                <dt>브러시</dt>
+                <dt data-i18n="dtBrush">브러시</dt>
                 <dd id="summary-brush">24px</dd>
               </div>
               <div class="media-summary-item">
-                <dt>마스크</dt>
-                <dd id="summary-mask">비어 있음</dd>
+                <dt data-i18n="dtMask">마스크</dt>
+                <dd id="summary-mask" data-i18n="maskEmpty">비어 있음</dd>
               </div>
               <div class="media-summary-item" id="summary-folder-row" hidden>
-                <dt>폴더</dt>
+                <dt data-i18n="ui.dtFolder">폴더</dt>
                 <dd id="summary-folder">—</dd>
               </div>
             </dl>
           </aside>
         </section>
 
-        <section class="action-stack" aria-label="실행">
-          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
-          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled>지우기 실행</button>
+        <section class="action-stack" aria-label="실행" data-i18n-aria="runAria">
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary" data-i18n="ui.prepare">환경 준비</button>
+          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled data-i18n="start">지우기 실행</button>
           <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
             <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
           </a>
           <button type="button" id="btn-open-output-folder" class="btn-action btn-action--secondary" hidden disabled>
-            결과 폴더 열기
+            <span data-i18n="ui.openFolder">결과 폴더 열기</span>
           </button>
         </section>
 
         <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <h3 id="setup-loading-title" data-i18n="setupTitle">AI 환경 준비</h3>
             <p id="setup-loading-step" class="loading-step"></p>
-            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <p id="setup-loading-message" class="loading-message" data-i18n="ui.preparing">준비 중…</p>
             <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="setup-loading-bar" class="loading-bar"></div>
             </div>
@@ -231,9 +231,9 @@
 
         <div id="erase-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="erase-loading-title">지우기 실행</h3>
+            <h3 id="erase-loading-title" data-i18n="eraseTitle">지우기 실행</h3>
             <p id="erase-loading-step" class="loading-step"></p>
-            <p id="erase-loading-message" class="loading-message">처리 중…</p>
+            <p id="erase-loading-message" class="loading-message" data-i18n="ui.processing">처리 중…</p>
             <p id="erase-loading-percent" class="loading-percent">0%</p>
             <div id="erase-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="erase-loading-bar" class="loading-bar"></div>
@@ -267,9 +267,9 @@
     </main>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=2"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=6"></script>
 </body>
 </html>

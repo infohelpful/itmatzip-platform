@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=as9";
+import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=as10";
 import { showAdSense } from "../common/adsense.js?v=4";
 import { exportFormatLabel } from "./export/export-client.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
@@ -37,9 +37,9 @@ function getDownloadUrl(filePath) {
 }
 
 function getButtonLabel(fmt) {
-  if (fmt === "video") return "영상 다운로드";
+  if (fmt === "video") return window.itzT("dlVideo", "영상 다운로드");
   const label = exportFormatLabel(fmt);
-  return `${label} 다운로드`;
+  return window.ITZ_I18N?.tf?.("dlFmt", { label }) || `${label} ${window.itzT("download", "다운로드")}`;
 }
 
 function setStatus(text, kind = "") {
@@ -84,27 +84,27 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
 async function runDownload(filePath) {
   const ok = await ensureAgentConnected();
   if (!ok) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnNow) elBtnNow.disabled = false;
     return;
   }
   clearCountdown();
   const url = getDownloadUrl(filePath);
   openDownload(url);
-  setStatus("다운로드가 시작되었습니다. 다시 받으려면 버튼을 클릭하세요.", "ok");
+  setStatus(window.itzT("dl.started", "다운로드가 시작되었습니다. 다시 받으려면 버튼을 클릭하세요."), "ok");
   if (elBtnNow) elBtnNow.disabled = false;
 }
 
 function startCountdown(filePath) {
   countdownLeft = AUTO_START_SEC;
-  setStatus(`${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
+  setStatus(window.ITZ_I18N?.tf?.("dl.autoStart", { n: AUTO_START_SEC }) || `${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
   showCountdown(countdownLeft);
 
   countdownTimer = window.setInterval(() => {
@@ -122,19 +122,19 @@ async function initPage() {
   const { filePath, fmt } = getDownloadParams();
 
   if (!filePath) {
-    setStatus("다운로드할 파일이 없습니다. 편집화면에서 보내기를 실행해 주세요.", "err");
+    setStatus(window.itzT("dlNoFile", "다운로드할 파일이 없습니다. 편집화면에서 보내기를 실행해 주세요."), "err");
     if (elBtnNow) elBtnNow.disabled = true;
     if (elBtnBack) elBtnBack.classList.remove("disabled");
     return;
   }
 
-  if (elTitle) elTitle.textContent = `${getButtonLabel(fmt)}`;
+  if (elTitle) elTitle.textContent = getButtonLabel(fmt);
   document.title = `${getButtonLabel(fmt)} - Auto Subtitle`;
   if (elBtnNow) elBtnNow.textContent = getButtonLabel(fmt);
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnNow) elBtnNow.disabled = false;
     return;
   }

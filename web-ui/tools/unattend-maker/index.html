@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <title>윈도우 자동설치 XML - Unattend Maker | ItMatZip</title>
   <meta name="description" content="Windows 설치 때 묻는 언어, 계정, Wi-Fi를 미리 정해 두는 파일을 만듭니다. 자주 쓰는 설정으로 채운 뒤 원하는 항목만 바꾸면 됩니다.">
   <meta name="keywords" content="autounattend, 윈도우 자동설치, 무인설치, Unattend Maker, Windows 11 XML">
@@ -72,37 +72,37 @@
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
 
-      <div class="mode-bar" role="tablist" aria-label="설정 모드">
+      <div class="mode-bar" role="tablist" aria-label="설정 모드" data-i18n-aria="aria.modes">
         <div class="modes" id="modes"></div>
         <div class="mode-actions">
           <input type="file" id="file-import" accept=".xml,text/xml,application/xml" hidden>
-          <button type="button" class="btn-ghost" id="btn-import">불러오기</button>
-          <button type="button" class="btn-ghost" id="btn-preview">미리보기</button>
-          <button type="button" class="btn-primary" id="btn-download">파일 받기</button>
+          <button type="button" class="btn-ghost" id="btn-import" data-i18n="btn.import">불러오기</button>
+          <button type="button" class="btn-ghost" id="btn-preview" data-i18n="btn.preview">미리보기</button>
+          <button type="button" class="btn-primary" id="btn-download" data-i18n="download">파일 받기</button>
         </div>
       </div>
       <p class="mode-note" id="mode-note"></p>
       <label class="section-jump" for="section-jump">
-        <span class="section-jump-label">설정 항목</span>
-        <select id="section-jump" aria-label="설정 항목"></select>
+        <span class="section-jump-label" data-i18n="section.jump">설정 항목</span>
+        <select id="section-jump" aria-label="설정 항목" data-i18n-aria="section.jump"></select>
       </label>
 
       <div class="workspace">
-        <nav class="side-nav" id="nav" aria-label="설정 항목"></nav>
+        <nav class="side-nav" id="nav" aria-label="설정 항목" data-i18n-aria="section.jump"></nav>
         <section class="panel" id="panel" aria-live="polite"></section>
       </div>
 
       <aside class="howto">
-        <h2>받은 파일 쓰는 법</h2>
+        <h2 data-i18n="howto.h2">받은 파일 쓰는 법</h2>
         <ol>
-          <li>Microsoft에서 Windows 11 설치 USB를 만듭니다. <strong>여기서 고른 언어와 같은</strong> 설치 파일을 쓰세요.</li>
-          <li>받은 파일을 USB <strong>맨 위</strong>에 넣습니다. 다른 폴더 안에 넣으면 적용되지 않습니다.</li>
-          <li>그 USB로 PC를 켜면, 고른 설정대로 설치가 진행됩니다.</li>
+          <li data-i18n="howto.1">Microsoft에서 Windows 11 설치 USB를 만듭니다. <strong>여기서 고른 언어와 같은</strong> 설치 파일을 쓰세요.</li>
+          <li data-i18n="howto.2">받은 파일을 USB <strong>맨 위</strong>에 넣습니다. 다른 폴더 안에 넣으면 적용되지 않습니다.</li>
+          <li data-i18n="howto.3">그 USB로 PC를 켜면, 고른 설정대로 설치가 진행됩니다.</li>
         </ol>
         <ul>
-          <li>한국어로 만들었다면 영문 Windows 설치 파일은 쓰지 마세요.</li>
-          <li>디스크를 자동으로 지우는 옵션을 켰다면, 고른 디스크의 파일이 전부 삭제됩니다.</li>
-          <li>Rufus로 USB를 만들 때 추가 설치 옵션을 켜면 이 파일을 쓰지 않을 수 있습니다.</li>
+          <li data-i18n="howto.note1">한국어로 만들었다면 영문 Windows 설치 파일은 쓰지 마세요.</li>
+          <li data-i18n="howto.note2">디스크를 자동으로 지우는 옵션을 켰다면, 고른 디스크의 파일이 전부 삭제됩니다.</li>
+          <li data-i18n="howto.note3">Rufus로 USB를 만들 때 추가 설치 옵션을 켜면 이 파일을 쓰지 않을 수 있습니다.</li>
         </ul>
       </aside>
 
@@ -132,8 +132,8 @@
 
   <dialog id="preview-dialog" class="preview-dialog">
     <form method="dialog" class="preview-head">
-      <strong>설치 파일 미리보기</strong>
-      <button type="submit" class="btn-ghost">닫기</button>
+      <strong data-i18n="preview.title">설치 파일 미리보기</strong>
+      <button type="submit" class="btn-ghost" data-i18n="preview.close">닫기</button>
     </form>
     <pre id="preview-code" class="preview-code"></pre>
   </dialog>
@@ -148,9 +148,9 @@
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>

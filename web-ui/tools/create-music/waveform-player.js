@@ -131,7 +131,7 @@ export function createMusicWaveformPlayer(deps) {
     stopPlayback();
     playOffsetSec = 0;
     updatePlayhead(0);
-    setStatus("재생 완료");
+    setStatus(window.itzT("playEnded", "재생 완료"));
     if (typeof playbackEndedCb === "function") playbackEndedCb();
   }
 
@@ -151,7 +151,7 @@ export function createMusicWaveformPlayer(deps) {
     playStartCtx = audioContext.currentTime;
     playing = true;
     if (btnPlay) btnPlay.textContent = "⏸";
-    setStatus("재생 중");
+    setStatus(window.itzT("playing", "재생 중"));
     updateTransport();
   }
 
@@ -160,7 +160,7 @@ export function createMusicWaveformPlayer(deps) {
     if (playing) {
       playOffsetSec = currentTimeSec();
       stopPlayback();
-      setStatus("일시정지");
+      setStatus(window.itzT("paused", "일시정지"));
       return;
     }
     startPlayback(playOffsetSec);
@@ -184,12 +184,12 @@ export function createMusicWaveformPlayer(deps) {
     currentFilename = filename;
     currentAudioUrl = audioUrl;
     setPlayEnabled(false);
-    setStatus("오디오 불러오는 중…");
+    setStatus(window.itzT("loadingAudio", "오디오 불러오는 중…"));
     stopPlayback();
 
     const fetchFn = deps.fetchAgent || fetch;
     const res = await fetchFn(audioUrl);
-    if (!res.ok) throw new Error("오디오를 불러올 수 없습니다.");
+    if (!res.ok) throw new Error(window.itzT("loadAudioFail", "오디오를 불러올 수 없습니다."));
     const data = await res.arrayBuffer();
 
     if (!audioContext) audioContext = new AudioContext();
@@ -204,7 +204,7 @@ export function createMusicWaveformPlayer(deps) {
     if (timeTotal) timeTotal.textContent = formatClock(durationSec);
     updatePlayhead(0);
     setPlayEnabled(true);
-    setStatus("▶ 버튼을 눌러 재생하세요");
+    setStatus(window.itzT("pressPlay", "▶ 버튼을 눌러 재생하세요"));
     return { jobId, filename, audioUrl };
   }
 
@@ -226,7 +226,7 @@ export function createMusicWaveformPlayer(deps) {
     const pct = Math.max(0, Math.min(100, Number(progress) || 0));
     if (overlayBar) overlayBar.style.width = `${pct}%`;
     if (overlayPct) overlayPct.textContent = `${Math.round(pct)}%`;
-    if (overlayMsg) overlayMsg.textContent = message || "음악 생성 중…";
+    if (overlayMsg) overlayMsg.textContent = message || window.itzT("generating", "음악 생성 중…");
     setPlayEnabled(false);
   }
 

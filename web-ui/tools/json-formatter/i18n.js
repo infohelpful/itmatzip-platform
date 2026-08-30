@@ -98,6 +98,15 @@ const I18N = {
     saved: "저장했습니다.",
     masked: "흔한 패턴만 가렸습니다. 민감 여부는 직접 확인하세요.",
     maskHint: "이메일·전화·카드·토큰만 바꿉니다. 법적 비식별화가 아닙니다.",
+    maskModalTitle: "🔒 민감값 가리기 항목 선택",
+    maskSearch: "항목 이름 검색 (e.g. email, name...)",
+    maskSelectAll: "전체 선택",
+    maskSelectNone: "전체 해제",
+    maskCancel: "취소",
+    maskApply: "가리기 적용",
+    maskSelected: "{n}개 항목 선택됨",
+    maskEmpty: "일치하는 키 항목이 없습니다.",
+    close: "닫기",
     noMatch: "해당 경로에 값이 없습니다.",
     convertFail: "객체 JSON만 TypeScript/Python으로 바꿀 수 있습니다.",
     workerFail: "이 기기에서는 이 크기를 다루기 어렵습니다. 입력은 그대로 둡니다.",
@@ -121,6 +130,8 @@ const I18N = {
     guideA2: "큰 JSON에서도 경로만 찍어 일부만 가져갈 수 있습니다.",
     guideA3: "별도 프로그램 없이 브라우저 탭만 열면 됩니다.",
     guideNote: "가리기는 이메일·전화·카드·토큰처럼 흔한 패턴만 바꿉니다. 주민번호나 한글 이름까지 보장하지 않습니다. 광고와 글꼴은 페이지 표시용이며, 입력한 JSON과는 별개입니다.",
+    errHover: "JSON 문법 오류",
+    repairIssuesFixed: "({n}개 오류 위치 보정 완료)",
   },
   en: {
     title: "JSON Formatter — Beautify, minify, repair | ItMatZip",
@@ -212,6 +223,15 @@ const I18N = {
     saved: "Saved.",
     masked: "Common patterns were masked. Check remaining secrets yourself.",
     maskHint: "Only email, phone, card-like, and token-like values change. This is not legal anonymization.",
+    maskModalTitle: "🔒 Choose keys to mask",
+    maskSearch: "Search key names (e.g. email, name...)",
+    maskSelectAll: "Select all",
+    maskSelectNone: "Select none",
+    maskCancel: "Cancel",
+    maskApply: "Apply mask",
+    maskSelected: "{n} selected",
+    maskEmpty: "No matching keys.",
+    close: "Close",
     noMatch: "No values for that path.",
     convertFail: "Only object JSON can become TypeScript or Python.",
     workerFail: "This device cannot handle this size. Input was kept.",
@@ -235,6 +255,8 @@ const I18N = {
     guideA2: "You can grab a path from a large document instead of scrolling it all.",
     guideA3: "Open the tab and work — no extra program.",
     guideNote: "Masking only rewrites common patterns such as email, phone, card, and tokens. It does not guarantee resident-ID or name redaction. Ads and fonts load for the page chrome only; they are separate from your JSON.",
+    errHover: "JSON syntax error",
+    repairIssuesFixed: "({n} error location(s) repaired)",
   },
   ja: {
     title: "JSONフォーマッター — 整形・圧縮・修復 | ItMatZip",
@@ -326,6 +348,15 @@ const I18N = {
     saved: "保存しました。",
     masked: "よくあるパターンだけ隠しました。残りは自分で確認してください。",
     maskHint: "メール・電話・カード・トークンらしい値だけ変えます。法的な匿名化ではありません。",
+    maskModalTitle: "🔒 隠すキーを選択",
+    maskSearch: "キー名で検索 (e.g. email, name...)",
+    maskSelectAll: "すべて選択",
+    maskSelectNone: "すべて解除",
+    maskCancel: "キャンセル",
+    maskApply: "マスクを適用",
+    maskSelected: "{n}件選択",
+    maskEmpty: "一致するキーがありません。",
+    close: "閉じる",
     noMatch: "そのパスに値はありません。",
     convertFail: "オブジェクトのJSONだけ TypeScript / Python にできます。",
     workerFail: "この端末ではこのサイズを扱えません。入力はそのままです。",
@@ -349,6 +380,8 @@ const I18N = {
     guideA2: "大きなJSONでもパスを指定して一部だけ取れます。",
     guideA3: "別ソフトなしで、タブを開くだけです。",
     guideNote: "マスクはメール・電話・カード・トークンのようなよくあるパターンだけ変えます。住民番号や氏名までは保証しません。広告とフォントはページ表示用で、入力JSONとは別です。",
+    errHover: "JSON文法エラー",
+    repairIssuesFixed: "({n}件の誤り位置を補正済み)",
   },
   zh: {
     title: "JSON 格式化工具 — 美化、压缩、修复 | ItMatZip",
@@ -440,6 +473,15 @@ const I18N = {
     saved: "已保存。",
     masked: "只遮盖了常见模式。请自行检查其余敏感信息。",
     maskHint: "只改邮箱、电话、卡号、令牌一类的值。不是法律意义上的匿名化。",
+    maskModalTitle: "🔒 选择要遮盖的键",
+    maskSearch: "搜索键名（如 email, name...）",
+    maskSelectAll: "全选",
+    maskSelectNone: "全不选",
+    maskCancel: "取消",
+    maskApply: "应用遮盖",
+    maskSelected: "已选 {n} 项",
+    maskEmpty: "没有匹配的键。",
+    close: "关闭",
     noMatch: "该路径没有值。",
     convertFail: "只有对象 JSON 能转成 TypeScript / Python。",
     workerFail: "当前设备处理不了这个大小。输入保持不变。",
@@ -463,12 +505,18 @@ const I18N = {
     guideA2: "大 JSON 也可以按路径只取一段。",
     guideA3: "不用另装程序，打开标签页即可。",
     guideNote: "遮盖只改邮箱、电话、卡号、令牌一类常见模式，不保证身份证号或姓名。广告和字体仅用于页面显示，与输入的 JSON 无关。",
+    errHover: "JSON 语法错误",
+    repairIssuesFixed: "(已校正 {n} 处错误位置)",
   },
 };
 
 let locale = "ko";
 
 export function detectLocale() {
+  if (window.ITZ_I18N && typeof window.ITZ_I18N.getLang === "function") {
+    const shared = window.ITZ_I18N.getLang();
+    if (I18N[shared]) return shared;
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved && I18N[saved]) return saved;
@@ -493,11 +541,6 @@ export function t(key) {
 export function applyI18n(next) {
   if (next && I18N[next]) {
     locale = next;
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
   }
   document.documentElement.lang = locale === "zh" ? "zh-CN" : locale;
   document.title = t("title");
@@ -514,6 +557,10 @@ export function applyI18n(next) {
   document.querySelectorAll("[data-i18n-title]").forEach((el) => {
     const key = el.getAttribute("data-i18n-title");
     if (key) el.setAttribute("title", t(key));
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-aria");
+    if (key) el.setAttribute("aria-label", t(key));
   });
 }
 

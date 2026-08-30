@@ -9,10 +9,10 @@ import {
   setAgentLongOperationActive,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna20";
+import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
 import {
   STORAGE_CLIP_NAME,
   STORAGE_DURATION,
@@ -72,7 +72,56 @@ import {
 } from "./waveform-canvas.js";
 
 const DOWNLOAD_PAGE = "download.html";
-const BTN_ANALYZE_LABEL = "무음 구간 분석";
+function itzT(key, fallback) {
+  try {
+    const api = window.ITZ_I18N;
+    if (api && typeof api.t === "function") {
+      const v = api.t(key);
+      if (v && v !== key) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+function itzTf(key, fallback, vars) {
+  try {
+    const api = window.ITZ_I18N;
+    if (api && typeof api.tf === "function") {
+      const v = api.tf(key, vars);
+      if (v && v !== key) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  let s = fallback;
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = String(s).split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
+function analyzeIdleLabel() {
+  return itzT("analyze", "무음 구간 분석");
+}
+function analyzingLabel() {
+  return itzT("analyzing", "무음 구간 분석 중…");
+}
+function analyzingFullLabel() {
+  return itzT("analyzingFull", "파형 생성·무음 분석 중…");
+}
+function locAgent(raw) {
+  try {
+    if (typeof window.itzAgentText === "function") return window.itzAgentText(raw);
+  } catch {
+    /* ignore */
+  }
+  return raw == null ? "" : String(raw);
+}
+function overlayLabelForMode(mode) {
+  return mode === "waveform" ? analyzingLabel() : analyzingFullLabel();
+}
 /** 분석 로딩 최소 표시(ms) — API가 빨리 끝나도 눈에 보이게 */
 const ANALYZE_LOADING_MIN_MS = 900;
 
@@ -199,8 +248,9 @@ function getMinSilenceSecForEdlExport() {
   return Number.isFinite(n) && n >= 0 ? n : 0.3;
 }
 
-const EXPORT_XML_LINK_DEFAULT_HTML =
-  '<span class="icon">📥</span> XML 파일 다운로드';
+function exportXmlLinkDefaultHtml() {
+  return `<span class="icon">📥</span> ${itzT("exportXml", "XML 파일 다운로드")}`;
+}
 
 /** 다운로드 페이지 이동 취소·뒤로가기(bfcache) 후 버튼 문구 복구 */
 function resetExportLinkUi() {
@@ -208,7 +258,7 @@ function resetExportLinkUi() {
   if (!exportXmlA) return;
   exportXmlA.classList.remove("is-busy");
   exportXmlA.removeAttribute("aria-busy");
-  exportXmlA.innerHTML = EXPORT_XML_LINK_DEFAULT_HTML;
+  exportXmlA.innerHTML = exportXmlLinkDefaultHtml();
   exportXmlA.classList.toggle("is-disabled", !canExportFromSession());
 }
 
@@ -224,14 +274,14 @@ async function navigateToExportDownloadPage(exportLinkEl) {
 
   const prereq = validateExportPrerequisitesFromSession();
   if (!prereq.ok) {
-    alert(prereq.message || "먼저 무음 구간 분석을 실행해 주세요.");
+    alert(prereq.message || itzT("needAnalyze", "먼저 무음 구간 분석을 실행해 주세요."));
     return;
   }
 
   if (exportLinkEl instanceof HTMLElement) {
     exportLinkEl.classList.add("is-busy");
     exportLinkEl.setAttribute("aria-busy", "true");
-    exportLinkEl.innerHTML = '<span class="icon">⏳</span> 이동 중…';
+    exportLinkEl.innerHTML = `<span class="icon">⏳</span> ${itzT("moving", "이동 중…")}`;
   }
 
   let navigating = false;
@@ -260,31 +310,35 @@ function setSilenceSummarySectionVisible(visible) {
   if (sec) sec.hidden = !visible;
   if (hint) hint.classList.toggle("is-hidden", visible);
   if (title) {
-    title.textContent = visible ? "미디어 · 무음 요약" : "미디어 정보";
+    title.textContent = visible
+      ? itzT("mediaSilence", "미디어 · 무음 요약")
+      : itzT("mediaInfo", "미디어 정보");
   }
   if (panel) {
     panel.setAttribute(
       "aria-label",
-      visible ? "미디어 정보 및 무음 분석 요약" : "미디어 정보 요약",
+      visible
+        ? itzT("ariaMediaSilence", "미디어 정보 및 무음 분석 요약")
+        : itzT("ariaMedia", "미디어 정보 요약"),
     );
   }
   const subtitle = document.querySelector(".media-summary-subtitle");
-  if (subtitle) subtitle.textContent = "무음 분석";
+  if (subtitle) subtitle.textContent = itzT("silenceAnalysis", "무음 분석");
 }
 
 function applySummaryPanelLabels() {
   const mediaDt = [
-    "길이",
-    "최대 볼륨",
-    "다이내믹 레인지",
-    "원본 FPS",
-    "샘플레이트",
+    itzT("dtDuration", "길이"),
+    itzT("dtMaxVol", "최대 볼륨"),
+    itzT("dtDr", "다이내믹 레인지"),
+    itzT("dtFps", "원본 FPS"),
+    itzT("dtSr", "샘플레이트"),
   ];
   const silenceDt = [
-    "무음 구간",
-    "무음 합계",
-    "최장 무음 구간",
-    "분석 설정",
+    itzT("dtSilenceCount", "무음 구간"),
+    itzT("dtSilenceTotal", "무음 합계"),
+    itzT("dtSilenceLongest", "최장 무음 구간"),
+    itzT("dtSettings", "분석 설정"),
   ];
   const mediaItems = document.querySelectorAll(
     "#media-summary-panel .summary-media-item dt",
@@ -304,13 +358,21 @@ function applySummaryPanelLabels() {
   }
   const hint = document.getElementById("media-summary-hint");
   if (hint) {
-    hint.textContent =
-      "무음 구간 분석을 실행하면 아래에 통계가 표시됩니다.";
+    hint.textContent = itzT(
+      "mediaHint",
+      "무음 구간 분석을 실행하면 아래에 통계가 표시됩니다.",
+    );
   }
 }
 
-/** index.html 한글 깨짐 시 script.js에서 전체 UI 문구 복구 */
-function applyStaticUiLabels() {
+/** Static workspace copy. Skip chrome/status owned by site-runtime and bridge. */
+function applyStaticUiLabels(opts = {}) {
+  const skipAnalyze = Boolean(opts.skipAnalyze);
+  const skipWaveformTitle = Boolean(opts.skipWaveformTitle);
+  const skipBin = Boolean(opts.skipBin);
+  const skipOverlay = Boolean(opts.skipOverlay);
+  const skipProbe = Boolean(opts.skipProbe);
+  const skipPick = Boolean(opts.skipPick);
   const setText = (id, text) => {
     const el = document.getElementById(id);
     if (el != null && text != null) el.textContent = text;
@@ -322,69 +384,67 @@ function applyStaticUiLabels() {
 
   const pathHint = document.querySelector(".path-hint");
   if (pathHint) {
-    pathHint.innerHTML =
-      "에이전트가 설치된 PC에서 파일을 선택하면 <strong>로컬 절대 경로(에이전트 기준)</strong>가 입력됩니다. 네트워크 드라이브는 지원하지 않습니다.";
+    pathHint.innerHTML = itzT(
+      "pathHint",
+      "에이전트가 설치된 PC에서 파일을 선택하면 <strong>로컬 절대 경로(에이전트 기준)</strong>가 입력됩니다. 네트워크 드라이브는 지원하지 않습니다.",
+    );
   }
 
-  const dash = document.querySelector(".btn-to-dashboard");
-  if (dash) dash.textContent = "대시보드로 이동";
-  setText("connection-status", "에이전트 연결 확인 중…");
+  setLabel("video-path", itzT("pathLabel", "영상 파일 경로"));
+  const pickBtn = document.getElementById("btn-pick-local-file");
+  if (pickBtn && !skipPick) {
+    if (pickBtn.getAttribute("data-i18n-busy") === "pick") {
+      pickBtn.textContent = itzT("pickBusy", "대화상자…");
+    } else if (!pickBtn.disabled) {
+      pickBtn.textContent = itzT("browse", "찾아보기");
+    }
+  }
+  if (!skipBin) setText("bin-readiness", itzT("binWait", "무음 제거 · FFmpeg 준비 대기"));
 
-  setLabel("video-path", "영상 파일 경로");
-  setText("btn-pick-local-file", "찾아보기");
-  setText("bin-readiness", "무음 제거 · FFmpeg 준비 대기");
-
-  setLabel("opt-fps", "프레임");
-  setText("opt-fps-hint", "찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다.");
-  setLabel("opt-avg-db", "평균 볼륨 (dB)");
-  setText("opt-avg-db-hint", "영상의 평균 볼륨 크기이며 수정은 불가능합니다.");
-  setLabel("opt-rec-db", "추천 무음 민감도 (dB)");
-  setText("opt-rec-db-hint", "자동 계산된 추천 무음 민감도 입니다.");
-  setLabel("opt-sensitivity", "무음 민감도 (dB)");
-  setText("opt-sensitivity-hint", "추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.");
-  setLabel("opt-padding", "말소리 앞뒤 여백 (ms, 100ms = 0.1초)");
+  setLabel("opt-fps", itzT("fps", "프레임"));
+  setText("opt-fps-hint", itzT("fpsHint", "찾아보기 시 영상 원본 FPS가 자동 입력됩니다. XML 타임라인도 이 FPS 기준입니다."));
+  setLabel("opt-avg-db", itzT("avgDb", "평균 볼륨 (dB)"));
+  setText("opt-avg-db-hint", itzT("avgDbHint", "영상의 평균 볼륨 크기이며 수정은 불가능합니다."));
+  setLabel("opt-rec-db", itzT("recDb", "추천 무음 민감도 (dB)"));
+  setText("opt-rec-db-hint", itzT("recDbHint", "자동 계산된 추천 무음 민감도 입니다."));
+  setLabel("opt-sensitivity", itzT("sensitivity", "무음 민감도 (dB)"));
+  setText("opt-sensitivity-hint", itzT("sensitivityHint", "추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다."));
+  setLabel("opt-padding", itzT("padding", "말소리 앞뒤 여백 (ms, 100ms = 0.1초)"));
   const minSilLbl = document.querySelector(".option-card-duration > label");
-  if (minSilLbl) minSilLbl.textContent = "최소 무음 길이 (초)";
+  if (minSilLbl) minSilLbl.textContent = itzT("minSilence", "최소 무음 길이 (초)");
 
   applySummaryPanelLabels();
 
-  setText("waveform-preview-title", "오디오 파형");
+  if (!skipWaveformTitle) setText("waveform-preview-title", itzT("waveform", "오디오 파형"));
   const zoomHint = document.querySelector(".waveform-zoom-hint");
-  if (zoomHint) zoomHint.textContent = " 휠 축소 시 전체 맞춤 · 드래그=이동";
+  if (zoomHint) zoomHint.textContent = itzT("zoomHint", "휠 축소 시 전체 맞춤 · 드래그=이동");
   const zoomReset = document.getElementById("waveform-zoom-reset");
-  if (zoomReset) zoomReset.title = "확대 100% (기본 해상도)";
+  if (zoomReset) zoomReset.title = itzT("zoomReset", "확대 100% (기본 해상도)");
 
-  setText("analyze-overlay-status", "무음 구간 분석 중…");
-  setText(
-    "analyze-overlay-hint",
-    "분석 시 편집 FPS 격자로 파형을 만든 뒤 XML을 생성합니다. 긴 영상은 파형 생성(첫 1회)에 수 분 걸릴 수 있습니다.",
-  );
+  if (!skipOverlay) {
+    setText("analyze-overlay-status", itzT("analyzing", "무음 구간 분석 중…"));
+    setText(
+      "analyze-overlay-hint",
+      itzT(
+        "analyzeHint",
+        "분석 시 편집 FPS 격자로 파형을 만든 뒤 XML을 생성합니다. 긴 영상은 파형 생성(첫 1회)에 수 분 걸릴 수 있습니다.",
+      ),
+    );
+  }
   const canvas = document.getElementById("waveform-preview-canvas");
-  if (canvas) canvas.setAttribute("aria-label", "오디오 파형");
+  if (canvas) canvas.setAttribute("aria-label", itzT("waveform", "오디오 파형"));
 
-  setText("btn-analyze", BTN_ANALYZE_LABEL);
-  resetExportLinkUi();
+  if (!skipAnalyze) setText("btn-analyze", analyzeIdleLabel());
+  const exportXmlA = document.getElementById("export-xml-link");
+  if (exportXmlA && !exportXmlA.classList.contains("is-busy")) resetExportLinkUi();
   const removeCaption = document.getElementById("opt-remove-silent-caption");
   if (removeCaption) {
-    removeCaption.textContent =
-      "무음 구간 자동 제거";
+    removeCaption.textContent = itzT("removeSilent", "무음 구간 자동 제거");
   }
 
-  setText("probe-loading-title", "영상 불러오는 중");
-  setText(
-    "probe-loading-desc",
-    "옵션·요약·오디오 파형을 준비하고 있습니다.",
-  );
-
-  const mobileTitle = document.getElementById("mobile-only-title");
-  if (mobileTitle) mobileTitle.textContent = "PC에서만 이용할 수 있습니다";
-  const mobileDesc = document.querySelector(".mobile-only-desc");
-  if (mobileDesc) {
-    mobileDesc.innerHTML =
-      "Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.";
-  }
-  for (const ad of document.querySelectorAll(".editor-ad")) {
-    ad.setAttribute("aria-label", "광고");
+  if (!skipProbe) {
+    setText("probe-loading-title", itzT("probeTitle", "영상 불러오는 중"));
+    setText("probe-loading-desc", itzT("probeDesc", "옵션·요약·오디오 파형을 준비하고 있습니다."));
   }
 
   const path = document.getElementById("video-path");
@@ -414,12 +474,24 @@ document.addEventListener("DOMContentLoaded", () => {
   const probeTitleEl = document.getElementById("probe-loading-title");
   const probeDescEl = document.getElementById("probe-loading-desc");
 
-  const MEDIA_LOAD_TITLE_PROBE = "영상 불러오는 중";
-  const MEDIA_LOAD_DESC_PROBE =
-    "프레임·볼륨·무음 민감도와 미디어 요약을 분석하고 있습니다.";
-  const MEDIA_LOAD_TITLE_WAVEFORM = "오디오 파형 생성 중";
-  const MEDIA_LOAD_DESC_WAVEFORM =
-    "편집 FPS 격자로 오디오 파형을 생성하고 있습니다. 긴 영상은 수 분 걸릴 수 있습니다.";
+  function mediaLoadTitleProbe() {
+    return itzT("probeTitle", "영상 불러오는 중");
+  }
+  function mediaLoadDescProbe() {
+    return itzT(
+      "probeDescVol",
+      "프레임·볼륨·무음 민감도와 미디어 요약을 분석하고 있습니다.",
+    );
+  }
+  function mediaLoadTitleWaveform() {
+    return itzT("waveformGen", "오디오 파형 생성 중");
+  }
+  function mediaLoadDescWaveform() {
+    return itzT(
+      "waveformGenDesc",
+      "편집 FPS 격자로 오디오 파형을 생성하고 있습니다. 긴 영상은 수 분 걸릴 수 있습니다.",
+    );
+  }
 
   function setMediaWorkspaceLoadingCopy(title, desc) {
     if (probeTitleEl) probeTitleEl.textContent = title;
@@ -427,7 +499,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function resetMediaWorkspaceLoadingCopy() {
-    setMediaWorkspaceLoadingCopy(MEDIA_LOAD_TITLE_PROBE, MEDIA_LOAD_DESC_PROBE);
+    setMediaWorkspaceLoadingCopy(mediaLoadTitleProbe(), mediaLoadDescProbe());
   }
 
   function setMediaWorkspaceInteractionLocked(locked) {
@@ -531,7 +603,7 @@ document.addEventListener("DOMContentLoaded", () => {
     lastAnalyzedSettings = null;
     clearMediaSummary();
     setSilenceSummarySectionVisible(false);
-    if (waveformPreviewTitle) waveformPreviewTitle.textContent = "오디오 파형";
+    if (waveformPreviewTitle) waveformPreviewTitle.textContent = itzT("waveform", "오디오 파형");
     setWaveformIdleStatus();
     syncExportLinkState();
   }
@@ -603,7 +675,7 @@ document.addEventListener("DOMContentLoaded", () => {
     exportXmlLink.addEventListener("click", (e) => {
       e.preventDefault();
       if (exportXmlLink.classList.contains("is-disabled")) {
-        alert("먼저 무음 구간 분석을 실행해 주세요.");
+        alert(itzT("needAnalyze", "먼저 무음 구간 분석을 실행해 주세요."));
         return;
       }
       void navigateToExportDownloadPage(exportXmlLink);
@@ -614,12 +686,14 @@ document.addEventListener("DOMContentLoaded", () => {
   function setPickBusy(busy) {
     if (btnPickLocalFile) {
       if (busy) {
-        savedPickBtnLabel = btnPickLocalFile.textContent || "찾아보기";
+        savedPickBtnLabel = itzT("browse", "찾아보기");
         btnPickLocalFile.disabled = true;
-        btnPickLocalFile.textContent = "대화상자…";
+        btnPickLocalFile.setAttribute("data-i18n-busy", "pick");
+        btnPickLocalFile.textContent = itzT("pickBusy", "대화상자…");
       } else {
         btnPickLocalFile.disabled = false;
-        btnPickLocalFile.textContent = savedPickBtnLabel || "찾아보기";
+        btnPickLocalFile.removeAttribute("data-i18n-busy");
+        btnPickLocalFile.textContent = itzT("browse", "찾아보기");
       }
     }
     if (dropZoneContainer) dropZoneContainer.classList.toggle("is-picking", busy);
@@ -655,12 +729,15 @@ document.addEventListener("DOMContentLoaded", () => {
             ? d
             : Array.isArray(d)
               ? d.map((x) => (x && typeof x === "object" && "msg" in x ? String(x.msg) : "")).filter(Boolean).join("; ")
-              : res.statusText || "요청 실패";
-        if (res.status === 503 && !/트레이/i.test(msg)) {
-          msg += "\n\n작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.";
+              : res.statusText || itzT("reqFail", "요청 실패");
+        if (res.status === 503 && !/트레이|tray/i.test(msg)) {
+          msg += "\n\n" + itzT("pickTray", "작업 표시줄에서 ItMatZip Agent 트레이를 실행한 뒤 다시 시도하세요.");
         }
         if (res.status === 404) {
-          msg += "\n\n에이전트를 최신 MSI로 재설치하거나, 관리자 PowerShell에서 go-agent\\scripts\\test-tray.ps1 로 트레이를 띄운 뒤 다시 시도하세요.";
+          msg += "\n\n" + itzT(
+            "pickReinstall",
+            "에이전트를 최신 MSI로 재설치하거나, 관리자 PowerShell에서 go-agent\\scripts\\test-tray.ps1 로 트레이를 띄운 뒤 다시 시도하세요.",
+          );
         }
         if (res.status === 400 && (msg.includes("취소") || /cancel/i.test(msg))) return;
         alert(msg);
@@ -675,7 +752,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : "";
       const vp = normalizeAgentMediaPath(vpRaw);
       if (!vp) {
-        alert("에이전트가 경로를 반환하지 않았습니다.");
+        alert(itzT("pickNoPath", "에이전트가 경로를 반환하지 않았습니다."));
         return;
       }
 
@@ -683,10 +760,10 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
       if (name === "AbortError") {
-        alert("파일 선택이 시간 초과되었습니다. 다시 시도해 주세요.");
+        alert(itzT("pickTimeout", "파일 선택이 시간 초과되었습니다. 다시 시도해 주세요."));
       } else {
         const msg = e instanceof Error ? e.message : String(e);
-        alert(`파일 찾아보기 실패: ${msg}`);
+        alert(itzTf("pickFail", "파일 찾아보기 실패: {msg}", { msg }));
       }
     } finally {
       window.clearTimeout(tid);
@@ -720,7 +797,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const optRemoveSilentCaption = document.getElementById("opt-remove-silent-caption");
   if (optRemoveSilentCaption) {
     optRemoveSilentCaption.textContent =
-      "무음 구간 자동 제거";
+      itzT("removeSilent", "무음 구간 자동 제거");
   }
   if (optRemoveSilent) {
     optRemoveSilent.addEventListener("change", () => {
@@ -735,8 +812,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const optPadding = /** @type {HTMLInputElement} */ (document.getElementById("opt-padding"));
   const optPaddingVal = document.getElementById("opt-padding-val");
   const waveformPreviewSection = document.getElementById("waveform-preview-section");
-  const WAVEFORM_IDLE_STATUS =
-    "영상 파일을 선택하면 오디오 파형이 자동으로 생성됩니다.";
+  function waveformIdleStatusText() {
+    return itzT(
+      "waveformEmpty",
+      "영상 파일을 선택하면 오디오 파형이 자동으로 생성됩니다.",
+    );
+  }
 
   function setWaveformSectionVisible(visible) {
     if (!waveformPreviewSection) return;
@@ -746,7 +827,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setWaveformIdleStatus() {
     if (waveformPreviewStatus) {
-      waveformPreviewStatus.textContent = WAVEFORM_IDLE_STATUS;
+      waveformPreviewStatus.textContent = waveformIdleStatusText();
       waveformPreviewStatus.classList.remove("is-err");
     }
   }
@@ -817,7 +898,11 @@ document.addEventListener("DOMContentLoaded", () => {
   /** @type {number} */
   let analyzeProgressLastFrame = 0;
   /** @type {string} */
-  let analyzeProgressStatusText = "무음 구간 분석 중…";
+  let analyzeProgressStatusText = analyzingLabel();
+  /** @type {string} last agent/raw overlay title (re-translated on lang change) */
+  let lastAnalyzeStatusRaw = "";
+  /** @type {"full" | "waveform"} */
+  let lastOverlayMode = "full";
   /** @type {number} 로딩 오버레이를 이 시각까지 유지 */
   let analyzeLoadingHideAfter = 0;
   /** @type {number} 진행 중인 분석 세션 (중복 finally 방지) */
@@ -908,7 +993,7 @@ document.addEventListener("DOMContentLoaded", () => {
     syncExportLinkState();
     if (btnAnalyze) {
       btnAnalyze.disabled = false;
-      btnAnalyze.textContent = BTN_ANALYZE_LABEL;
+      btnAnalyze.textContent = analyzeIdleLabel();
     }
   }
 
@@ -922,7 +1007,7 @@ document.addEventListener("DOMContentLoaded", () => {
     silenceAnalysisDone = false;
     waveformRendererCacheKey = "";
     if (waveformPreviewTitle) {
-      waveformPreviewTitle.textContent = "오디오 파형";
+      waveformPreviewTitle.textContent = itzT("waveform", "오디오 파형");
     }
     if (waveformPeaksData) {
       scheduleWaveformRedraw();
@@ -1092,14 +1177,18 @@ document.addEventListener("DOMContentLoaded", () => {
     if (waveformPreviewStatus) {
       const durTxt = formatDurationClock(waveformPeaksData.timeline_sec);
       waveformPreviewStatus.textContent = silencePreviewEnabled
-        ? `재생 시간 : ${durTxt} / 미리보기 화면은 실제 XML 타임라인과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.`
-        : `재생 시간 : ${durTxt}`;
+        ? itzTf(
+            "playTimeNote",
+            "재생 시간 : {dur} / 미리보기 화면은 실제 XML 타임라인과 완벽히 일치하지 않을 수 있으므로 참고 바랍니다.",
+            { dur: durTxt },
+          )
+        : itzTf("playTime", "재생 시간 : {dur}", { dur: durTxt });
       waveformPreviewStatus.classList.remove("is-err");
     }
     if (waveformPreviewTitle) {
       waveformPreviewTitle.textContent = silencePreviewEnabled
-        ? "오디오 파형 (무음 미리보기)"
-        : "오디오 파형";
+        ? itzT("waveformPreview", "오디오 파형 (무음 미리보기)")
+        : itzT("waveform", "오디오 파형");
     }
   }
 
@@ -1159,7 +1248,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Number.isFinite(sec) || sec == null || sec < 0) return "—";
     const v = truncTo2Decimals(sec);
     if (v >= 60) return formatDurationClock(v);
-    return withSecUnit ? `${v}s` : `${v}초`;
+    return withSecUnit
+      ? itzTf("ui.secUnit", "{n}s", { n: v })
+      : itzTf("ui.secUnit", "{n}초", { n: v });
   }
 
   /** @param {HTMLElement | null} el @param {string} text */
@@ -1190,8 +1281,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const sensTxt =
       Number.isFinite(noiseDb) ? `${truncTo2Decimals(noiseDb)}dB` : "—";
     const padTxt = Number.isFinite(paddingMs) ? `${Math.round(paddingMs)}ms` : "—";
-    const minTxt =
-      Number.isFinite(minSilenceSec) ? `${truncTo2Decimals(minSilenceSec)}초` : "—";
+    const minTxt = Number.isFinite(minSilenceSec)
+      ? itzTf("ui.secUnit", "{n}초", { n: truncTo2Decimals(minSilenceSec) })
+      : "—";
 
     setSummaryCell(
       summarySettings,
@@ -1401,10 +1493,15 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const count = silences.length;
-    setSummaryCell(summarySilenceCount, count === 0 ? "없음" : `${count}개`);
+    setSummaryCell(
+      summarySilenceCount,
+      count === 0
+        ? itzT("silenceNone", "없음")
+        : itzTf("silenceCount", "{n}개", { n: count }),
+    );
 
     if (count === 0) {
-      setSummaryCell(summarySilenceTotal, "0초");
+      setSummaryCell(summarySilenceTotal, itzTf("ui.secUnit", "{n}초", { n: 0 }));
       setSummaryCell(summarySilenceLongest, "—");
     } else {
       const totalTxt = formatDurationShort(total, true);
@@ -1438,17 +1535,23 @@ document.addEventListener("DOMContentLoaded", () => {
       Math.floor((Date.now() - analyzeLoadingStartedAt) / 1000),
     );
     const pct = Math.round(analyzeProgressDisplay);
-    const label = sec > 0 ? `${pct}% · ${sec}초` : `${pct}%`;
+    const label =
+      sec > 0
+        ? itzTf("ui.pctElapsed", "{pct}% · {n}초", { pct, n: sec })
+        : `${pct}%`;
     const meta = document.getElementById("analyze-overlay-meta");
     if (meta) meta.textContent = label;
   }
 
-  function setAnalyzeStatusText(text) {
-    const t = String(text || "").trim();
-    if (!t || t === analyzeProgressStatusText) return;
-    analyzeProgressStatusText = t;
+  function setAnalyzeStatusText(text, force) {
+    const raw = String(text || "").trim();
+    if (!raw) return;
+    const localized = locAgent(raw);
+    if (!force && raw === lastAnalyzeStatusRaw && localized === analyzeProgressStatusText) return;
+    lastAnalyzeStatusRaw = raw;
+    analyzeProgressStatusText = localized;
     const status = document.getElementById("analyze-overlay-status");
-    if (status) status.textContent = t;
+    if (status) status.textContent = localized;
   }
 
   function cancelAnalyzeProgressAnimation() {
@@ -1546,7 +1649,9 @@ document.addEventListener("DOMContentLoaded", () => {
     root.innerHTML =
       '<div class="analyze-overlay-backdrop" aria-hidden="true"></div>' +
       '<div class="analyze-overlay-panel" role="dialog" aria-modal="true" aria-labelledby="analyze-overlay-status">' +
-      '<p id="analyze-overlay-status" class="analyze-overlay-status">무음 구간 분석 중…</p>' +
+      '<p id="analyze-overlay-status" class="analyze-overlay-status">' +
+      analyzingLabel() +
+      "</p>" +
       '<p id="analyze-overlay-meta" class="analyze-overlay-meta">0%</p>' +
       '<div class="analyze-overlay-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">' +
       '<div class="analyze-overlay-progress-bar" id="analyze-overlay-progress-bar"></div>' +
@@ -1572,9 +1677,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function setWaveformAnalyzeLoading(on, opts = {}) {
     const ui = getAnalyzeOverlayEls();
     const mode = opts.mode === "waveform" ? "waveform" : "full";
+    lastOverlayMode = mode;
     const label =
-      opts.label ??
-      (mode === "waveform" ? "무음 구간 분석 중…" : "파형 생성·무음 분석 중…");
+      opts.label ?? overlayLabelForMode(mode);
 
     if (ui.root) {
       if (on) {
@@ -1611,11 +1716,12 @@ document.addEventListener("DOMContentLoaded", () => {
       setWaveformSectionVisible(true);
       setWaveformCanvasHidden(false);
       const onWaveform = mode === "waveform";
-      analyzeProgressStatusText = label;
-      if (ui.status) ui.status.textContent = label;
+      setAnalyzeStatusText(label, true);
       if (ui.hint && !ui.hint.textContent?.trim()) {
-        ui.hint.textContent =
-          "분석이 끝날 때까지 창을 닫지 마세요. 긴 영상은 수 분 걸릴 수 있습니다.";
+        ui.hint.textContent = itzT(
+          "overlayStay",
+          "분석이 끝날 때까지 창을 닫지 마세요. 긴 영상은 수 분 걸릴 수 있습니다.",
+        );
       }
       if (!opts.preserveProgress) {
         resetAnalyzeProgress(onWaveform ? 8 : 5);
@@ -1637,7 +1743,7 @@ document.addEventListener("DOMContentLoaded", () => {
         analyzeProgressDisplay = 0;
         analyzeProgressTarget = 0;
       }, 350);
-      analyzeProgressStatusText = "무음 구간 분석 중…";
+      analyzeProgressStatusText = analyzingLabel();
       const uiOff = getAnalyzeOverlayEls();
       if (uiOff.status) uiOff.status.textContent = analyzeProgressStatusText;
       if (uiOff.meta) uiOff.meta.textContent = "0%";
@@ -1667,11 +1773,7 @@ document.addEventListener("DOMContentLoaded", () => {
       analyzeLoadingHideAfter,
       Date.now() + ANALYZE_LOADING_MIN_MS,
     );
-    setAnalyzeStatusText(
-      session.mode === "waveform"
-        ? "무음 구간 분석 중…"
-        : "파형 생성·무음 분석 중…",
-    );
+    setAnalyzeStatusText(overlayLabelForMode(session.mode));
   }
 
   /**
@@ -1878,7 +1980,7 @@ document.addEventListener("DOMContentLoaded", () => {
     resetSilenceAnalysisState();
     resetWaveformZoom();
     clearMediaSummary();
-    if (waveformPreviewTitle) waveformPreviewTitle.textContent = "오디오 파형";
+    if (waveformPreviewTitle) waveformPreviewTitle.textContent = itzT("waveform", "오디오 파형");
     setWaveformIdleStatus();
   }
 
@@ -2025,7 +2127,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (waveformPreviewStatus) {
-      waveformPreviewStatus.textContent = `파형 생성 중 (편집 FPS ${truncTo2Decimals(pps)} 열/초)…`;
+      waveformPreviewStatus.textContent = itzTf(
+        "waveformGenPps",
+        "파형 생성 중 (편집 FPS {pps} 열/초)…",
+        { pps: truncTo2Decimals(pps) },
+      );
       waveformPreviewStatus.classList.remove("is-err");
     }
 
@@ -2047,7 +2153,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       if (myGen !== waveformPreviewGen) return;
       if (!raw || typeof raw !== "object") {
-        throw new Error("파형 peaks 응답 형식이 올바르지 않습니다.");
+        throw new Error(itzT("peaksBadFormat", "파형 peaks 응답 형식이 올바르지 않습니다."));
       }
 
       const peaks = Array.isArray(raw.peaks) ? raw.peaks.map(Number) : [];
@@ -2079,7 +2185,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : 0;
 
       if (columnCount < 2 || timelineSec <= 0) {
-        throw new Error("파형 peaks 데이터가 비어 있습니다.");
+        throw new Error(itzT("peaksEmpty", "파형 peaks 데이터가 비어 있습니다."));
       }
 
       if (!useEditorTimeline) {
@@ -2093,8 +2199,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (pcmDecodedSec < timelineSec * 0.92) {
         throw new Error(
-          `오디오 파형이 ${formatDurationClock(pcmDecodedSec)}까지만 디코드되었습니다 (재생 ${formatDurationClock(timelineSec)}). ` +
-            "에이전트를 재시작하고 %APPDATA%\\ItMatZip\\cache 폴더를 삭제한 뒤 다시 불러오세요.",
+          itzTf(
+            "waveformDecodeFail",
+            "오디오 파형이 {decoded}까지만 디코드되었습니다 (재생 {full}). 에이전트를 재시작하고 %APPDATA%\\ItMatZip\\cache 폴더를 삭제한 뒤 다시 불러오세요.",
+            {
+              decoded: formatDurationClock(pcmDecodedSec),
+              full: formatDurationClock(timelineSec),
+            },
+          ),
         );
       }
 
@@ -2166,13 +2278,17 @@ document.addEventListener("DOMContentLoaded", () => {
       if (waveformPreviewStatus) {
         const msg = aborted
           ? myGen === waveformPreviewGen
-            ? "요청이 중단되었거나 시간이 초과되었습니다."
+            ? itzT("reqAborted", "요청이 중단되었거나 시간이 초과되었습니다.")
             : ""
           : e instanceof Error
             ? e.message
             : String(e);
         if (msg) {
-          waveformPreviewStatus.textContent = `파형을 불러오지 못했습니다: ${msg}`;
+          waveformPreviewStatus.textContent = itzTf(
+            "waveformLoadFail",
+            "파형을 불러오지 못했습니다: {msg}",
+            { msg },
+          );
           waveformPreviewStatus.classList.add("is-err");
         }
       }
@@ -2234,7 +2350,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!agent.ok) {
       if (probeBusyDepth > 0) releaseProbeLoading();
       alert(
-        `에이전트에 연결할 수 없습니다. 로컬 에이전트를 실행한 뒤 다시 시도해 주세요.\n\n${agent.error || ""}`,
+        itzTf(
+          "noAgent",
+          "에이전트에 연결할 수 없습니다. 로컬 에이전트를 실행한 뒤 다시 시도해 주세요.\n\n{msg}",
+          { msg: agent.error || "" },
+        ),
       );
       return;
     }
@@ -2274,7 +2394,11 @@ document.addEventListener("DOMContentLoaded", () => {
             typeof basis.chosen_db === "number"
               ? truncTo2Decimals(basis.chosen_db)
               : truncTo2Decimals(m.recommended_noise_db);
-          recHintEl.textContent = `평균 ${mean}dB + ${off}dB → 후보 min(보수) ≈ ${chosen}dB`;
+          recHintEl.textContent = itzTf(
+            "recHintFmt",
+            "평균 {mean}dB + {off}dB → 후보 min(보수) ≈ {chosen}dB",
+            { mean, off, chosen },
+          );
           if (optRecDb) {
             optRecDb.title = `from_mean: ${truncTo2Decimals(basis.from_mean_db)}dB` +
               (typeof basis.from_peak_db === "number"
@@ -2294,8 +2418,8 @@ document.addEventListener("DOMContentLoaded", () => {
               ? m.duration_sec
               : probedMediaDurationSec ?? 0;
           setMediaWorkspaceLoadingCopy(
-            MEDIA_LOAD_TITLE_WAVEFORM,
-            MEDIA_LOAD_DESC_WAVEFORM,
+            mediaLoadTitleWaveform(),
+            mediaLoadDescWaveform(),
           );
           await loadWaveformPreview(p, {
             assumeAgentOk: true,
@@ -2306,7 +2430,7 @@ document.addEventListener("DOMContentLoaded", () => {
           setWaveformCanvasHidden(false);
         }
       } else {
-        alert("프로브 응답 형식이 올바르지 않습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요.");
+        alert(itzT("probeBadFormat", "프로브 응답 형식이 올바르지 않습니다. 에이전트를 재시작한 뒤 다시 시도해 주세요."));
       }
     } catch (e) {
       console.warn("[probe]", e);
@@ -2314,8 +2438,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const aborted = e instanceof DOMException && e.name === "AbortError";
       alert(
         aborted
-          ? "미디어 정보 분석이 시간 초과되었습니다. 파일이 크면 더 오래 걸릴 수 있습니다."
-          : `미디어 정보를 불러오지 못했습니다.\n\n${msg}`,
+          ? itzT("probeTimeout", "미디어 정보 분석이 시간 초과되었습니다. 파일이 크면 더 오래 걸릴 수 있습니다.")
+          : itzTf("probeFail", "미디어 정보를 불러오지 못했습니다.\n\n{msg}", { msg }),
       );
       if (!waveformPeaksData) {
         setWaveformCanvasHidden(true);
@@ -2559,23 +2683,26 @@ document.addEventListener("DOMContentLoaded", () => {
         const detail =
           errBody && typeof errBody.detail === "string"
             ? errBody.detail
-            : res.statusText || "상태 조회 실패";
+            : res.statusText || itzT("statusFail", "상태 조회 실패");
         throw new Error(detail);
       }
       const data = await res.json();
       if (typeof onTick === "function") onTick(data);
 
       if (data.phase === "failed") {
-        throw new Error(data.message || "무음 분석 실패");
+        throw new Error(data.message || itzT("analyzeFail", "무음 분석 실패"));
       }
       if (data.phase === "ready" || (isAnalyzeResultReady(data) && data.phase !== "running")) {
         if (!isAnalyzeResultReady(data)) {
-          throw new Error("분석은 끝났지만 결과가 없습니다.");
+          throw new Error(itzT("analyzeNoResult", "분석은 끝났지만 결과가 없습니다."));
         }
         return data;
       }
       if (data.phase === "idle") {
-        throw new Error("분석 작업이 시작되지 않았습니다. 에이전트를 최신 버전으로 업데이트한 뒤 다시 시도하세요.");
+        throw new Error(itzT(
+          "analyzeNotStarted",
+          "분석 작업이 시작되지 않았습니다. 에이전트를 최신 버전으로 업데이트한 뒤 다시 시도하세요.",
+        ));
       }
       await new Promise((r) => setTimeout(r, 500));
     }
@@ -2589,7 +2716,7 @@ document.addEventListener("DOMContentLoaded", () => {
   } else btnAnalyze.addEventListener("click", async () => {
     const videoPath = pathInput.value.trim();
     if (!videoPath) {
-      alert("영상 파일의 실제 로컬 경로를 입력해주세요.");
+      alert(itzT("needLocalPath", "영상 파일의 실제 로컬 경로를 입력해주세요."));
       pathInput.focus();
       return;
     }
@@ -2597,7 +2724,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const fpsParsed = resolveAnalyzeFps();
     if (!Number.isFinite(fpsParsed) || fpsParsed <= 0) {
       alert(
-        "영상 FPS를 읽지 못했습니다.\n찾아보기로 미디어를 선택한 뒤(원본 FPS 자동 입력) 분석해 주세요.",
+        itzT(
+          "needFps",
+          "영상 FPS를 읽지 못했습니다.\n찾아보기로 미디어를 선택한 뒤(원본 FPS 자동 입력) 분석해 주세요.",
+        ),
       );
       pathInput.focus();
       return;
@@ -2632,7 +2762,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const overlaySession = beginAnalyzeOverlay(isReanalyze ? "waveform" : "full");
 
     btnAnalyze.disabled = true;
-    btnAnalyze.textContent = "분석 중...";
+    btnAnalyze.textContent = itzT("analyzeBusy", "분석 중...");
     setAgentLongOperationActive(true);
 
     await new Promise((resolve) => {
@@ -2657,7 +2787,10 @@ document.addEventListener("DOMContentLoaded", () => {
         stopAnalyzeProgressEstimate();
         setAnalyzeProgressTarget(38);
         if (!waveformPeaksData || !mediaPathsEqual(waveformLoadedPath, videoPath)) {
-          alert("오디오 파형을 불러오지 못했습니다. 도우미 실행과 영상 경로를 확인한 뒤 다시 시도해 주세요.");
+          alert(itzT(
+            "waveformNeedHelper",
+            "오디오 파형을 불러오지 못했습니다. 도우미 실행과 영상 경로를 확인한 뒤 다시 시도해 주세요.",
+          ));
           return;
         }
         refreshAnalyzeOverlay(overlaySession, "waveform");
@@ -2719,7 +2852,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       let data = startData;
       if (startData?.phase === "failed") {
-        throw new Error(startData.message || "무음 분석 실패");
+        throw new Error(startData.message || itzT("analyzeFail", "무음 분석 실패"));
       }
       if (!isAnalyzeResultReady(startData) || startData.phase === "running") {
         const analyzeEstimateMs = Math.max(
@@ -2847,7 +2980,10 @@ document.addEventListener("DOMContentLoaded", () => {
       syncExportLinkState();
       if (!fcpXml.trim() || !fcpXmlStructurallyValid(fcpXml)) {
         alert(
-          "분석은 완료됐지만 XML을 만들지 못했습니다. 에이전트를 최신으로 맞춘 뒤 다시 분석하거나, 무음 설정을 조정해 보세요.",
+          itzT(
+            "xmlBuildFail",
+            "분석은 완료됐지만 XML을 만들지 못했습니다. 에이전트를 최신으로 맞춘 뒤 다시 분석하거나, 무음 설정을 조정해 보세요.",
+          ),
         );
       }
 
@@ -2874,11 +3010,13 @@ document.addEventListener("DOMContentLoaded", () => {
             : undefined;
       applySilenceSummaryFromAnalyze(silences, summaryTimeline);
     } catch (err) {
-      const msg = formatAgentConnectionError(err) || "분석에 실패했습니다.";
+      const msg = formatAgentConnectionError(err) || itzT("analyzeFailFallback", "분석에 실패했습니다.");
       alert(
-        `분석 실패: ${msg}\n\n` +
-          "에이전트 트레이가 사라졌다면 작업 표시줄에서 ItMatZip Agent를 다시 실행하세요.\n" +
-          "Chrome 사용 시 tools.itmatzip.com → 사이트 설정 → 로컬 네트워크 「허용」도 확인하세요.",
+        itzTf(
+          "analyzeFailAlert",
+          "분석 실패: {msg}\n\n에이전트 트레이가 사라졌다면 작업 표시줄에서 ItMatZip Agent를 다시 실행하세요.\nChrome 사용 시 tools.itmatzip.com → 사이트 설정 → 로컬 네트워크 「허용」도 확인하세요.",
+          { msg },
+        ),
       );
       console.error(err);
     } finally {
@@ -2887,7 +3025,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await endAnalyzeOverlay(overlaySession);
       if (btnAnalyze) {
         btnAnalyze.disabled = false;
-        btnAnalyze.textContent = BTN_ANALYZE_LABEL;
+        btnAnalyze.textContent = analyzeIdleLabel();
       }
       if (silenceAnalysisDone && waveformPeaksData) {
         window.requestAnimationFrame(() => redrawWaveformCanvas());
@@ -2924,7 +3062,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (knownOk === false) {
       binEl.hidden = false;
       binEl.className = "bin-readiness is-warn";
-      binEl.textContent = "에이전트 미연결 → FFmpeg 점검 불가";
+      binEl.textContent = itzT("binNoAgent", "에이전트 미연결 → FFmpeg 점검 불가");
       return;
     }
 
@@ -2935,13 +3073,13 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!agent.ok) {
       binEl.hidden = false;
       binEl.className = "bin-readiness is-warn";
-      binEl.textContent = "에이전트 미연결 → FFmpeg 점검 불가";
+      binEl.textContent = itzT("binNoAgent", "에이전트 미연결 → FFmpeg 점검 불가");
       return;
     }
 
     binEl.hidden = false;
     binEl.className = "bin-readiness is-warn";
-    binEl.textContent = "FFmpeg · ffprobe 확인 중...";
+    binEl.textContent = itzT("ffmpegChecking", "FFmpeg · ffprobe 확인 중...");
 
     try {
       const fetchReadiness = () =>
@@ -2950,7 +3088,7 @@ document.addEventListener("DOMContentLoaded", () => {
           path: "/api/tools/silence-remover/readiness",
           onProgress: (ev) => {
             if (ev.phase === "request") {
-              binEl.textContent = "FFmpeg · ffprobe 확인 중...";
+              binEl.textContent = itzT("ffmpegChecking", "FFmpeg · ffprobe 확인 중...");
             }
           },
         });
@@ -2958,8 +3096,10 @@ document.addEventListener("DOMContentLoaded", () => {
       let data = await fetchReadiness();
       let b = data && typeof data === "object" ? data.binaries : null;
       if (!b || !b.ffmpeg || !b.ffprobe) {
-        binEl.textContent =
-          "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 1~3분 걸릴 수 있음)";
+        binEl.textContent = itzT(
+          "ffmpegWaitDownload",
+          "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 1~3분 걸릴 수 있음)",
+        );
         const ctrl = new AbortController();
         const dlTimer = setTimeout(() => ctrl.abort(), 300_000);
         try {
@@ -2976,7 +3116,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       if (b && b.ffmpeg && b.ffprobe) {
         binEl.className = "bin-readiness is-ok";
-        binEl.textContent = "FFmpeg · ffprobe 준비됨";
+        binEl.textContent = itzT("ffmpegReady", "FFmpeg · ffprobe 준비됨");
         return;
       }
       binEl.className = "bin-readiness is-err";
@@ -2984,24 +3124,79 @@ document.addEventListener("DOMContentLoaded", () => {
         b && typeof b.bin_dir === "string" && b.bin_dir
           ? b.bin_dir
           : "C:\\ProgramData\\itmatzip-agent\\bin (서비스) 또는 %APPDATA%\\ItMatZip\\bin";
-      binEl.textContent = "FFmpeg · ffprobe가 아직 준비되지 않았습니다.";
+      binEl.textContent = itzT("ffmpegNotReady", "FFmpeg · ffprobe가 아직 준비되지 않았습니다.");
       await showInstallAgentDialog({
-        title: "FFmpeg 구성 오류",
-        bodyHtml: `<p>에이전트는 연결됐지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code>가 <strong>에이전트 전용 폴더</strong>에 없습니다. Windows 시스템 PATH와는 무관합니다.</p><p>필요 경로: <code>${escHtml(binDir)}</code></p><p>최신 MSI(1.0.9+)는 설치 시 위 폴더에 FFmpeg를 넣습니다. 구버전이면 페이지 새로고침(자동 다운로드) 또는 에이전트 재설치를 시도하세요.</p>`,
+        title: itzT("ffmpegDlgTitle", "FFmpeg 구성 오류"),
+        bodyHtml: itzTf(
+          "ffmpegDlgBody",
+          "<p>에이전트는 연결됐지만 <code>ffmpeg.exe</code> / <code>ffprobe.exe</code>가 <strong>에이전트 전용 폴더</strong>에 없습니다. Windows 시스템 PATH와는 무관합니다.</p><p>필요 경로: <code>{binDir}</code></p><p>최신 MSI(1.0.9+)는 설치 시 위 폴더에 FFmpeg를 넣습니다. 구버전이면 페이지 새로고침(자동 다운로드) 또는 에이전트 재설치를 시도하세요.</p>",
+          { binDir: escHtml(binDir) },
+        ),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       binEl.className = "bin-readiness is-err";
-      binEl.textContent = `FFmpeg 준비 실패: ${msg}`;
+      binEl.textContent = itzTf("ffmpegPrepFail", "FFmpeg 준비 실패: {msg}", { msg });
       await showInstallAgentDialog({
-        title: "FFmpeg를 내려받거나 설치하지 못했습니다",
-        bodyHtml: `<p>에이전트 PC에서 번들 다운로드가 실패했을 수 있습니다. 아래 메시지를 참고하세요.</p><p><code>${escHtml(msg)}</code></p><ul style="text-align:left;margin:0.5rem 0 0 1rem;line-height:1.5"><li><code>ITMATZIP_FFMPEG_URL</code>에 유효한 Windows용 FFmpeg zip 주소가 있는지</li><li>인터넷·방화벽·회사 프록시</li><li>에이전트 터미널의 Python 에러 로그</li></ul>`,
+        title: itzT("ffmpegDlFailTitle", "FFmpeg를 내려받거나 설치하지 못했습니다"),
+        bodyHtml: itzTf(
+          "ffmpegDlFailBody",
+          "<p>에이전트 PC에서 번들 다운로드가 실패했을 수 있습니다. 아래 메시지를 참고하세요.</p><p><code>{msg}</code></p>",
+          { msg: escHtml(msg) },
+        ),
         onPrimary: async () => {
           await checkSilenceToolBinaries();
         },
       });
     }
   }
+
+  document.addEventListener("itz:lang-change", () => {
+    const overlayOn = document.body.classList.contains("analyze-overlay-open");
+    const probeOn = document.body.classList.contains("probe-loading-open");
+    applyStaticUiLabels({
+      skipAnalyze: overlayOn || Boolean(btnAnalyze && btnAnalyze.disabled),
+      skipWaveformTitle: true,
+      skipBin: true,
+      skipOverlay: overlayOn,
+      skipProbe: probeOn,
+      skipPick: true,
+    });
+    applySummaryPanelLabels();
+    setSilenceSummarySectionVisible(Boolean(silenceAnalysisDone));
+    if (waveformPreviewTitle) {
+      waveformPreviewTitle.textContent = silencePreviewEnabled
+        ? itzT("waveformPreview", "오디오 파형 (무음 미리보기)")
+        : itzT("waveform", "오디오 파형");
+    }
+    if (waveformPeaksData) {
+      redrawWaveformCanvas();
+    } else {
+      setWaveformIdleStatus();
+    }
+    if (overlayOn) {
+      const ui = getAnalyzeOverlayEls();
+      if (lastAnalyzeStatusRaw) setAnalyzeStatusText(lastAnalyzeStatusRaw, true);
+      else setAnalyzeStatusText(overlayLabelForMode(lastOverlayMode), true);
+      updateAnalyzeProgressMeta();
+      if (ui.hint) {
+        ui.hint.textContent = itzT(
+          "overlayStay",
+          "분석이 끝날 때까지 창을 닫지 마세요. 긴 영상은 수 분 걸릴 수 있습니다.",
+        );
+      }
+      if (btnAnalyze) btnAnalyze.textContent = itzT("analyzeBusy", "분석 중...");
+    }
+    if (btnPickLocalFile && btnPickLocalFile.getAttribute("data-i18n-busy") === "pick") {
+      btnPickLocalFile.textContent = itzT("pickBusy", "대화상자…");
+    } else if (btnPickLocalFile && !btnPickLocalFile.disabled) {
+      btnPickLocalFile.textContent = itzT("browse", "찾아보기");
+    }
+    if (probeOn) {
+      setMediaWorkspaceLoadingCopy(mediaLoadTitleProbe(), mediaLoadDescProbe());
+    }
+    void checkSilenceToolBinaries(lastConnectionUiOk === true ? true : lastConnectionUiOk === false ? false : undefined);
+  });
 
   window.addEventListener("pageshow", (ev) => {
     resetExportLinkUi();

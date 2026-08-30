@@ -10,10 +10,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 if (typeof window !== "undefined") {
@@ -39,8 +39,10 @@ const STORAGE_DL_FORMAT = "image-enhancer:dl-output-format";
 const STORAGE_DL_SOURCE = "image-enhancer:dl-source-name";
 const STORAGE_EDITOR_IMAGE_PATH = "image-enhancer:editor-image-path";
 const STORAGE_RETURN_FROM_DL = "image-enhancer:return-from-dl";
-const EXPORT_LINK_DEFAULT_HTML =
-  '<span class="icon" aria-hidden="true">📥</span> 결과 다운로드';
+function exportDownloadHtml() {
+  const label = window.itzT("download", window.itzT("ui.downloadResult", "결과 다운로드"));
+  return `<span class="icon" aria-hidden="true">📥</span> ${label}`;
+}
 const imagePathInput = document.getElementById("image-path");
 const btnPickLocalFile = document.getElementById("btn-pick-local-file");
 const btnNewJob = document.getElementById("btn-new-job");
@@ -139,7 +141,13 @@ const previewPanelHeading = document.getElementById("preview-panel-heading");
 
 function setPreviewPanelHeading(compareMode) {
   if (!previewPanelHeading) return;
-  previewPanelHeading.textContent = compareMode ? "결과 비교" : "원본 미리보기";
+  if (compareMode) {
+    previewPanelHeading.setAttribute("data-preview-mode", "compare");
+    previewPanelHeading.textContent = window.itzT("ui.previewCompare", "결과 비교");
+  } else {
+    previewPanelHeading.removeAttribute("data-preview-mode");
+    previewPanelHeading.textContent = window.itzT("ui.previewOriginal", "원본 미리보기");
+  }
 }
 
 function revealPreviewSingle() {
@@ -232,7 +240,7 @@ function resetExportLinkUi() {
   if (!exportLink) return;
   exportLink.classList.remove("is-busy");
   exportLink.removeAttribute("aria-busy");
-  exportLink.innerHTML = EXPORT_LINK_DEFAULT_HTML;
+  exportLink.innerHTML = exportDownloadHtml();
   const enabled = isExportEnabled();
   exportLink.classList.toggle("is-disabled", !enabled);
   if (enabled) {
@@ -246,14 +254,14 @@ function resetExportLinkUi() {
 
 async function navigateToDownloadPage(exportLinkEl) {
   if (!isExportEnabled() || !canDownloadFromSession()) {
-    alert("먼저 화질 향상을 완료해 주세요.");
+    alert(window.itzT("needEnhanceFirst", "먼저 화질 향상을 완료해 주세요."));
     return;
   }
 
   if (exportLinkEl instanceof HTMLElement) {
     exportLinkEl.classList.add("is-busy");
     exportLinkEl.setAttribute("aria-busy", "true");
-    exportLinkEl.innerHTML = '<span class="icon" aria-hidden="true">⏳</span> 이동 중…';
+    exportLinkEl.innerHTML = `<span class="icon" aria-hidden="true">⏳</span> ${window.itzT("ui.moving", "이동 중…")}`;
   }
 
   let navigating = false;
@@ -314,6 +322,28 @@ function resolveBgTile() {
   return backgroundQualityMode?.checked ? 256 : 400;
 }
 
+function applyOptionLabels() {
+  if (outputFormatSelect) {
+    const png = outputFormatSelect.querySelector('option[value="png"]');
+    const jpg = outputFormatSelect.querySelector('option[value="jpg"]');
+    if (png) png.textContent = window.itzT("fmtPng", "PNG (무손실)");
+    if (jpg) jpg.textContent = window.itzT("fmtJpg", "JPEG");
+  }
+  if (upscaleSelect) {
+    const o1 = upscaleSelect.querySelector('option[value="1"]');
+    const o2 = upscaleSelect.querySelector('option[value="2"]');
+    const o4 = upscaleSelect.querySelector('option[value="4"]');
+    if (o1) o1.textContent = window.itzT("scale1", "1배 — 원본 크기");
+    if (o2) o2.textContent = window.itzT("scale2", "2배 — 권장 (배경 복원)");
+    if (o4) o4.textContent = window.itzT("scale4", "4배 — 최대 선명 (느림)");
+  }
+}
+
+function formatScaleShort(n) {
+  const tf = window.ITZ_I18N?.tf;
+  return tf ? tf("scaleNx", { n }) : window.itzT("scaleNx", `${n}배`).replace("{n}", String(n));
+}
+
 function syncBackgroundEnhanceUi() {
   const bgOn = !!backgroundEnhance?.checked;
   if (backgroundQualityMode) {
@@ -327,8 +357,8 @@ function syncBackgroundEnhanceUi() {
   }
   if (upscaleHint) {
     upscaleHint.textContent = bgOn
-      ? "배경 RealESRGAN은 2배·4배에서 효과가 큽니다. 4배는 가장 선명하지만 시간이 더 걸립니다."
-      : "배경 복원을 켜면 2배 이상을 권장합니다.";
+      ? window.itzT("upscaleHintBg", "배경 RealESRGAN은 2배·4배에서 효과가 큽니다. 4배는 가장 선명하지만 시간이 더 걸립니다.")
+      : window.itzT("upscaleHint", "배경 복원을 켜면 2배 이상을 권장합니다.");
   }
   if (bgOn && upscaleSelect && upscaleSelect.value === "1") {
     upscaleSelect.value = "2";
@@ -338,18 +368,23 @@ function syncBackgroundEnhanceUi() {
 
 function getActiveOptionLabels() {
   const labels = [];
-  if (faceUpsample?.checked) labels.push("얼굴 업스케일");
-  if (onlyCenterFace?.checked) labels.push("가운데 얼굴만");
+  if (faceUpsample?.checked) labels.push(window.itzT("faceUpscale", "얼굴 업스케일"));
+  if (onlyCenterFace?.checked) labels.push(window.itzT("centerFace", "가운데 얼굴만"));
   if (backgroundEnhance?.checked) {
-    labels.push("배경 복원");
-    if (backgroundQualityMode?.checked) labels.push("배경 고품질");
+    labels.push(window.itzT("bgRestore", "배경 복원"));
+    if (backgroundQualityMode?.checked) labels.push(window.itzT("bgHq", "배경 고품질 모드"));
   }
   return labels;
 }
 
+let modelReadyKnown = false;
+
 function setModelReadySummary(ready) {
   if (!summaryModelReady) return;
-  summaryModelReady.textContent = ready ? "완료" : "준비 필요";
+  modelReadyKnown = true;
+  summaryModelReady.textContent = ready
+    ? window.itzT("readyDone", "완료")
+    : window.itzT("needPrepShort", "준비 필요");
   summaryModelReady.style.color = ready ? "#34d399" : "#fbbf24";
 }
 
@@ -358,7 +393,7 @@ function syncSummaryFromDom() {
     summaryFormat.textContent = outputFormatSelect.selectedOptions[0]?.textContent || "PNG";
   }
   if (summaryUpscale) {
-    summaryUpscale.textContent = `${resolveUpscale()}배`;
+    summaryUpscale.textContent = formatScaleShort(resolveUpscale());
   }
   if (summaryFidelity) {
     summaryFidelity.textContent = getFidelity().toFixed(2);
@@ -367,7 +402,7 @@ function syncSummaryFromDom() {
     const labels = getActiveOptionLabels();
     summaryOptions.replaceChildren();
     if (!labels.length) {
-      summaryOptions.textContent = "없음";
+      summaryOptions.textContent = window.itzT("none", "없음");
       summaryOptions.classList.add("is-empty");
       return;
     }
@@ -417,9 +452,10 @@ function setSetupLoading(active, { title, message, step, progress } = {}) {
     setupLoading.hidden = false;
     setupLoading.classList.add("is-active");
     setupLoading.setAttribute("aria-hidden", "false");
-    if (title && setupLoadingTitle) setupLoadingTitle.textContent = title;
-    if (setupLoadingStep) setupLoadingStep.textContent = step || "";
-    if (message && setupLoadingMessage) setupLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && setupLoadingTitle) setupLoadingTitle.textContent = agentText(title) || title;
+    if (setupLoadingStep) setupLoadingStep.textContent = agentText(step) || "";
+    if (message && setupLoadingMessage) setupLoadingMessage.textContent = agentText(message) || message;
     if (setupLoadingBar && typeof progress === "number") {
       const pct = Math.max(0, Math.min(100, progress));
       setupLoadingBar.style.width = `${pct}%`;
@@ -443,9 +479,10 @@ function setEnhanceLoading(active, { title, step, message, progress } = {}) {
     enhanceLoading.hidden = false;
     enhanceLoading.classList.add("is-active");
     enhanceLoading.setAttribute("aria-hidden", "false");
-    if (title && enhanceLoadingTitle) enhanceLoadingTitle.textContent = title;
-    if (enhanceLoadingStep) enhanceLoadingStep.textContent = step || "";
-    if (message && enhanceLoadingMessage) enhanceLoadingMessage.textContent = message;
+    const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+    if (title && enhanceLoadingTitle) enhanceLoadingTitle.textContent = agentText(title) || title;
+    if (enhanceLoadingStep) enhanceLoadingStep.textContent = agentText(step) || "";
+    if (message && enhanceLoadingMessage) enhanceLoadingMessage.textContent = agentText(message) || message;
     if (enhanceLoadingBar && typeof progress === "number") {
       const pct = Math.max(0, Math.min(100, progress));
       if (!enhanceBusy || pct >= lastDisplayedProgress) lastDisplayedProgress = pct;
@@ -465,27 +502,27 @@ function setEnhanceLoading(active, { title, step, message, progress } = {}) {
 }
 
 function preparePhaseTitle(phase) {
-  if (phase === "installing_dependencies") return "라이브러리 · PyTorch";
-  if (phase === "downloading_models") return "AI 모델";
-  if (phase === "ready") return "설치 완료";
-  if (phase === "failed") return "설치 실패";
-  return "AI 환경 준비";
+  if (phase === "installing_dependencies") return window.itzT("ui.libTorch", "라이브러리 · PyTorch");
+  if (phase === "downloading_models") return window.itzT("ui.aiModel", "AI 모델");
+  if (phase === "ready") return window.itzT("ui.phaseDone", "설치 완료");
+  if (phase === "failed") return window.itzT("ui.phaseFail", "설치 실패");
+  return window.itzT("ui.prepare", "AI 환경 준비");
 }
 
 function applyPrepareStatusToOverlay(data) {
   setSetupLoading(true, {
     title: preparePhaseTitle(data?.phase || ""),
     step: data?.step || "",
-    message: data?.detail || data?.message || "준비 중입니다…",
+    message: data?.detail || data?.message || window.itzT("ui.preparing", "준비 중…"),
     progress: typeof data?.progress === "number" ? data.progress : undefined,
   });
 }
 
 function applyEnhanceStatusToOverlay(data) {
   setEnhanceLoading(true, {
-    title: "화질 향상",
-    step: data?.message || "CodeFormer 처리 중…",
-    message: "얼굴·디테일을 복원하고 있습니다.",
+    title: window.itzT("enhanceTitle", "화질 향상"),
+    step: data?.message || window.itzT("ui.cfProcess", "CodeFormer 처리 중…"),
+    message: window.itzT("ui.restoreFaces", "얼굴·디테일을 복원하고 있습니다."),
     progress: typeof data?.progress === "number" ? data.progress : undefined,
   });
 }
@@ -670,7 +707,15 @@ function waitImageReady(imgEl) {
 
 function setPreviewPlaceholderMessage(message) {
   const p = previewEmpty?.querySelector("p");
-  const isError = !!(message && !message.includes("불러오는 중") && !message.includes("선택하면"));
+  const loadingMsg = window.itzT("previewLoading", "이미지를 불러오는 중…");
+  const emptyMsg = window.itzT("previewEmpty", "이미지를 선택하면 여기에 원본이 표시됩니다.");
+  const isError = !!(
+    message &&
+    message !== loadingMsg &&
+    message !== emptyMsg &&
+    !message.includes("불러오는 중") &&
+    !message.includes("선택하면")
+  );
   if (previewEmpty) previewEmpty.classList.toggle("is-error", isError);
   if (p) p.textContent = message;
 }
@@ -700,8 +745,8 @@ function setPreviewMode(mode) {
       const msg = previewEmpty.querySelector("p");
       if (msg) {
         msg.textContent = loading
-          ? "이미지를 불러오는 중…"
-          : "이미지를 선택하면 여기에 원본이 표시됩니다.";
+          ? window.itzT("previewLoading", "이미지를 불러오는 중…")
+          : window.itzT("previewEmpty", "이미지를 선택하면 여기에 원본이 표시됩니다.");
       }
     }
   }
@@ -787,7 +832,7 @@ async function showOriginalPreview(filePath, { directUrl = "" } = {}) {
   const normalized = normalizeFilePath(filePath);
   if (!normalized) {
     setPreviewMode("empty");
-    setPreviewPlaceholderMessage("이미지를 선택하면 여기에 원본이 표시됩니다.");
+    setPreviewPlaceholderMessage(window.itzT("previewEmpty", "이미지를 선택하면 여기에 원본이 표시됩니다."));
     return;
   }
   const token = ++previewLoadToken;
@@ -810,14 +855,14 @@ async function showOriginalPreview(filePath, { directUrl = "" } = {}) {
     }
     setPreviewMode("empty");
     setPreviewPlaceholderMessage(
-      err instanceof Error ? err.message : "미리보기를 불러오지 못했습니다.",
+      err instanceof Error ? err.message : window.itzT("previewLoadFail", "미리보기를 불러오지 못했습니다."),
     );
     throw err;
   }
   if (token !== previewLoadToken) return;
   if (!(previewSource?.naturalWidth > 0)) {
     setPreviewMode("empty");
-    setPreviewPlaceholderMessage("이미지를 표시할 수 없습니다.");
+    setPreviewPlaceholderMessage(window.itzT("cannotShowImage", "이미지를 표시할 수 없습니다."));
     return;
   }
   setPreviewMode("single");
@@ -864,7 +909,7 @@ async function showComparePreviews(originalPath, resultPath) {
     if (token !== previewLoadToken) return;
     setPreviewMode("empty");
     setPreviewPlaceholderMessage(
-      err instanceof Error ? err.message : "비교 미리보기를 불러오지 못했습니다.",
+      err instanceof Error ? err.message : window.itzT("previewLoadFail", "비교 미리보기를 불러오지 못했습니다."),
     );
     throw err;
   }
@@ -920,9 +965,9 @@ async function prepareModel() {
   setAgentLongOperationActive(true);
   try {
     setSetupLoading(true, {
-      title: "AI 환경 준비",
-      step: "설치 시작",
-      message: "PyTorch · CodeFormer · 모델을 설치합니다.",
+      title: window.itzT("ui.prepare", "AI 환경 준비"),
+      step: window.itzT("ui.installStart", "설치 시작"),
+      message: window.itzT("setupMsg", "PyTorch · CodeFormer · 모델을 설치합니다."),
       progress: 5,
     });
     const res = await fetchAgent(`${getAgentOrigin()}${TOOL_API}/prepare`, {
@@ -958,15 +1003,18 @@ async function refreshToolStatus() {
 /**
  * @param {{ agentOk?: boolean, pytorch?: object, binaries?: object }} ctx
  */
+let lastComputeCtx = null;
+
 function setComputeCapabilityBadge(ctx) {
   if (!computeCapability) return;
+  lastComputeCtx = ctx;
 
   computeCapability.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
 
   if (ctx.agentOk === false) {
     computeCapability.classList.add("is-pending");
-    computeCapability.textContent = "연산 장치 확인 불가";
-    computeCapability.title = "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.";
+    computeCapability.textContent = window.itzT("gpuUnknown", "연산 장치 확인 불가");
+    computeCapability.title = window.itzT("gpuUnknownTitle", "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.");
     return;
   }
 
@@ -975,7 +1023,7 @@ function setComputeCapabilityBadge(ctx) {
 
   if (!p && !b) {
     computeCapability.classList.add("is-pending");
-    computeCapability.textContent = "연산 장치 확인 중…";
+    computeCapability.textContent = window.itzT("ui.gpuChecking", "연산 장치 확인 중…");
     computeCapability.title = "";
     return;
   }
@@ -984,46 +1032,45 @@ function setComputeCapabilityBadge(ctx) {
   const cudaReady = Boolean(b?.cuda_available);
   const installed = p?.installed_bundle ? String(p.installed_bundle) : "";
   const torchVer = p?.torch_version ? String(p.torch_version) : "";
+  const tf = window.ITZ_I18N?.tf;
 
   if (cudaReady) {
     computeCapability.classList.add("is-gpu");
-    computeCapability.textContent = "GPU · CUDA 사용 가능";
+    computeCapability.textContent = window.itzT("gpuCudaOk", "GPU · CUDA 사용 가능");
     computeCapability.title = torchVer
-      ? `PyTorch ${torchVer} — CodeFormer가 GPU로 동작합니다.`
-      : "CodeFormer가 GPU로 동작합니다.";
+      ? (tf ? tf("gpuCudaOkTitleVer", { ver: torchVer }) : `PyTorch ${torchVer} — CodeFormer가 GPU로 동작합니다.`)
+      : window.itzT("gpuCudaOkTitle", "CodeFormer가 GPU로 동작합니다.");
     return;
   }
 
   if (gpuDetected && installed === "cpu") {
     computeCapability.classList.add("is-warn");
-    computeCapability.textContent = "GPU · CUDA 미적용";
+    computeCapability.textContent = window.itzT("gpuCudaOff", "GPU · CUDA 미적용");
     computeCapability.title = torchVer
-      ? `PyTorch ${torchVer} (CPU 빌드). 환경 준비를 다시 실행하면 GPU wheel로 교체됩니다.`
-      : "PyTorch CPU 빌드입니다. 환경 준비를 다시 실행하세요.";
+      ? (tf ? tf("gpuCudaOffTitleVer", { ver: torchVer }) : `PyTorch ${torchVer} (CPU 빌드). 환경 준비를 다시 실행하면 GPU wheel로 교체됩니다.`)
+      : window.itzT("gpuCudaOffTitle", "PyTorch CPU 빌드입니다. 환경 준비를 다시 실행하세요.");
     return;
   }
 
   if (gpuDetected && installed === "cuda") {
     computeCapability.classList.add("is-warn");
-    computeCapability.textContent = "GPU · CUDA 미사용";
-    computeCapability.title =
-      "NVIDIA GPU는 있으나 CUDA를 쓸 수 없습니다. 드라이버·환경 준비를 확인하세요.";
+    computeCapability.textContent = window.itzT("gpuCudaUnused", "GPU · CUDA 미사용");
+    computeCapability.title = window.itzT("gpuCudaUnusedTitle", "NVIDIA GPU는 있으나 CUDA를 쓸 수 없습니다. 드라이버·환경 준비를 확인하세요.");
     return;
   }
 
   if (gpuDetected) {
     computeCapability.classList.add("is-gpu");
-    computeCapability.textContent = "GPU 감지됨";
-    computeCapability.title =
-      "NVIDIA GPU가 있습니다. CUDA PyTorch 설치 후 GPU 복원이 가능합니다.";
+    computeCapability.textContent = window.itzT("gpuDetected", "GPU 감지됨");
+    computeCapability.title = window.itzT("gpuDetectedTitle", "NVIDIA GPU가 있습니다. CUDA PyTorch 설치 후 GPU 복원이 가능합니다.");
     return;
   }
 
   computeCapability.classList.add("is-cpu");
-  computeCapability.textContent = "CPU만 가능";
+  computeCapability.textContent = window.itzT("cpuOnly", "CPU만 가능");
   computeCapability.title = torchVer
-    ? `PyTorch ${torchVer} — GPU가 없어 CPU로 동작합니다.`
-    : "NVIDIA GPU가 감지되지 않았습니다. CPU wheel로 설치·실행됩니다.";
+    ? (tf ? tf("cpuOnlyTitleVer", { ver: torchVer }) : `PyTorch ${torchVer} — GPU가 없어 CPU로 동작합니다.`)
+    : window.itzT("cpuOnlyTitle", "NVIDIA GPU가 감지되지 않았습니다. CPU wheel로 설치·실행됩니다.");
 }
 
 /** @param {boolean} agentOk @param {object | null} data */
@@ -1032,20 +1079,20 @@ function updateBinReadiness(agentOk, data) {
 
   if (!agentOk) {
     binReadiness.className = "bin-readiness is-warn";
-    binReadiness.textContent = "에이전트 미연결 → CodeFormer · 모델 점검 불가";
+    binReadiness.textContent = window.itzT("binNoAgent", "에이전트 미연결 → CodeFormer · 모델 점검 불가");
     return;
   }
 
   if (!data) {
     binReadiness.className = "bin-readiness is-warn";
-    binReadiness.textContent = "Image Enhancer · 환경 확인 중…";
+    binReadiness.textContent = window.itzT("envCheckingLong", "Image Enhancer · 환경 확인 중…");
     return;
   }
 
   const b = data.binaries && typeof data.binaries === "object" ? data.binaries : null;
   if (!b) {
     binReadiness.className = "bin-readiness is-err";
-    binReadiness.textContent = "준비 상태 응답이 비정상입니다.";
+    binReadiness.textContent = window.itzT("binBadResp", "준비 상태 응답이 비정상입니다.");
     return;
   }
 
@@ -1054,9 +1101,9 @@ function updateBinReadiness(agentOk, data) {
   parts.push(b.torch ? "PyTorch" : "PyTorch ✗");
   parts.push(b.pip_stack ? "pip" : "pip ✗");
   parts.push(b.vendor_ready ? "CodeFormer" : "CodeFormer ✗");
-  parts.push(b.model_ready ? "모델" : "모델 ✗");
+  parts.push(b.model_ready ? window.itzT("ui.model", "모델") : `${window.itzT("ui.model", "모델")} ✗`);
   if (b.cuda_available) parts.push("CUDA");
-  else if (p?.gpu_detected && p?.installed_bundle === "cpu") parts.push("CUDA 재설치 필요");
+  else if (p?.gpu_detected && p?.installed_bundle === "cpu") parts.push(window.itzT("cudaReinstall", "CUDA 재설치 필요"));
 
   // enhance API와 동일 — torch+pip+vendor+모델 모두 필요
   const fullyReady = !!(b.torch && b.pip_stack && b.vendor_ready && b.model_ready);
@@ -1065,12 +1112,12 @@ function updateBinReadiness(agentOk, data) {
 
   if (fullyReady) {
     binReadiness.className = "bin-readiness is-ok";
-    binReadiness.textContent = `${parts.join(" · ")} 준비됨`;
+    binReadiness.textContent = window.ITZ_I18N?.tf?.("binReadyOk", { parts: parts.join(" · ") }) || `${parts.join(" · ")} ${window.itzT("ui.readyOk", "준비됨")}`;
     return;
   }
 
   binReadiness.className = "bin-readiness is-warn";
-  binReadiness.textContent = `${parts.join(" · ")} · 준비 필요`;
+  binReadiness.textContent = window.ITZ_I18N?.tf?.("binNeedPrepShort", { parts: parts.join(" · ") }) || `${parts.join(" · ")} · ${window.itzT("needPrepShort", "준비 필요")}`;
 }
 
 /** @param {boolean} [knownOk] */
@@ -1090,7 +1137,7 @@ async function checkReadiness(knownOk) {
 
   if (!toolReady) {
     binReadiness.className = "bin-readiness is-warn";
-    binReadiness.textContent = "CodeFormer · 모델 확인 중…";
+    binReadiness.textContent = window.itzT("modelChecking", "CodeFormer · 모델 확인 중…");
   }
 
   try {
@@ -1112,7 +1159,7 @@ async function checkReadiness(knownOk) {
     setComputeCapabilityBadge({ agentOk: true });
     const msg = err instanceof Error ? err.message : String(err);
     binReadiness.className = "bin-readiness is-err";
-    binReadiness.textContent = `환경 준비 실패: ${msg}`;
+    binReadiness.textContent = window.ITZ_I18N?.tf?.("binPrepFail", { msg }) || `${window.itzT("ui.prepFail", "환경 준비 실패")}: ${msg}`;
   }
 }
 
@@ -1128,7 +1175,10 @@ async function pickLocalImage() {
   if (!path || pick?.cancelled) return;
   suppressPathPreview += 1;
   if (imagePathInput) imagePathInput.value = path;
-  if (pathHint) pathHint.textContent = "화질 향상 버튼을 눌러 처리하세요.";
+  if (pathHint) {
+    pathHint.setAttribute("data-i18n-state", "pathReady");
+    pathHint.textContent = window.itzT("pathReady", "화질 향상 버튼을 눌러 처리하세요.");
+  }
   downloadReady = false;
   lastResultUrl = null;
   clearDownloadSession();
@@ -1138,7 +1188,7 @@ async function pickLocalImage() {
   } catch (err) {
     if (pathHint) {
       pathHint.textContent =
-        err instanceof Error ? err.message : "미리보기를 불러오지 못했습니다.";
+        err instanceof Error ? err.message : window.itzT("previewLoadFail", "미리보기를 불러오지 못했습니다.");
     }
     console.warn("[image-enhancer] preview failed:", err);
   } finally {
@@ -1182,7 +1232,7 @@ async function pollEnhanceStatus() {
 
 async function startEnhance() {
   if (!hasImagePath()) {
-    alert("이미지 파일을 선택하세요.");
+    alert(window.itzT("needImage", "이미지 파일을 선택하세요."));
     return;
   }
   const agent = await checkAgentConnection();
@@ -1206,9 +1256,9 @@ async function startEnhance() {
   clearDownloadSession();
   updateActionButtons();
   setEnhanceLoading(true, {
-    title: "화질 향상",
-    step: "작업 요청",
-    message: "CodeFormer를 시작합니다…",
+    title: window.itzT("enhanceTitle", "화질 향상"),
+    step: window.itzT("ui.jobRequest", "작업 요청"),
+    message: window.itzT("ui.cfProcess", "CodeFormer를 시작합니다…"),
     progress: 2,
   });
 
@@ -1250,15 +1300,15 @@ async function startEnhance() {
         const rw = compareResult?.naturalWidth || 0;
         const rh = compareResult?.naturalHeight || 0;
         const dim = rw > 0 ? ` (${rw}×${rh})` : "";
-        pathHint.textContent = `처리가 완료되었습니다${dim}. 슬라이더로 결과·원본을 비교하거나 다운로드하세요.`;
+        pathHint.textContent = window.ITZ_I18N?.tf?.("ui.doneCompare", { dim }) || window.itzT("ui.doneCompare", `처리가 완료되었습니다${dim}. 슬라이더로 결과·원본을 비교하거나 다운로드하세요.`).split("{dim}").join(dim);
       }
     } catch (compareErr) {
       console.warn("[image-enhancer] compare preview failed, showing result only:", compareErr);
       await showResultPreviewOnly(done.result_path);
       if (pathHint) {
         const msg =
-          compareErr instanceof Error ? compareErr.message : "비교 보기를 불러오지 못했습니다.";
-        pathHint.textContent = `처리는 완료되었습니다. 비교 보기 실패 — 결과만 표시합니다. (${msg})`;
+          compareErr instanceof Error ? compareErr.message : window.itzT("previewLoadFail", "비교 보기를 불러오지 못했습니다.");
+        pathHint.textContent = (window.ITZ_I18N?.tf?.("ui.previewFailOnly", { msg }) || window.itzT("ui.previewFailOnly", "처리는 완료되었습니다. 비교 보기 실패 — 결과만 표시합니다. ({msg})")).split("{msg}").join(msg);
       }
     }
   } catch (err) {
@@ -1289,7 +1339,10 @@ async function resetEditor() {
   if (compareResult) compareResult.removeAttribute("src");
   downloadReady = false;
   lastResultUrl = null;
-  if (pathHint) pathHint.textContent = "이미지를 선택하면 화질 향상 버튼 위 미리보기에 원본이 표시됩니다.";
+  if (pathHint) {
+    pathHint.removeAttribute("data-i18n-state");
+    pathHint.textContent = window.itzT("pathHint", "이미지를 선택하면 화질 향상 버튼 위 미리보기에 원본이 표시됩니다.");
+  }
   updateActionButtons();
 }
 
@@ -1323,16 +1376,25 @@ async function restoreEditorAfterDownload() {
   try {
     await showComparePreviews(originalPath, resultPath);
     if (pathHint) {
-      pathHint.textContent =
-        "다운로드 화면에서 돌아왔습니다. 슬라이더로 비교하거나 다시 다운로드할 수 있습니다.";
+      pathHint.setAttribute("data-i18n-state", "pathBackCompare");
+      pathHint.textContent = window.itzT(
+        "pathBackCompare",
+        "다운로드 화면에서 돌아왔습니다. 슬라이더로 비교하거나 다시 다운로드할 수 있습니다.",
+      );
     }
   } catch (compareErr) {
     console.warn("[image-enhancer] restore compare failed:", compareErr);
     try {
       await showResultPreviewOnly(resultPath);
-      if (pathHint) pathHint.textContent = "다운로드 화면에서 돌아왔습니다. 결과 미리보기를 표시합니다.";
+      if (pathHint) {
+        pathHint.setAttribute("data-i18n-state", "pathBackPreview");
+        pathHint.textContent = window.itzT("pathBackPreview", "다운로드 화면에서 돌아왔습니다. 결과 미리보기를 표시합니다.");
+      }
     } catch {
-      if (pathHint) pathHint.textContent = "다운로드 화면에서 돌아왔습니다.";
+      if (pathHint) {
+        pathHint.setAttribute("data-i18n-state", "pathBack");
+        pathHint.textContent = window.itzT("pathBack", "다운로드 화면에서 돌아왔습니다.");
+      }
     }
   }
 }
@@ -1354,11 +1416,14 @@ async function onImagePathChanged() {
   clearDownloadSession();
   try {
     await showOriginalPreview(path);
-    if (pathHint) pathHint.textContent = "화질 향상 버튼을 눌러 처리하세요.";
+    if (pathHint) {
+    pathHint.setAttribute("data-i18n-state", "pathReady");
+    pathHint.textContent = window.itzT("pathReady", "화질 향상 버튼을 눌러 처리하세요.");
+  }
   } catch (err) {
     if (pathHint) {
       pathHint.textContent =
-        err instanceof Error ? err.message : "미리보기를 불러오지 못했습니다.";
+        err instanceof Error ? err.message : window.itzT("previewLoadFail", "미리보기를 불러오지 못했습니다.");
     }
   }
   updateActionButtons();
@@ -1369,6 +1434,20 @@ async function init() {
   setEnhanceLoading(false);
   setPreviewMode("empty");
   initCompareSlider();
+  applyOptionLabels();
+  if (computeCapability?.classList.contains("is-pending")) {
+    computeCapability.textContent = window.itzT("ui.checking", "확인 중…");
+  }
+  const connectionElInit = document.getElementById("connection-status");
+  if (connectionElInit && /확인/.test(connectionElInit.textContent || "")) {
+    connectionElInit.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
+  }
+  if (binReadiness && !binReadiness.classList.contains("is-ok") && !binReadiness.classList.contains("is-err") && !binReadiness.classList.contains("is-warn")) {
+    binReadiness.textContent = window.itzT("waitPrep", "Image Enhancer · 환경 준비 대기");
+  }
+  if (!modelReadyKnown && summaryModelReady) {
+    summaryModelReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  }
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
   syncSummaryFromDom();
@@ -1392,12 +1471,14 @@ async function init() {
   btnPickLocalFile?.addEventListener("click", async () => {
     try {
       btnPickLocalFile.disabled = true;
-      btnPickLocalFile.textContent = "대화상자…";
+      btnPickLocalFile.setAttribute("data-i18n-busy", "pick");
+      btnPickLocalFile.textContent = window.itzT("ui.pickBusy", "대화상자…");
       await pickLocalImage();
     } catch (err) {
       alert(err instanceof Error ? err.message : String(err));
     } finally {
-      btnPickLocalFile.textContent = "찾아보기";
+      btnPickLocalFile.removeAttribute("data-i18n-busy");
+      btnPickLocalFile.textContent = window.itzT("browse", "찾아보기");
       updateActionButtons();
     }
   });
@@ -1406,6 +1487,33 @@ async function init() {
   exportLink?.addEventListener("click", (e) => {
     e.preventDefault();
     void navigateToDownloadPage(exportLink);
+  });
+
+  document.addEventListener("itz:lang-change", () => {
+    const key = pathHint?.getAttribute("data-i18n-state");
+    if (key && pathHint) pathHint.textContent = window.itzT(key, pathHint.textContent);
+    if (btnPickLocalFile && btnPickLocalFile.getAttribute("data-i18n-busy") !== "pick") {
+      btnPickLocalFile.textContent = window.itzT("browse", "찾아보기");
+    }
+    if (previewPanelHeading) {
+      const compare = previewPanelHeading.getAttribute("data-preview-mode") === "compare";
+      setPreviewPanelHeading(compare);
+    }
+    applyOptionLabels();
+    syncBackgroundEnhanceUi();
+    if (lastComputeCtx) setComputeCapabilityBadge(lastComputeCtx);
+    else if (computeCapability?.classList.contains("is-pending")) {
+      computeCapability.textContent = window.itzT("ui.checking", "확인 중…");
+    }
+    if (!modelReadyKnown && summaryModelReady) {
+      summaryModelReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+    } else if (modelReadyKnown) {
+      setModelReadySummary(toolReady);
+    }
+    if (binReadiness && !binReadiness.classList.contains("is-ok") && !binReadiness.classList.contains("is-err") && binReadiness.classList.contains("is-warn") === false) {
+      binReadiness.textContent = window.itzT("waitPrep", "Image Enhancer · 환경 준비 대기");
+    }
+    if (!exportLink?.classList.contains("is-busy")) resetExportLinkUi();
   });
 
   const connectionEl = document.getElementById("connection-status");

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI 자막 추출 SRT - Auto Subtitle | ItMatZip</title>
   <meta name="description" content="로컬 영상·오디오에서 Faster-Whisper로 자막을 만들고 SRT로 저장합니다. 원본은 PC를 벗어나지 않습니다.">
@@ -91,14 +91,14 @@
         <span id="connection-status" class="as-status-dot">에이전트 확인 중…</span>
       </div>
       <div class="as-topbar-actions">
-        <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled>환경 준비</button>
-        <button type="button" id="btn-add-watermark" class="as-btn as-btn-ghost" disabled title="워터마크 이미지 추가">워터마크 추가</button>
-        <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="글꼴 파일(.ttf/.otf/.ttc)을 에이전트에 추가">폰트 추가</button>
+        <button type="button" id="btn-prepare" class="as-btn as-btn-ghost" disabled data-i18n="prepare">환경 준비</button>
+        <button type="button" id="btn-add-watermark" class="as-btn as-btn-ghost" disabled title="워터마크 이미지 추가" data-i18n="addWm" data-i18n-title="addWm">워터마크 추가</button>
+        <button type="button" id="btn-add-font" class="as-btn as-btn-ghost" disabled title="글꼴 파일(.ttf/.otf/.ttc)을 에이전트에 추가" data-i18n="addFont">폰트 추가</button>
         <button type="button" id="btn-undo" class="as-btn as-btn-ghost" disabled hidden title="실행 취소 (Ctrl+Z)">?</button>
         <button type="button" id="btn-redo" class="as-btn as-btn-ghost" disabled hidden title="다시 실행 (Ctrl+Y)">?</button>
-        <button type="button" id="btn-load-project" class="as-btn as-btn-ghost">불러오기</button>
-        <button type="button" id="btn-save-project-as" class="as-btn as-btn-ghost">다른 이름으로 저장</button>
-        <button type="button" id="btn-save-project" class="as-btn as-btn-ghost">저장</button>
+        <button type="button" id="btn-load-project" class="as-btn as-btn-ghost" data-i18n="load">불러오기</button>
+        <button type="button" id="btn-save-project-as" class="as-btn as-btn-ghost" data-i18n="saveAs">다른 이름으로 저장</button>
+        <button type="button" id="btn-save-project" class="as-btn as-btn-ghost" data-i18n="save">저장</button>
       </div>
     </header>
 
@@ -106,7 +106,7 @@
       <div class="as-stylebar-controls">
         <div class="as-style-col">
           <label class="as-style-field as-style-field--font">
-            <span>폰트</span>
+            <span data-i18n="font">폰트</span>
             <div class="as-style-ctrl as-style-ctrl--wide">
               <select id="style-font-family" class="as-select as-select--font">
                 <option value="Malgun Gothic" selected>Malgun Gothic</option>
@@ -114,7 +114,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>배경 색상</span>
+            <span data-i18n="bgColor">배경 색상</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-bg-color" value="#000000">
               <input type="range" id="style-bg-opacity" min="0" max="100" value="63">
@@ -124,7 +124,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>글자 크기</span>
+            <span data-i18n="fontSize">글자 크기</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-font-size-range" min="12" max="96" value="47">
@@ -132,7 +132,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>배경 크기</span>
+            <span data-i18n="bgSize">배경 크기</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-bg-size" min="0" max="100" value="50">
@@ -142,7 +142,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>글자 색상</span>
+            <span data-i18n="textColor">글자 색상</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-text-color" value="#ffffff">
               <input type="range" id="style-text-alpha" min="0" max="255" value="255">
@@ -150,7 +150,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>좌우 위치</span>
+            <span data-i18n="posX">좌우 위치</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-x" min="0" max="100" value="50">
@@ -160,7 +160,7 @@
         </div>
         <div class="as-style-col">
           <label class="as-style-field">
-            <span>외곽선</span>
+            <span data-i18n="stroke">외곽선</span>
             <div class="as-style-ctrl">
               <input type="color" id="style-stroke-color" value="#000000">
               <input type="range" id="style-stroke-width" min="0" max="8" value="2">
@@ -168,7 +168,7 @@
             </div>
           </label>
           <label class="as-style-field">
-            <span>상하 위치</span>
+            <span data-i18n="posY">상하 위치</span>
             <div class="as-style-ctrl as-style-ctrl--range as-style-ctrl--range-fill">
               <span class="as-style-ctrl-gap" aria-hidden="true"></span>
               <input type="range" id="style-y-range" min="0" max="100" value="90">
@@ -186,7 +186,7 @@
             disabled
             title="자막 찾기 및 바꾸기 (Ctrl+F)"
           >
-            찾기 및 바꾸기
+            <span data-i18n="findReplace">찾기 및 바꾸기</span>
           </button>
           <button
             type="button"
@@ -195,7 +195,7 @@
             disabled
             title="수동으로 옮긴 줄은 유지하고 나머지를 한 줄 최대 28자·6.5초 기준으로 묶어 재정리"
           >
-            줄 자동 정리
+            <span data-i18n="lineReflow">줄 자동 정리</span>
           </button>
           <button
             type="button"
@@ -204,7 +204,7 @@
             disabled
             title="말소리 단어 2개 이상·미디어 연결 시 사용"
           >
-            타이밍 맞추기
+            <span data-i18n="timing">타이밍 맞추기</span>
           </button>
           <button
             type="button"
@@ -213,13 +213,13 @@
             disabled
             title="한국어를 선택했을 때만 사용할 수 있습니다"
           >
-            단어 자동정렬
+            <span data-i18n="wordAlign">단어 자동정렬</span>
           </button>
         </div>
         <div class="as-lang-box">
-          <label for="language-select">언어</label>
+<label for="language-select" data-i18n="asrLang">언어</label>
           <select id="language-select" class="as-select as-select--lang">
-            <option value="">자동</option>
+<option value="" data-i18n="asrAuto">자동</option>
             <option value="ko" selected>한국어</option>
             <option value="en">English</option>
             <option value="ja">日本語</option>
@@ -227,15 +227,15 @@
           </select>
         </div>
         <select id="export-format" class="as-select">
-          <option value="video">영상으로보내기</option>
+<option value="video" data-i18n="exportVideo">영상으로보내기</option>
           <option value="srt">SRT</option>
           <option value="vtt">WebVTT</option>
           <option value="ass">ASS</option>
-          <option value="txt">텍스트</option>
+<option value="txt" data-i18n="txt">텍스트</option>
           <option value="mp3">MP3</option>
           <option value="wav">WAV</option>
         </select>
-        <button type="button" id="btn-export" class="as-btn as-btn-primary" disabled>보내기</button>
+<button type="button" id="btn-export" class="as-btn as-btn-primary" disabled data-i18n="export">보내기</button>
       </div>
     </section>
 
@@ -243,9 +243,9 @@
       <section class="as-pane as-pane-preview">
         <div class="as-preview-main">
           <div class="as-pane-toolbar as-pane-toolbar--preview">
-            <label class="as-load-label" for="video-path">영상 불러오기</label>
-            <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="로컬 파일 경로">
-            <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost">찾아보기</button>
+<label class="as-load-label" for="video-path" data-i18n="loadVideo">영상 불러오기</label>
+            <input type="text" id="video-path" class="as-path-input" autocomplete="off" spellcheck="false" placeholder="로컬 파일 경로" data-i18n-placeholder="pathPh">
+            <button type="button" id="btn-pick-local-file" class="as-btn as-btn-ghost" data-i18n="browse">찾아보기</button>
           </div>
           <div class="as-preview-stage" id="preview-section">
             <div class="as-preview-media-frame" id="preview-media-frame">
@@ -258,7 +258,7 @@
               <div id="preview-subtitle-overlay" class="as-preview-overlay" hidden aria-hidden="true"></div>
               <div id="preview-watermark-overlay" class="as-preview-watermark" hidden aria-hidden="true"></div>
             </div>
-            <p class="as-preview-empty" id="preview-empty">영상·오디오 파일을 선택하세요.</p>
+            <p class="as-preview-empty" id="preview-empty" data-i18n="previewEmpty">영상·오디오 파일을 선택하세요.</p>
           </div>
           <div class="as-preview-transport" id="preview-transport">
             <button type="button" id="btn-preview-play" class="as-transport-btn" title="재생/일시정지 (Space)" disabled aria-label="재생">▶</button>
@@ -286,7 +286,7 @@
             aria-modal="false"
           >
             <div class="as-find-replace__head">
-              <h2 class="as-find-replace__title" id="find-replace-title">찾기 및 바꾸기</h2>
+              <h2 class="as-find-replace__title" id="find-replace-title" data-i18n="findReplace">찾기 및 바꾸기</h2>
               <button
                 type="button"
                 id="btn-find-replace-close"
@@ -298,7 +298,7 @@
               </button>
             </div>
             <label class="as-find-replace__field">
-              <span class="as-find-replace__label">찾을 단어</span>
+              <span class="as-find-replace__label" data-i18n="findWord">찾을 단어</span>
               <input
                 type="text"
                 id="find-replace-query"
@@ -309,7 +309,7 @@
               />
             </label>
             <label class="as-find-replace__field">
-              <span class="as-find-replace__label">바꿀 단어</span>
+              <span class="as-find-replace__label" data-i18n="replaceWord">바꿀 단어</span>
               <input
                 type="text"
                 id="find-replace-with"
@@ -319,7 +319,7 @@
                 placeholder="변경"
               />
             </label>
-            <p class="as-find-replace__meta" id="find-replace-meta">찾을 단어를 입력하세요.</p>
+            <p class="as-find-replace__meta" id="find-replace-meta" data-i18n="findHint">찾을 단어를 입력하세요.</p>
             <div class="as-find-replace__nav" role="group" aria-label="찾기 이동">
               <button
                 type="button"
@@ -360,7 +360,7 @@
         </div>
         <div class="as-subtitle-main">
           <div class="as-subtitle-list" id="subtitle-list"></div>
-          <p class="as-subtitle-empty" id="subtitle-empty">영상을 불러오면 자막이 여기에 표시됩니다.</p>
+          <p class="as-subtitle-empty" id="subtitle-empty" data-i18n="subtitleEmpty">영상을 불러오면 자막이 여기에 표시됩니다.</p>
           <span id="results-meta" class="as-results-meta" hidden></span>
         </div>
       </section>
@@ -369,10 +369,10 @@
     <footer class="as-footer">
       <span id="bin-readiness">Auto Subtitle · 준비 대기</span>
       <div class="as-footer-actions">
-        <button type="button" id="btn-new-job" class="as-btn as-btn-ghost as-btn-sm">새 작업</button>
-        <button type="button" id="btn-unload-model" class="as-btn as-btn-ghost as-btn-sm" disabled>AI 모델 해제</button>
-        <button type="button" id="btn-download-result" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>결과 다운로드</button>
-        <button type="button" id="btn-show-export-folder" class="as-btn as-btn-ghost as-btn-sm" disabled hidden>결과 폴더 열기</button>
+<button type="button" id="btn-new-job" class="as-btn as-btn-ghost as-btn-sm" data-i18n="newJob">새 작업</button>
+<button type="button" id="btn-unload-model" class="as-btn as-btn-ghost as-btn-sm" disabled data-i18n="unload">AI 모델 해제</button>
+        <button type="button" id="btn-download-result" class="as-btn as-btn-ghost as-btn-sm" disabled hidden data-i18n="download">결과 다운로드</button>
+<button type="button" id="btn-show-export-folder" class="as-btn as-btn-ghost as-btn-sm" disabled hidden data-i18n="openFolder">결과 폴더 열기</button>
         <a href="../index.html" class="as-link-dashboard">대시보드</a>
       </div>
     </footer>
@@ -391,9 +391,9 @@
       </div>
       <div class="transcribe-loading" id="transcribe-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
-          <p class="setup-loading__title" id="transcribe-loading-title">자막 추출 중…</p>
+          <p class="setup-loading__title" id="transcribe-loading-title" data-i18n="transcribing">자막 추출 중…</p>
           <p class="setup-loading__step" id="transcribe-loading-step"></p>
-          <p class="setup-loading__desc" id="transcribe-loading-message">자막 추출을 시작합니다.</p>
+          <p class="setup-loading__desc" id="transcribe-loading-message" data-i18n="transcribeStart">자막 추출을 시작합니다.</p>
           <div class="setup-loading__track" id="transcribe-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="transcribe-loading-bar"></div>
           </div>
@@ -402,17 +402,17 @@
       </div>
       <div class="gpu-install-prompt" id="gpu-install-prompt" hidden>
         <div class="setup-loading__panel" role="dialog" aria-labelledby="gpu-install-title">
-          <h2 class="setup-loading__title" id="gpu-install-title">GPU 가속 런타임</h2>
+<h2 class="setup-loading__title" id="gpu-install-title" data-i18n="gpuTitle">GPU 가속 런타임</h2>
           <p class="setup-loading__desc" id="gpu-install-message">NVIDIA GPU가 감지되었습니다. CUDA DLL(runtime_dlls.zip)을 설치하면 GPU로 자막 추출을 사용할 수 있습니다.</p>
           <div class="gpu-install-prompt__actions">
-            <button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost">나중에</button>
-            <button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary">준비 실행</button>
+<button type="button" id="btn-gpu-install-dismiss" class="as-btn as-btn-ghost" data-i18n="later">나중에</button>
+<button type="button" id="btn-gpu-install-run" class="as-btn as-btn-primary" data-i18n="runPrep">준비 실행</button>
           </div>
         </div>
       </div>
       <div class="font-add-modal" id="font-add-modal" hidden aria-hidden="true">
         <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="font-add-title">
-          <h2 class="setup-loading__title" id="font-add-title">폰트 추가</h2>
+<h2 class="setup-loading__title" id="font-add-title" data-i18n="fontAdd">폰트 추가</h2>
           <p class="setup-loading__desc font-add-modal__message" id="font-add-message"></p>
           <div
             class="setup-loading__track font-add-modal__track"
@@ -426,18 +426,18 @@
             <div class="setup-loading__bar font-add-modal__bar" id="font-add-bar"></div>
           </div>
           <div class="gpu-install-prompt__actions" id="font-add-actions" hidden>
-            <button type="button" id="btn-font-add-ok" class="as-btn as-btn-primary">확인</button>
+<button type="button" id="btn-font-add-ok" class="as-btn as-btn-primary" data-i18n="ok">확인</button>
           </div>
         </div>
       </div>
       <div class="watermark-position-modal" id="watermark-position-modal" hidden aria-hidden="true">
         <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="watermark-position-title">
-          <h2 class="setup-loading__title" id="watermark-position-title">워터마크 위치</h2>
-          <p class="setup-loading__desc" id="watermark-position-desc">영상에 표시할 위치를 선택하세요.</p>
+<h2 class="setup-loading__title" id="watermark-position-title" data-i18n="wmPos">워터마크 위치</h2>
+          <p class="setup-loading__desc" id="watermark-position-desc" data-i18n="wmWhere">영상에 표시할 위치를 선택하세요.</p>
           <div class="watermark-position-grid" id="watermark-position-grid"></div>
           <div class="gpu-install-prompt__actions">
-            <button type="button" id="btn-watermark-position-cancel" class="as-btn as-btn-ghost">취소</button>
-            <button type="button" id="btn-watermark-position-confirm" class="as-btn as-btn-primary">확인</button>
+<button type="button" id="btn-watermark-position-cancel" class="as-btn as-btn-ghost" data-i18n="cancel">취소</button>
+<button type="button" id="btn-watermark-position-confirm" class="as-btn as-btn-primary" data-i18n="ok">확인</button>
           </div>
         </div>
       </div>
@@ -448,9 +448,9 @@
           aria-modal="true"
           aria-labelledby="preview-media-loading-title"
         >
-          <p class="setup-loading__title" id="preview-media-loading-title">미리보기 불러오기</p>
+          <p class="setup-loading__title" id="preview-media-loading-title" data-i18n="previewLoad">미리보기 불러오기</p>
           <p class="setup-loading__step" id="preview-media-loading-step"></p>
-          <p class="setup-loading__desc" id="preview-media-loading-message">잠시만 기다려 주세요…</p>
+          <p class="setup-loading__desc" id="preview-media-loading-message" data-i18n="pleaseWait">잠시만 기다려 주세요…</p>
           <div
             class="setup-loading__track"
             id="preview-media-loading-track"
@@ -470,9 +470,9 @@
       </div>
       <div class="export-loading" id="export-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel">
-          <p class="setup-loading__title" id="export-loading-title">보내기</p>
+          <p class="setup-loading__title" id="export-loading-title" data-i18n="export">보내기</p>
           <p class="setup-loading__step" id="export-loading-step"></p>
-          <p class="setup-loading__desc" id="export-loading-message">파일을 생성하고 있습니다…</p>
+          <p class="setup-loading__desc" id="export-loading-message" data-i18n="exporting">파일을 생성하고 있습니다…</p>
           <div class="setup-loading__track" id="export-loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
             <div class="setup-loading__bar" id="export-loading-bar"></div>
           </div>
@@ -481,9 +481,9 @@
       </div>
       <div class="word-align-loading" id="word-align-loading" hidden aria-hidden="true">
         <div class="setup-loading__panel" role="dialog" aria-modal="true" aria-labelledby="word-align-loading-title">
-          <p class="setup-loading__title" id="word-align-loading-title">단어 자동정렬</p>
+          <p class="setup-loading__title" id="word-align-loading-title" data-i18n="wordAlign">단어 자동정렬</p>
           <p class="setup-loading__step" id="word-align-loading-step"></p>
-          <p class="setup-loading__desc" id="word-align-loading-message">형태소 분석으로 줄 나눔 위치를 계산합니다…</p>
+          <p class="setup-loading__desc" id="word-align-loading-message" data-i18n="wordAlignRun">형태소 분석으로 줄 나눔 위치를 계산합니다…</p>
           <div
             class="setup-loading__track"
             id="word-align-loading-track"
@@ -531,10 +531,10 @@
   </section>
 
   <!-- as-build:167 word-auto-align -->
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=361"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=365"></script>
   <script>
     // AdSense가 shell height를 강제로 변경하는 것을 방지
     (function() {

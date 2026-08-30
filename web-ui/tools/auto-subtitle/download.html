@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,follow">
   <link rel="canonical" href="https://tools.itmatzip.com/auto-subtitle/">
-  <script src="../common/site-runtime.js?v=18"></script>
-  <title>자막 다운로드</title>
+  <script src="../common/site-runtime.js?v=30"></script>
+  <title data-i18n="dlTitle">자막 다운로드</title>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
   <link rel="stylesheet" href="../silence-remover/download.css?v=7">
@@ -18,42 +18,42 @@
   <div class="dl-page">
     <div class="dl-ad" id="dl-ad-top" aria-label="Advertisement"></div>
     <div class="dl-card">
-      <h1 id="dl-title">파일 다운로드</h1>
+      <h1 id="dl-title" data-i18n="dlH1">파일 다운로드</h1>
       <p class="dl-status" id="dl-status"></p>
       <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
       <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
-        <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled>다운로드</button>
-        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back">편집화면으로 돌아가기</a>
+        <button type="button" class="dl-btn dl-btn-primary" id="dl-btn-now" disabled data-i18n="dlBtnNow">다운로드</button>
+        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back" data-i18n="dlBack">편집화면으로 돌아가기</a>
       </div>
     </div>
 
-    <section class="dl-guides" aria-label="다운로드 안내">
+    <section class="dl-guides" aria-label="다운로드 안내" data-i18n-aria="dlGuidesAria">
       <article class="dl-info-card">
         <header class="dl-info-card__head">
           <span class="dl-info-card__icon" aria-hidden="true">📁</span>
           <div>
-            <h2 class="dl-info-card__title">팁 &amp; 자주 묻는 질문</h2>
-            <p class="dl-info-card__subtitle">다운로드 관련 문제가 발생하셨나요?</p>
+            <h2 class="dl-info-card__title" data-i18n="dlFaqTitle">팁 &amp; 자주 묻는 질문</h2>
+            <p class="dl-info-card__subtitle" data-i18n="dlFaqSub">다운로드 관련 문제가 발생하셨나요?</p>
           </div>
         </header>
         <dl class="dl-faq">
           <div class="dl-faq__item">
-            <dt class="dl-faq__q">Q. 다운로드가 자동으로 시작되지 않아요.</dt>
-            <dd class="dl-faq__a">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ1">Q. 다운로드가 자동으로 시작되지 않아요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA1">
               상단의 <strong>다운로드</strong> 버튼을 직접 클릭해 주세요. 브라우저 팝업 차단 설정 때문일 수 있습니다.
             </dd>
           </div>
           <div class="dl-faq__item">
-            <dt class="dl-faq__q">Q. 에이전트 프로그램 오류가 떠요.</dt>
-            <dd class="dl-faq__a">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ2">Q. 에이전트 프로그램 오류가 떠요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA2">
               작업 표시줄 트레이 아이콘에서 에이전트가 정상 실행 중인지 확인하시거나, 방화벽 허용 상태를 체크해 주세요.
             </dd>
           </div>
           <div class="dl-faq__item">
-            <dt class="dl-faq__q">Q. 편집하던 데이터가 날아갔을까 봐 불안해요.</dt>
-            <dd class="dl-faq__a">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ3">Q. 편집하던 데이터가 날아갔을까 봐 불안해요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA3">
               걱정 마세요! <strong class="dl-faq__back-ref">편집화면으로 돌아가기</strong>를 누르시면 이전 작업 상태로 즉시 복원됩니다.
             </dd>
           </div>
@@ -67,14 +67,14 @@
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="dialog" aria-modal="true">
     <div class="mobile-only-card">
       <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
-      <h2 class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
-      <p class="mobile-only-desc">Auto Subtitle은 PC와 로컬 에이전트가 필요한 도구입니다.</p>
+      <h2 class="mobile-only-title" data-i18n="mobileTitle">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc" data-i18n="mobileDesc">Auto Subtitle은 PC와 로컬 에이전트가 필요한 도구입니다.</p>
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="download.js?v=1"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="download.js?v=2"></script>
 </body>
 </html>

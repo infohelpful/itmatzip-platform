@@ -562,22 +562,29 @@ ${specBlocks ? settings("specialize", specBlocks) + "\n" : ""}${settings("oobeSy
 `;
 }
 
+function parseErr(key, fallback) {
+  try {
+    if (typeof window !== "undefined" && window.itzT) return window.itzT(key, fallback);
+  } catch (e) {}
+  return fallback;
+}
+
 export function parseSavedXml(text) {
   if (!text || typeof text !== "string") {
-    throw new Error("빈 파일입니다.");
+    throw new Error(parseErr("err.emptyFile", "빈 파일입니다."));
   }
   const match = text.match(new RegExp(`<!--${CONFIG_MARK}:([A-Za-z0-9+/=]+)-->`));
   if (!match) {
-    throw new Error("이 도구에서 받은 파일만 다시 불러올 수 있습니다.");
+    throw new Error(parseErr("err.notFromTool", "이 도구에서 받은 파일만 다시 불러올 수 있습니다."));
   }
   let parsed;
   try {
     parsed = JSON.parse(fromBase64(match[1]));
   } catch {
-    throw new Error("저장 정보를 읽지 못했습니다. 파일이 손상되었을 수 있습니다.");
+    throw new Error(parseErr("err.corrupt", "저장 정보를 읽지 못했습니다. 파일이 손상되었을 수 있습니다."));
   }
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("설정 형식이 올바르지 않습니다.");
+    throw new Error(parseErr("err.badFormat", "설정 형식이 올바르지 않습니다."));
   }
   return migrateConfig(parsed);
 }

@@ -2,83 +2,87 @@
  * Create Music — 구조화 가사 + caption 컴파일 (ACE-Step 형식)
  */
 
+function t(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+
 export const SECTION_TYPE_DEFS = {
-  verse: { tag: "Verse", label: "절 (Verse)", instrumental: false },
-  pre_chorus: { tag: "Pre-Chorus", label: "프리코러스 (Pre-Chorus)", instrumental: false },
-  chorus: { tag: "Chorus", label: "후렴 (Chorus)", instrumental: false },
-  bridge: { tag: "Bridge", label: "브릿지 (Bridge)", instrumental: false },
-  outro: { tag: "Outro", label: "아웃트로 (Outro)", instrumental: false },
-  intro: { tag: "Intro", label: "인트로 (Intro)", instrumental: false },
-  instrumental: { tag: "Instrumental", label: "연주 (Instrumental)", instrumental: true },
+  verse: { tag: "Verse", label: "절 (Verse)", i18nKey: "section.verse", instrumental: false },
+  pre_chorus: { tag: "Pre-Chorus", label: "프리코러스 (Pre-Chorus)", i18nKey: "section.preChorus", instrumental: false },
+  chorus: { tag: "Chorus", label: "후렴 (Chorus)", i18nKey: "section.chorus", instrumental: false },
+  bridge: { tag: "Bridge", label: "브릿지 (Bridge)", i18nKey: "section.bridge", instrumental: false },
+  outro: { tag: "Outro", label: "아웃트로 (Outro)", i18nKey: "section.outro", instrumental: false },
+  intro: { tag: "Intro", label: "인트로 (Intro)", i18nKey: "section.intro", instrumental: false },
+  instrumental: { tag: "Instrumental", label: "연주 (Instrumental)", i18nKey: "section.instrumental", instrumental: true },
 };
 
 /** label: UI 표시(한글), caption: ACE-Step caption용(영문 태그) */
 export const GENRE_OPTIONS = [
-  { label: "케이팝", caption: "K-pop" },
-  { label: "팝", caption: "Pop" },
-  { label: "발라드", caption: "Ballad" },
-  { label: "알앤비", caption: "R&B" },
-  { label: "힙합", caption: "Hip-hop" },
-  { label: "록", caption: "Rock" },
-  { label: "로파이", caption: "Lo-fi" },
-  { label: "EDM", caption: "EDM" },
-  { label: "재즈", caption: "Jazz" },
-  { label: "시티팝", caption: "City pop" },
-  { label: "어쿠스틱", caption: "Acoustic" },
-  { label: "오케스트라", caption: "Orchestral" },
-  { label: "시네마틱", caption: "Cinematic" },
-  { label: "뉴에이지", caption: "New Age" },
-  { label: "앰비언트", caption: "Ambient" },
-  { label: "인디", caption: "Indie" },
-  { label: "트로트", caption: "Trot" },
-  { label: "신스웨이브", caption: "Synthwave" },
-  { label: "레트로", caption: "Retro" },
-  { label: "소울", caption: "Soul" },
-  { label: "펑크", caption: "Funk" },
+  { label: "케이팝", caption: "K-pop", i18nKey: "genre.kpop" },
+  { label: "팝", caption: "Pop", i18nKey: "genre.pop" },
+  { label: "발라드", caption: "Ballad", i18nKey: "genre.ballad" },
+  { label: "알앤비", caption: "R&B", i18nKey: "genre.rnb" },
+  { label: "힙합", caption: "Hip-hop", i18nKey: "genre.hiphop" },
+  { label: "록", caption: "Rock", i18nKey: "genre.rock" },
+  { label: "로파이", caption: "Lo-fi", i18nKey: "genre.lofi" },
+  { label: "EDM", caption: "EDM", i18nKey: "genre.edm" },
+  { label: "재즈", caption: "Jazz", i18nKey: "genre.jazz" },
+  { label: "시티팝", caption: "City pop", i18nKey: "genre.citypop" },
+  { label: "어쿠스틱", caption: "Acoustic", i18nKey: "genre.acoustic" },
+  { label: "오케스트라", caption: "Orchestral", i18nKey: "genre.orchestral" },
+  { label: "시네마틱", caption: "Cinematic", i18nKey: "genre.cinematic" },
+  { label: "뉴에이지", caption: "New Age", i18nKey: "genre.newage" },
+  { label: "앰비언트", caption: "Ambient", i18nKey: "genre.ambient" },
+  { label: "인디", caption: "Indie", i18nKey: "genre.indie" },
+  { label: "트로트", caption: "Trot", i18nKey: "genre.trot" },
+  { label: "신스웨이브", caption: "Synthwave", i18nKey: "genre.synthwave" },
+  { label: "레트로", caption: "Retro", i18nKey: "genre.retro" },
+  { label: "소울", caption: "Soul", i18nKey: "genre.soul" },
+  { label: "펑크", caption: "Funk", i18nKey: "genre.funk" },
 ];
 
 export const INSTRUMENT_OPTIONS = [
-  { label: "피아노", caption: "piano" },
-  { label: "신시사이저", caption: "synthesizer" },
-  { label: "일렉트릭 피아노", caption: "electric piano" },
-  { label: "어쿠스틱 기타", caption: "acoustic guitar" },
-  { label: "일렉트릭 기타", caption: "electric guitar" },
-  { label: "베이스", caption: "bass" },
-  { label: "바이올린", caption: "violin" },
-  { label: "첼로", caption: "cello" },
-  { label: "스트링 앙상블", caption: "string ensemble" },
-  { label: "드럼 킷", caption: "drum kit" },
-  { label: "웅장한 타악", caption: "epic percussion" },
-  { label: "비트 머신", caption: "beat machine" },
-  { label: "브라스", caption: "brass" },
-  { label: "색소폰", caption: "saxophone" },
-  { label: "플루트", caption: "flute" },
+  { label: "피아노", caption: "piano", i18nKey: "inst.piano" },
+  { label: "신시사이저", caption: "synthesizer", i18nKey: "inst.synth" },
+  { label: "일렉트릭 피아노", caption: "electric piano", i18nKey: "inst.epiano" },
+  { label: "어쿠스틱 기타", caption: "acoustic guitar", i18nKey: "inst.acguitar" },
+  { label: "일렉트릭 기타", caption: "electric guitar", i18nKey: "inst.eguitar" },
+  { label: "베이스", caption: "bass", i18nKey: "inst.bass" },
+  { label: "바이올린", caption: "violin", i18nKey: "inst.violin" },
+  { label: "첼로", caption: "cello", i18nKey: "inst.cello" },
+  { label: "스트링 앙상블", caption: "string ensemble", i18nKey: "inst.strings" },
+  { label: "드럼 킷", caption: "drum kit", i18nKey: "inst.drums" },
+  { label: "웅장한 타악", caption: "epic percussion", i18nKey: "inst.perc" },
+  { label: "비트 머신", caption: "beat machine", i18nKey: "inst.beat" },
+  { label: "브라스", caption: "brass", i18nKey: "inst.brass" },
+  { label: "색소폰", caption: "saxophone", i18nKey: "inst.sax" },
+  { label: "플루트", caption: "flute", i18nKey: "inst.flute" },
 ];
 
 export const TEMPO_PRESETS = {
-  slow: { label: "느림 (~70 BPM)", bpm: 70 },
-  medium: { label: "보통 (~110 BPM)", bpm: 110 },
-  fast: { label: "빠름 (~140 BPM)", bpm: 140 },
-  custom: { label: "직접 입력", bpm: null },
+  slow: { label: "느림 (~70 BPM)", bpm: 70, i18nKey: "tempo.slow" },
+  medium: { label: "보통 (~110 BPM)", bpm: 110, i18nKey: "tempo.medium" },
+  fast: { label: "빠름 (~140 BPM)", bpm: 140, i18nKey: "tempo.fast" },
+  custom: { label: "직접 입력", bpm: null, i18nKey: "tempo.custom" },
 };
 
 export const VOCAL_TYPE_OPTIONS = [
-  { value: "female", label: "여성 보컬" },
-  { value: "male", label: "남성 보컬" },
-  { value: "duet", label: "듀엣" },
-  { value: "none", label: "보컬 없음 (연주)" },
+  { value: "female", label: "여성 보컬", i18nKey: "vocal.female" },
+  { value: "male", label: "남성 보컬", i18nKey: "vocal.male" },
+  { value: "duet", label: "듀엣", i18nKey: "vocal.duet" },
+  { value: "none", label: "보컬 없음 (연주)", i18nKey: "vocal.none" },
 ];
 
 /** label: UI(한글), caption: ACE-Step 권장 영문 태그 */
 export const VOCAL_STYLE_OPTIONS = [
-  { label: "부드러운", caption: "soft vocal" },
-  { label: "파워풀", caption: "powerful vocal" },
-  { label: "숨결감", caption: "breathy vocal" },
-  { label: "허스키", caption: "raspy vocal" },
-  { label: "고음", caption: "falsetto vocal" },
-  { label: "합창", caption: "choir vocals" },
-  { label: "속삭임", caption: "whispered vocal" },
-  { label: "감성적", caption: "emotional vocal" },
+  { label: "부드러운", caption: "soft vocal", i18nKey: "vstyle.soft" },
+  { label: "파워풀", caption: "powerful vocal", i18nKey: "vstyle.powerful" },
+  { label: "숨결감", caption: "breathy vocal", i18nKey: "vstyle.breathy" },
+  { label: "허스키", caption: "raspy vocal", i18nKey: "vstyle.raspy" },
+  { label: "고음", caption: "falsetto vocal", i18nKey: "vstyle.falsetto" },
+  { label: "합창", caption: "choir vocals", i18nKey: "vstyle.choir" },
+  { label: "속삭임", caption: "whispered vocal", i18nKey: "vstyle.whisper" },
+  { label: "감성적", caption: "emotional vocal", i18nKey: "vstyle.emotional" },
 ];
 
 /** ACE-Step caption — 언어·성별을 문장 앞쪽에 명시 (Tutorial 권장 형식) */
@@ -268,8 +272,8 @@ export function initMusicComposeEditor(root) {
       document.getElementById("vocal-lang")?.value || "ko";
     const cap = compileCaption(readCaptionState(), vocalLang);
     const lyr = compileLyrics(sections);
-    if ($captionPreview) $captionPreview.textContent = cap || "(스타일을 선택하세요)";
-    if ($lyricsPreview) $lyricsPreview.textContent = lyr || "(가사 구간을 입력하세요)";
+    if ($captionPreview) $captionPreview.textContent = cap || t("stylePreviewEmpty", "(스타일을 선택하세요)");
+    if ($lyricsPreview) $lyricsPreview.textContent = lyr || t("lyricsPreviewEmpty", "(가사 구간을 입력하세요)");
   }
 
   function refreshSectionIndices() {
@@ -339,27 +343,27 @@ export function initMusicComposeEditor(root) {
     const typeOptions = Object.entries(SECTION_TYPE_DEFS)
       .map(
         ([key, d]) =>
-          `<option value="${key}"${sec.type === key ? " selected" : ""}>${d.label}</option>`,
+          `<option value="${key}"${sec.type === key ? " selected" : ""}>${t(d.i18nKey, d.label)}</option>`,
       )
       .join("");
 
     card.innerHTML = `
       <div class="lyrics-section-toolbar">
         <span class="lyrics-section-index">${index + 1}</span>
-        <select class="section-type form-select" aria-label="구간 유형">${typeOptions}</select>
+        <select class="section-type form-select" aria-label="${escapeAttr(t("sectionTypeAria", "구간 유형"))}">${typeOptions}</select>
         <div class="lyrics-section-actions">
-          <button type="button" class="btn-icon-action" data-act="up" title="위로">↑</button>
-          <button type="button" class="btn-icon-action" data-act="down" title="아래로">↓</button>
-          <button type="button" class="btn-icon-action btn-icon-action--danger" data-act="remove" title="삭제">✕</button>
+          <button type="button" class="btn-icon-action" data-act="up" title="${escapeAttr(t("moveUp", "위로"))}">↑</button>
+          <button type="button" class="btn-icon-action" data-act="down" title="${escapeAttr(t("moveDown", "아래로"))}">↓</button>
+          <button type="button" class="btn-icon-action btn-icon-action--danger" data-act="remove" title="${escapeAttr(t("remove", "삭제"))}">✕</button>
         </div>
       </div>
       <div class="section-lyrics-wrap${def.instrumental ? " is-hidden" : ""}">
-        <textarea class="section-lyrics form-textarea" rows="4" placeholder="이 구간에서 부를 가사만 입력하세요">${escapeText(sec.lyrics || "")}</textarea>
+        <textarea class="section-lyrics form-textarea" rows="4" placeholder="${escapeAttr(t("lyricsPh", "이 구간에서 부를 가사만 입력하세요"))}">${escapeText(sec.lyrics || "")}</textarea>
       </div>
       <div class="section-instrumental-wrap${def.instrumental ? "" : " is-hidden"}">
-        <label class="form-label form-label-sm">연주 설명 <span class="form-label-note">(가사 아님 · 스타일 설명에만 반영)</span></label>
-        <input type="text" class="section-inst-desc form-input" placeholder="예: 피아노 솔로, 잔잔한 스트링" value="${escapeAttr(sec.instDesc || "")}">
-        <p class="form-hint">이 구간은 <strong>[Instrumental]</strong> 태그만 전달됩니다. 설명은 노래 가사로 불리지 않습니다.</p>
+        <label class="form-label form-label-sm">${t("instDescLabel", '연주 설명 <span class="form-label-note">(가사 아님 · 스타일 설명에만 반영)</span>')}</label>
+        <input type="text" class="section-inst-desc form-input" placeholder="${escapeAttr(t("instDescPh", "예: 피아노 솔로, 잔잔한 스트링"))}" value="${escapeAttr(sec.instDesc || "")}">
+        <p class="form-hint">${t("instDescHint", "이 구간은 <strong>[Instrumental]</strong> 태그만 전달됩니다. 설명은 노래 가사로 불리지 않습니다.")}</p>
       </div>
     `;
 
@@ -422,12 +426,14 @@ export function initMusicComposeEditor(root) {
     if (!container) return;
     const label = typeof item === "string" ? item : item.label;
     const caption = typeof item === "string" ? item : item.caption;
+    const i18nKey = typeof item === "string" ? "" : item.i18nKey || "";
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "compose-chip";
     btn.dataset.caption = caption;
     btn.dataset.group = group;
-    btn.textContent = label;
+    if (i18nKey) btn.dataset.i18nKey = i18nKey;
+    btn.textContent = i18nKey ? t(i18nKey, label) : label;
     btn.addEventListener("click", () => {
       btn.classList.toggle("is-selected");
       updatePreviews();
@@ -447,7 +453,7 @@ export function initMusicComposeEditor(root) {
 
   if ($tempoPreset) {
     $tempoPreset.innerHTML = Object.entries(TEMPO_PRESETS)
-      .map(([key, p]) => `<option value="${key}">${p.label}</option>`)
+      .map(([key, p]) => `<option value="${key}">${t(p.i18nKey, p.label)}</option>`)
       .join("");
     $tempoPreset.value = "medium";
     $tempoPreset.addEventListener("change", () => {
@@ -459,7 +465,7 @@ export function initMusicComposeEditor(root) {
 
   if ($vocalType) {
     $vocalType.innerHTML = VOCAL_TYPE_OPTIONS.map(
-      (o) => `<option value="${o.value}">${o.label}</option>`,
+      (o) => `<option value="${o.value}">${t(o.i18nKey, o.label)}</option>`,
     ).join("");
     $vocalType.addEventListener("change", () => {
       syncVocalExtrasVisibility();
@@ -480,7 +486,66 @@ export function initMusicComposeEditor(root) {
     updatePreviews();
   });
 
+  function relabelComposeUi() {
+    root.querySelectorAll(".compose-chip[data-i18n-key]").forEach((btn) => {
+      const key = btn.dataset.i18nKey;
+      const item =
+        GENRE_OPTIONS.find((g) => g.i18nKey === key) ||
+        INSTRUMENT_OPTIONS.find((g) => g.i18nKey === key) ||
+        VOCAL_STYLE_OPTIONS.find((g) => g.i18nKey === key);
+      if (key) btn.textContent = t(key, item?.label || btn.textContent);
+    });
+    if ($tempoPreset) {
+      Object.entries(TEMPO_PRESETS).forEach(([key, p]) => {
+        const opt = $tempoPreset.querySelector(`option[value="${key}"]`);
+        if (opt) opt.textContent = t(p.i18nKey, p.label);
+      });
+    }
+    if ($vocalType) {
+      VOCAL_TYPE_OPTIONS.forEach((o) => {
+        const opt = $vocalType.querySelector(`option[value="${o.value}"]`);
+        if (opt) opt.textContent = t(o.i18nKey, o.label);
+      });
+    }
+    $sectionsList?.querySelectorAll(".lyrics-section-card").forEach((card) => {
+      const typeEl = card.querySelector(".section-type");
+      if (typeEl) {
+        typeEl.setAttribute("aria-label", t("sectionTypeAria", "구간 유형"));
+        Object.entries(SECTION_TYPE_DEFS).forEach(([key, d]) => {
+          const opt = typeEl.querySelector(`option[value="${key}"]`);
+          if (opt) opt.textContent = t(d.i18nKey, d.label);
+        });
+      }
+      const up = card.querySelector('[data-act="up"]');
+      const down = card.querySelector('[data-act="down"]');
+      const removeBtn = card.querySelector('[data-act="remove"]');
+      if (up) up.title = t("moveUp", "위로");
+      if (down) down.title = t("moveDown", "아래로");
+      if (removeBtn) removeBtn.title = t("remove", "삭제");
+      const lyricsEl = card.querySelector(".section-lyrics");
+      if (lyricsEl) lyricsEl.placeholder = t("lyricsPh", "이 구간에서 부를 가사만 입력하세요");
+      const instLabel = card.querySelector(".section-instrumental-wrap .form-label");
+      if (instLabel) {
+        instLabel.innerHTML = t(
+          "instDescLabel",
+          '연주 설명 <span class="form-label-note">(가사 아님 · 스타일 설명에만 반영)</span>',
+        );
+      }
+      const instEl = card.querySelector(".section-inst-desc");
+      if (instEl) instEl.placeholder = t("instDescPh", "예: 피아노 솔로, 잔잔한 스트링");
+      const instHint = card.querySelector(".section-instrumental-wrap .form-hint");
+      if (instHint) {
+        instHint.innerHTML = t(
+          "instDescHint",
+          "이 구간은 <strong>[Instrumental]</strong> 태그만 전달됩니다. 설명은 노래 가사로 불리지 않습니다.",
+        );
+      }
+    });
+    updatePreviews();
+  }
+
   renderAllSections();
+  document.addEventListener("itz:lang-change", relabelComposeUi);
 
   return {
     compileForGeneration(vocalLanguage = "ko") {
@@ -501,7 +566,7 @@ export function initMusicComposeEditor(root) {
       const vocalLang = document.getElementById("vocal-lang")?.value || "ko";
       const cap = compileCaption(capState, vocalLang);
       if (!cap.trim()) {
-        return { ok: false, message: "장르·템포·악기·분위기 중 하나 이상을 선택하거나 입력하세요." };
+        return { ok: false, message: t("needStyle", "장르·템포·악기·분위기 중 하나 이상을 선택하거나 입력하세요.") };
       }
 
       const vocalType = $vocalType?.value || "female";
@@ -516,17 +581,20 @@ export function initMusicComposeEditor(root) {
       if (!hasVocalLines) {
         return {
           ok: false,
-          message: "Verse·Chorus 등에 가사를 입력하세요. 연주만 원하면 보컬 타입을 「보컬 없음」으로 바꾸세요.",
+          message: t("needLyrics", "Verse·Chorus 등에 가사를 입력하세요. 연주만 원하면 보컬 타입을 「보컬 없음」으로 바꾸세요."),
         };
       }
 
       const lyrics = compileLyrics(sections);
       if (!lyrics.trim()) {
-        return { ok: false, message: "가사 구간을 확인하세요." };
+        return { ok: false, message: t("needLyricsCheck", "가사 구간을 확인하세요.") };
       }
       return { ok: true };
     },
     updatePreviews,
+    relabel() {
+      relabelComposeUi();
+    },
   };
 }
 

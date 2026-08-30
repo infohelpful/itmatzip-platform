@@ -1,13 +1,35 @@
 import { showAdSense } from "../common/adsense.js?v=4";
 
+function itzT(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+function itzTf(key, fallback, vars) {
+  try {
+    const api = window.ITZ_I18N;
+    if (api && typeof api.tf === "function") {
+      const v = api.tf(key, vars);
+      if (v && v !== key) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  let s = fallback;
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = String(s).split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
+
 const ICON_SIZES = [
-  { px: 16, hint: "탐색기 자세히 · 트레이" },
-  { px: 24, hint: "125% DPI · 툴바" },
-  { px: 32, hint: "바탕화면 · 보통 아이콘" },
-  { px: 48, hint: "탐색기 크게" },
-  { px: 64, hint: "고해상도 중간" },
-  { px: 128, hint: "아주 크게 중간" },
-  { px: 256, hint: "탐색기 매우 크게" },
+  { px: 16, hintKey: "hint16", hint: "탐색기 자세히 · 트레이" },
+  { px: 24, hintKey: "hint24", hint: "125% DPI · 툴바" },
+  { px: 32, hintKey: "hint32", hint: "바탕화면 · 보통 아이콘" },
+  { px: 48, hintKey: "hint48", hint: "탐색기 크게" },
+  { px: 64, hintKey: "hint64", hint: "고해상도 중간" },
+  { px: 128, hintKey: "hint128", hint: "아주 크게 중간" },
+  { px: 256, hintKey: "hint256", hint: "탐색기 매우 크게" },
 ];
 
 const dropzone = document.getElementById("dropzone");
@@ -57,7 +79,7 @@ function renderSizePills() {
   for (const item of ICON_SIZES) {
     const label = document.createElement("label");
     label.className = "size-pill";
-    label.title = item.hint;
+    label.title = itzT(item.hintKey, item.hint);
     const box = document.createElement("input");
     box.type = "checkbox";
     box.value = String(item.px);
@@ -334,12 +356,14 @@ function refreshPreviews() {
   syncSizePills();
   const sizes = selectedSizes();
   const count = sizes.length;
-  downloadBtn.textContent = count > 0 ? `체크한 ${count}개 ZIP 다운로드` : "체크한 크기 다운로드";
+  downloadBtn.textContent = count > 0
+    ? itzTf("downloadN", `체크한 ${count}개 ZIP 다운로드`, { n: count })
+    : itzT("download", "체크한 크기 다운로드");
   downloadBtn.disabled = count === 0;
   if (!count) {
     qualitySection.hidden = true;
     qualityGrid.replaceChildren();
-    setStatus("포함할 해상도를 하나 이상 선택하세요.", true);
+    setStatus(itzT("needSize", "포함할 해상도를 하나 이상 선택하세요."), true);
     return;
   }
 
@@ -353,7 +377,7 @@ function refreshPreviews() {
     wrap.className = "quality-thumb-wrap";
     const img = document.createElement("img");
     img.className = "quality-thumb" + (px <= 32 ? " is-pixel" : "");
-    img.alt = `${px}픽셀 아이콘`;
+    img.alt = itzTf("altPx", `${px}픽셀 아이콘`, { px });
     img.src = canvas.toDataURL("image/png");
     wrap.appendChild(img);
     const title = document.createElement("div");
@@ -362,19 +386,19 @@ function refreshPreviews() {
     const hint = ICON_SIZES.find((item) => item.px === px);
     const meta = document.createElement("div");
     meta.className = "quality-size";
-    meta.textContent = hint ? hint.hint : "";
+    meta.textContent = hint ? itzT(hint.hintKey, hint.hint) : "";
     card.append(wrap, title, meta);
     qualityGrid.appendChild(card);
   }
 
-  qualityMeta.textContent = `${sizes.map((px) => `${px}×${px}`).join(" · ")} · ${count}개`;
+  qualityMeta.textContent = itzTf("previewMeta", `${sizes.map((px) => `${px}×${px}`).join(" · ")} · ${count}개`, { sizes: sizes.map((px) => `${px}×${px}`).join(" · "), n: count });
   qualitySection.hidden = false;
-  setStatus(`체크한 ${count}개를 ZIP으로 받습니다. 압축을 풀면 크기별 ICO와 PNG가 있습니다.`);
+  setStatus(itzTf("statusZip", `체크한 ${count}개를 ZIP으로 받습니다. 압축을 풀면 크기별 ICO와 PNG가 있습니다.`, { n: count }));
 }
 
 async function loadFile(file) {
   if (!file || !file.type.startsWith("image/")) {
-    setStatus("이미지 파일을 선택하세요. PNG를 권장합니다.", true);
+    setStatus(itzT("needFile", "이미지 파일을 선택하세요. PNG를 권장합니다."), true);
     return;
   }
 
@@ -390,7 +414,7 @@ async function loadFile(file) {
     });
   } catch (error) {
     URL.revokeObjectURL(objectUrl);
-    setStatus(error instanceof Error ? error.message : "이미지를 읽지 못했습니다.", true);
+    setStatus(error instanceof Error ? error.message : itzT("failRead", "이미지를 읽지 못했습니다."), true);
     return;
   }
 
@@ -419,7 +443,7 @@ async function downloadIco() {
   if (!loaded) return;
   const sizes = selectedSizes();
   if (!sizes.length) {
-    setStatus("포함할 해상도를 하나 이상 선택하세요.", true);
+    setStatus(itzT("needSize", "포함할 해상도를 하나 이상 선택하세요."), true);
     return;
   }
 
@@ -459,10 +483,10 @@ async function downloadIco() {
     ];
     triggerDownload(new Blob([buildZip(zipFiles)], { type: "application/zip" }), `${base}-ico.zip`);
     const summary = `${contained.join(" · ")} (${contained.length}개)`;
-    setStatus(`ZIP 저장됨 · ${summary}. 압축을 풀면 크기별 ICO와 PNG가 있습니다.`);
-    showToast(`체크한 ${contained.length}개 ZIP 저장`);
+    setStatus(itzTf("savedZip", `ZIP 저장됨 · ${summary}. 압축을 풀면 크기별 ICO와 PNG가 있습니다.`, { summary }));
+    showToast(itzTf("toastZip", `체크한 ${contained.length}개 ZIP 저장`, { n: contained.length }));
   } catch (error) {
-    setStatus(error instanceof Error ? error.message : "ICO를 만들지 못했습니다.", true);
+    setStatus(error instanceof Error ? error.message : itzT("failIco", "ICO를 만들지 못했습니다."), true);
   } finally {
     downloadBtn.disabled = false;
   }
@@ -477,7 +501,7 @@ function resetAll() {
   readyPanel.hidden = true;
   qualitySection.hidden = true;
   qualityGrid.replaceChildren();
-  downloadBtn.textContent = "체크한 크기 다운로드";
+  downloadBtn.textContent = itzT("download", "체크한 크기 다운로드");
   downloadBtn.disabled = false;
   syncSizePills();
   setStatus("");
@@ -516,6 +540,16 @@ function bindUi() {
 function boot() {
   renderSizePills();
   bindUi();
+  document.addEventListener("itz:lang-change", () => {
+    for (const label of sizePills.querySelectorAll(".size-pill")) {
+      const px = Number(label.querySelector("input")?.value);
+      const item = ICON_SIZES.find((s) => s.px === px);
+      if (item) label.title = itzT(item.hintKey, item.hint);
+    }
+    if (loaded) refreshPreviews();
+    else downloadBtn.textContent = itzT("download", "체크한 크기 다운로드");
+  });
+
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
 }

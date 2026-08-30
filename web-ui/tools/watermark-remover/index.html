@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>영상 워터마크 제거 - Watermark Remover | ItMatZip</title>
   <meta name="description" content="고정된 로고·워터마크 영역을 칠하면 ProPainter가 해당 부분만 지웁니다. 로컬 영상만 처리합니다.">
@@ -105,50 +105,50 @@
       <div class="enhancer-content-shell" id="enhancer-content-shell">
         <section class="drop-zone">
           <div class="path-input-group">
-            <label for="video-path">영상 / 폴더 경로</label>
-            <p class="path-hint" id="path-hint">영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.</p>
+            <label for="video-path" data-i18n="pathLabel">영상 / 폴더 경로</label>
+            <p class="path-hint" id="path-hint" data-i18n="pathHint">영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.</p>
             <div class="path-row">
-              <select id="source-mode" class="source-mode-select" aria-label="선택 방식">
-                <option value="file" selected>파일</option>
-                <option value="folder">폴더</option>
+              <select id="source-mode" class="source-mode-select" aria-label="선택 방식" data-i18n-aria="ui.sourceMode">
+                <option value="file" selected data-i18n="ui.file">파일</option>
+                <option value="folder" data-i18n="ui.folder">폴더</option>
               </select>
-              <input type="text" id="video-path" autocomplete="off" spellcheck="false" placeholder="영상 파일 경로">
-              <button type="button" id="btn-pick-local-file" class="btn-pick-file">찾아보기</button>
-              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+              <input type="text" id="video-path" autocomplete="off" spellcheck="false" placeholder="영상 파일 경로" data-i18n-placeholder="videoPh">
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job" data-i18n="ui.newJob">새 작업 시작</button>
             </div>
             <p class="folder-meta" id="folder-meta" hidden></p>
           </div>
         </section>
 
-        <section class="preview-panel" aria-label="영상 편집">
+        <section class="preview-panel" aria-label="영상 편집" data-i18n-aria="previewAria">
           <div class="preview-panel-head">
-            <h3 class="preview-panel-heading" id="preview-panel-heading">원본 미리보기</h3>
+            <h3 class="preview-panel-heading" id="preview-panel-heading" data-i18n="ui.previewOriginal">원본 미리보기</h3>
             <div class="brush-toolbar" id="brush-toolbar" hidden>
-              <div class="brush-tool-group" role="group" aria-label="영역 도구">
+              <div class="brush-tool-group" role="group" aria-label="영역 도구" data-i18n-aria="shapeAria">
                 <button type="button" id="tool-rect" class="brush-tool-btn is-active" aria-pressed="true">
-                  <span aria-hidden="true">▭</span> 사각형
+                  <span aria-hidden="true">▭</span> <span data-i18n="ui.rect">사각형</span>
                 </button>
                 <button type="button" id="tool-ellipse" class="brush-tool-btn" aria-pressed="false">
-                  <span aria-hidden="true">○</span> 원형
+                  <span aria-hidden="true">○</span> <span data-i18n="ui.circle">원형</span>
                 </button>
               </div>
               <div class="brush-size-field">
-                <label for="shape-width-range">가로</label>
+                <label for="shape-width-range" data-i18n="ui.width">가로</label>
                 <input type="range" id="shape-width-range" min="8" max="800" value="120">
                 <output id="shape-width-value" for="shape-width-range">120px</output>
               </div>
               <div class="brush-size-field">
-                <label for="shape-height-range">세로</label>
+                <label for="shape-height-range" data-i18n="ui.height">세로</label>
                 <input type="range" id="shape-height-range" min="8" max="800" value="80">
                 <output id="shape-height-value" for="shape-height-range">80px</output>
               </div>
-              <button type="button" id="btn-clear-mask" class="brush-clear-btn">영역 지우기</button>
+              <button type="button" id="btn-clear-mask" class="brush-clear-btn" data-i18n="clearMask">영역 지우기</button>
             </div>
           </div>
           <div class="preview-viewport" id="preview-viewport">
             <div class="preview-empty" id="preview-empty">
               <span class="preview-empty-icon" aria-hidden="true">🎬</span>
-              <p>영상을 선택하면 여기에서 사각형 또는 원으로 워터마크를 지정할 수 있습니다.</p>
+              <p data-i18n="canvasEmpty">영상을 선택하면 여기에서 사각형 또는 원으로 워터마크를 지정할 수 있습니다.</p>
             </div>
             <div class="canvas-stage" id="canvas-stage" hidden>
               <canvas id="edit-canvas"></canvas>
@@ -156,83 +156,83 @@
           </div>
           <div class="video-stack" id="video-stack" hidden>
             <figure class="video-stack-item">
-              <figcaption>원본</figcaption>
+              <figcaption data-i18n="capOriginal">원본</figcaption>
               <div class="video-frame">
                 <video id="original-video" class="stack-video" controls playsinline preload="metadata"></video>
               </div>
             </figure>
             <figure class="video-stack-item">
-              <figcaption>결과</figcaption>
+              <figcaption data-i18n="capResult">결과</figcaption>
               <div class="video-frame">
                 <video id="result-video" class="stack-video" controls playsinline preload="metadata"></video>
               </div>
             </figure>
           </div>
-          <p class="canvas-hint" id="canvas-hint" hidden>드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.</p>
-          <p class="compare-hint" id="compare-hint" hidden>위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.</p>
+          <p class="canvas-hint" id="canvas-hint" hidden data-i18n="canvasHint">드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.</p>
+          <p class="compare-hint" id="compare-hint" hidden data-i18n="compareHint">위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.</p>
         </section>
 
         <section class="options-layout" id="options-panel">
           <div class="options-main">
             <div class="options-group options-group--last">
-              <h3 class="options-group-title">실행 장치</h3>
+              <h3 class="options-group-title" data-i18n="ui.device">실행 장치</h3>
               <div class="options-grid options-grid--3">
                 <div class="option-field">
-                  <label class="option-label" for="device-select">실행 장치</label>
+                  <label class="option-label" for="device-select" data-i18n="ui.device">실행 장치</label>
                   <select id="device-select" class="option-select">
-                    <option value="auto">자동 (권장)</option>
+                    <option value="auto" data-i18n="ui.deviceAuto">자동 (권장)</option>
                     <option value="cuda">CUDA (GPU)</option>
                     <option value="cpu">CPU</option>
                   </select>
-                  <p class="option-hint">GPU가 있으면 자동으로 CUDA를 사용합니다. CPU는 매우 느립니다.</p>
+                  <p class="option-hint" data-i18n="gpuHint">GPU가 있으면 자동으로 CUDA를 사용합니다. CPU는 매우 느립니다.</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <aside class="media-summary-panel" aria-label="작업 요약">
-            <h4 class="media-summary-title">작업 상태</h4>
+          <aside class="media-summary-panel" aria-label="작업 요약" data-i18n-aria="summaryAria">
+            <h4 class="media-summary-title" data-i18n="ui.jobStatus">작업 상태</h4>
             <dl class="media-summary-list">
               <div class="media-summary-item">
-                <dt>준비</dt>
-                <dd id="summary-model-ready">확인 중</dd>
+                <dt data-i18n="ui.ready">준비</dt>
+                <dd id="summary-model-ready" data-i18n="ui.checkingShort">확인 중</dd>
               </div>
               <div class="media-summary-item">
-                <dt>장치</dt>
-                <dd id="summary-device">자동</dd>
+                <dt data-i18n="ui.deviceShort">장치</dt>
+                <dd id="summary-device" data-i18n="ui.auto">자동</dd>
               </div>
               <div class="media-summary-item">
-                <dt>영역</dt>
-                <dd id="summary-brush">없음</dd>
+                <dt data-i18n="ui.region">영역</dt>
+                <dd id="summary-brush" data-i18n="ui.none">없음</dd>
               </div>
               <div class="media-summary-item">
-                <dt>마스크</dt>
-                <dd id="summary-mask">비어 있음</dd>
+                <dt data-i18n="dtMask">마스크</dt>
+                <dd id="summary-mask" data-i18n="maskEmpty">비어 있음</dd>
               </div>
               <div class="media-summary-item" id="summary-folder-row" hidden>
-                <dt>폴더</dt>
+                <dt data-i18n="ui.dtFolder">폴더</dt>
                 <dd id="summary-folder">—</dd>
               </div>
             </dl>
           </aside>
         </section>
 
-        <section class="action-stack" aria-label="실행">
-          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
-          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled>지우기 실행</button>
+        <section class="action-stack" aria-label="실행" data-i18n-aria="runAria">
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary" data-i18n="ui.prepare">환경 준비</button>
+          <button type="button" id="btn-start-erase" class="btn-action btn-action--primary" disabled data-i18n="start">지우기 실행</button>
           <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
             <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
           </a>
           <button type="button" id="btn-open-output-folder" class="btn-action btn-action--secondary" hidden disabled>
-            결과 폴더 열기
+            <span data-i18n="ui.openFolder">결과 폴더 열기</span>
           </button>
         </section>
 
         <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <h3 id="setup-loading-title" data-i18n="setupTitle">AI 환경 준비</h3>
             <p id="setup-loading-step" class="loading-step"></p>
-            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <p id="setup-loading-message" class="loading-message" data-i18n="ui.preparing">준비 중…</p>
             <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="setup-loading-bar" class="loading-bar"></div>
             </div>
@@ -241,9 +241,9 @@
 
         <div id="erase-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="erase-loading-title">워터마크 제거</h3>
+            <h3 id="erase-loading-title" data-i18n="eraseTitle">워터마크 제거</h3>
             <p id="erase-loading-step" class="loading-step"></p>
-            <p id="erase-loading-message" class="loading-message">처리 중…</p>
+            <p id="erase-loading-message" class="loading-message" data-i18n="ui.processing">처리 중…</p>
             <p id="erase-loading-percent" class="loading-percent">0%</p>
             <div id="erase-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="erase-loading-bar" class="loading-bar"></div>
@@ -277,9 +277,9 @@
     </main>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=5"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=9"></script>
 </body>
 </html>

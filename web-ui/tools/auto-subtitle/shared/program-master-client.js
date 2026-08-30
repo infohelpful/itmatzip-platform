@@ -2,7 +2,7 @@
  * V5 — program-master bake (preview + export SSOT media).
  */
 
-import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as9";
+import { fetchAgent, getAgentOrigin } from "../../common/bridge.js?v=as10";
 import {
   EXPORT_SCHEMA_VERSION,
   programClipsToApiPayload,

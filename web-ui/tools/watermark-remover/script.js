@@ -10,10 +10,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_FOLDER, AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 configureBridge({
@@ -169,17 +169,17 @@ function setOpenOutputFolderEnabled(enabled) {
 function updateSourceModeUi() {
   const folder = isFolderMode();
   if (els.videoPath) {
-    els.videoPath.placeholder = folder ? "폴더 경로" : "영상 파일 경로";
+    els.videoPath.placeholder = folder ? window.itzT("ui.folderPh", "폴더 경로") : window.itzT("videoPh", "영상 파일 경로");
   }
   if (els.pathHint) {
     els.pathHint.textContent = folder
-      ? "폴더를 선택하면 첫 영상이 표시됩니다. 워터마크 영역을 지정한 뒤 「지우기 실행」하면 폴더 전체에 동일하게 적용됩니다."
-      : "영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.";
+      ? window.itzT("pathHintFolder", "폴더를 선택하면 첫 영상이 표시됩니다. 워터마크 영역을 지정한 뒤 「지우기 실행」하면 폴더 전체에 동일하게 적용됩니다.")
+      : window.itzT("pathHint", "영상을 선택하면 첫 프레임이 표시됩니다. 사각형 또는 원으로 워터마크를 지정한 뒤 실행하세요.");
   }
   if (els.canvasHint && !els.canvasHint.hidden) {
     els.canvasHint.textContent = folder
-      ? "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다."
-      : "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.";
+      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다.")
+      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.");
   }
   updateFolderMeta();
 }
@@ -189,10 +189,10 @@ function updateFolderMeta() {
   if (els.folderMeta) {
     if (folder && folderVideoPaths.length) {
       els.folderMeta.hidden = false;
-      els.folderMeta.textContent = `${folderVideoPaths.length}개 · 첫 영상으로 영역을 지정한 뒤 일괄 적용합니다.`;
+      els.folderMeta.textContent = window.ITZ_I18N?.tf?.("folderMeta", { n: folderVideoPaths.length }) || `${folderVideoPaths.length}개 · 첫 영상으로 영역을 지정한 뒤 일괄 적용합니다.`;
     } else if (folder) {
       els.folderMeta.hidden = false;
-      els.folderMeta.textContent = "폴더에 지원 영상이 없습니다.";
+      els.folderMeta.textContent = window.itzT("noVideos", "폴더에 지원 영상이 없습니다.");
     } else {
       els.folderMeta.hidden = true;
       els.folderMeta.textContent = "";
@@ -202,7 +202,7 @@ function updateFolderMeta() {
     els.summaryFolderRow.hidden = !folder;
   }
   if (els.summaryFolder) {
-    els.summaryFolder.textContent = folder ? `${folderVideoPaths.length}개` : "—";
+    els.summaryFolder.textContent = folder ? (window.ITZ_I18N?.tf?.("nItems", { n: folderVideoPaths.length }) || `${folderVideoPaths.length}개`) : "—";
   }
 }
 
@@ -210,16 +210,16 @@ function updateSummary() {
   if (els.summaryDevice) {
     const device = els.device?.value || "auto";
     els.summaryDevice.textContent =
-      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : "자동";
+      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : window.itzT("ui.auto", "자동");
   }
   if (els.summaryBrush) {
-    if (!region) els.summaryBrush.textContent = "없음";
+    if (!region) els.summaryBrush.textContent = window.itzT("ui.none", "없음");
     else {
-      const label = region.type === "ellipse" ? "원형" : "사각형";
+      const label = region.type === "ellipse" ? window.itzT("ui.circle", "원형") : window.itzT("ui.rect", "사각형");
       els.summaryBrush.textContent = `${label} ${Math.round(region.w)}×${Math.round(region.h)}`;
     }
   }
-  if (els.summaryMask) els.summaryMask.textContent = hasMaskPaint ? "지정됨" : "비어 있음";
+  if (els.summaryMask) els.summaryMask.textContent = hasMaskPaint ? window.itzT("ui.maskSet", "지정됨") : window.itzT("maskEmpty", "비어 있음");
   updateFolderMeta();
 }
 
@@ -261,8 +261,9 @@ function setBusy(kind, visible, pct = 0, step = "", message = "") {
   overlay.hidden = !visible;
   overlay.classList.toggle("is-active", visible);
   overlay.setAttribute("aria-hidden", visible ? "false" : "true");
-  if (stepEl) stepEl.textContent = step || "";
-  if (msgEl) msgEl.textContent = message || (visible ? "처리 중…" : "");
+  const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+  if (stepEl) stepEl.textContent = agentText(step) || "";
+  if (msgEl) msgEl.textContent = agentText(message) || (visible ? window.itzT("ui.processing", "처리 중…") : "");
   const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
   if (bar) bar.style.width = `${clamped}%`;
   if (track) track.setAttribute("aria-valuenow", String(Math.round(clamped)));
@@ -371,7 +372,10 @@ function showEmptyState() {
   if (els.canvasStage) els.canvasStage.hidden = true;
   if (els.brushToolbar) els.brushToolbar.hidden = true;
   if (els.canvasHint) els.canvasHint.hidden = true;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 미리보기";
+  if (els.previewHeading) {
+    els.previewHeading.removeAttribute("data-preview-mode");
+    els.previewHeading.textContent = window.itzT("ui.previewOriginal", "원본 미리보기");
+  }
 }
 
 function showCanvasEditor() {
@@ -382,13 +386,13 @@ function showCanvasEditor() {
   if (els.canvasHint) {
     els.canvasHint.hidden = false;
     els.canvasHint.textContent = isFolderMode()
-      ? "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다."
-      : "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.";
+      ? window.itzT("canvasHintFolder", "첫 영상에서 영역을 지정하세요. 같은 위치의 워터마크가 폴더 안 모든 영상에서 제거됩니다.")
+      : window.itzT("canvasHint", "드래그로 영역을 만들고, 모서리를 끌어 크기를 조절하세요. Shift를 누르면 정사각형·정원입니다. 고정 위치 워터마크는 전 구간에 동일하게 적용됩니다.");
   }
   if (els.previewHeading) {
     els.previewHeading.textContent = isFolderMode()
-      ? "첫 영상에서 워터마크 영역을 지정하세요"
-      : "워터마크 영역을 지정하세요";
+      ? window.itzT("headingFolderPaint", "첫 영상에서 워터마크 영역을 지정하세요")
+      : window.itzT("headingPaint", "워터마크 영역을 지정하세요");
   }
 }
 
@@ -403,11 +407,14 @@ function showResultVideos() {
   if (els.compareHint) {
     els.compareHint.hidden = false;
     els.compareHint.textContent = isFolderMode()
-      ? "위는 첫 영상의 원본, 아래는 해당 결과입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요."
-      : "위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.";
+      ? window.itzT("compareFolderHint", "위는 첫 영상의 원본, 아래는 해당 결과입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요.")
+      : window.itzT("compareHint", "위는 원본, 아래는 워터마크를 제거한 결과입니다. 각각 재생할 수 있습니다.");
   }
   if (els.videoStack) els.videoStack.hidden = false;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 / 결과";
+  if (els.previewHeading) {
+    els.previewHeading.setAttribute("data-preview-mode", "compare");
+    els.previewHeading.textContent = window.itzT("ui.previewCompare", "원본 / 결과");
+  }
   bindStackVideo(els.originalVideo, originalPath);
   bindStackVideo(els.resultVideo, resultPath && resultPath !== originalPath ? resultPath : "");
   els.originalVideo?.addEventListener(
@@ -872,7 +879,10 @@ function exportMaskBase64() {
   return comma !== -1 ? dataUrl.slice(comma + 1) : dataUrl;
 }
 
+let lastReadinessData = null;
+
 function setComputeCapabilityBadge(data) {
+  lastReadinessData = data;
   if (!els.compute) return;
   const gpu = Boolean(data?.pytorch?.gpu_detected);
   const cuda = Boolean(data?.binaries?.cuda_available);
@@ -880,18 +890,20 @@ function setComputeCapabilityBadge(data) {
   els.compute.classList.remove("is-pending", "is-cpu", "is-gpu", "is-warn");
   if (cuda) {
     els.compute.classList.add("is-gpu");
-    els.compute.textContent = `GPU · CUDA${installed === "gpu" ? "" : " 준비됨"}`;
+    els.compute.textContent = installed === "gpu"
+      ? window.itzT("ui.gpuCuda", "GPU · CUDA")
+      : window.itzT("ui.gpuCudaReady", "GPU · CUDA 준비됨");
     els.compute.title = data?.pytorch?.torch_version
       ? `torch ${data.pytorch.torch_version}`
       : "";
   } else if (gpu) {
     els.compute.classList.add("is-warn");
-    els.compute.textContent = "GPU 감지 · CUDA 미사용";
-    els.compute.title = "환경 준비를 다시 실행하면 CUDA PyTorch를 설치합니다.";
+    els.compute.textContent = window.itzT("ui.gpuDetectNoCuda", "GPU 감지 · CUDA 미사용");
+    els.compute.title = window.itzT("gpuCudaInstallHint", "환경 준비를 다시 실행하면 CUDA PyTorch를 설치합니다.");
   } else {
     els.compute.classList.add("is-cpu");
-    els.compute.textContent = "CPU";
-    els.compute.title = "NVIDIA GPU가 없으면 CPU로 처리됩니다. 영상은 매우 느릴 수 있습니다.";
+    els.compute.textContent = window.itzT("ui.cpu", "CPU");
+    els.compute.title = window.itzT("cpuSlowHint", "NVIDIA GPU가 없으면 CPU로 처리됩니다. 영상은 매우 느릴 수 있습니다.");
   }
 }
 
@@ -902,17 +914,17 @@ function updateBinReadiness(data) {
   toolReady = torch && pip && model;
   if (els.readiness) {
     if (toolReady) {
-      els.readiness.textContent = "Watermark Remover · 준비 완료";
+      els.readiness.textContent = window.itzT("readyOk", "Watermark Remover · 준비 완료");
     } else if (!torch) {
-      els.readiness.textContent = "Watermark Remover · PyTorch 설치 필요";
+      els.readiness.textContent = window.itzT("needTorch", "Watermark Remover · PyTorch 설치 필요");
     } else if (!pip) {
-      els.readiness.textContent = "Watermark Remover · 패키지 설치 필요";
+      els.readiness.textContent = window.itzT("needPkg", "Watermark Remover · 패키지 설치 필요");
     } else {
-      els.readiness.textContent = "Watermark Remover · 모델 다운로드 필요";
+      els.readiness.textContent = window.itzT("needModel", "Watermark Remover · 모델 다운로드 필요");
     }
   }
   if (els.summaryReady) {
-    els.summaryReady.textContent = toolReady ? "준비됨" : "미준비";
+    els.summaryReady.textContent = toolReady ? window.itzT("ui.readyOk", "준비됨") : window.itzT("ui.notReady", "미준비");
   }
 }
 
@@ -930,7 +942,7 @@ async function pollPrepareStatus() {
     setBusy("setup", true, pct, status?.step || "", status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "환경 준비 실패");
+      throw new Error(status?.message || window.itzT("ui.prepFail", "환경 준비 실패"));
     }
     await new Promise((r) => setTimeout(r, 600));
   }
@@ -939,7 +951,7 @@ async function pollPrepareStatus() {
 async function prepareModel({ force = false } = {}) {
   setAgentLongOperationActive(true);
   try {
-    setBusy("setup", true, 5, "설치 시작", "ProPainter 환경을 준비합니다…");
+    setBusy("setup", true, 5, window.itzT("installStart", "설치 시작"), window.itzT("prepPp", "ProPainter 환경을 준비합니다…"));
     await requestAgent({
       method: "POST",
       path: `${API}/prepare${force ? "?force=true" : ""}`,
@@ -1162,15 +1174,15 @@ async function openOutputFolder() {
 async function runErase() {
   if (isFolderMode()) {
     if (!currentFolderPath || !folderVideoPaths.length) {
-      alert("폴더를 먼저 선택하세요.");
+      alert(window.itzT("needFolder", "폴더를 먼저 선택하세요."));
       return;
     }
   } else if (!currentVideoPath) {
-    alert("영상을 먼저 선택하세요.");
+    alert(window.itzT("needVideo", "영상을 먼저 선택하세요."));
     return;
   }
   if (!hasMaskPaint) {
-    alert("워터마크 영역을 먼저 사각형 또는 원으로 지정하세요.");
+    alert(window.itzT("needRegion", "워터마크 영역을 먼저 사각형 또는 원으로 지정하세요."));
     return;
   }
   if (!agentOk) {
@@ -1180,7 +1192,7 @@ async function runErase() {
   if (!toolReady) {
     await prepareModel();
     if (!toolReady) {
-      alert("환경 준비가 완료되지 않았습니다.");
+      alert(window.itzT("needPrep", "환경 준비가 완료되지 않았습니다."));
       return;
     }
   }
@@ -1195,8 +1207,8 @@ async function runErase() {
         "erase",
         true,
         2,
-        "폴더 일괄",
-        `${folderVideoPaths.length}개에 동일 마스크를 적용합니다…`,
+        window.itzT("batchLabel", "폴더 일괄"),
+        window.ITZ_I18N?.tf?.("batchMsg", { n: folderVideoPaths.length }) || `${folderVideoPaths.length}개에 동일 마스크를 적용합니다…`,
       );
       await requestAgent({
         method: "POST",
@@ -1209,7 +1221,7 @@ async function runErase() {
         },
       });
     } else {
-      setBusy("erase", true, 3, "시작", "워터마크 제거를 시작합니다…");
+      setBusy("erase", true, 3, window.itzT("startStep", "시작"), window.itzT("eraseStart", "워터마크 제거를 시작합니다…"));
       await requestAgent({
         method: "POST",
         path: `${API}/erase`,
@@ -1358,7 +1370,21 @@ function wireControls() {
   });
 }
 
+function applyPendingHeaderI18n() {
+  if (els.compute && els.compute.classList.contains("is-pending")) {
+    els.compute.textContent = window.itzT("ui.checking", "확인 중…");
+  }
+  if (els.connection && /확인|Checking|確認|检查/.test(els.connection.textContent || "")) {
+    els.connection.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
+  }
+  if (!lastReadinessData) {
+    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "Watermark Remover · 환경 준비 대기");
+    if (els.summaryReady) els.summaryReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  }
+}
+
 async function boot() {
+  applyPendingHeaderI18n();
   wireCanvasPainting();
   wireControls();
   setTool("rect");
@@ -1378,7 +1404,7 @@ async function boot() {
       void resumeRunningPrepare();
     } catch (err) {
       if (els.readiness) {
-        els.readiness.textContent = `준비 상태 확인 실패 · ${formatAgentConnectionError(err)}`;
+        els.readiness.textContent = window.itzT("ui.readyCheckFail", "준비 상태 확인 실패") + " · " + formatAgentConnectionError(err);
       }
     }
   } else {
@@ -1399,5 +1425,18 @@ async function boot() {
 
   await restoreEditorAfterDownload();
 }
+
+
+document.addEventListener("itz:lang-change", () => {
+  updateSourceModeUi();
+  updateSummary();
+  applyPendingHeaderI18n();
+  if (els.videoStack && !els.videoStack.hidden) showResultVideos();
+  else if (els.canvasStage && !els.canvasStage.hidden) showCanvasEditor();
+  if (lastReadinessData) {
+    setComputeCapabilityBadge(lastReadinessData);
+    updateBinReadiness(lastReadinessData);
+  }
+});
 
 void boot();

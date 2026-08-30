@@ -10,7 +10,7 @@ export async function loadLameJs() {
     const existing = document.querySelector('script[data-lamejs="1"]');
     if (existing) {
       existing.addEventListener("load", () => resolve(undefined), { once: true });
-      existing.addEventListener("error", () => reject(new Error("lamejs 로드 실패")), { once: true });
+      existing.addEventListener("error", () => reject(new Error(typeof window.itzT === "function" ? window.itzT("lameLoadFail", "lamejs 로드 실패") : "lamejs 로드 실패")), { once: true });
       return;
     }
     const s = document.createElement("script");
@@ -18,11 +18,11 @@ export async function loadLameJs() {
     s.async = true;
     s.dataset.lamejs = "1";
     s.onload = () => resolve(undefined);
-    s.onerror = () => reject(new Error("lamejs 로드 실패"));
+    s.onerror = () => reject(new Error(typeof window.itzT === "function" ? window.itzT("lameLoadFail", "lamejs 로드 실패") : "lamejs 로드 실패"));
     document.head.appendChild(s);
   });
   if (!globalThis.lamejs?.Mp3Encoder) {
-    throw new Error("lamejs 인코더를 사용할 수 없습니다.");
+    throw new Error(typeof window.itzT === "function" ? window.itzT("lameNoEncoder", "lamejs 인코더를 사용할 수 없습니다.") : "lamejs 인코더를 사용할 수 없습니다.");
   }
   return globalThis.lamejs;
 }

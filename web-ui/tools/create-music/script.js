@@ -1,14 +1,72 @@
 /**
  * Create-Music — ACE-Step 1.5 AI 음악 생성 UI
  */
-import * as Bridge from "../common/bridge.js?v=lna21";
+import * as Bridge from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna20";
-import { createMusicWaveformPlayer } from "./waveform-player.js";
-import { initMusicComposeEditor } from "./music-compose.js?v=10";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
+import { createMusicWaveformPlayer } from "./waveform-player.js?v=2";
+import { initMusicComposeEditor } from "./music-compose.js?v=11";
 
 Bridge.configureBridge();
+
+function t(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+
+function tf(key, fallback, vars) {
+  let s = t(key, fallback);
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = s.split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
+
+const AGENT_MSG_MAP = [
+  [/^(.+?)\s*전용 Python(?: 3\.12)? 환경 설치 중/, (m) => {
+    const name = String(m[1] || "").trim();
+    if (typeof window.ITZ_I18N?.tf === "function") {
+      const out = window.ITZ_I18N.tf("pyEnv", { name });
+      if (out && out !== "pyEnv") return out;
+    }
+    return tf("pyEnv", "Installing the {name} Python environment…", { name });
+  }],
+  [/^설치 시작$/, () => t("installStart", "Starting install")],
+  [/^확인 중[….]*$/, () => t("ui.checking", "Checking…")],
+  [/^에이전트 연결 확인 중[….]*$/, () => t("conn.checking", "Checking agent…")],
+  [/환경 준비 대기/, () => t("waitPrep", "Create Music · waiting to prepare")],
+  [/^이미 설치되어 있습니다\.?$/, () => t("agent.alreadyInstalled", "Already installed.")],
+  [/^FFmpeg 설치 중[….]*$/, () => t("agent.ffmpegInstall", "Installing FFmpeg…")],
+  [/^FFmpeg 준비 완료$/, () => t("agent.ffmpegReady", "FFmpeg is ready")],
+  [/^ACE-Step 소스 확인·다운로드 중[….]*$/, () => t("agent.aceSrc", "Checking and downloading ACE-Step source…")],
+  [/^가상환경 준비 중/, () => t("agent.venvPrep", "Preparing the virtual environment…")],
+  [/^engine-runtime·패키지 설치 중[….]*$/, () => t("agent.pkgInstall", "Installing engine-runtime packages…")],
+  [/^런타임 준비 완료$/, () => t("agent.runtimeReady", "Runtime is ready")],
+  [/^모델 가중치 다운로드 중/, () => t("agent.weights", "Downloading model weights… (first run can be several GB and take a while)")],
+  [/^준비 완료$/, () => t("agent.ready", "Ready")],
+  [/^생성 시작[….]*$/, () => t("agent.genStart", "Starting generation…")],
+  [/^ACE-Step 생성 프로세스 시작[….]*$/, () => t("agent.genProc", "Starting ACE-Step generation…")],
+  [/^음악 생성 중[….]*$/, () => t("generating", "Generating music…")],
+  [/^생성 완료$/, () => t("agent.genDone", "Generation complete")],
+  [/^대기 중$/, () => t("agent.waiting", "Idle")],
+  [/^설치 진행 중[….]*$/, () => t("prepareProgress", "Install in progress…")],
+  [/^DiT 모델 로딩 중/, () => t("ui.ditLoad", "Loading the DiT model…")],
+  [/^LM 로딩 중/, () => t("ui.lmLoad", "Loading the LM…")],
+  [/^결과 정리 중/, () => t("ui.tidyResult", "Finishing the result…")],
+];
+
+function locAgent(s) {
+  const raw = String(s || "").trim();
+  if (!raw) return raw;
+  for (const [re, fn] of AGENT_MSG_MAP) {
+    const m = raw.match(re);
+    if (m) return fn(m);
+  }
+  if (typeof window.itzAgentText === "function") return window.itzAgentText(raw);
+  return raw;
+}
 
 const musicCompose = initMusicComposeEditor(document.getElementById("music-compose-root"));
 
@@ -93,7 +151,13 @@ const musicPlayer = createMusicWaveformPlayer({
   getAgentOrigin: () => Bridge.getAgentOrigin(),
 });
 
-function setMp3DownloadLabel(text) {
+let lastReadinessData = null;
+let lastGpuCtx = null;
+let mp3LabelKey = "download";
+
+function setMp3DownloadLabel(key, fallback) {
+  mp3LabelKey = key || "download";
+  const text = t(mp3LabelKey, fallback || "MP3 다운로드");
   const label = $btnDownloadMp3?.querySelector(".btn-label");
   if (label) label.textContent = text;
   else if ($btnDownloadMp3) $btnDownloadMp3.textContent = text;
@@ -102,7 +166,7 @@ function setMp3DownloadLabel(text) {
 function setDownloadEnabled(on) {
   if (!$btnDownloadMp3) return;
   $btnDownloadMp3.disabled = !on;
-  if (!on) setMp3DownloadLabel("MP3 다운로드");
+  if (!on) setMp3DownloadLabel("download", "MP3 다운로드");
 }
 
 // ---------------------------------------------------------------------------
@@ -123,20 +187,21 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
 // Connection monitor (Silence Detector / Vocal Remover와 동일)
 // ---------------------------------------------------------------------------
 function setComputeCapabilityBadge(ctx) {
+  lastGpuCtx = ctx;
   if (!$computeCap) return;
   $computeCap.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
 
   if (ctx.agentOk === false) {
     $computeCap.classList.add("is-pending");
-    $computeCap.textContent = "연산 장치 확인 불가";
-    $computeCap.title = "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.";
+    $computeCap.textContent = t("gpuUnknown", "연산 장치 확인 불가");
+    $computeCap.title = t("gpuUnknownTitle", "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.");
     return;
   }
 
   const gpu = ctx.gpu;
   if (!gpu) {
     $computeCap.classList.add("is-pending");
-    $computeCap.textContent = "연산 장치 확인 중…";
+    $computeCap.textContent = t("gpuChecking", "연산 장치 확인 중…");
     $computeCap.title = "";
     return;
   }
@@ -144,7 +209,7 @@ function setComputeCapabilityBadge(ctx) {
   const rt = ctx.runtime || {};
   if (!rt.acestep_root_ok && rt.acestep_root_error) {
     $computeCap.classList.add("is-warn");
-    $computeCap.textContent = "ACE-Step 소스 미설치";
+    $computeCap.textContent = t("aceSrcMissing", "ACE-Step 소스 미설치");
     $computeCap.title = rt.acestep_root_error;
     return;
   }
@@ -164,7 +229,7 @@ function setComputeCapabilityBadge(ctx) {
         : `GPU · ${tierLabel}`
       : vramGb
         ? `GPU · ${vramGb}`
-        : "GPU 사용 가능";
+        : t("gpuAvailable", "GPU 사용 가능");
     let title = gpu.docs || "";
     if (rt.nano_vllm_ready) {
       title = [title, `LM: ${rt.lm_backend || "vllm"} (nano-vllm)`].filter(Boolean).join("\n");
@@ -176,8 +241,8 @@ function setComputeCapabilityBadge(ctx) {
   }
 
   $computeCap.classList.add("is-cpu");
-  $computeCap.textContent = gpu.tier_label || "CPU 전용";
-  $computeCap.title = "NVIDIA GPU가 감지되지 않았습니다. CPU 오프로드로 동작할 수 있습니다.";
+  $computeCap.textContent = gpu.tier_label || t("cpuOnly", "CPU 전용");
+  $computeCap.title = t("cpuTitle", "NVIDIA GPU가 감지되지 않았습니다. CPU 오프로드로 동작할 수 있습니다.");
 }
 
 function updateBinReadiness(agentOk, data) {
@@ -185,13 +250,13 @@ function updateBinReadiness(agentOk, data) {
 
   if (!agentOk) {
     $binReadiness.className = "bin-readiness is-warn";
-    $binReadiness.textContent = "에이전트 미연결 → ACE-Step · FFmpeg 점검 불가";
+    $binReadiness.textContent = t("binNoAgent", "에이전트 미연결 → ACE-Step · FFmpeg 점검 불가");
     return;
   }
 
   if (!data) {
     $binReadiness.className = "bin-readiness is-warn";
-    $binReadiness.textContent = "Create Music · 환경 확인 중…";
+    $binReadiness.textContent = t("binChecking", "Create Music · 환경 확인 중…");
     return;
   }
 
@@ -201,18 +266,18 @@ function updateBinReadiness(agentOk, data) {
     ["python312", "Py3.12"],
     ["pytorch", "PyTorch"],
     ["acestep_venv", "venv"],
-    ["acestep_models", "모델"],
+    ["acestep_models", t("dep.models", "모델")],
   ];
   const parts = labels.map(([key, label]) => (d[key] ? label : `${label} ✗`));
 
   if (data.all_ready) {
     $binReadiness.className = "bin-readiness is-ok";
-    $binReadiness.textContent = "ACE-Step · venv · 모델 · FFmpeg(MP3) 준비됨";
+    $binReadiness.textContent = t("binReady", "ACE-Step · venv · 모델 · FFmpeg(MP3) 준비됨");
     return;
   }
 
   $binReadiness.className = "bin-readiness is-warn";
-  $binReadiness.textContent = `${parts.join(" · ")} · 환경 준비 필요`;
+  $binReadiness.textContent = `${parts.join(" · ")} · ${t("needPrep", "환경 준비 필요")}`;
 }
 
 const connectionMonitor = Bridge.startConnectionMonitor({
@@ -245,6 +310,7 @@ document.addEventListener("visibilitychange", () => {
 // Readiness (접속 시 자동 확인 — 환경 준비 버튼 수동 클릭 불필요)
 // ---------------------------------------------------------------------------
 function applyReadinessData(data) {
+  lastReadinessData = data;
   const rt = data.runtime || {};
   window.__createMusicRuntime = rt;
   setComputeCapabilityBadge({ agentOk: true, gpu: data.gpu, runtime: rt });
@@ -257,28 +323,30 @@ function applyReadinessData(data) {
 
   if (!allReady) {
     const parts = [];
-    if (!data.dependencies?.acestep_source) parts.push("ACE-Step 소스");
-    if (!data.dependencies?.python312) parts.push("Python 3.12");
-    if (!data.dependencies?.pytorch) parts.push("PyTorch");
-    if (!data.dependencies?.acestep_venv) parts.push("가상환경");
-    if (!data.dependencies?.acestep_models) parts.push("모델");
+    if (!data.dependencies?.acestep_source) parts.push(t("dep.source", "ACE-Step 소스"));
+    if (!data.dependencies?.python312) parts.push(t("dep.py", "Python 3.12"));
+    if (!data.dependencies?.pytorch) parts.push(t("dep.torch", "PyTorch"));
+    if (!data.dependencies?.acestep_venv) parts.push(t("dep.venv", "가상환경"));
+    if (!data.dependencies?.acestep_models) parts.push(t("dep.models", "모델"));
     $btnPrepare.textContent = parts.length
-      ? `환경 준비 (${parts.join(", ")})`
-      : "환경 준비";
+      ? tf("prepWithParts", "환경 준비 ({parts})", { parts: parts.join(", ") })
+      : t("ui.prepare", "환경 준비");
     $btnPrepare.disabled = false;
   } else {
-    $btnPrepare.textContent = "환경 재확인";
+    $btnPrepare.textContent = t("recheck", "환경 재확인");
     $btnPrepare.disabled = false;
   }
 
   if (data.lora_list && data.lora_list.length > 0) {
-    $loraSelect.innerHTML = '<option value="">사용 안 함</option>';
+    const current = $loraSelect.value;
+    $loraSelect.innerHTML = `<option value="">${t("loraNone", "사용 안 함")}</option>`;
     data.lora_list.forEach((name) => {
       const opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name;
       $loraSelect.appendChild(opt);
     });
+    if (current) $loraSelect.value = current;
   }
 }
 
@@ -328,7 +396,7 @@ async function runAutoPrepare() {
 
     if ($binReadiness) {
       $binReadiness.className = "bin-readiness is-warn";
-      $binReadiness.textContent = "환경 준비 중… (처음 설치 시 수 분~수십 분)";
+      $binReadiness.textContent = t("prepLong", "환경 준비 중… (처음 설치 시 수 분~수십 분)");
     }
     startPreparePolling({ showOverlayAfterMs: 2500 });
   } catch {
@@ -385,12 +453,14 @@ function applyGpuTierLimits(gpu) {
     }
     const ok = allowedLm.has(opt.value);
     opt.disabled = !ok;
-    if (!ok && opt.value !== "auto") opt.title = "현재 GPU VRAM 티어에서 사용 불가";
+    if (!ok && opt.value !== "auto") opt.title = t("lmUnavailable", "현재 GPU VRAM 티어에서 사용 불가");
   });
 
   const rt = window.__createMusicRuntime || {};
   if (rt.nano_vllm_ready) {
-    $lmModel.title = `LM 백엔드: ${rt.lm_backend || "vllm"} (nano-vllm 설치됨)`;
+    $lmModel.title = tf("lmBackend", "LM 백엔드: {backend} (nano-vllm 설치됨)", {
+      backend: rt.lm_backend || "vllm",
+    });
   } else if (gpu.lm_note) {
     $lmModel.title = gpu.lm_note;
   }
@@ -491,7 +561,8 @@ function applyPreset(key) {
   const preset = PRESETS[key];
   if (!preset) return;
 
-  $presetTooltip.textContent = preset.tooltip;
+  $presetTooltip.textContent = t(`preset.${key}Tip`, preset.tooltip);
+  $presetTooltip.setAttribute("data-i18n", `preset.${key}Tip`);
 
   if (key === "custom") {
     setAdvancedFieldsDisabled(false);
@@ -534,16 +605,16 @@ async function pickAudioFile() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const detail = typeof data?.detail === "string" ? data.detail : res.statusText || "요청 실패";
+      const detail = typeof data?.detail === "string" ? data.detail : res.statusText || t("reqFail", "요청 실패");
       if (res.status === 400 && (detail.includes("취소") || /cancel/i.test(detail))) return null;
-      alert(`파일 선택 실패: ${detail}`);
+      alert(`${t("pickFail", "파일 선택 실패")}: ${detail}`);
       return null;
     }
     const path = String(data.audio_path || data.video_path || data.path || "").trim();
     if (!path) return null;
     return path;
   } catch (e) {
-    alert(`파일 선택 실패: ${e instanceof Error ? e.message : String(e)}`);
+    alert(`${t("pickFail", "파일 선택 실패")}: ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }
@@ -627,7 +698,7 @@ function showPrepareOverlay() {
   $prepareOverlay.hidden = false;
   setPrepareProgress(0, { indeterminate: true });
   $prepareStep.textContent = "";
-  $prepareMsg.textContent = "AI 음악 생성에 필요한 패키지와 모델을 설치합니다…";
+  $prepareMsg.textContent = t("prepareInstall", "AI 음악 생성에 필요한 패키지와 모델을 설치합니다…");
   $prepareOverlay.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
@@ -672,13 +743,13 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
       }
 
       setPrepareProgress(data.progress ?? 0);
-      $prepareMsg.textContent = data.message || "설치 진행 중…";
+      $prepareMsg.textContent = locAgent(data.message) || t("prepareProgress", "설치 진행 중…");
 
       const phaseLabels = {
-        installing_dependencies: "패키지 설치 중",
-        downloading_model: "모델 다운로드 중",
-        done: "완료",
-        error: "오류 발생",
+        installing_dependencies: t("phaseDeps", "패키지 설치 중"),
+        downloading_model: t("phaseModel", "모델 다운로드 중"),
+        done: t("phaseDone", "완료"),
+        error: t("phaseError", "오류 발생"),
       };
       $prepareStep.textContent = phaseLabels[data.phase] || data.phase || "";
 
@@ -686,8 +757,8 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
         stopPreparePolling();
         clearTimeout(overlayTimer);
         setPrepareProgress(100);
-        $prepareMsg.textContent = "환경 준비 완료! 음악을 생성할 수 있습니다.";
-        $prepareStep.textContent = "설치 완료 ✓";
+        $prepareMsg.textContent = t("prepDoneMsg", "환경 준비 완료! 음악을 생성할 수 있습니다.");
+        $prepareStep.textContent = t("prepDoneStep", "설치 완료 ✓");
         autoPrepareStarted = false;
         await checkReadiness({ full: false });
         setTimeout(() => {
@@ -697,11 +768,11 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
         stopPreparePolling();
         clearTimeout(overlayTimer);
         autoPrepareStarted = false;
-        $prepareStep.textContent = "오류 발생";
-        $prepareMsg.textContent = data.error || "알 수 없는 오류가 발생했습니다.";
+        $prepareStep.textContent = t("phaseError", "오류 발생");
+        $prepareMsg.textContent = locAgent(data.error) || t("unknownError", "알 수 없는 오류가 발생했습니다.");
         setTimeout(() => {
           hidePrepareOverlay();
-          $btnPrepare.textContent = "환경 준비";
+          $btnPrepare.textContent = t("ui.prepare", "환경 준비");
           $btnPrepare.disabled = false;
         }, 3000);
       }
@@ -710,7 +781,7 @@ function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
       clearTimeout(overlayTimer);
       autoPrepareStarted = false;
       hidePrepareOverlay();
-      $btnPrepare.textContent = "환경 준비";
+      $btnPrepare.textContent = t("ui.prepare", "환경 준비");
       $btnPrepare.disabled = false;
     }
   }, 2000);
@@ -742,7 +813,7 @@ $btnPrepare.addEventListener("click", async () => {
   } catch {
     autoPrepareStarted = false;
     hidePrepareOverlay();
-    $btnPrepare.textContent = "환경 준비 실패";
+    $btnPrepare.textContent = t("prepFail", "환경 준비 실패");
     $btnPrepare.disabled = false;
   }
 });
@@ -790,7 +861,7 @@ $btnGenerate.addEventListener("click", async () => {
   $btnGenerate.disabled = true;
   setDownloadEnabled(false);
   Bridge.setAgentLongOperationActive(true);
-  musicPlayer.showGenerating(0, "생성 요청 중…");
+  musicPlayer.showGenerating(0, t("genRequest", "생성 요청 중…"));
 
   try {
     const res = await fetch(`${origin}/api/tools/create-music/generate`, {
@@ -805,7 +876,7 @@ $btnGenerate.addEventListener("click", async () => {
       musicPlayer.hideGenerating();
       musicPlayer.resetIdle();
       setDownloadEnabled(false);
-      alert(`오류: ${err.detail || res.statusText}`);
+      alert(tf("errorPrefix", "오류: {msg}", { msg: err.detail || res.statusText }));
       $btnGenerate.disabled = false;
       return;
     }
@@ -816,7 +887,7 @@ $btnGenerate.addEventListener("click", async () => {
     musicPlayer.hideGenerating();
     musicPlayer.resetIdle();
     setDownloadEnabled(false);
-    alert(`요청 실패: ${e.message}`);
+    alert(`${t("reqFail", "요청 실패")}: ${e.message}`);
     $btnGenerate.disabled = false;
   }
 });
@@ -832,7 +903,7 @@ function pollGeneration() {
 
       const pct = data.progress || 0;
       if (data.status === "running" || data.status === "pending") {
-        musicPlayer.showGenerating(pct, data.message || "음악 생성 중…");
+        musicPlayer.showGenerating(pct, locAgent(data.message) || t("generating", "음악 생성 중…"));
       }
 
       if (data.status === "completed") {
@@ -849,7 +920,7 @@ function pollGeneration() {
         musicPlayer.hideGenerating();
         musicPlayer.resetIdle();
         setDownloadEnabled(false);
-        alert(`생성 실패: ${data.message}`);
+        alert(tf("genFail", "생성 실패: {msg}", { msg: locAgent(data.message) || data.message }));
       }
     } catch {
       // continue polling
@@ -864,7 +935,7 @@ async function onGenerationComplete(jobId, outputPaths) {
     musicPlayer.hideGenerating();
     musicPlayer.resetIdle();
     setDownloadEnabled(false);
-    alert("생성은 완료됐지만 재생할 파일이 없습니다. 환경 준비(ffmpeg) 후 다시 시도하세요.");
+    alert(t("noOutput", "생성은 완료됐지만 재생할 파일이 없습니다. 환경 준비(ffmpeg) 후 다시 시도하세요."));
     return;
   }
 
@@ -879,7 +950,7 @@ async function onGenerationComplete(jobId, outputPaths) {
     musicPlayer.hideGenerating();
     musicPlayer.resetIdle();
     setDownloadEnabled(false);
-    alert(`재생 준비 실패: ${e.message}`);
+    alert(tf("playPrepFail", "재생 준비 실패: {msg}", { msg: e.message }));
   }
 }
 
@@ -910,7 +981,7 @@ $btnDownloadMp3?.addEventListener("click", () => {
 
   saveDownloadSession(track);
   $btnDownloadMp3.disabled = true;
-  setMp3DownloadLabel("다운로드 페이지로 이동 중…");
+  setMp3DownloadLabel("dlNavigating", "다운로드 페이지로 이동 중…");
   navigateToDownloadPage();
 });
 
@@ -923,7 +994,7 @@ $btnTrainLora.addEventListener("click", async () => {
   const origin = Bridge.getAgentOrigin();
   const name = $loraName.value.trim();
   if (!name) {
-    alert("스타일 이름을 입력하세요.");
+    alert(t("loraNeedName", "스타일 이름을 입력하세요."));
     return;
   }
 
@@ -937,7 +1008,7 @@ $btnTrainLora.addEventListener("click", async () => {
   $btnTrainLora.disabled = true;
   $loraProgressArea.classList.remove("hidden");
   $loraProgressBar.style.width = "0%";
-  $loraProgressMsg.textContent = "학습 요청 중…";
+  $loraProgressMsg.textContent = t("loraRequest", "학습 요청 중…");
 
   try {
     const res = await fetch(`${origin}/api/tools/create-music/lora/train`, {
@@ -947,13 +1018,13 @@ $btnTrainLora.addEventListener("click", async () => {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      $loraProgressMsg.textContent = `오류: ${err.detail || res.statusText}`;
+      $loraProgressMsg.textContent = tf("errorPrefix", "오류: {msg}", { msg: err.detail || res.statusText });
       $btnTrainLora.disabled = false;
       return;
     }
     pollLoraTraining();
   } catch (e) {
-    $loraProgressMsg.textContent = `요청 실패: ${e.message}`;
+    $loraProgressMsg.textContent = `${t("reqFail", "요청 실패")}: ${e.message}`;
     $btnTrainLora.disabled = false;
   }
 });
@@ -968,14 +1039,14 @@ function pollLoraTraining() {
       const data = await res.json();
 
       $loraProgressBar.style.width = `${data.progress || 0}%`;
-      $loraProgressMsg.textContent = data.message || "";
+      $loraProgressMsg.textContent = locAgent(data.message) || "";
 
       if (data.status === "completed" || data.status === "idle") {
         clearInterval(loraPollTimer);
         loraPollTimer = null;
         $btnTrainLora.disabled = false;
         if (data.status === "completed") {
-          $loraProgressMsg.textContent = "학습 완료! 나만의 스타일이 저장되었습니다. 생성 시 적용할 수 있습니다.";
+          $loraProgressMsg.textContent = t("loraDone", "학습 완료! 나만의 스타일이 저장되었습니다. 생성 시 적용할 수 있습니다.");
           checkReadiness();
         }
       } else if (data.status === "failed") {
@@ -999,7 +1070,7 @@ async function loadHistory() {
     const data = await res.json();
 
     if (!data.items || data.items.length === 0) {
-      $historyList.innerHTML = '<p class="empty-state">아직 생성된 음악이 없습니다.</p>';
+      $historyList.innerHTML = `<p class="empty-state">${t("histEmpty", "아직 생성된 음악이 없습니다.")}</p>`;
       return;
     }
 
@@ -1008,8 +1079,10 @@ async function loadHistory() {
       const card = document.createElement("div");
       card.className = "history-card";
 
-      const date = new Date(item.created_at * 1000).toLocaleString("ko-KR");
-      const caption = item.params?.caption || "(설명 없음)";
+      const lang = (window.ITZ_I18N && window.ITZ_I18N.getLang && window.ITZ_I18N.getLang()) || "ko";
+      const loc = { ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN" };
+      const date = new Date(item.created_at * 1000).toLocaleString(loc[lang] || "ko-KR");
+      const caption = item.params?.caption || t("noCaption", "(설명 없음)");
       const files = item.output_files || [];
       const seed = item.seed ?? "N/A";
 
@@ -1020,17 +1093,17 @@ async function loadHistory() {
         </div>
         <p class="history-card-caption">${escapeHtml(caption)}</p>
         <div class="history-card-meta">
-          <span class="history-seed" title="클릭하여 시드 복사">시드: ${seed}</span>
-          <span class="history-model">모델: ${item.params?.dit_model || ""}</span>
-          <span class="history-duration">길이: ${item.params?.duration > 0 ? item.params.duration + "초" : "자동"}</span>
+          <span class="history-seed" title="${t("seedCopyHint", "클릭하여 시드 복사")}">${tf("seedLabel", "시드: {seed}", { seed })}</span>
+          <span class="history-model">${tf("modelLabel", "모델: {model}", { model: item.params?.dit_model || "" })}</span>
+          <span class="history-duration">${item.params?.duration > 0 ? tf("durationLabel", "길이: {n}초", { n: item.params.duration }) : t("durationAuto", "길이: 자동")}</span>
         </div>
       `;
 
       const seedEl = card.querySelector(".history-seed");
       seedEl.addEventListener("click", () => {
         navigator.clipboard.writeText(String(seed)).then(() => {
-          seedEl.textContent = "복사 완료!";
-          setTimeout(() => { seedEl.textContent = `시드: ${seed}`; }, 1500);
+          seedEl.textContent = t("copied", "복사 완료!");
+          setTimeout(() => { seedEl.textContent = tf("seedLabel", "시드: {seed}", { seed }); }, 1500);
         });
       });
 
@@ -1050,7 +1123,7 @@ async function loadHistory() {
         dlBtn.href = url;
         dlBtn.download = filename;
         dlBtn.textContent = "⬇";
-        dlBtn.title = "다운로드";
+        dlBtn.title = t("histDl", "다운로드");
 
         row.appendChild(audio);
         row.appendChild(dlBtn);
@@ -1060,7 +1133,7 @@ async function loadHistory() {
       $historyList.appendChild(card);
     });
   } catch {
-    $historyList.innerHTML = '<p class="empty-state">생성 기록을 불러올 수 없습니다.</p>';
+    $historyList.innerHTML = `<p class="empty-state">${t("histLoadFail", "생성 기록을 불러올 수 없습니다.")}</p>`;
   }
 }
 
@@ -1069,6 +1142,40 @@ function escapeHtml(str) {
   d.textContent = str;
   return d.innerHTML;
 }
+
+function refreshPendingChrome() {
+  if (lastGpuCtx) {
+    setComputeCapabilityBadge(lastGpuCtx);
+  } else if ($computeCap?.classList.contains("is-pending")) {
+    $computeCap.textContent = t("gpuChecking", "연산 장치 확인 중…");
+  }
+  if (lastReadinessData) {
+    applyReadinessData(lastReadinessData);
+  } else if ($binReadiness) {
+    const raw = $binReadiness.textContent || "";
+    if (!connected || /환경 준비 대기|waiting to prepare|環境準備待ち|等待准备环境/.test(raw)) {
+      $binReadiness.textContent = t("waitPrep", "Create Music · 환경 준비 대기");
+    }
+  }
+  setMp3DownloadLabel(mp3LabelKey, mp3LabelKey === "download" ? "MP3 다운로드" : "다운로드 페이지로 이동 중…");
+  const presetKey = getActivePresetKey();
+  if (PRESETS[presetKey] && $presetTooltip) {
+    $presetTooltip.textContent = t(`preset.${presetKey}Tip`, PRESETS[presetKey].tooltip);
+    $presetTooltip.setAttribute("data-i18n", `preset.${presetKey}Tip`);
+  }
+  if ($loraSelect) {
+    const none = $loraSelect.querySelector('option[value=""]');
+    if (none) none.textContent = t("loraNone", "사용 안 함");
+  }
+  const histPanel = document.getElementById("tab-history");
+  if (histPanel?.classList.contains("active")) void loadHistory();
+}
+
+document.addEventListener("itz:lang-change", () => {
+  refreshPendingChrome();
+});
+refreshPendingChrome();
+if (typeof musicCompose.relabel === "function") musicCompose.relabel();
 
 // ---------------------------------------------------------------------------
 // AdSense

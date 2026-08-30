@@ -27,6 +27,20 @@ const elAgentHint = document.getElementById("dl-agent-hint");
 const elBtnMp3 = document.getElementById("dl-btn-mp3");
 const elBtnBack = document.getElementById("dl-btn-back");
 
+function t(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+
+function tf(key, fallback, vars) {
+  let s = t(key, fallback);
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = s.split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
+
 let countdownTimer = 0;
 let countdownLeft = AUTO_START_SEC;
 let downloadInFlight = false;
@@ -88,7 +102,7 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
@@ -108,14 +122,14 @@ async function downloadMp3Blob(session) {
   }
 
   if (!session.wavUrl) {
-    throw new Error("다운로드 URL이 없습니다.");
+    throw new Error(t("dlNoUrl", "다운로드 URL이 없습니다."));
   }
 
-  setStatus("브라우저에서 MP3로 변환 중… (시간이 걸릴 수 있습니다)");
+  setStatus(t("dlBrowserConvert", "브라우저에서 MP3로 변환 중… (시간이 걸릴 수 있습니다)"));
   const wavRes = await fetchAgent(session.wavUrl);
   if (!wavRes.ok) {
     const err = await wavRes.json().catch(() => ({}));
-    throw new Error(typeof err.detail === "string" ? err.detail : "원본 오디오를 불러올 수 없습니다.");
+    throw new Error(typeof err.detail === "string" ? err.detail : t("dlLoadWavFail", "원본 오디오를 불러올 수 없습니다."));
   }
   const data = await wavRes.arrayBuffer();
   const ctx = new AudioContext();
@@ -135,14 +149,14 @@ async function runDownload() {
 
   const session = readSession();
   if (!canDownloadFromSession()) {
-    setStatus("다운로드할 음악이 없습니다. 편집 화면에서 먼저 생성해 주세요.", "err");
+    setStatus(t("dlNoMusic", "다운로드할 음악이 없습니다. 편집 화면에서 먼저 생성해 주세요."), "err");
     if (elBtnBack) elBtnBack.disabled = false;
     return;
   }
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnMp3) elBtnMp3.disabled = false;
     if (elBtnBack) elBtnBack.disabled = false;
     return;
@@ -151,15 +165,15 @@ async function runDownload() {
   downloadInFlight = true;
   clearCountdown();
   setBusy(true);
-  setStatus("MP3 변환·다운로드 준비 중…");
+  setStatus(t("dlPrepDownload", "MP3 변환·다운로드 준비 중…"));
 
   try {
     const result = await downloadMp3Blob(session);
-    const viaLabel = result.via === "server" ? "에이전트(FFmpeg)" : "브라우저";
-    setStatus(`MP3 다운로드가 시작되었습니다. (${viaLabel}) 다시 받으려면 버튼을 눌러 주세요.`, "ok");
+    const viaLabel = result.via === "server" ? t("dlViaAgent", "에이전트(FFmpeg)") : t("dlViaBrowser", "브라우저");
+    setStatus(tf("dlStarted", "MP3 다운로드가 시작되었습니다. ({via}) 다시 받으려면 버튼을 눌러 주세요.", { via: viaLabel }), "ok");
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    setStatus(`MP3 다운로드 실패: ${msg}`, "err");
+    setStatus(tf("dlFail", "MP3 다운로드 실패: {msg}", { msg }), "err");
   } finally {
     downloadInFlight = false;
     setBusy(false);
@@ -170,7 +184,7 @@ async function runDownload() {
 
 function startCountdown() {
   countdownLeft = AUTO_START_SEC;
-  setStatus(`${AUTO_START_SEC}초 후 자동으로 MP3 다운로드가 시작됩니다…`);
+  setStatus(tf("dlCountdown", "{n}초 후 자동으로 MP3 다운로드가 시작됩니다…", { n: AUTO_START_SEC }));
   showCountdown(countdownLeft);
 
   countdownTimer = window.setInterval(() => {
@@ -185,25 +199,24 @@ function startCountdown() {
 }
 
 async function initPage() {
-  if (elTitle) elTitle.textContent = "생성 음악 MP3 다운로드";
-  document.title = "Create Music · MP3 다운로드";
+  document.title = t("dlTitle", "Create Music · MP3 다운로드");
 
   const session = readSession();
   if (!canDownloadFromSession()) {
-    setStatus("생성 결과가 없습니다. 편집 화면에서 먼저 음악을 생성해 주세요.", "err");
-    if (elMeta) elMeta.textContent = "세션에 트랙 정보가 저장되지 않았습니다.";
+    setStatus(t("dlNoResult", "생성 결과가 없습니다. 편집 화면에서 먼저 음악을 생성해 주세요."), "err");
+    if (elMeta) elMeta.textContent = t("dlNoSession", "세션에 트랙 정보가 저장되지 않았습니다.");
     if (elBtnBack) elBtnBack.disabled = false;
     return;
   }
 
   if (elMeta) {
     const label = session.source || session.filename;
-    elMeta.textContent = label ? `파일: ${label}` : "";
+    elMeta.textContent = label ? tf("dlFileMeta", "파일: {name}", { name: label }) : "";
   }
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnBack) elBtnBack.disabled = false;
     return;
   }
@@ -221,5 +234,18 @@ elBtnMp3?.addEventListener("click", () => {
 
 void showAdSense("downloadTop", "#dl-ad-top");
 void showAdSense("downloadBottom", "#dl-ad-bottom");
+
+document.addEventListener("itz:lang-change", () => {
+  document.title = t("dlTitle", "Create Music · MP3 다운로드");
+  if (elTitle) elTitle.textContent = t("dlH1", "생성 음악 MP3 다운로드");
+  const session = readSession();
+  if (elMeta && canDownloadFromSession()) {
+    const label = session.source || session.filename;
+    elMeta.textContent = label ? tf("dlFileMeta", "파일: {name}", { name: label }) : "";
+  }
+  if (!downloadInFlight && countdownTimer && countdownLeft > 0) {
+    setStatus(tf("dlCountdown", "{n}초 후 자동으로 MP3 다운로드가 시작됩니다…", { n: countdownLeft }));
+  }
+});
 
 void initPage();

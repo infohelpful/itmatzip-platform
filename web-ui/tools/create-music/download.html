@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,follow">
   <link rel="canonical" href="https://tools.itmatzip.com/create-music/">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
-  <title>Create Music · MP3 다운로드</title>
+  <title data-i18n="dlTitle">Create Music · MP3 다운로드</title>
   <link rel="stylesheet" href="../silence-remover/download.css?v=7">
   <link rel="stylesheet" href="download.css?v=1">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
@@ -17,39 +17,39 @@
   <div class="dl-page">
     <div class="dl-ad" id="dl-ad-top" aria-label="광고"></div>
     <div class="dl-card">
-      <h1 id="dl-title">생성 음악 MP3 다운로드</h1>
-      <p class="dl-status" id="dl-status">MP3 파일을 내려받을 수 있습니다.</p>
+      <h1 id="dl-title" data-i18n="dlH1">생성 음악 MP3 다운로드</h1>
+      <p class="dl-status" id="dl-status" data-i18n="dlStatusReady">MP3 파일을 내려받을 수 있습니다.</p>
       <p class="dl-meta" id="dl-meta"></p>
       <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
       <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
-        <button type="button" class="dl-btn dl-btn-mp3" id="dl-btn-mp3" disabled>MP3 다운로드</button>
-        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back">편집 화면으로 돌아가기</a>
+        <button type="button" class="dl-btn dl-btn-mp3" id="dl-btn-mp3" disabled data-i18n="download">MP3 다운로드</button>
+        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back" data-i18n="dlBack">편집 화면으로 돌아가기</a>
       </div>
     </div>
 
-    <section class="dl-guides" aria-label="다운로드 안내">
+    <section class="dl-guides" aria-label="다운로드 안내" data-i18n-aria="dlGuidesAria">
       <article class="dl-info-card">
         <header class="dl-info-card__head">
           <span class="dl-info-card__icon" aria-hidden="true">🎵</span>
           <div>
-            <h2 class="dl-info-card__title">파일 안내</h2>
-            <p class="dl-info-card__subtitle">ACE-Step으로 생성한 트랙입니다</p>
+            <h2 class="dl-info-card__title" data-i18n="dlFileGuide">파일 안내</h2>
+            <p class="dl-info-card__subtitle" data-i18n="dlFileSub">ACE-Step으로 생성한 트랙입니다</p>
           </div>
         </header>
         <ul class="dl-nle-list">
           <li class="dl-nle-item">
             <div class="dl-nle-item__brand">
               <span class="dl-nle-item__logo dl-nle-item__logo--mp3" aria-hidden="true">MP3</span>
-              <h3 class="dl-nle-item__name">MP3 (192kbps)</h3>
+              <h3 class="dl-nle-item__name" data-i18n="dlMp3Name">MP3 (192kbps)</h3>
             </div>
-            <p class="dl-nle-item__steps">재생에 사용한 WAV를 MP3로 변환해 저장합니다. 에이전트에 FFmpeg가 있으면 서버에서 변환하고, 없으면 브라우저에서 변환합니다.</p>
+            <p class="dl-nle-item__steps" data-i18n="dlMp3Steps">재생에 사용한 WAV를 MP3로 변환해 저장합니다. 에이전트에 FFmpeg가 있으면 서버에서 변환하고, 없으면 브라우저에서 변환합니다.</p>
           </li>
         </ul>
         <aside class="dl-callout">
           <span class="dl-callout__icon" aria-hidden="true">↩</span>
-          <p>
+          <p data-i18n="dlBackCallout">
             <strong>편집 화면으로 돌아가기</strong>를 누르면 파형 미리듣기·다시 생성 작업을 이어갈 수 있습니다.
           </p>
         </aside>
@@ -59,20 +59,20 @@
         <header class="dl-info-card__head">
           <span class="dl-info-card__icon" aria-hidden="true">❓</span>
           <div>
-            <h2 class="dl-info-card__title">팁 &amp; 자주 묻는 질문</h2>
-            <p class="dl-info-card__subtitle">다운로드 관련</p>
+            <h2 class="dl-info-card__title" data-i18n="dlFaqTitle">팁 &amp; 자주 묻는 질문</h2>
+            <p class="dl-info-card__subtitle" data-i18n="dlFaqSub">다운로드 관련</p>
           </div>
         </header>
         <dl class="dl-faq">
           <div class="dl-faq__item">
-            <dt class="dl-faq__q">Q. 다운로드가 자동으로 시작되지 않아요.</dt>
-            <dd class="dl-faq__a">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ1">Q. 다운로드가 자동으로 시작되지 않아요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA1">
               상단의 <strong>[MP3 다운로드]</strong> 버튼을 직접 눌러 주세요. 브라우저 팝업·다운로드 차단 설정을 확인해 보세요.
             </dd>
           </div>
           <div class="dl-faq__item">
-            <dt class="dl-faq__q">Q. 에이전트 연결 오류가 나요.</dt>
-            <dd class="dl-faq__a">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ2">Q. 에이전트 연결 오류가 나요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA2">
               작업 표시줄의 itmatzip 에이전트가 실행 중인지 확인한 뒤, 환경 준비(FFmpeg 포함)를 완료해 주세요.
             </dd>
           </div>
@@ -86,14 +86,14 @@
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="dialog" aria-modal="true">
     <div class="mobile-only-card">
       <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
-      <h2 class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
-      <p class="mobile-only-desc">Create Music은 PC와 로컬 에이전트가 필요한 도구입니다.</p>
+      <h2 class="mobile-only-title" id="mobile-only-title" data-i18n="mobileTitle">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc" data-i18n="mobileDescDl">Create Music은 PC와 로컬 에이전트가 필요한 도구입니다.</p>
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="download.js?v=1"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="download.js?v=2"></script>
 </body>
 </html>

@@ -158,14 +158,63 @@ foreach (parse_tools_registry(REGISTRY_FILE) as $tool) {
   );
 }
 
-echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
-echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
-foreach ($urls as $url) {
+$langs = array('ko', 'en', 'ja', 'zh');
+
+function lang_prefix($lang) {
+  return $lang === 'ko' ? 'kr' : $lang;
+}
+
+function lang_url($baseLoc, $lang) {
+  $host = public_base_url();
+  $path = substr((string) $baseLoc, strlen($host));
+  $prefix = lang_prefix($lang);
+  if ($path === '' || $path === '/') {
+    return $host . '/' . $prefix . '/';
+  }
+  return $host . '/' . $prefix . $path;
+}
+
+function emit_url($loc, $lastmod, $changefreq, $priority, $alternates) {
   echo "  <url>\n";
-  echo '    <loc>' . xml_escape($url['loc']) . "</loc>\n";
-  echo '    <lastmod>' . xml_escape($url['lastmod']) . "</lastmod>\n";
-  echo '    <changefreq>' . xml_escape($url['changefreq']) . "</changefreq>\n";
-  echo '    <priority>' . xml_escape($url['priority']) . "</priority>\n";
+  echo '    <loc>' . xml_escape($loc) . "</loc>\n";
+  echo '    <lastmod>' . xml_escape($lastmod) . "</lastmod>\n";
+  echo '    <changefreq>' . xml_escape($changefreq) . "</changefreq>\n";
+  echo '    <priority>' . xml_escape($priority) . "</priority>\n";
+  foreach ($alternates as $hreflang => $href) {
+    echo '    <xhtml:link rel="alternate" hreflang="' . xml_escape($hreflang) . '" href="' . xml_escape($href) . "\" />\n";
+  }
   echo "  </url>\n";
+}
+
+$legal = array(
+  array('loc' => $base . '/legal/about.html', 'priority' => '0.4'),
+  array('loc' => $base . '/legal/policy.html', 'priority' => '0.4'),
+  array('loc' => $base . '/legal/email.html', 'priority' => '0.3'),
+  array('loc' => $base . '/legal/copyright.html', 'priority' => '0.3'),
+  array('loc' => $base . '/legal/disclaimer.html', 'priority' => '0.4'),
+);
+foreach ($legal as $item) {
+  $rel = str_replace($base, '', $item['loc']);
+  $path = __DIR__ . str_replace('/', DIRECTORY_SEPARATOR, $rel);
+  $mtime = is_file($path) ? filemtime($path) : $homeMtime;
+  $urls[] = array(
+    'loc' => $item['loc'],
+    'lastmod' => iso_date($mtime),
+    'changefreq' => 'monthly',
+    'priority' => $item['priority'],
+  );
+}
+
+echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">' . "\n";
+foreach ($urls as $url) {
+  $alternates = array();
+  foreach ($langs as $lang) {
+    $alternates[$lang] = lang_url($url['loc'], $lang);
+  }
+  $alternates['x-default'] = lang_url($url['loc'], 'ko');
+  foreach ($langs as $lang) {
+    emit_url(lang_url($url['loc'], $lang), $url['lastmod'], $url['changefreq'], $url['priority'], $alternates);
+  }
 }
 echo "</urlset>\n";

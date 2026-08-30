@@ -30,6 +30,33 @@ RATE_FILE = DATA_DIR / "login-rate.json"
 SESS_FILE = DATA_DIR / "sessions.json"
 REGISTRY_FILE = ROOT / "assets" / "tools-registry.js"
 
+LANG_PREFIXES = frozenset({"kr", "ko", "en", "ja", "zh"})
+LANG_TO_URL_PREFIX = {"ko": "kr", "en": "en", "ja": "ja", "zh": "zh"}
+URL_PREFIX_TO_LANG = {"kr": "ko", "ko": "ko", "en": "en", "ja": "ja", "zh": "zh"}
+SKIP_LANG_REDIRECT_FIRST = frozenset({"admin", "common", "assets"})
+STATIC_FILE_EXT = frozenset(
+    {
+        ".css",
+        ".js",
+        ".mjs",
+        ".map",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".ico",
+        ".woff",
+        ".woff2",
+        ".json",
+        ".txt",
+        ".xml",
+        ".php",
+        ".webmanifest",
+    }
+)
+
 COOKIE_NAME = "itz_admin"
 RATE_WINDOW_SEC = 900
 RATE_MAX_ATTEMPTS = 8
@@ -208,13 +235,34 @@ def _url_lastmod(relative_href: str) -> str:
     return _iso_date(time.time())
 
 
+def _normalize_hl(raw: str) -> str:
+    s = (raw or "").lower().replace("_", "-")
+    if s == "kr" or s.startswith("ko"):
+        return "ko"
+    if s.startswith("ja"):
+        return "ja"
+    if s.startswith("zh"):
+        return "zh"
+    if s.startswith("en"):
+        return "en"
+    return ""
+
+
+def _lang_url(base: str, loc_path: str, lang: str) -> str:
+    prefix = LANG_TO_URL_PREFIX.get(lang, "kr")
+    path = loc_path if loc_path.startswith("/") else "/" + loc_path
+    if path == "/":
+        return f"{base}/{prefix}/"
+    return f"{base}/{prefix}{path}"
+
+
 def sitemap_xml(base: str) -> bytes:
     hidden = set(public_config().get("hiddenToolIds") or [])
     home = ROOT / "index.html"
     home_mod = _iso_date(home.stat().st_mtime if home.is_file() else time.time())
     urls = [
         {
-            "loc": f"{base}/",
+            "loc_path": "/",
             "lastmod": home_mod,
             "changefreq": "daily",
             "priority": "1.0",
@@ -228,29 +276,58 @@ def sitemap_xml(base: str) -> bytes:
         href = str(tool.get("href") or "").lstrip("/")
         if not href or ".." in href or re.match(r"^[a-z][a-z0-9+.-]*:", href, re.I):
             continue
+        if not href.endswith("/"):
+            href += "/"
         urls.append(
             {
-                "loc": f"{base}/{href}",
+                "loc_path": f"/{href}",
                 "lastmod": _url_lastmod(href),
                 "changefreq": "weekly",
                 "priority": "0.8",
             }
         )
+    legal_pages = (
+        ("/legal/about.html", "0.4"),
+        ("/legal/policy.html", "0.4"),
+        ("/legal/email.html", "0.3"),
+        ("/legal/copyright.html", "0.3"),
+        ("/legal/disclaimer.html", "0.4"),
+    )
+    for rel, prio in legal_pages:
+        disk = ROOT / rel.lstrip("/").replace("/", os.sep)
+        mtime = disk.stat().st_mtime if disk.is_file() else time.time()
+        urls.append(
+            {
+                "loc_path": rel,
+                "lastmod": _iso_date(mtime),
+                "changefreq": "monthly",
+                "priority": prio,
+            }
+        )
+    langs = ("ko", "en", "ja", "zh")
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">',
     ]
     for url in urls:
-        lines.extend(
-            [
-                "  <url>",
-                f"    <loc>{xml_escape(url['loc'])}</loc>",
-                f"    <lastmod>{xml_escape(url['lastmod'])}</lastmod>",
-                f"    <changefreq>{xml_escape(url['changefreq'])}</changefreq>",
-                f"    <priority>{xml_escape(url['priority'])}</priority>",
-                "  </url>",
-            ]
-        )
+        alternates = {lang: _lang_url(base, url["loc_path"], lang) for lang in langs}
+        alternates["x-default"] = _lang_url(base, url["loc_path"], "ko")
+        for lang in langs:
+            loc = _lang_url(base, url["loc_path"], lang)
+            lines.extend(
+                [
+                    "  <url>",
+                    f"    <loc>{xml_escape(loc)}</loc>",
+                    f"    <lastmod>{xml_escape(url['lastmod'])}</lastmod>",
+                    f"    <changefreq>{xml_escape(url['changefreq'])}</changefreq>",
+                    f"    <priority>{xml_escape(url['priority'])}</priority>",
+                ]
+            )
+            for hreflang, href in alternates.items():
+                lines.append(
+                    f'    <xhtml:link rel="alternate" hreflang="{xml_escape(hreflang)}" href="{xml_escape(href)}" />'
+                )
+            lines.append("  </url>")
     lines.append("</urlset>")
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -373,7 +450,98 @@ class ToolsHandler(SimpleHTTPRequestHandler):
         path = posixpath.normpath(path)
         if path.startswith(".."):
             return ""
-        return path.lstrip("/")
+        rel = path.lstrip("/")
+        parts = [p for p in rel.split("/") if p]
+        if parts and parts[0].lower() in LANG_PREFIXES:
+            rel = "/".join(parts[1:])
+        return rel
+
+    def translate_path(self, path):
+        path = path.split("?", 1)[0]
+        path = path.split("#", 1)[0]
+        trailing_slash = path.rstrip().endswith("/")
+        try:
+            path = urllib.parse.unquote(path, errors="surrogatepass")
+        except UnicodeDecodeError:
+            path = urllib.parse.unquote(path)
+        path = posixpath.normpath(path)
+        words = []
+        for word in path.split("/"):
+            if not word or word in (os.curdir, os.pardir):
+                continue
+            drive, word = os.path.splitdrive(word)
+            head, word = os.path.split(word)
+            if not word or word in (os.curdir, os.pardir):
+                continue
+            words.append(word)
+        if words and words[0].lower() in LANG_PREFIXES:
+            words = words[1:]
+        path = str(ROOT)
+        for word in words:
+            path = os.path.join(path, word)
+        if trailing_slash:
+            path += os.sep
+        return path
+
+    def _query_without_hl(self, parsed: urllib.parse.ParseResult) -> str:
+        qs = [(k, v) for k, v in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True) if k.lower() != "hl"]
+        if not qs:
+            return ""
+        return "?" + urllib.parse.urlencode(qs)
+
+    def _send_redirect(self, location: str):
+        self.send_response(HTTPStatus.MOVED_PERMANENTLY)
+        self.send_header("Location", location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _lang_redirect(self) -> str | None:
+        parsed = urllib.parse.urlparse(self.path)
+        raw_path = urllib.parse.unquote(parsed.path) or "/"
+        if not raw_path.startswith("/"):
+            raw_path = "/" + raw_path
+        parts = [p for p in raw_path.split("/") if p]
+        first = parts[0].lower() if parts else ""
+        if first == "admin":
+            return None
+        if parsed.path in ("/sitemap.xml", "/sitemap.php"):
+            return None
+        if first in ("common", "assets"):
+            return None
+
+        qs = urllib.parse.parse_qs(parsed.query)
+        hl_raw = ""
+        if "hl" in qs and qs["hl"]:
+            hl_raw = qs["hl"][0]
+        hl = _normalize_hl(hl_raw)
+        rest_parts = parts[1:] if first in LANG_PREFIXES else parts
+        rest = "/" + "/".join(rest_parts) if rest_parts else "/"
+        if raw_path.endswith("/") and rest != "/" and not rest.endswith("/"):
+            rest += "/"
+        elif rest_parts and not raw_path.endswith("/") and "." not in rest_parts[-1]:
+            pass
+        suffix = self._query_without_hl(parsed)
+
+        if first == "ko":
+            dest = "/kr/" if rest == "/" else "/kr" + rest
+            return dest + suffix
+
+        if first in ("kr", "en", "ja", "zh"):
+            if hl and LANG_TO_URL_PREFIX.get(hl) != first:
+                dest_prefix = LANG_TO_URL_PREFIX[hl]
+                dest = f"/{dest_prefix}/" if rest == "/" else f"/{dest_prefix}{rest}"
+                return dest + suffix
+            return None
+
+        last = parts[-1] if parts else ""
+        if last:
+            ext = os.path.splitext(last)[1].lower()
+            if ext in STATIC_FILE_EXT and ext not in (".html", ".htm"):
+                return None
+
+        dest_prefix = LANG_TO_URL_PREFIX.get(hl or "ko", "kr")
+        dest = f"/{dest_prefix}/" if rest == "/" else f"/{dest_prefix}{rest}"
+        return dest + suffix
 
     def _is_protected(self, rel: str) -> bool:
         parts = [p for p in rel.split("/") if p]
@@ -546,6 +714,10 @@ class ToolsHandler(SimpleHTTPRequestHandler):
         if parsed.path in ("/sitemap.xml", "/sitemap.php"):
             self._serve_sitemap()
             return
+        loc = self._lang_redirect()
+        if loc:
+            self._send_redirect(loc)
+            return
         rel = self._rel_path()
         if self._is_protected(rel):
             self.send_error(HTTPStatus.FORBIDDEN, "Forbidden")
@@ -566,6 +738,10 @@ class ToolsHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path in ("/sitemap.xml", "/sitemap.php"):
             self._serve_sitemap()
+            return
+        loc = self._lang_redirect()
+        if loc:
+            self._send_redirect(loc)
             return
         rel = self._rel_path()
         if self._is_protected(rel):

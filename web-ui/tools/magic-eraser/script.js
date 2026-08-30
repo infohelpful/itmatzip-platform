@@ -10,10 +10,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_FOLDER, AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 configureBridge({
@@ -158,17 +158,17 @@ function setOpenOutputFolderEnabled(enabled) {
 function updateSourceModeUi() {
   const folder = isFolderMode();
   if (els.imagePath) {
-    els.imagePath.placeholder = folder ? "폴더 경로" : "파일 경로";
+    els.imagePath.placeholder = folder ? window.itzT("ui.folderPh", "폴더 경로") : window.itzT("ui.pathPh", "파일 경로");
   }
   if (els.pathHint) {
     els.pathHint.textContent = folder
-      ? "폴더를 선택하면 첫 이미지가 표시됩니다. 워터마크 영역을 칠한 뒤 「지우기 실행」하면 폴더 전체에 동일 마스크가 적용됩니다."
-      : "이미지를 선택하면 편집 화면에 원본이 표시됩니다.";
+      ? window.itzT("pathHintFolder", "폴더를 선택하면 첫 이미지가 표시됩니다. 지울 영역을 칠한 뒤 「지우기 실행」하면 폴더 전체에 동일 마스크가 적용됩니다.")
+      : window.itzT("pathHintFile", "이미지를 선택하면 편집 화면에 원본이 표시됩니다.");
   }
   if (els.canvasHint && !els.canvasHint.hidden) {
     els.canvasHint.textContent = folder
-      ? "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다."
-      : "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.";
+      ? window.itzT("canvasHintFolder", "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다.")
+      : window.itzT("canvasHint", "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.");
   }
   updateFolderMeta();
 }
@@ -178,10 +178,10 @@ function updateFolderMeta() {
   if (els.folderMeta) {
     if (folder && folderImagePaths.length) {
       els.folderMeta.hidden = false;
-      els.folderMeta.textContent = `${folderImagePaths.length}장 · 대표 이미지로 마스크를 칠한 뒤 일괄 적용합니다.`;
+      els.folderMeta.textContent = window.ITZ_I18N?.tf?.("folderMeta", { n: folderImagePaths.length }) || `${folderImagePaths.length}장 · 대표 이미지로 마스크를 칠한 뒤 일괄 적용합니다.`;
     } else if (folder) {
       els.folderMeta.hidden = false;
-      els.folderMeta.textContent = "폴더에 지원 이미지가 없습니다.";
+      els.folderMeta.textContent = window.itzT("noImages", "폴더에 지원 이미지가 없습니다.");
     } else {
       els.folderMeta.hidden = true;
       els.folderMeta.textContent = "";
@@ -192,7 +192,7 @@ function updateFolderMeta() {
   }
   if (els.summaryFolder) {
     els.summaryFolder.textContent = folder
-      ? `${folderImagePaths.length}장`
+      ? (window.ITZ_I18N?.tf?.("nSheets", { n: folderImagePaths.length }) || `${folderImagePaths.length}장`)
       : "—";
   }
 }
@@ -201,10 +201,10 @@ function updateSummary() {
   if (els.summaryDevice) {
     const device = els.device?.value || "auto";
     els.summaryDevice.textContent =
-      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : "자동";
+      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : window.itzT("ui.auto", "자동");
   }
   if (els.summaryBrush) els.summaryBrush.textContent = `${brushSize}px`;
-  if (els.summaryMask) els.summaryMask.textContent = hasMaskPaint ? "칠해짐" : "비어 있음";
+  if (els.summaryMask) els.summaryMask.textContent = hasMaskPaint ? window.itzT("ui.maskPainted", "칠해짐") : window.itzT("maskEmpty", "비어 있음");
   updateFolderMeta();
 }
 
@@ -246,8 +246,9 @@ function setBusy(kind, visible, pct = 0, step = "", message = "") {
   overlay.hidden = !visible;
   overlay.classList.toggle("is-active", visible);
   overlay.setAttribute("aria-hidden", visible ? "false" : "true");
-  if (stepEl) stepEl.textContent = step || "";
-  if (msgEl) msgEl.textContent = message || (visible ? "처리 중…" : "");
+  const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+  if (stepEl) stepEl.textContent = agentText(step) || "";
+  if (msgEl) msgEl.textContent = agentText(message) || (visible ? window.itzT("ui.processing", "처리 중…") : "");
   const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
   if (bar) bar.style.width = `${clamped}%`;
   if (track) track.setAttribute("aria-valuenow", String(Math.round(clamped)));
@@ -377,7 +378,10 @@ function showEmptyState() {
   if (els.brushToolbar) els.brushToolbar.hidden = true;
   if (els.canvasHint) els.canvasHint.hidden = true;
   if (els.compareHint) els.compareHint.hidden = true;
-  if (els.previewHeading) els.previewHeading.textContent = "원본 미리보기";
+  if (els.previewHeading) {
+    els.previewHeading.removeAttribute("data-preview-mode");
+    els.previewHeading.textContent = window.itzT("ui.previewOriginal", "원본 미리보기");
+  }
 }
 
 function showCanvasEditor() {
@@ -388,14 +392,14 @@ function showCanvasEditor() {
   if (els.canvasHint) {
     els.canvasHint.hidden = false;
     els.canvasHint.textContent = isFolderMode()
-      ? "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다."
-      : "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.";
+      ? window.itzT("canvasHintFolder", "첫 이미지에서 지울 영역을 칠하세요. 같은 위치의 워터마크가 폴더 안 모든 이미지에서 제거됩니다.")
+      : window.itzT("canvasHint", "마우스나 펜으로 지울 영역을 빨갛게 칠한 뒤 「지우기 실행」을 누르세요. 「지우개」로 잘못 칠한 부분을 되돌릴 수 있습니다.");
   }
   if (els.compareHint) els.compareHint.hidden = true;
   if (els.previewHeading) {
     els.previewHeading.textContent = isFolderMode()
-      ? "폴더 대표 이미지 — 지울 영역을 칠하세요"
-      : "브러시로 지울 영역을 칠하세요";
+      ? window.itzT("headingFolderPaint", "폴더 대표 이미지 — 지울 영역을 칠하세요")
+      : window.itzT("headingPaint", "브러시로 지울 영역을 칠하세요");
   }
 }
 
@@ -408,13 +412,13 @@ function showComparePreview() {
   if (els.compareHint) {
     els.compareHint.hidden = false;
     els.compareHint.textContent = isFolderMode()
-      ? "첫 이미지 비교입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요."
-      : "슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.";
+      ? window.itzT("compareFolderHint", "첫 이미지 비교입니다. 나머지 결과는 「결과 폴더 열기」로 확인하세요.")
+      : window.itzT("ui.compareHint", "슬라이더를 왼쪽으로 당기면 원본, 오른쪽으로 당기면 결과가 보입니다.");
   }
   if (els.previewHeading) {
     els.previewHeading.textContent = isFolderMode()
-      ? "원본 ↔ 결과 비교 (대표 1장)"
-      : "원본 ↔ 결과 비교";
+      ? window.itzT("compareFolderTitle", "원본 ↔ 결과 비교 (대표 1장)")
+      : window.itzT("ui.previewCompareSlider", "원본 ↔ 결과 비교");
   }
   setCompareSplit(50);
 }
@@ -595,7 +599,10 @@ function exportMaskBase64() {
   return comma !== -1 ? dataUrl.slice(comma + 1) : dataUrl;
 }
 
+let lastReadinessData = null;
+
 function setComputeCapabilityBadge(data) {
+  lastReadinessData = data;
   if (!els.compute) return;
   const gpu = Boolean(data?.pytorch?.gpu_detected);
   const cuda = Boolean(data?.binaries?.cuda_available);
@@ -603,18 +610,20 @@ function setComputeCapabilityBadge(data) {
   els.compute.classList.remove("is-pending", "is-cpu", "is-gpu", "is-warn");
   if (cuda) {
     els.compute.classList.add("is-gpu");
-    els.compute.textContent = `GPU · CUDA${installed === "gpu" ? "" : " 준비됨"}`;
+    els.compute.textContent = installed === "gpu"
+      ? window.itzT("ui.gpuCuda", "GPU · CUDA")
+      : window.itzT("ui.gpuCudaReady", "GPU · CUDA 준비됨");
     els.compute.title = data?.pytorch?.torch_version
       ? `torch ${data.pytorch.torch_version}`
       : "";
   } else if (gpu) {
     els.compute.classList.add("is-warn");
-    els.compute.textContent = "GPU 감지 · CUDA 미사용";
-    els.compute.title = "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.";
+    els.compute.textContent = window.itzT("ui.gpuDetectNoCuda", "GPU 감지 · CUDA 미사용");
+    els.compute.title = window.itzT("ui.gpuCudaInstallHint", "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.");
   } else {
     els.compute.classList.add("is-cpu");
-    els.compute.textContent = "CPU";
-    els.compute.title = "NVIDIA GPU가 없으면 CPU로 처리됩니다.";
+    els.compute.textContent = window.itzT("ui.cpu", "CPU");
+    els.compute.title = window.itzT("ui.cpuNoNvidia", "NVIDIA GPU가 없으면 CPU로 처리됩니다.");
   }
 }
 
@@ -625,17 +634,17 @@ function updateBinReadiness(data) {
   toolReady = torch && pip && model;
   if (els.readiness) {
     if (toolReady) {
-      els.readiness.textContent = "MagicEraser · 준비 완료";
+      els.readiness.textContent = window.itzT("readyOk", "MagicEraser · 준비 완료");
     } else if (!torch) {
-      els.readiness.textContent = "MagicEraser · PyTorch 설치 필요";
+      els.readiness.textContent = window.itzT("needTorch", "MagicEraser · PyTorch 설치 필요");
     } else if (!pip) {
-      els.readiness.textContent = "MagicEraser · 패키지 설치 필요";
+      els.readiness.textContent = window.itzT("needPkg", "MagicEraser · 패키지 설치 필요");
     } else {
-      els.readiness.textContent = "MagicEraser · 모델 다운로드 필요";
+      els.readiness.textContent = window.itzT("needModel", "MagicEraser · 모델 다운로드 필요");
     }
   }
   if (els.summaryReady) {
-    els.summaryReady.textContent = toolReady ? "준비됨" : "미준비";
+    els.summaryReady.textContent = toolReady ? window.itzT("ui.readyOk", "준비됨") : window.itzT("ui.notReady", "미준비");
   }
 }
 
@@ -653,7 +662,7 @@ async function pollPrepareStatus() {
     setBusy("setup", true, pct, status?.step || "", status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "환경 준비 실패");
+      throw new Error(status?.message || window.itzT("ui.prepFail", "환경 준비 실패"));
     }
     await new Promise((r) => setTimeout(r, 600));
   }
@@ -662,7 +671,7 @@ async function pollPrepareStatus() {
 async function prepareModel({ force = false } = {}) {
   setAgentLongOperationActive(true);
   try {
-    setBusy("setup", true, 5, "설치 시작", "LaMa 환경을 준비합니다…");
+    setBusy("setup", true, 5, window.itzT("installStart", "설치 시작"), window.itzT("prepLama", "LaMa 환경을 준비합니다…"));
     await requestAgent({
       method: "POST",
       path: `${API}/prepare${force ? "?force=true" : ""}`,
@@ -700,9 +709,9 @@ async function resumeRunningPrepare() {
 }
 
 function erasePhaseLabel(phase) {
-  if (phase === "running") return "처리 중";
-  if (phase === "ready") return "완료";
-  if (phase === "failed") return "실패";
+  if (phase === "running") return window.itzT("ui.phaseRun", "처리 중");
+  if (phase === "ready") return window.itzT("ui.phaseDone", "완료");
+  if (phase === "failed") return window.itzT("ui.phaseFail", "실패");
   return "";
 }
 
@@ -713,7 +722,7 @@ async function pollEraseStatus() {
     setBusy("erase", true, pct, erasePhaseLabel(status?.phase), status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "지우기 실패");
+      throw new Error(status?.message || window.itzT("eraseFail", "지우기 실패"));
     }
     await new Promise((r) => setTimeout(r, 450));
   }
@@ -874,15 +883,15 @@ async function openOutputFolder() {
 async function runErase() {
   if (isFolderMode()) {
     if (!currentFolderPath || !folderImagePaths.length) {
-      alert("폴더를 먼저 선택하세요.");
+      alert(window.itzT("needFolder", "폴더를 먼저 선택하세요."));
       return;
     }
   } else if (!currentImagePath) {
-    alert("이미지를 먼저 선택하세요.");
+    alert(window.itzT("needImage", "이미지를 먼저 선택하세요."));
     return;
   }
   if (!hasMaskPaint) {
-    alert("지울 영역을 먼저 브러시로 칠하세요.");
+    alert(window.itzT("needMask", "지울 영역을 먼저 브러시로 칠하세요."));
     return;
   }
   if (!agentOk) {
@@ -892,7 +901,7 @@ async function runErase() {
   if (!toolReady) {
     await prepareModel();
     if (!toolReady) {
-      alert("환경 준비가 완료되지 않았습니다.");
+      alert(window.itzT("needPrep", "환경 준비가 완료되지 않았습니다."));
       return;
     }
   }
@@ -907,8 +916,8 @@ async function runErase() {
         "erase",
         true,
         2,
-        "폴더 일괄",
-        `${folderImagePaths.length}장에 동일 마스크를 적용합니다…`,
+        window.itzT("batchLabel", "폴더 일괄"),
+        window.ITZ_I18N?.tf?.("batchMsg", { n: folderImagePaths.length }) || `${folderImagePaths.length}장에 동일 마스크를 적용합니다…`,
       );
       await requestAgent({
         method: "POST",
@@ -921,7 +930,7 @@ async function runErase() {
         },
       });
     } else {
-      setBusy("erase", true, 3, "시작", "지우기를 시작합니다…");
+      setBusy("erase", true, 3, window.itzT("startStep", "시작"), window.itzT("eraseStart", "지우기를 시작합니다…"));
       await requestAgent({
         method: "POST",
         path: `${API}/erase`,
@@ -1064,11 +1073,25 @@ function wireControls() {
   });
 }
 
+function applyPendingHeaderI18n() {
+  if (els.compute && els.compute.classList.contains("is-pending")) {
+    els.compute.textContent = window.itzT("ui.checking", "확인 중…");
+  }
+  if (els.connection && /확인|Checking|確認|检查/.test(els.connection.textContent || "")) {
+    els.connection.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
+  }
+  if (!lastReadinessData) {
+    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "MagicEraser · 환경 준비 대기");
+    if (els.summaryReady) els.summaryReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  }
+}
+
 async function boot() {
   initCompareSlider();
   wireCanvasPainting();
   wireControls();
   setTool("brush");
+  applyPendingHeaderI18n();
   updateSourceModeUi();
   updateSummary();
   updateEraseButtonState();
@@ -1086,7 +1109,7 @@ async function boot() {
       void resumeRunningPrepare();
     } catch (err) {
       if (els.readiness) {
-        els.readiness.textContent = `준비 상태 확인 실패 · ${formatAgentConnectionError(err)}`;
+        els.readiness.textContent = (window.ITZ_I18N?.tf?.("ui.readyCheckFail", { msg: formatAgentConnectionError(err) }) || window.itzT("ui.readyCheckFail", "준비 상태 확인 실패")) + " · " + formatAgentConnectionError(err);
       }
     }
   } else {
@@ -1107,5 +1130,18 @@ async function boot() {
 
   await restoreEditorAfterDownload();
 }
+
+
+document.addEventListener("itz:lang-change", () => {
+  updateSourceModeUi();
+  updateSummary();
+  applyPendingHeaderI18n();
+  if (els.compare && !els.compare.hidden) showComparePreview();
+  else if (els.canvasStage && !els.canvasStage.hidden) showCanvasEditor();
+  if (lastReadinessData) {
+    setComputeCapabilityBadge(lastReadinessData);
+    updateBinReadiness(lastReadinessData);
+  }
+});
 
 void boot();

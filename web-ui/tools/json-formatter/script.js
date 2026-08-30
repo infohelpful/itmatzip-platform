@@ -1,7 +1,7 @@
 import { showAdSense } from "../common/adsense.js?v=5";
-import { ensureSiteModalStyles } from "../common/site-modal.js?v=sm3";
+import { ensureSiteModalStyles } from "../common/site-modal.js?v=sm4";
 import { toPython, toTypeScript } from "./convert.js";
-import { LOCALES, applyI18n, detectLocale, getLocale, t } from "./i18n.js?v=9";
+import { LOCALES, applyI18n, detectLocale, getLocale, t } from "./i18n.js?v=12";
 
 const MB = 1024 * 1024;
 const WORKER_MS = 20000;
@@ -389,7 +389,7 @@ function paintMonacoDecorations(issues) {
           color: "#ef4444",
           position: window.monaco.editor.MinimapPosition.Inline
         },
-        hoverMessage: { value: `**JSON 문법 오류**: ${msg}` }
+        hoverMessage: { value: `**${window.itzT("errHover", "JSON 문법 오류")}**: ${msg}` }
       }
     };
   });
@@ -1074,7 +1074,11 @@ async function act(action, extra = {}) {
     }
     setOutput(result.text, parsed, { keepDecorations: hasIssues, message: result.repaired ? t("repaired") : "" });
     if (result.repaired) {
-      const issueCountMsg = hasIssues ? `(${result.issues.length}개 오류 위치 보정 완료)` : "";
+      const n = result.issues.length;
+      const issueCountMsg = hasIssues
+        ? (window.ITZ_I18N?.tf?.("repairIssuesFixed", { n }) ||
+            window.itzT("repairIssuesFixed", "({n}개 오류 위치 보정 완료)").replace("{n}", String(n)))
+        : "";
       setBanner("ok", [t("repaired"), issueCountMsg, notes].filter(Boolean).join(" "));
     } else if (size >= cap.warn) {
       setBanner("", t("warnSize"));
@@ -1351,7 +1355,7 @@ function renderMaskKeys(keys, filterText = "") {
     const emptyMsg = document.createElement("div");
     emptyMsg.className = "mask-keys-empty";
     emptyMsg.style.cssText = "grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;";
-    emptyMsg.textContent = "일치하는 키 항목이 없습니다.";
+    emptyMsg.textContent = t("maskEmpty");
     container.append(emptyMsg);
     updateMaskSelectedCount();
     return;
@@ -1383,7 +1387,7 @@ function renderMaskKeys(keys, filterText = "") {
 
     const badge = document.createElement("span");
     badge.className = "mask-key-badge";
-    badge.textContent = `${count}개`;
+    badge.textContent = window.ITZ_I18N?.tf?.("issueCount", { n: count }) || `${count}`;
 
     item.append(labelDiv, badge);
     container.append(item);
@@ -1398,7 +1402,7 @@ function updateMaskSelectedCount() {
   if (!container || !countSpan) return;
 
   const checked = container.querySelectorAll('input[type="checkbox"]:checked');
-  countSpan.textContent = `${checked.length}개 항목 선택됨`;
+  countSpan.textContent = t("maskSelected").replace("{n}", String(checked.length));
 }
 
 function initMaskModal() {
@@ -1467,6 +1471,11 @@ function initMaskModal() {
 function boot() {
   applyI18n(detectLocale());
   bindLang();
+  document.addEventListener("itz:lang-change", (ev) => {
+    const lang = ev && ev.detail && ev.detail.lang;
+    if (lang) applyI18n(lang);
+    updateMaskSelectedCount();
+  });
   initMonaco();
   initMaskModal();
   updateCaret();

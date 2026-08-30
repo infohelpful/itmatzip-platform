@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <title>PNG를 ICO로 변환 - ICO Maker | ItMatZip</title>
   <meta name="description" content="PNG를 16~256 해상도 Windows ICO로 묶습니다. 서버 업로드 없이 브라우저에서 바로 변환합니다.">
   <meta name="keywords" content="ICO 변환, PNG ICO, 파비콘 만들기, 윈도우 아이콘, ICO Maker">
@@ -94,49 +94,49 @@
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
 
-      <section class="composer" aria-label="이미지 업로드">
-        <label class="composer-label" for="file-input">이미지 파일</label>
-        <p class="composer-hint">PNG를 권장합니다. JPEG·WebP도 변환되지만 투명 배경은 PNG만 유지됩니다.</p>
+      <section class="composer" aria-label="이미지 업로드" data-i18n-aria="ariaUpload">
+        <label class="composer-label" for="file-input" data-i18n="fileLabel">이미지 파일</label>
+        <p class="composer-hint" data-i18n="fileHint">PNG를 권장합니다. JPEG·WebP도 변환되지만 투명 배경은 PNG만 유지됩니다.</p>
         <div class="dropzone" id="dropzone">
           <input
             type="file"
             id="file-input"
             accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
           >
-          <p class="dropzone-title">여기로 이미지를 놓거나 클릭해서 선택</p>
-          <p class="dropzone-sub">정사각 PNG · 256px 이상이면 모든 크기를 또렷하게 만들 수 있습니다</p>
+          <p class="dropzone-title" data-i18n="dropTitle">여기로 이미지를 놓거나 클릭해서 선택</p>
+          <p class="dropzone-sub" data-i18n="dropSub">정사각 PNG · 256px 이상이면 모든 크기를 또렷하게 만들 수 있습니다</p>
         </div>
         <p class="composer-status" id="composer-status" role="status" aria-live="polite"></p>
       </section>
 
-      <section class="composer" aria-label="해상도 옵션">
+      <section class="composer" aria-label="해상도 옵션" data-i18n-aria="ariaOpts">
         <div class="option-row">
-          <span class="composer-label">포함할 해상도</span>
+          <span class="composer-label" data-i18n="sizesLabel">포함할 해상도</span>
           <div class="size-pills" id="size-pills"></div>
         </div>
         <div class="option-row option-row--split">
           <label class="check-line">
             <input type="checkbox" id="opt-no-upscale">
-            <span>원본보다 큰 크기는 만들지 않기</span>
+            <span data-i18n="noUpscale">원본보다 큰 크기는 만들지 않기</span>
           </label>
-          <label class="fit-line" for="fit-mode">맞춤</label>
+          <label class="fit-line" for="fit-mode" data-i18n="fit">맞춤</label>
           <select id="fit-mode" class="fit-select">
-            <option value="contain" selected>안에 맞추기 (여백)</option>
-            <option value="cover">채우기 (자르기)</option>
-            <option value="stretch">늘리기</option>
+            <option value="contain" selected data-i18n="fitContain">안에 맞추기 (여백)</option>
+            <option value="cover" data-i18n="fitCover">채우기 (자르기)</option>
+            <option value="stretch" data-i18n="fitStretch">늘리기</option>
           </select>
         </div>
       </section>
 
-      <section class="stage" id="stage" aria-label="미리보기">
+      <section class="stage" id="stage" aria-label="미리보기" data-i18n-aria="ariaPreview">
         <div class="stage-empty" id="stage-empty">
           <div class="stage-frame" aria-hidden="true"></div>
-          <p>이미지를 올리면 각 해상도 미리보기가 표시됩니다.</p>
+          <p data-i18n="stageEmpty">이미지를 올리면 각 해상도 미리보기가 표시됩니다.</p>
         </div>
         <div id="stage-ready" hidden>
           <div class="hero hero--square">
             <div class="checker">
-              <img id="hero-image" class="hero-image" alt="원본 미리보기" decoding="async">
+              <img id="hero-image" class="hero-image" alt="원본 미리보기" data-i18n-alt="ui.previewOriginal" decoding="async">
             </div>
             <div class="hero-meta">
               <span class="hero-chip" id="hero-name"></span>
@@ -144,16 +144,16 @@
             </div>
           </div>
           <div class="hero-actions">
-            <button type="button" id="btn-download" class="btn-primary btn-wide">체크한 크기 다운로드</button>
-            <button type="button" id="btn-clear" class="btn-ghost">지우기</button>
+            <button type="button" id="btn-download" class="btn-primary btn-wide" data-i18n="download">체크한 크기 다운로드</button>
+            <button type="button" id="btn-clear" class="btn-ghost" data-i18n="clear">지우기</button>
           </div>
-          <p class="download-note">체크한 크기마다 ICO 파일이 생깁니다. 여러 개를 고르면 ZIP으로 받고, 묶음 ICO도 같이 들어갑니다.</p>
+          <p class="download-note" data-i18n="downloadNote">체크한 크기마다 ICO 파일이 생깁니다. 여러 개를 고르면 ZIP으로 받고, 묶음 ICO도 같이 들어갑니다.</p>
         </div>
       </section>
 
-      <section class="qualities" id="qualities" hidden aria-label="해상도 미리보기">
+      <section class="qualities" id="qualities" hidden aria-label="해상도 미리보기" data-i18n-aria="ariaSizePreview">
         <div class="qualities-head">
-          <h2>해상도 미리보기</h2>
+          <h2 data-i18n="previewSizes">해상도 미리보기</h2>
           <p id="qualities-meta"></p>
         </div>
         <div class="quality-grid" id="quality-grid"></div>
@@ -194,9 +194,9 @@
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=4"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=6"></script>
 </body>
 </html>

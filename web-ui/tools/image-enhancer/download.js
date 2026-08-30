@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws3";
+import { checkAgentConnection, configureBridge, getAgentOrigin } from "../common/bridge.js?v=ws4";
 import { showAdSense } from "../common/adsense.js?v=4";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
@@ -60,7 +60,8 @@ function formatLabel(fmt) {
 }
 
 function getButtonLabel(fmt) {
-  return `${formatLabel(fmt)} 결과 다운로드`;
+  const tf = window.ITZ_I18N?.tf;
+  return tf ? tf("dlBtn", { fmt: formatLabel(fmt) }) : `${formatLabel(fmt)} ${window.itzT("ui.downloadResult", "결과 다운로드")}`;
 }
 
 function getDownloadUrl(resultPath) {
@@ -114,27 +115,27 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 
 async function runDownload(resultPath) {
   const ok = await ensureAgentConnected();
   if (!ok) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnNow) elBtnNow.disabled = false;
     return;
   }
   clearCountdown();
   setBusy(false);
   openDownload(getDownloadUrl(resultPath));
-  setStatus("다운로드가 시작되었습니다. 다시 받으려면 버튼을 클릭하세요.", "ok");
+  setStatus(window.itzT("dl.started", "다운로드가 시작되었습니다. 다시 받으려면 버튼을 클릭하세요."), "ok");
   if (elBtnNow) elBtnNow.disabled = false;
 }
 
 function startCountdown(resultPath) {
   countdownLeft = AUTO_START_SEC;
-  setStatus(`${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
+  setStatus(window.ITZ_I18N?.tf?.("dl.autoStart", { n: AUTO_START_SEC }) || `${AUTO_START_SEC}초 후 자동으로 다운로드됩니다…`);
   showCountdown(countdownLeft);
 
   countdownTimer = window.setInterval(() => {
@@ -149,13 +150,13 @@ function startCountdown(resultPath) {
 }
 
 async function initPage() {
-  if (elTitle) elTitle.textContent = "향상 결과 다운로드";
-  document.title = "Image Enhancer · 다운로드";
+  if (elTitle) elTitle.textContent = window.itzT("dlTitle", "향상 결과 다운로드");
+  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Image Enhancer" }) || window.itzT("dl.docTitle", "Image Enhancer · 다운로드");
 
   const session = readSession();
   if (!canDownloadFromSession()) {
-    setStatus("다운로드할 결과가 없습니다. 편집 화면에서 먼저 화질 향상을 완료해 주세요.", "err");
-    if (elMeta) elMeta.textContent = "결과 파일 경로가 저장되지 않았습니다.";
+    setStatus(window.itzT("dl.noResult", "다운로드할 결과가 없습니다. 편집 화면에서 먼저 화질 향상을 완료해 주세요."), "err");
+    if (elMeta) elMeta.textContent = window.itzT("dl.noPath", "결과 파일 경로가 저장되지 않았습니다.");
     if (elBtnBack) elBtnBack.disabled = false;
     return;
   }
@@ -163,15 +164,15 @@ async function initPage() {
   const fmtLabel = formatLabel(session.format);
   if (elMeta) {
     const parts = [];
-    if (session.source) parts.push(`원본: ${session.source}`);
-    parts.push(`출력: ${fmtLabel}`);
+    if (session.source) parts.push(window.ITZ_I18N?.tf?.("dl.source", { name: session.source }) || `원본: ${session.source}`);
+    parts.push(window.ITZ_I18N?.tf?.("dl.output", { label: fmtLabel }) || `출력: ${fmtLabel}`);
     elMeta.textContent = parts.join(" · ");
   }
   if (elBtnNow) elBtnNow.textContent = getButtonLabel(session.format);
 
   const agentOk = await ensureAgentConnected();
   if (!agentOk) {
-    setStatus(MSG_HELPER_NEED_APP, "err");
+    setStatus(MSG_HELPER_NEED_APP(), "err");
     if (elBtnNow) elBtnNow.disabled = false;
     if (elBtnBack) elBtnBack.disabled = false;
     return;

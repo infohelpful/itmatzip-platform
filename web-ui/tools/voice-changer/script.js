@@ -9,10 +9,10 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna21";
+} from "../common/bridge.js?v=lna23";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=4";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna21";
+import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
 
 configureBridge({
@@ -84,6 +84,19 @@ function fileName(path) {
   return String(path || "").split(/[\\/]/).pop() || "";
 }
 
+function applyPendingHeaderI18n() {
+  if (els.compute && els.compute.classList.contains("is-pending")) {
+    els.compute.textContent = window.itzT("ui.checking", "확인 중…");
+  }
+  if (els.connection && /확인|Checking|確認|检查/.test(els.connection.textContent || "")) {
+    els.connection.textContent = window.itzT("conn.checking", "에이전트 연결 확인 중…");
+  }
+  if (!lastReadinessData) {
+    if (els.readiness) els.readiness.textContent = window.itzT("waitPrep", "Voice Changer · 환경 준비 대기");
+    if (els.summaryReady) els.summaryReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  }
+}
+
 function setExportEnabled(enabled) {
   if (!els.exportLink) return;
   els.exportLink.classList.toggle("is-disabled", !enabled);
@@ -94,7 +107,7 @@ function updateSummary() {
   if (els.summaryDevice) {
     const device = els.device?.value || "auto";
     els.summaryDevice.textContent =
-      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : "자동";
+      device === "cuda" ? "CUDA" : device === "cpu" ? "CPU" : window.itzT("ui.auto", "자동");
   }
   if (els.summaryFormat) {
     els.summaryFormat.textContent = (els.format?.value || "wav").toUpperCase();
@@ -129,8 +142,9 @@ function setBusy(kind, active, pct = 0, step = "", message = "") {
     overlay.hidden = true;
     overlay.setAttribute("aria-hidden", "true");
   }
-  if (stepEl) stepEl.textContent = step || "";
-  if (msgEl) msgEl.textContent = message || (active ? "처리 중…" : "");
+  const agentText = typeof window.itzAgentText === "function" ? window.itzAgentText : (v) => v || "";
+  if (stepEl) stepEl.textContent = agentText(step) || "";
+  if (msgEl) msgEl.textContent = agentText(message) || (active ? window.itzT("ui.processing", "처리 중…") : "");
   const clamped = Math.max(0, Math.min(100, Number(pct) || 0));
   if (bar) bar.style.width = `${clamped}%`;
   if (track) track.setAttribute("aria-valuenow", String(Math.round(clamped)));
@@ -143,7 +157,7 @@ function buildMediaUrl(filePath) {
 }
 
 function setLocalAudio(audioEl, path, labelEl) {
-  if (labelEl) labelEl.textContent = path ? fileName(path) : "선택 대기";
+  if (labelEl) labelEl.textContent = path ? fileName(path) : window.itzT("waiting", "선택 대기");
   if (!audioEl) return;
   if (!path) {
     audioEl.removeAttribute("src");
@@ -155,7 +169,10 @@ function setLocalAudio(audioEl, path, labelEl) {
   audioEl.load();
 }
 
+let lastReadinessData = null;
+
 function setComputeCapabilityBadge(data) {
+  lastReadinessData = data;
   if (!els.compute) return;
   const gpu = Boolean(data?.pytorch?.gpu_detected);
   const cuda = Boolean(data?.binaries?.cuda_available);
@@ -163,18 +180,20 @@ function setComputeCapabilityBadge(data) {
   els.compute.classList.remove("is-pending", "is-cpu", "is-gpu", "is-warn");
   if (cuda) {
     els.compute.classList.add("is-gpu");
-    els.compute.textContent = `GPU · CUDA${installed === "gpu" ? "" : " 준비됨"}`;
+    els.compute.textContent = installed === "gpu"
+      ? window.itzT("ui.gpuCuda", "GPU · CUDA")
+      : window.itzT("ui.gpuCudaReady", "GPU · CUDA 준비됨");
     els.compute.title = data?.pytorch?.torch_version
       ? `torch ${data.pytorch.torch_version}`
       : "";
   } else if (gpu) {
     els.compute.classList.add("is-warn");
-    els.compute.textContent = "GPU 감지 · CUDA 미사용";
-    els.compute.title = "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.";
+    els.compute.textContent = window.itzT("ui.gpuDetectNoCuda", "GPU 감지 · CUDA 미사용");
+    els.compute.title = window.itzT("ui.gpuCudaInstallHint", "환경 준비를 다시 실행하면 CUDA wheel을 설치합니다.");
   } else {
     els.compute.classList.add("is-cpu");
-    els.compute.textContent = "CPU";
-    els.compute.title = "NVIDIA GPU가 없으면 CPU로 처리됩니다.";
+    els.compute.textContent = window.itzT("ui.cpu", "CPU");
+    els.compute.title = window.itzT("ui.cpuNoNvidia", "NVIDIA GPU가 없으면 CPU로 처리됩니다.");
   }
 }
 
@@ -189,20 +208,22 @@ function updateBinReadiness(data) {
     els.readiness.classList.remove("is-ok", "is-warn", "is-err");
     if (toolReady) {
       els.readiness.classList.add("is-ok");
-      els.readiness.textContent = "Voice Changer · 준비 완료";
+      els.readiness.textContent = window.itzT("readyOk", "Voice Changer · 준비 완료");
     } else if (!ffmpeg) {
       els.readiness.classList.add("is-warn");
-      els.readiness.textContent = "Voice Changer · FFmpeg 필요";
+      els.readiness.textContent = window.itzT("needFfmpeg", "Voice Changer · FFmpeg 필요");
     } else if (!source || !torch || !pip) {
       els.readiness.classList.add("is-warn");
-      els.readiness.textContent = "Voice Changer · 환경 준비 필요";
+      els.readiness.textContent = window.itzT("needEnv", "Voice Changer · 환경 준비 필요");
     } else {
       els.readiness.classList.add("is-warn");
-      els.readiness.textContent = "Voice Changer · 모델 다운로드 필요";
+      els.readiness.textContent = window.itzT("needModel", "Voice Changer · 모델 다운로드 필요");
     }
   }
   if (els.summaryReady) {
-    els.summaryReady.textContent = toolReady ? "준비됨" : "미준비";
+    els.summaryReady.textContent = toolReady
+      ? window.itzT("ui.readyOk", "준비됨")
+      : window.itzT("ui.notReady", "미준비");
   }
 }
 
@@ -220,7 +241,7 @@ async function pollPrepareStatus() {
     setBusy("setup", true, pct, status?.step || "", status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
-      throw new Error(status?.message || "환경 준비 실패");
+      throw new Error(status?.message || window.itzT("ui.prepFail", "환경 준비 실패"));
     }
     await new Promise((r) => setTimeout(r, 600));
   }
@@ -229,7 +250,7 @@ async function pollPrepareStatus() {
 async function prepareModel({ force = false } = {}) {
   setAgentLongOperationActive(true);
   try {
-    setBusy("setup", true, 5, "설치 시작", "Seed-VC 환경을 준비합니다…");
+    setBusy("setup", true, 5, window.itzT("installStart", "설치 시작"), window.itzT("prepSeed", "Seed-VC 환경을 준비합니다…"));
     await requestAgent({
       method: "POST",
       path: `${API}/prepare${force ? "?force=true" : ""}`,
@@ -272,7 +293,7 @@ async function pollConvertStatus() {
     const pct = Number(status?.progress || 0);
     const phase = String(status?.phase || "");
     const step =
-      phase === "running" ? "변환 중" : phase === "ready" ? "완료" : phase === "failed" ? "실패" : "";
+      phase === "running" ? window.itzT("ui.phaseRun", "처리 중") : phase === "ready" ? window.itzT("ui.phaseDone", "완료") : phase === "failed" ? window.itzT("ui.phaseFail", "실패") : "";
     setBusy("convert", true, pct, step, status?.message || "");
     if (status?.phase === "ready") return status;
     if (status?.phase === "failed") {
@@ -297,7 +318,7 @@ async function pickAudio(kind) {
     path: AGENT_PICK_AUDIO,
   });
   const path = String(data?.audio_path || data?.path || data?.video_path || "").trim();
-  if (!path) throw new Error("오디오를 선택하지 않았습니다.");
+  if (!path) throw new Error(window.itzT("noAudio", "오디오를 선택하지 않았습니다."));
   if (kind === "source") {
     sourcePath = path;
     if (els.sourcePath) els.sourcePath.value = path;
@@ -310,7 +331,7 @@ async function pickAudio(kind) {
   outputPath = "";
   setExportEnabled(false);
   setLocalAudio(els.resultAudio, "", els.resultLabel);
-  if (els.resultLabel) els.resultLabel.textContent = "변환 대기";
+  if (els.resultLabel) els.resultLabel.textContent = window.itzT("resultWait", "변환 대기");
   updateConvertButton();
 }
 
@@ -326,7 +347,7 @@ function persistDownloadSession() {
 
 async function runConvert() {
   if (!sourcePath || !referencePath) {
-    alert("소스와 레퍼런스 오디오를 모두 선택하세요.");
+    alert(window.itzT("needBoth", "소스와 레퍼런스 오디오를 모두 선택하세요."));
     return;
   }
   if (!agentOk) {
@@ -334,18 +355,18 @@ async function runConvert() {
     return;
   }
   if (!toolReady) {
-    const go = confirm("환경이 준비되지 않았습니다. 지금 환경 준비를 실행할까요?");
+    const go = confirm(window.itzT("confirmPrep", "환경이 준비되지 않았습니다. 지금 환경 준비를 실행할까요?"));
     if (!go) return;
     await prepareModel();
     if (!toolReady) {
-      alert("환경 준비가 완료되지 않았습니다.");
+      alert(window.itzT("needPrep", "환경 준비가 완료되지 않았습니다."));
       return;
     }
   }
 
   setAgentLongOperationActive(true);
   try {
-    setBusy("convert", true, 5, "변환 시작", "Seed-VC로 목소리를 변환합니다…");
+    setBusy("convert", true, 5, window.itzT("convertStart", "변환 시작"), window.itzT("convertMsg", "Seed-VC로 목소리를 변환합니다…"));
     const body = {
       source_path: sourcePath,
       reference_path: referencePath,
@@ -363,7 +384,7 @@ async function runConvert() {
     });
     const status = await pollConvertStatus();
     outputPath = String(status?.output_path || "").trim();
-    if (!outputPath) throw new Error("결과 경로를 받지 못했습니다.");
+    if (!outputPath) throw new Error(window.itzT("noOutput", "결과 경로를 받지 못했습니다."));
     setExportEnabled(true);
     persistDownloadSession();
     if (els.resultLabel) els.resultLabel.textContent = fileName(outputPath);
@@ -387,7 +408,7 @@ async function resetJob() {
   setLocalAudio(els.sourceAudio, "", els.sourceLabel);
   setLocalAudio(els.referenceAudio, "", els.referenceLabel);
   setLocalAudio(els.resultAudio, "", els.resultLabel);
-  if (els.resultLabel) els.resultLabel.textContent = "변환 대기";
+  if (els.resultLabel) els.resultLabel.textContent = window.itzT("resultWait", "변환 대기");
   setExportEnabled(false);
   updateConvertButton();
   await cleanupWorkspace();
@@ -456,7 +477,20 @@ els.referencePath?.addEventListener("change", () => {
   updateConvertButton();
 });
 
+document.addEventListener("itz:lang-change", () => {
+  updateSummary();
+  applyPendingHeaderI18n();
+  if (lastReadinessData) {
+    setComputeCapabilityBadge(lastReadinessData);
+    updateBinReadiness(lastReadinessData);
+  }
+  if (!sourcePath && els.sourceLabel) els.sourceLabel.textContent = window.itzT("waiting", "선택 대기");
+  if (!referencePath && els.referenceLabel) els.referenceLabel.textContent = window.itzT("waiting", "선택 대기");
+  if (!outputPath && els.resultLabel) els.resultLabel.textContent = window.itzT("resultWait", "변환 대기");
+});
+
 async function boot() {
+  applyPendingHeaderI18n();
   updateSummary();
   updateConvertButton();
   setExportEnabled(false);

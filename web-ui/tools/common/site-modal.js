@@ -28,8 +28,43 @@ let _queue = Promise.resolve();
 let _resolveCurrent = null;
 /** @type {((act: string) => void) | null} */
 let _pendingDialogResolve = null;
+/** @type {(() => SiteDialogOptions | Promise<SiteDialogOptions>) | null} */
+let _dialogRebuild = null;
 /** @type {number} */
 let _repositionTimer = 0;
+let _langBound = false;
+
+/**
+ * @param {string} key
+ * @param {string} [fallback]
+ */
+export function itzT(key, fallback) {
+  try {
+    const api = typeof window !== "undefined" ? window.ITZ_I18N : null;
+    if (api && typeof api.t === "function") {
+      const v = api.t(key);
+      if (v && v !== key) return v;
+    }
+  } catch {
+    /* ignore */
+  }
+  return fallback != null ? fallback : key;
+}
+
+/**
+ * @param {string} key
+ * @param {string} fallback
+ * @param {Record<string, string | number>} [vars]
+ */
+export function itzTf(key, fallback, vars) {
+  let s = itzT(key, fallback);
+  if (vars) {
+    Object.keys(vars).forEach((k) => {
+      s = s.split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+    });
+  }
+  return s;
+}
 
 /** @param {string} s */
 function esc(s) {
@@ -534,8 +569,67 @@ export function hideModalShell(dialogEl) {
  *   buttons?: Array<{ label: string, primary?: boolean, act?: string }>,
  *   persistent?: boolean,
  *   dialogKind?: "ad-block" | "agent-block" | string,
+ *   rebuild?: () => SiteDialogOptions | Promise<SiteDialogOptions>,
  * }} SiteDialogOptions
  */
+
+function bindDialogLangListener() {
+  if (typeof document === "undefined" || _langBound) return;
+  _langBound = true;
+  document.addEventListener("itz:lang-change", () => {
+    void refreshOpenDialogLanguage();
+  });
+}
+
+/**
+ * @param {SiteDialogOptions} options
+ */
+export function refreshSiteDialogContent(options) {
+  const dlg = _alertDialog;
+  if (!dlg || dlg.hasAttribute("hidden") || !options) return false;
+  const titleEl = dlg.querySelector(".itz-modal__title");
+  const bodyEl = dlg.querySelector(".itz-modal__body");
+  if (titleEl && options.title != null) titleEl.textContent = options.title;
+  if (bodyEl) {
+    if (options.bodyHtml != null) bodyEl.innerHTML = options.bodyHtml;
+    else if (options.message != null) bodyEl.innerHTML = messageToHtml(options.message);
+  }
+  if (options.buttons && options.buttons.length) {
+    const foot = dlg.querySelector(".itz-modal__foot");
+    if (foot) {
+      foot.innerHTML = options.buttons
+        .map(
+          (b) =>
+            `<button type="button" class="itz-modal__btn${b.primary ? " itz-modal__btn--primary" : ""}" data-act="${esc(b.act ?? b.label)}">${esc(b.label)}</button>`,
+        )
+        .join("");
+    }
+  }
+  scheduleReposition(dlg);
+  return true;
+}
+
+async function refreshOpenDialogLanguage() {
+  if (!_alertDialog || _alertDialog.hasAttribute("hidden")) return;
+  if (typeof _dialogRebuild === "function") {
+    try {
+      const next = await _dialogRebuild();
+      if (next) refreshSiteDialogContent(next);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+  const titleEl = _alertDialog.querySelector(".itz-modal__title");
+  const okBtn = _alertDialog.querySelector('button[data-act="ok"]');
+  if (titleEl) {
+    const cur = titleEl.textContent || "";
+    if (cur === "안내" || cur === "Notice" || cur === "お知らせ" || cur === "提示") {
+      titleEl.textContent = itzT("modal.title", "안내");
+    }
+  }
+  if (okBtn) okBtn.textContent = itzT("modal.ok", "확인");
+}
 
 export function getActiveSiteDialogKind() {
   if (!_alertDialog || _alertDialog.hasAttribute("hidden")) return null;
@@ -600,11 +694,14 @@ export function showSiteDialog(options) {
         return;
       }
 
-      const title = options.title ?? "안내";
+      bindDialogLangListener();
+      _dialogRebuild = typeof options.rebuild === "function" ? options.rebuild : null;
+
+      const title = options.title ?? itzT("modal.title", "안내");
       const body = options.bodyHtml ?? messageToHtml(options.message ?? "");
       const buttons = options.buttons?.length
         ? options.buttons
-        : [{ label: "확인", primary: true, act: "ok" }];
+        : [{ label: itzT("modal.ok", "확인"), primary: true, act: "ok" }];
       const persistent = Boolean(options.persistent);
 
       dlg.classList.toggle("itz-modal-dialog--wide", Boolean(options.wide));
@@ -642,6 +739,7 @@ export function showSiteDialog(options) {
       const finish = (act) => {
         _resolveCurrent = null;
         _pendingDialogResolve = null;
+        _dialogRebuild = null;
         delete dlg.dataset.persistent;
         delete dlg.dataset.dialogKind;
         hideModalShell(dlg);
@@ -673,7 +771,16 @@ export function showSiteDialog(options) {
  * @returns {Promise<void>}
  */
 export function showSiteAlert(message, title) {
-  return showSiteDialog({ title: title ?? "안내", message }).then(() => {});
+  const resolvedTitle = title ?? itzT("modal.title", "안내");
+  return showSiteDialog({
+    title: resolvedTitle,
+    message,
+    rebuild: () => ({
+      title: title ?? itzT("modal.title", "안내"),
+      message,
+      buttons: [{ label: itzT("modal.ok", "확인"), primary: true, act: "ok" }],
+    }),
+  }).then(() => {});
 }
 
 /** @param {typeof window.alert} native */
@@ -690,6 +797,7 @@ export function installSiteAlertOverride(native) {
 
 export function dismissActiveSiteModal() {
   _resolveCurrent = null;
+  _dialogRebuild = null;
   if (_pendingDialogResolve) {
     const finish = _pendingDialogResolve;
     _pendingDialogResolve = null;
@@ -719,9 +827,12 @@ export function installGlobals() {
       isAdBlockDialogOpen,
       getActiveSiteDialogKind,
       setSiteDialogStatus,
-  positionModalBetweenAds,
-  scrollToEditorAdGapCenter,
-  ensureSiteModalStyles,
+      refreshSiteDialogContent,
+      itzT,
+      itzTf,
+      positionModalBetweenAds,
+      scrollToEditorAdGapCenter,
+      ensureSiteModalStyles,
       AD_EXEMPT_SELECTORS,
       MODAL_BODY_CLASS,
     };

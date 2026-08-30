@@ -1,4 +1,4 @@
-import { checkAgentConnection, configureBridge, fetchAgent, getAgentOrigin } from "../common/bridge.js?v=lna15";
+import { checkAgentConnection, configureBridge, fetchAgent, getAgentOrigin } from "../common/bridge.js?v=lna16";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 
 configureBridge({ healthPath: "/health" });
@@ -76,27 +76,34 @@ function openDownload(url) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function applyTitles() {
+  if (elTitle) elTitle.textContent = window.itzT("dlTitle", "분리 결과 다운로드");
+  document.title = window.ITZ_I18N?.tf?.("dl.docTitle", { tool: "Vocal Remover" }) || window.itzT("dl.docTitle", "Vocal Remover · 다운로드");
+}
+
 function initPage() {
-  if (elTitle) elTitle.textContent = "분리 결과 다운로드";
-  document.title = "Vocal Remover · 다운로드";
+  applyTitles();
 
   const session = readSession();
   if (!canDownloadFromSession()) {
-    setStatus("분리 결과가 없습니다. 편집 화면에서 먼저 분석하기를 실행해 주세요.", "err");
+    setStatus(window.itzT("dl.noResult", "분리 결과가 없습니다. 편집 화면에서 먼저 분석하기를 실행해 주세요."), "err");
     if (elMeta) {
-      elMeta.textContent = "MR·보컬 URL이 저장되지 않았습니다.";
+      elMeta.textContent = window.itzT("dl.noPath", "MR·보컬 URL이 저장되지 않았습니다.");
     }
     if (elBtnBack) elBtnBack.disabled = false;
     return;
   }
 
-  const sourceLabel = session.source ? `원본: ${session.source}` : "";
+  const sourceLabel = session.source ? (window.ITZ_I18N?.tf?.("dl.source", { name: session.source }) || `원본: ${session.source}`) : "";
   if (elMeta) {
-    elMeta.textContent = [sourceLabel, `MR 포맷: ${session.format}`].filter(Boolean).join(" · ");
+    const fmt = window.ITZ_I18N?.tf?.("dl.formatLine", { fmt: session.format }) || `MR 포맷: ${session.format}`;
+    elMeta.textContent = [sourceLabel, fmt].filter(Boolean).join(" · ");
   }
-  setStatus("아래 버튼으로 MR·보컬 파일을 저장하세요.", "ok");
+  setStatus(window.itzT("dl.started", "아래 버튼으로 MR·보컬 파일을 저장하세요."), "ok");
   enableDownloads();
 }
+
+document.addEventListener("itz:lang-change", () => applyTitles());
 
 async function ensureAgentConnected() {
   const detail = await checkAgentConnection();
@@ -104,7 +111,7 @@ async function ensureAgentConnected() {
     setAgentHint("", false);
     return true;
   }
-  setAgentHint(MSG_HELPER_NEED_APP, true);
+  setAgentHint(MSG_HELPER_NEED_APP(), true);
   return false;
 }
 

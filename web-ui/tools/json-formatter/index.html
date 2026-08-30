@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko" data-tool-id="json-formatter">
 <head>
   <script>
@@ -14,7 +14,7 @@
   </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <title>JSON 포맷터 - JSON 정렬, 압축, 오류 고치기 | ItMatZip</title>
   <meta name="description" content="붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 오류가 있으면 위치를 알려 주고, 깨진 문법도 고칩니다. 설치 없이 브라우저에서 쓰는 무료 JSON 포맷터입니다.">
   <meta name="keywords" content="JSON 포맷터, JSON 정렬, JSON 뷰티파이, JSON Beautify, JSON 압축, JSON 유효성 검사, JSON 포맷, JSONPath, JSON 예쁘게, API JSON">
@@ -221,14 +221,14 @@
     <div class="mask-modal-backdrop" id="mask-modal-backdrop"></div>
     <div class="mask-modal-card">
       <div class="mask-modal-header">
-        <h3 id="mask-modal-title" class="mask-modal-title">🔒 민감값 가리기 항목 선택</h3>
-        <button type="button" class="mask-modal-close" id="btn-mask-close" aria-label="닫기">✕</button>
+        <h3 id="mask-modal-title" class="mask-modal-title" data-i18n="maskModalTitle">🔒 민감값 가리기 항목 선택</h3>
+        <button type="button" class="mask-modal-close" id="btn-mask-close" data-i18n-aria="close" aria-label="닫기">✕</button>
       </div>
       <div class="mask-modal-toolbar">
-        <input type="text" id="mask-search-input" class="mask-search-input" placeholder="항목 이름 검색 (e.g. email, name...)" autocomplete="off" spellcheck="false">
+        <input type="text" id="mask-search-input" class="mask-search-input" data-i18n-placeholder="maskSearch" placeholder="항목 이름 검색 (e.g. email, name...)" autocomplete="off" spellcheck="false">
         <div class="mask-action-btns">
-          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-all">전체 선택</button>
-          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-none">전체 해제</button>
+          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-all" data-i18n="maskSelectAll">전체 선택</button>
+          <button type="button" class="btn-ghost btn-sm" id="btn-mask-select-none" data-i18n="maskSelectNone">전체 해제</button>
         </div>
       </div>
       <div class="mask-modal-body" id="mask-keys-container">
@@ -237,8 +237,8 @@
       <div class="mask-modal-footer">
         <span class="mask-selected-count" id="mask-selected-count">0개 항목 선택됨</span>
         <div class="mask-modal-btn-group">
-          <button type="button" id="btn-mask-cancel">취소</button>
-          <button type="button" id="btn-mask-apply">가리기 적용</button>
+          <button type="button" id="btn-mask-cancel" data-i18n="maskCancel">취소</button>
+          <button type="button" id="btn-mask-apply" data-i18n="maskApply">가리기 적용</button>
         </div>
       </div>
     </div>
@@ -253,9 +253,9 @@
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=30"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=34"></script>
 </body>
 </html>

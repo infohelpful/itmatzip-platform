@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=18"></script>
+  <script src="../common/site-runtime.js?v=30"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI 목소리 변환 - Voice Changer | ItMatZip</title>
   <meta name="description" content="소스 음성을 레퍼런스 음색으로 바꿉니다. Seed-VC가 PC에서 변환하며 음성 파일은 업로드되지 않습니다.">
@@ -96,7 +96,7 @@
         <div class="header-status-col">
           <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
           <div id="connection-status" class="status-dot" role="status">에이전트 연결 확인 중…</div>
-          <div id="bin-readiness" class="bin-readiness">Voice Changer · 환경 준비 대기</div>
+          <div id="bin-readiness" class="bin-readiness" data-i18n="waitPrep">Voice Changer · 환경 준비 대기</div>
         </div>
       </header>
 
@@ -105,20 +105,20 @@
       <div class="vocal-editor-shell" id="voice-editor-shell">
         <section class="drop-zone">
           <div class="path-input-group">
-            <label for="source-path">소스 음성 (변환할 목소리)</label>
-            <p class="path-hint">본인 말소리·녹음 파일을 선택하세요.</p>
+            <label for="source-path" data-i18n="source">소스 음성 (변환할 목소리)</label>
+            <p class="path-hint" data-i18n="sourceHint">본인 말소리·녹음 파일을 선택하세요.</p>
             <div class="path-row">
-              <input type="text" id="source-path" autocomplete="off" spellcheck="false" placeholder="소스 파일 경로">
-              <button type="button" id="btn-pick-source" class="btn-pick-file">찾아보기</button>
+              <input type="text" id="source-path" autocomplete="off" spellcheck="false" placeholder="소스 파일 경로" data-i18n-placeholder="sourcePh">
+              <button type="button" id="btn-pick-source" class="btn-pick-file" data-i18n="browse">찾아보기</button>
             </div>
           </div>
           <div class="path-input-group path-input-group--second">
-            <label for="reference-path">레퍼런스 음성 (목표 음색)</label>
-            <p class="path-hint">바꾸고 싶은 음색의 짧은 샘플(권장 3~15초)을 선택하세요.</p>
+            <label for="reference-path" data-i18n="ref">레퍼런스 음성 (목표 음색)</label>
+            <p class="path-hint" data-i18n="refHint">바꾸고 싶은 음색의 짧은 샘플(권장 3~15초)을 선택하세요.</p>
             <div class="path-row">
-              <input type="text" id="reference-path" autocomplete="off" spellcheck="false" placeholder="레퍼런스 파일 경로">
-              <button type="button" id="btn-pick-reference" class="btn-pick-file">찾아보기</button>
-              <button type="button" id="btn-new-job" class="btn-new-job">새 작업 시작</button>
+              <input type="text" id="reference-path" autocomplete="off" spellcheck="false" placeholder="레퍼런스 파일 경로" data-i18n-placeholder="refPh">
+              <button type="button" id="btn-pick-reference" class="btn-pick-file" data-i18n="browse">찾아보기</button>
+              <button type="button" id="btn-new-job" class="btn-new-job" data-i18n="ui.newJob">새 작업 시작</button>
             </div>
           </div>
         </section>
@@ -128,8 +128,8 @@
             <div class="options-main">
               <div class="options-row">
                 <div class="option-card">
-                  <label for="output-format">출력 포맷</label>
-                  <p class="option-hint">WAV는 무손실, MP3·FLAC은 FFmpeg로 변환합니다.</p>
+                  <label for="output-format" data-i18n="ui.outputFormat">출력 포맷</label>
+                  <p class="option-hint" data-i18n="fmtHint">WAV는 무손실, MP3·FLAC은 FFmpeg로 변환합니다.</p>
                   <select id="output-format" class="option-select">
                     <option value="wav">WAV</option>
                     <option value="mp3">MP3</option>
@@ -137,41 +137,41 @@
                   </select>
                 </div>
                 <div class="option-card">
-                  <label for="device-select">실행 장치</label>
-                  <p class="option-hint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
+                  <label for="device-select" data-i18n="ui.device">실행 장치</label>
+                  <p class="option-hint" data-i18n="devHint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
                   <select id="device-select" class="option-select">
-                    <option value="auto">자동 (권장)</option>
+                    <option value="auto" data-i18n="ui.deviceAuto">자동 (권장)</option>
                     <option value="cuda">CUDA (GPU)</option>
                     <option value="cpu">CPU</option>
                   </select>
                 </div>
                 <div class="option-card">
                   <label for="diffusion-steps">Diffusion steps</label>
-                  <p class="option-hint">높을수록 품질↑ · 시간↑ (권장 25, 노래 30~50)</p>
+                  <p class="option-hint" data-i18n="stepsHint">높을수록 품질↑ · 시간↑ (권장 25, 노래 30~50)</p>
                   <input type="number" id="diffusion-steps" class="option-select" min="4" max="100" value="25">
                 </div>
                 <div class="option-card option-card--check">
                   <label class="check-label" for="f0-condition">
                     <input type="checkbox" id="f0-condition">
-                    노래 변환 (F0)
+                    <span data-i18n="singF0">노래 변환 (F0)</span>
                   </label>
-                  <p class="option-hint">보컬/노래 변환 시 켭니다. 일반 말은 끄세요.</p>
+                  <p class="option-hint" data-i18n="singHint">보컬/노래 변환 시 켭니다. 일반 말은 끄세요.</p>
                 </div>
               </div>
             </div>
             <aside class="media-summary-panel" id="job-summary-panel" aria-label="작업 요약">
-              <h4 class="media-summary-title">작업 상태</h4>
+              <h4 class="media-summary-title" data-i18n="ui.jobStatus">작업 상태</h4>
               <dl class="media-summary-list">
                 <div class="media-summary-item">
-                  <dt>준비</dt>
-                  <dd id="summary-model-ready">확인 중</dd>
+                  <dt data-i18n="ui.ready">준비</dt>
+                  <dd id="summary-model-ready" data-i18n="ui.checkingShort">확인 중</dd>
                 </div>
                 <div class="media-summary-item">
-                  <dt>장치</dt>
-                  <dd id="summary-device">자동</dd>
+                  <dt data-i18n="ui.deviceShort">장치</dt>
+                  <dd id="summary-device" data-i18n="ui.auto">자동</dd>
                 </div>
                 <div class="media-summary-item">
-                  <dt>포맷</dt>
+                  <dt data-i18n="dtFormat">포맷</dt>
                   <dd id="summary-format">WAV</dd>
                 </div>
               </dl>
@@ -182,26 +182,26 @@
         <section class="preview-section" id="preview-section" aria-label="미리듣기">
           <div class="preview-grid">
             <div class="preview-card">
-              <h3 class="preview-title">소스</h3>
-              <p class="preview-file" id="source-file-label">선택 대기</p>
+              <h3 class="preview-title" data-i18n="sourceTitle">소스</h3>
+              <p class="preview-file" id="source-file-label" data-i18n="waiting">선택 대기</p>
               <audio id="source-audio" controls preload="metadata"></audio>
             </div>
             <div class="preview-card">
-              <h3 class="preview-title">레퍼런스</h3>
-              <p class="preview-file" id="reference-file-label">선택 대기</p>
+              <h3 class="preview-title" data-i18n="refTitle">레퍼런스</h3>
+              <p class="preview-file" id="reference-file-label" data-i18n="waiting">선택 대기</p>
               <audio id="reference-audio" controls preload="metadata"></audio>
             </div>
             <div class="preview-card preview-card--result">
-              <h3 class="preview-title">변환 결과</h3>
-              <p class="preview-file" id="result-file-label">변환 대기</p>
+              <h3 class="preview-title" data-i18n="resultTitle">변환 결과</h3>
+              <p class="preview-file" id="result-file-label" data-i18n="resultWait">변환 대기</p>
               <audio id="result-audio" controls preload="metadata"></audio>
             </div>
           </div>
         </section>
 
         <section class="action-stack" aria-label="실행">
-          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary">환경 준비</button>
-          <button type="button" id="btn-start-convert" class="btn-action btn-action--primary" disabled>변환하기</button>
+          <button type="button" id="btn-prepare" class="btn-action btn-action--secondary" data-i18n="ui.prepare">환경 준비</button>
+          <button type="button" id="btn-start-convert" class="btn-action btn-action--primary" disabled data-i18n="start">변환하기</button>
           <a href="download.html" id="export-link" class="btn-action btn-action--download is-disabled" role="button" aria-disabled="true">
             <span class="icon" aria-hidden="true">📥</span> 결과 다운로드
           </a>
@@ -209,9 +209,9 @@
 
         <div id="setup-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="setup-loading-title">AI 환경 준비</h3>
+            <h3 id="setup-loading-title" data-i18n="setupTitle">AI 환경 준비</h3>
             <p id="setup-loading-step" class="loading-step"></p>
-            <p id="setup-loading-message" class="loading-message">준비 중…</p>
+            <p id="setup-loading-message" class="loading-message" data-i18n="ui.preparing">준비 중…</p>
             <div id="setup-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="setup-loading-bar" class="loading-bar"></div>
             </div>
@@ -220,9 +220,9 @@
 
         <div id="convert-loading" class="enhancer-busy-overlay" hidden aria-hidden="true">
           <div class="enhancer-busy-panel loading-card" role="status" aria-live="polite">
-            <h3 id="convert-loading-title">목소리 변환</h3>
+            <h3 id="convert-loading-title" data-i18n="convertTitle">목소리 변환</h3>
             <p id="convert-loading-step" class="loading-step"></p>
-            <p id="convert-loading-message" class="loading-message">처리 중…</p>
+            <p id="convert-loading-message" class="loading-message" data-i18n="ui.processing">처리 중…</p>
             <p id="convert-loading-percent" class="loading-percent">0%</p>
             <div id="convert-loading-track" class="loading-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
               <div id="convert-loading-bar" class="loading-bar"></div>
@@ -264,9 +264,9 @@
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
-  <script src="../common/site-guard.js?v=11"></script>
-  <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=3"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=8"></script>
 </body>
 </html>

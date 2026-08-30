@@ -1,5 +1,17 @@
 import { showAdSense } from "../common/adsense.js?v=4";
 
+function itzT(key, fallback) {
+  return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
+}
+
+function itzTf(key, fallback, vars) {
+  if (window.ITZ_I18N?.tf) return window.ITZ_I18N.tf(key, vars);
+  let s = itzT(key, fallback);
+  if (!vars) return s;
+  for (const k of Object.keys(vars)) s = String(s).split(`{${k}}`).join(String(vars[k] ?? ""));
+  return s;
+}
+
 /** @param {string} id */
 function el(id) {
   const node = document.getElementById(id);
@@ -187,7 +199,7 @@ async function saveImage(url, filename) {
     link.click();
     link.remove();
     URL.revokeObjectURL(objectUrl);
-    showToast("저장을 시작했습니다.");
+    showToast(itzT("toastSave", "저장을 시작했습니다."));
   } catch {
     const link = document.createElement("a");
     link.href = url;
@@ -197,16 +209,16 @@ async function saveImage(url, filename) {
     document.body.appendChild(link);
     link.click();
     link.remove();
-    showToast("새 탭에서 이미지를 연 뒤 우클릭해서 저장하세요.");
+    showToast(itzT("toastOpenTab", "새 탭에서 이미지를 연 뒤 우클릭해서 저장하세요."));
   }
 }
 
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
-    showToast("주소를 복사했습니다.");
+    showToast(itzT("toastCopied", "주소를 복사했습니다."));
   } catch {
-    showToast("복사에 실패했습니다.");
+    showToast(itzT("toastCopyFail", "복사에 실패했습니다."));
   }
 }
 
@@ -219,7 +231,7 @@ function renderQualityCards(items, videoId) {
     card.dataset.id = item.id;
     card.tabIndex = 0;
     card.setAttribute("role", "button");
-    card.setAttribute("aria-label", `${item.title} ${item.width}×${item.height} 미리보기`);
+    card.setAttribute("aria-label", itzTf("ariaPreview", `${item.title} ${item.width}×${item.height} 미리보기`, { title: item.title, w: item.width, h: item.height }));
 
     const img = document.createElement("img");
     img.className = "quality-thumb";
@@ -240,7 +252,7 @@ function renderQualityCards(items, videoId) {
     const save = document.createElement("button");
     save.type = "button";
     save.className = "quality-download";
-    save.textContent = "이 화질 저장";
+    save.textContent = itzT("saveThis", "이 화질 저장");
     save.addEventListener("click", (event) => {
       event.stopPropagation();
       void saveImage(item.url, `youtube-${videoId}-${item.id}.jpg`);
@@ -262,12 +274,12 @@ function renderQualityCards(items, videoId) {
 async function loadFromInput(raw) {
   const videoId = parseVideoId(raw);
   if (!videoId) {
-    setStatus("유튜브 영상 주소를 확인해주세요.", true);
+    setStatus(itzT("needUrl", "유튜브 영상 주소를 확인해주세요."), true);
     return;
   }
 
   fetchButton.disabled = true;
-  setStatus(`영상 ID ${videoId} · 썸네일을 확인하는 중…`);
+  setStatus(itzTf("checkingId", `영상 ID ${videoId} · 썸네일을 확인하는 중…`, { id: videoId }));
   setStage("loading");
   qualitySection.hidden = true;
 
@@ -276,7 +288,7 @@ async function loadFromInput(raw) {
     if (!items.length) {
       current = null;
       setStage("empty");
-      setStatus("이 영상에서 공개 썸네일을 찾지 못했습니다.", true);
+      setStatus(itzT("noneFound", "이 영상에서 공개 썸네일을 찾지 못했습니다."), true);
       return;
     }
 
@@ -284,14 +296,14 @@ async function loadFromInput(raw) {
     current = { videoId, items, selectedId: items[0].id };
     selectThumb(items[0]);
     renderQualityCards(items, videoId);
-    qualityMeta.textContent = `ID ${videoId} · ${items.length}개 화질`;
+    qualityMeta.textContent = itzTf("qualityMeta", `ID ${videoId} · ${items.length}개 화질`, { id: videoId, n: items.length });
     qualitySection.hidden = false;
     setStage("ready");
-    setStatus(`영상 ID ${videoId} · 가장 큰 화질은 ${items[0].width}×${items[0].height}입니다.`);
+    setStatus(itzTf("bestSize", `영상 ID ${videoId} · 가장 큰 화질은 ${items[0].width}×${items[0].height}입니다.`, { id: videoId, w: items[0].width, h: items[0].height }));
   } catch (error) {
     current = null;
     setStage("empty");
-    setStatus(error instanceof Error ? error.message : "썸네일을 불러오지 못했습니다.", true);
+    setStatus(error instanceof Error ? error.message : itzT("fetchFail", "썸네일을 불러오지 못했습니다."), true);
   } finally {
     fetchButton.disabled = false;
   }
@@ -323,7 +335,7 @@ function bindUi() {
       await loadFromInput(text);
     } catch {
       urlField.focus();
-      setStatus("클립보드를 읽을 수 없습니다. Ctrl+V로 붙여넣으세요.", true);
+      setStatus(itzT("clipboardFail", "클립보드를 읽을 수 없습니다. Ctrl+V로 붙여넣으세요."), true);
     }
   });
 
@@ -359,6 +371,12 @@ function boot() {
   bootFromQuery();
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
+  document.addEventListener("itz:lang-change", () => {
+    if (current?.items?.length) {
+      renderQualityCards(current.items, current.videoId);
+      qualityMeta.textContent = itzTf("qualityMeta", `ID ${current.videoId} · ${current.items.length}개 화질`, { id: current.videoId, n: current.items.length });
+    }
+  });
 }
 
 if (document.readyState === "loading") {

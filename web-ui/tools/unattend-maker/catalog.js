@@ -41,6 +41,142 @@ const IMAGE_KO = {
   "lt-LT": "리투아니아어",
 };
 
+const IMAGE_EN = {
+  "ko-KR": "Korean",
+  "en-US": "English",
+  "en-GB": "English (United Kingdom)",
+  "ja-JP": "Japanese",
+  "zh-CN": "Chinese Simplified",
+  "zh-TW": "Chinese Traditional",
+  "de-DE": "German",
+  "fr-FR": "French",
+  "fr-CA": "French (Canada)",
+  "es-ES": "Spanish",
+  "es-MX": "Spanish (Mexico)",
+  "pt-BR": "Portuguese (Brazil)",
+  "pt-PT": "Portuguese",
+  "it-IT": "Italian",
+  "ru-RU": "Russian",
+  "ar-SA": "Arabic",
+  "th-TH": "Thai",
+  "nl-NL": "Dutch",
+  "pl-PL": "Polish",
+  "tr-TR": "Turkish",
+  "cs-CZ": "Czech",
+  "da-DK": "Danish",
+  "fi-FI": "Finnish",
+  "sv-SE": "Swedish",
+  "nb-NO": "Norwegian",
+  "hu-HU": "Hungarian",
+  "el-GR": "Greek",
+  "he-IL": "Hebrew",
+  "ro-RO": "Romanian",
+  "uk-UA": "Ukrainian",
+  "bg-BG": "Bulgarian",
+  "hr-HR": "Croatian",
+  "sk-SK": "Slovak",
+  "sl-SI": "Slovenian",
+  "sr-Latn-RS": "Serbian (Latin)",
+  "et-EE": "Estonian",
+  "lv-LV": "Latvian",
+  "lt-LT": "Lithuanian",
+};
+
+const IMAGE_JA = {
+  "ko-KR": "韓国語",
+  "en-US": "英語",
+  "en-GB": "英語 (イギリス)",
+  "ja-JP": "日本語",
+  "zh-CN": "中国語 (簡体字)",
+  "zh-TW": "中国語 (繁体字)",
+  "de-DE": "ドイツ語",
+  "fr-FR": "フランス語",
+  "fr-CA": "フランス語 (カナダ)",
+  "es-ES": "スペイン語",
+  "es-MX": "スペイン語 (メキシコ)",
+  "pt-BR": "ポルトガル語 (ブラジル)",
+  "pt-PT": "ポルトガル語",
+  "it-IT": "イタリア語",
+  "ru-RU": "ロシア語",
+  "ar-SA": "アラビア語",
+  "th-TH": "タイ語",
+  "nl-NL": "オランダ語",
+  "pl-PL": "ポーランド語",
+  "tr-TR": "トルコ語",
+  "cs-CZ": "チェコ語",
+  "da-DK": "デンマーク語",
+  "fi-FI": "フィンランド語",
+  "sv-SE": "スウェーデン語",
+  "nb-NO": "ノルウェー語",
+  "hu-HU": "ハンガリー語",
+  "el-GR": "ギリシャ語",
+  "he-IL": "ヘブライ語",
+  "ro-RO": "ルーマニア語",
+  "uk-UA": "ウクライナ語",
+  "bg-BG": "ブルガリア語",
+  "hr-HR": "クロアチア語",
+  "sk-SK": "スロバキア語",
+  "sl-SI": "スロベニア語",
+  "sr-Latn-RS": "セルビア語 (ラテン)",
+  "et-EE": "エストニア語",
+  "lv-LV": "ラトビア語",
+  "lt-LT": "リトアニア語",
+};
+
+const IMAGE_ZH = {
+  "ko-KR": "韩语",
+  "en-US": "英语",
+  "en-GB": "英语（英国）",
+  "ja-JP": "日语",
+  "zh-CN": "简体中文",
+  "zh-TW": "繁体中文",
+  "de-DE": "德语",
+  "fr-FR": "法语",
+  "fr-CA": "法语（加拿大）",
+  "es-ES": "西班牙语",
+  "es-MX": "西班牙语（墨西哥）",
+  "pt-BR": "葡萄牙语（巴西）",
+  "pt-PT": "葡萄牙语",
+  "it-IT": "意大利语",
+  "ru-RU": "俄语",
+  "ar-SA": "阿拉伯语",
+  "th-TH": "泰语",
+  "nl-NL": "荷兰语",
+  "pl-PL": "波兰语",
+  "tr-TR": "土耳其语",
+  "cs-CZ": "捷克语",
+  "da-DK": "丹麦语",
+  "fi-FI": "芬兰语",
+  "sv-SE": "瑞典语",
+  "nb-NO": "挪威语",
+  "hu-HU": "匈牙利语",
+  "el-GR": "希腊语",
+  "he-IL": "希伯来语",
+  "ro-RO": "罗马尼亚语",
+  "uk-UA": "乌克兰语",
+  "bg-BG": "保加利亚语",
+  "hr-HR": "克罗地亚语",
+  "sk-SK": "斯洛伐克语",
+  "sl-SI": "斯洛文尼亚语",
+  "sr-Latn-RS": "塞尔维亚语（拉丁）",
+  "et-EE": "爱沙尼亚语",
+  "lv-LV": "拉脱维亚语",
+  "lt-LT": "立陶宛语",
+};
+
+const IMAGE_MAPS = { ko: IMAGE_KO, en: IMAGE_EN, ja: IMAGE_JA, zh: IMAGE_ZH };
+
+export function imageLanguageName(id) {
+  let lang = "ko";
+  try {
+    if (typeof window !== "undefined" && window.ITZ_I18N && typeof window.ITZ_I18N.getLang === "function") {
+      lang = window.ITZ_I18N.getLang() || "ko";
+    }
+  } catch (e) {}
+  const map = IMAGE_MAPS[lang] || IMAGE_KO;
+  return map[id] || IMAGE_KO[id] || id;
+}
+
 function prefer(list, ids) {
   const rank = new Map(ids.map((id, i) => [id, i]));
   return [...list].sort((a, b) => {
