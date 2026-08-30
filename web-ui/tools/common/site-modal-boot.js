@@ -1,3 +1,3 @@
-import { installGlobals } from "./site-modal.js?v=sm2";
+import { installGlobals } from "./site-modal.js?v=sm3";
 
 installGlobals();

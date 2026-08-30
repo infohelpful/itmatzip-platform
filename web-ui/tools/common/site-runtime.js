@@ -34,7 +34,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=10";
+    var href = "common/theme.css?v=14";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -49,7 +49,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=10");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=14");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
@@ -66,7 +66,8 @@
       "--text-main:#0f172a;--text-dim:#334155;--text-muted:#475569;--border:#d8dee8;" +
       "--bg-card:#ffffff;--bg-input:#f8fafc;--text-primary:#0f172a;--text-secondary:#475569;" +
       "--as-bg:#f4f6fa;--as-panel:#ffffff;--as-panel-2:#eef2f7;--as-border:#d8dee8;" +
-      "--as-text:#0f172a;--as-text-dim:#475569}" +
+      "--as-text:#0f172a;--as-text-dim:#475569;" +
+      "--bg-control:#f8fafc;--bg-control-muted:#e8eef4;--text-subtle:#475569}" +
       'html[data-theme="light"] body{background-color:#f4f6fa;color:#0f172a}';
     (document.head || document.documentElement).appendChild(boot);
   }

@@ -6,6 +6,9 @@ html {
 
 html[data-theme="dark"] {
   color-scheme: dark;
+  --bg-control: #0f1318;
+  --bg-control-muted: #1a1d23;
+  --text-subtle: #94a3b8;
 }
 
 html[data-theme="light"] {
@@ -34,6 +37,9 @@ html[data-theme="light"] {
   --as-border: #d8dee8;
   --as-text: #0f172a;
   --as-text-dim: #475569;
+  --bg-control: #f8fafc;
+  --bg-control-muted: #e8eef4;
+  --text-subtle: #475569;
 }
 
 html[data-theme="light"] body,
@@ -287,6 +293,39 @@ html[data-theme="light"] .mobile-only-desc {
   color: #475569;
 }
 
+html[data-theme="light"] .pane-head {
+  background: #e8eef4;
+  color: #0f172a;
+  border-bottom-color: #d8dee8;
+}
+
+html[data-theme="light"] .pane-head h2,
+html[data-theme="light"] .menu-btn {
+  color: #334155;
+}
+
+html[data-theme="light"] .menu-btn:hover,
+html[data-theme="light"] .menu-btn.is-active {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .hero-chip {
+  background: #e8eef4;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+html[data-theme="light"] .dl-step {
+  background: #f1f5f9;
+  border-color: #d8dee8;
+  color: #334155;
+}
+
+html[data-theme="light"] .dl-step--highlight {
+  color: #1d4ed8;
+}
+
 /* Shared chrome */
 html[data-theme="light"] .btn-to-dashboard {
   background: #ffffff;
@@ -301,16 +340,80 @@ html[data-theme="light"] .btn-to-dashboard:hover {
 html[data-theme="light"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="hidden"]),
 html[data-theme="light"] textarea,
 html[data-theme="light"] select {
-  background-color: #ffffff;
-  color: var(--text-main, var(--as-text, #0f172a));
+  background-color: #ffffff !important;
+  color: #0f172a !important;
   color-scheme: light;
 }
 
 html[data-theme="light"] .dropzone,
 html[data-theme="light"] .hero,
 html[data-theme="light"] .preview-stage,
-html[data-theme="light"] .media-stage {
-  background: #eef2f7;
+html[data-theme="light"] .media-stage,
+html[data-theme="light"] .preview-viewport,
+html[data-theme="light"] .preview-empty,
+html[data-theme="light"] .video-frame {
+  background: #eef2f7 !important;
+  color: #334155;
+}
+
+html[data-theme="dark"] .preview-empty {
+  color: #94a3b8;
+}
+
+html[data-theme="light"] .vocal-setup-loading__panel,
+html[data-theme="light"] .vocal-task-loading__inner,
+html[data-theme="light"] .enhancer-busy-panel,
+html[data-theme="light"] .loading-card,
+html[data-theme="light"] .media-workspace-loading__panel,
+html[data-theme="light"] .analyze-overlay-panel,
+html[data-theme="light"] .waveform-analyze-loading-inner,
+html[data-theme="light"] .setup-loading__panel {
+  background: #ffffff !important;
+  border-color: #d8dee8 !important;
+  color: #0f172a !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+html[data-theme="light"] .vocal-setup-loading__title,
+html[data-theme="light"] .vocal-task-loading__title,
+html[data-theme="light"] .vocal-task-loading__percent,
+html[data-theme="light"] .media-workspace-loading__title,
+html[data-theme="light"] .analyze-overlay-status,
+html[data-theme="light"] .enhancer-busy-panel h3,
+html[data-theme="light"] .setup-loading__title {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .vocal-setup-loading__message,
+html[data-theme="light"] .vocal-task-loading__message,
+html[data-theme="light"] .media-workspace-loading__desc,
+html[data-theme="light"] .analyze-overlay-meta,
+html[data-theme="light"] .loading-message,
+html[data-theme="light"] .setup-loading__desc {
+  color: #475569 !important;
+}
+
+html[data-theme="dark"] .vocal-setup-loading__panel,
+html[data-theme="dark"] .vocal-task-loading__inner,
+html[data-theme="dark"] .enhancer-busy-panel,
+html[data-theme="dark"] .loading-card,
+html[data-theme="dark"] .media-workspace-loading__panel {
+  background: #1a1d23 !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-theme="dark"] .vocal-setup-loading__title,
+html[data-theme="dark"] .vocal-task-loading__title,
+html[data-theme="dark"] .media-workspace-loading__title,
+html[data-theme="dark"] .analyze-overlay-status {
+  color: #e2e8f0 !important;
+}
+
+html[data-theme="dark"] .vocal-setup-loading__message,
+html[data-theme="dark"] .vocal-task-loading__message,
+html[data-theme="dark"] .media-workspace-loading__desc,
+html[data-theme="dark"] .loading-message {
+  color: #94a3b8 !important;
 }
 
 html[data-theme="light"] .checker {
@@ -324,7 +427,107 @@ html[data-theme="light"] .checker {
 
 html[data-theme="light"] .choice,
 html[data-theme="light"] .check-line {
+  background: var(--bg-control, #f8fafc);
+  border-color: var(--border);
+  color: var(--text-main, #0f172a);
+}
+
+html[data-theme="light"] .choice small,
+html[data-theme="light"] .check-line small,
+html[data-theme="light"] .toggle-card-desc,
+html[data-theme="light"] .option-hint {
+  color: var(--text-subtle, #475569) !important;
+}
+
+html[data-theme="light"] .toggle-card {
+  background: var(--bg-control, #f8fafc) !important;
+  border-color: var(--border, #d8dee8);
+  color: var(--text-main, #0f172a);
+}
+
+html[data-theme="light"] .toggle-card-title,
+html[data-theme="light"] .option-label {
+  color: var(--text-main, #0f172a) !important;
+}
+
+html[data-theme="light"] .toggle-card:has(input:checked) {
+  background: color-mix(in srgb, var(--accent) 12%, #ffffff) !important;
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border, #d8dee8));
+}
+
+html[data-theme="light"] .toggle-card.is-disabled,
+html[data-theme="light"] .toggle-card.is-disabled:has(input:checked) {
+  opacity: 0.72;
+  background: var(--bg-control-muted, #e8eef4) !important;
+  border-color: var(--border, #d8dee8);
+  box-shadow: none;
+}
+
+html[data-theme="light"] .toggle-card.is-disabled .toggle-card-title,
+html[data-theme="light"] .toggle-card.is-disabled .toggle-card-desc {
+  color: #64748b !important;
+}
+
+html[data-theme="light"] .option-select,
+html[data-theme="light"] .option-field select {
+  background: #ffffff !important;
+  color: var(--text-main, #0f172a) !important;
+}
+
+html[data-theme="light"] .mode-chip:not(.active):not(.is-on) {
+  background: var(--bg-control, #f8fafc) !important;
+  color: #334155 !important;
+}
+
+html[data-theme="light"] .mode-chip.active,
+html[data-theme="light"] .mode-chip.is-on {
+  background: var(--accent, #3b82f6) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] .size-pill:not(:has(input:checked)) {
   background: #f8fafc;
+  color: #334155;
+}
+
+html[data-theme="light"] .toast {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #d8dee8;
+}
+
+html[data-theme="light"] .preview-dialog {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .howto code {
+  background: #e8eef4;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .btn-action--download:not(.is-disabled) {
+  color: #0f766e;
+}
+
+html[data-theme="light"] .size-pill.is-disabled {
+  opacity: 0.72;
+}
+
+html[data-theme="light"] .dl-ad {
+  background: #eef2f7;
+}
+
+html[data-theme="dark"] .toggle-card-title,
+html[data-theme="dark"] .option-label {
+  color: var(--text-main, #e2e8f0);
+}
+
+html[data-theme="dark"] .toggle-card-desc,
+html[data-theme="dark"] .option-hint,
+html[data-theme="dark"] .choice small,
+html[data-theme="dark"] .check-line small {
+  color: var(--text-subtle, #94a3b8);
 }
 
 html[data-theme="light"] .dl-card {
@@ -476,6 +679,257 @@ html[data-theme="light"] .itz-site-footer-nav a {
 html[data-theme="light"] .itz-site-footer-nav a:hover,
 html[data-theme="light"] .itz-site-footer-nav a[aria-current="page"] {
   color: #1d4ed8;
+}
+
+/* Light mode: hardcoded dark-theme hex left light text on white (or dark text on leftover dark fields). */
+html[data-theme="light"] .hub-title,
+html[data-theme="light"] .hub-lead,
+html[data-theme="light"] .hub-card,
+html[data-theme="light"] .hub-card-title,
+html[data-theme="light"] .hub-card-desc,
+html[data-theme="light"] .panel,
+html[data-theme="light"] .stage,
+html[data-theme="light"] .composer,
+html[data-theme="light"] .app-header,
+html[data-theme="light"] .header-tagline {
+  color: #0f172a;
+}
+
+html[data-theme="light"] .hub-lead,
+html[data-theme="light"] .header-tagline,
+html[data-theme="light"] .empty-note,
+html[data-theme="light"] .hint,
+html[data-theme="light"] .muted,
+html[data-theme="light"] .file-meta,
+html[data-theme="light"] .status-line,
+html[data-theme="light"] .digital-date,
+html[data-theme="light"] .digital-zone,
+html[data-theme="light"] .world-meta,
+html[data-theme="light"] .world-name-city,
+html[data-theme="light"] .picker-city,
+html[data-theme="light"] .picker-count,
+html[data-theme="light"] .alert-sub {
+  color: #334155;
+}
+
+html[data-theme="light"] .btn-ghost,
+html[data-theme="light"] .btn-secondary,
+html[data-theme="light"] .seg-btn {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+html[data-theme="light"] .seg {
+  background: #e8eef4;
+}
+
+html[data-theme="light"] .seg-btn.is-active,
+html[data-theme="light"] .seg-btn.is-on {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .picker-overlay,
+html[data-theme="light"] .picker-card,
+html[data-theme="light"] .alert-card,
+html[data-theme="light"] .mobile-only-card {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .picker-list {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .picker-row,
+html[data-theme="light"] .picker-country,
+html[data-theme="light"] .picker-head h2,
+html[data-theme="light"] .alert-title,
+html[data-theme="light"] .alert-kind {
+  color: #0f172a;
+}
+
+html[data-theme="light"] .itz-modal-dialog,
+html[data-theme="light"] #itz-site-alert-dialog {
+  background: #ffffff;
+  border-color: #d8dee8;
+  color: #0f172a;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16);
+}
+
+html[data-theme="light"] .itz-modal__title,
+html[data-theme="light"] .itz-install__title,
+html[data-theme="light"] .itz-install__card-title,
+html[data-theme="light"] .itz-install__intro strong,
+html[data-theme="light"] .itz-install__card-text strong {
+  color: #0f172a;
+}
+
+html[data-theme="light"] .itz-modal__body,
+html[data-theme="light"] .itz-modal__msg,
+html[data-theme="light"] .itz-modal__steps,
+html[data-theme="light"] .itz-modal__hint,
+html[data-theme="light"] .itz-modal__status,
+html[data-theme="light"] .itz-install,
+html[data-theme="light"] .itz-install__body,
+html[data-theme="light"] .itz-install__card-text,
+html[data-theme="light"] .itz-install__card-note {
+  color: #334155;
+}
+
+html[data-theme="light"] .itz-modal__head {
+  border-bottom-color: #e2e8f0;
+}
+
+html[data-theme="light"] .itz-modal__foot,
+html[data-theme="light"] .itz-install__foot {
+  background: #f8fafc;
+  border-top-color: #e2e8f0;
+}
+
+html[data-theme="light"] .itz-modal__btn,
+html[data-theme="light"] .itz-install__btn--ghost {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .itz-modal__btn:hover,
+html[data-theme="light"] .itz-install__btn--ghost:hover {
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+html[data-theme="light"] .itz-modal__btn--primary,
+html[data-theme="light"] .itz-install__btn--primary {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+html[data-theme="light"] .itz-modal__btn--primary:hover,
+html[data-theme="light"] .itz-install__btn--primary:hover {
+  background: #1d4ed8;
+  color: #ffffff;
+}
+
+html[data-theme="light"] .itz-install__card--new,
+html[data-theme="light"] .itz-install__card--installed {
+  background: #f8fafc;
+  border-color: #d8dee8;
+}
+
+html[data-theme="light"] .itz-install__card-text code {
+  background: #e2e8f0;
+  color: #1e3a8a;
+}
+
+html[data-theme="dark"] .itz-modal-dialog,
+html[data-theme="dark"] #itz-site-alert-dialog {
+  background: #1a1f2e;
+  border-color: #3a4560;
+  color: #e6edf7;
+}
+
+html[data-theme="dark"] .itz-modal__title,
+html[data-theme="dark"] .itz-install__title,
+html[data-theme="dark"] .itz-install__card-title {
+  color: #f8fafc;
+}
+
+html[data-theme="dark"] .itz-modal__body,
+html[data-theme="dark"] .itz-modal__msg,
+html[data-theme="dark"] .itz-install__body,
+html[data-theme="dark"] .itz-install__card-text {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .alert-card {
+  background: #121821;
+  color: #e8eef6;
+}
+
+html[data-theme="dark"] .alert-title,
+html[data-theme="dark"] .alert-kind {
+  color: #e8eef6;
+}
+
+html[data-theme="dark"] .alert-sub {
+  color: #93a0b4;
+}
+
+html[data-theme="light"] .option-card label,
+html[data-theme="light"] .option-hint,
+html[data-theme="light"] .path-hint,
+html[data-theme="light"] .range-val,
+html[data-theme="light"] .preset-label,
+html[data-theme="light"] .chips-label,
+html[data-theme="light"] .size-pill {
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .chip:not(.active):not(.is-on),
+html[data-theme="light"] .preset-btn:not(.active) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .chip.active {
+  background: var(--accent, #3b82f6) !important;
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] .size-pill {
+  background: #e8eef4;
+}
+
+html[data-theme="light"] .path-row input,
+html[data-theme="light"] .option-card input[type="number"],
+html[data-theme="light"] .option-card input[type="text"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .btn-pick-file {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .media-summary-panel,
+html[data-theme="light"] .media-summary-title,
+html[data-theme="light"] .media-summary-hint,
+html[data-theme="light"] .media-summary-item dt,
+html[data-theme="light"] .media-summary-item dd {
+  color: #0f172a;
+}
+
+html[data-theme="light"] .media-summary-panel {
+  background: #f1f5f9;
+}
+
+html[data-theme="dark"] .chip:not(.active):not(.is-on) {
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .chip.active {
+  color: #ffffff;
+}
+
+html[data-theme="dark"] .option-card label,
+html[data-theme="dark"] .option-hint,
+html[data-theme="dark"] .path-hint {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .range-val {
+  color: #e2e8f0;
+}
+
+html[data-theme="dark"] .path-row input,
+html[data-theme="dark"] .option-card input[type="number"],
+html[data-theme="dark"] .option-card input[type="text"] {
+  color: #ffffff;
 }
 
 @media (max-width: 900px) {

@@ -14,8 +14,9 @@
     "online-clock",
     "unattend-maker",
     "json-formatter",
+    "currency-calculator",
   ];
-  var DEFAULT_MOBILE_IDS = ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker", "json-formatter"];
+  var DEFAULT_MOBILE_IDS = ["thumbnail-grabber", "ico-maker", "online-clock", "unattend-maker", "json-formatter", "currency-calculator"];
 
   /** Windows·macOS·Linux 데스크톱 UA — 좁은 창·터치 노트북만으로 모바일 판정하지 않음 */
   function isDesktopPlatform() {

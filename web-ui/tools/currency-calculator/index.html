@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="currency-calculator">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <script src="../common/site-runtime.js?v=16"></script>
+  <title>환율 계산기 - 실시간 다중 통화 환산 | ItMatZip</title>
+  <meta name="description" content="위치 기반 기본 통화로 금액을 입력하면 달러·엔·유로 등 여러 통화를 바로 환산합니다. 계산기와 국가 추가로 브라우저에서 바로 쓰는 무료 환율 계산기입니다.">
+  <meta name="keywords" content="환율 계산기, 환전 계산기, 실시간 환율, 교차환율, 달러 환율, 엔화 환율, 유로 환율, KRW USD JPY">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/currency-calculator/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="환율 계산기 - 실시간 다중 통화 환산 | ItMatZip">
+  <meta property="og:description" content="위치 기반 기본 통화로 금액을 입력하면 여러 통화를 바로 환산합니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/currency-calculator/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="환율 계산기">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="환율 계산기 - 실시간 다중 통화 환산">
+  <meta name="twitter:description" content="위치 기반 기본 통화로 금액을 입력하면 여러 통화를 바로 환산합니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "환율 계산기",
+      "alternateName": ["Currency Calculator", "환전 계산기"],
+      "url": "https://tools.itmatzip.com/currency-calculator/",
+      "description": "위치 기반 기본 통화로 금액을 입력하면 여러 통화를 바로 환산합니다.",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Any",
+      "inLanguage": "ko",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "환율 계산기", "item": "https://tools.itmatzip.com/currency-calculator/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <div class="header-top">
+          <span class="eyebrow" data-i18n="brand">ItMatZip</span>
+          <label class="lang-field">
+            <span class="visually-hidden" data-i18n="lang">언어</span>
+            <select id="lang-select" aria-label="Language"></select>
+          </label>
+        </div>
+        <div class="logo-title-row">
+          <h1><span data-i18n="h1a">환율</span> <span class="accent" data-i18n="h1b">계산기</span></h1>
+          <a href="../index.html" class="btn-to-dashboard" data-i18n="dashboard">대시보드로 이동</a>
+        </div>
+        <p class="header-tagline" data-i18n="tagline">브라우저 위치를 기준으로 기본 통화를 잡고, 입력한 금액을 여러 나라 돈으로 바로 바꿉니다.</p>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <div class="fx-main" id="fx-main">
+        <div class="fx-layout">
+          <section class="fx-calc panel" data-i18n-aria="calc" aria-label="계산기">
+            <label class="fx-base-field">
+              <span class="fx-label" data-i18n="base">기본 통화</span>
+              <button type="button" class="fx-base-btn" id="btn-base" aria-haspopup="listbox">
+                <span class="fx-base-flag" id="base-flag"></span>
+                <span class="fx-base-copy">
+                  <strong id="base-code">KRW</strong>
+                  <span id="base-name">대한민국 원</span>
+                </span>
+                <span class="fx-base-caret" aria-hidden="true">▾</span>
+              </button>
+            </label>
+
+            <div class="fx-display" id="fx-display">
+              <p class="fx-display-label" id="display-label" data-i18n="amount">입력 금액</p>
+              <p class="fx-display-value" id="display-value">0</p>
+              <p class="fx-display-expr" id="display-expr"></p>
+            </div>
+
+            <div class="fx-pad" id="fx-pad" role="group" data-i18n-aria="pad" aria-label="숫자 키패드">
+              <button type="button" class="fx-key" data-key="7">7</button>
+              <button type="button" class="fx-key" data-key="8">8</button>
+              <button type="button" class="fx-key" data-key="9">9</button>
+              <button type="button" class="fx-key fx-key--op" data-key="/">÷</button>
+
+              <button type="button" class="fx-key" data-key="4">4</button>
+              <button type="button" class="fx-key" data-key="5">5</button>
+              <button type="button" class="fx-key" data-key="6">6</button>
+              <button type="button" class="fx-key fx-key--op" data-key="*">×</button>
+
+              <button type="button" class="fx-key" data-key="1">1</button>
+              <button type="button" class="fx-key" data-key="2">2</button>
+              <button type="button" class="fx-key" data-key="3">3</button>
+              <button type="button" class="fx-key fx-key--op" data-key="-">−</button>
+
+              <button type="button" class="fx-key fx-key--muted" data-key="C">C</button>
+              <button type="button" class="fx-key" data-key="0">0</button>
+              <button type="button" class="fx-key" data-key=".">.</button>
+              <button type="button" class="fx-key fx-key--op" data-key="+">+</button>
+
+              <button type="button" class="fx-key fx-key--muted" data-key="Backspace">⌫</button>
+              <button type="button" class="fx-key fx-key--eq" data-key="=">=</button>
+            </div>
+          </section>
+
+          <section class="fx-results panel" aria-labelledby="results-heading">
+            <div class="fx-results-head">
+              <div>
+                <h2 id="results-heading" data-i18n="results">실시간 변환 결과</h2>
+                <p class="fx-rate-meta" id="rate-meta">환율을 불러오는 중…</p>
+              </div>
+              <button type="button" class="btn-primary" id="btn-add" data-i18n="add">+ 국가 추가</button>
+            </div>
+            <div class="fx-result-list" id="result-list"></div>
+          </section>
+        </div>
+
+        <div id="currency-picker" class="picker-overlay" hidden>
+          <div class="picker-card">
+            <div class="picker-head">
+              <h2 id="picker-title">통화 추가</h2>
+              <button type="button" class="picker-x" id="picker-close" data-i18n-aria="close" aria-label="닫기">×</button>
+            </div>
+            <input type="search" class="picker-search" id="picker-search" data-i18n-placeholder="search" placeholder="국가·통화 검색" autocomplete="off">
+            <div class="picker-list" id="picker-list"></div>
+            <div class="picker-foot">
+              <p class="picker-count" id="picker-count"></p>
+              <button type="button" class="btn-primary" id="picker-done" data-i18n="done">완료</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+
+      <section class="tool-guide" data-i18n-aria="guide.aria" aria-label="환율 계산기 안내">
+        <p class="tool-guide-kicker" data-i18n="guide.kicker">환율 계산기</p>
+        <h2 data-i18n="guide.h2">위치 기반으로 기본 통화를 잡고, 여러 나라 돈을 한 번에 환산하는 도구</h2>
+        <p class="tool-guide-lead" data-i18n="guide.lead">환율 계산기는 브라우저 로케일로 기본 통화(예: 한국이면 KRW)를 잡고, USD 기준 실시간 환율로 교차 계산합니다. 계산기 키패드로 금액을 넣고, 보고 싶은 통화를 추가로 붙이면 됩니다.</p>
+        <h3 data-i18n="guide.what.h">이 도구가 하는 일</h3>
+        <p data-i18n="guide.what.p">여행·송금·해외 결제 전에 “지금 이 금액이 다른 나라 돈으로 얼마인가”를 빠르게 볼 때 씁니다. 설치와 계정 없이 동작하고, 선택한 통화 목록은 이 브라우저에만 저장됩니다.</p>
+        <h3 data-i18n="guide.how.h">사용 방법</h3>
+        <ol>
+          <li><strong data-i18n="guide.how1t">기본 통화.</strong> <span data-i18n="guide.how1p">자동으로 잡힌 통화를 확인하거나, 위쪽 버튼으로 바꿉니다.</span></li>
+          <li><strong data-i18n="guide.how2t">금액 입력.</strong> <span data-i18n="guide.how2p">키패드 또는 키보드로 숫자를 넣고, +, −, ×, ÷ 로 간단한 계산을 할 수 있습니다.</span></li>
+          <li><strong data-i18n="guide.how3t">국가 추가.</strong> <span data-i18n="guide.how3p">변환 결과에 달러·엔·유로 등 보고 싶은 통화를 붙입니다. 결과 줄을 누르면 그 통화가 기본 통화가 됩니다.</span></li>
+        </ol>
+        <h3 data-i18n="guide.plus.h">이 도구의 장점</h3>
+        <ul>
+          <li><strong data-i18n="guide.plus1t">교차환율.</strong> <span data-i18n="guide.plus1p">API가 USD를 기준으로 줘도, 원화를 엔으로 바꿀 때 금액 × (엔 환율 / 원 환율) 로 바로 계산합니다.</span></li>
+          <li><strong data-i18n="guide.plus2t">에이전트가 필요 없습니다.</strong> <span data-i18n="guide.plus2p">인터넷만 있으면 브라우저에서 동작합니다.</span></li>
+          <li><strong data-i18n="guide.plus3t">목록이 남습니다.</strong> <span data-i18n="guide.plus3p">자주 보는 통화는 새로고침 후에도 유지됩니다.</span></li>
+        </ul>
+        <p class="tool-guide-note" data-i18n="guide.note">표시 환율은 Coinbase 등의 시장 중간가이며, 은행 매매기준율·전신환·카드 수수료와 다를 수 있습니다. 송금·결제는 실제 거래 기관의 고시 환율을 확인하세요. 시세는 약 5분 단위로 다시 불러옵니다.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">ItMatZip Tools는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
+  <script src="../common/site-guard.js?v=11"></script>
+  <script src="../silence-remover/mobile-only.js?v=7"></script>
+  <script type="module" src="script.js?v=10"></script>
+</body>
+</html>

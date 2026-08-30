@@ -1,6 +1,7 @@
-import { showAdSense } from "../common/adsense.js?v=4";
+import { showAdSense } from "../common/adsense.js?v=5";
+import { ensureSiteModalStyles } from "../common/site-modal.js?v=sm3";
 import { toPython, toTypeScript } from "./convert.js";
-import { LOCALES, applyI18n, detectLocale, getLocale, t } from "./i18n.js?v=8";
+import { LOCALES, applyI18n, detectLocale, getLocale, t } from "./i18n.js?v=9";
 
 const MB = 1024 * 1024;
 const WORKER_MS = 20000;
@@ -1210,7 +1211,85 @@ function extractJsonKeys(text) {
   return Array.from(map.entries()).map(([key, count]) => ({ key, count }));
 }
 
-function openMaskModal() {
+let maskScrollYBefore = 0;
+let maskScrollLocked = false;
+
+function preventMaskPageScroll(event) {
+  const t = event.target;
+  if (t instanceof Element && t.closest(".mask-modal-body")) return;
+  event.preventDefault();
+}
+
+function preventMaskPageKeyScroll(event) {
+  if (![" ", "PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+  const t = event.target;
+  if (t instanceof Element && t.closest(".mask-modal-body, input, textarea, select")) return;
+  event.preventDefault();
+}
+
+function scrollTopAdsToViewport() {
+  const ad = document.querySelector(".editor-ad-row") || document.getElementById("editor-ad-above-path");
+  if (!ad) return;
+  const y = ad.getBoundingClientRect().top + window.scrollY;
+  window.scrollTo(0, Math.max(0, y));
+}
+
+function positionMaskCardAtWorkspace() {
+  const card = document.querySelector(".mask-modal-card");
+  const workspace = document.querySelector(".workspace");
+  if (!card) return;
+  const top = workspace
+    ? Math.max(8, Math.round(workspace.getBoundingClientRect().top))
+    : 96;
+  card.style.top = `${top}px`;
+  card.style.maxHeight = `${Math.max(220, window.innerHeight - top - 16)}px`;
+}
+
+function onMaskModalResize() {
+  if (!maskScrollLocked) return;
+  positionMaskCardAtWorkspace();
+}
+
+function lockMaskPageScroll() {
+  if (maskScrollLocked) return;
+  maskScrollLocked = true;
+  const y = window.scrollY;
+  document.documentElement.classList.add("is-mask-modal-open");
+  document.body.classList.add("itz-modal-visible", "is-mask-modal-open");
+  document.body.style.position = "fixed";
+  document.body.style.top = `-${y}px`;
+  document.body.style.left = "0";
+  document.body.style.right = "0";
+  document.body.style.width = "100%";
+  window.addEventListener("wheel", preventMaskPageScroll, { passive: false, capture: true });
+  window.addEventListener("touchmove", preventMaskPageScroll, { passive: false, capture: true });
+  window.addEventListener("keydown", preventMaskPageKeyScroll, true);
+  window.addEventListener("resize", onMaskModalResize);
+}
+
+function unlockMaskPageScroll() {
+  if (!maskScrollLocked) return;
+  maskScrollLocked = false;
+  document.body.style.position = "";
+  document.body.style.top = "";
+  document.body.style.left = "";
+  document.body.style.right = "";
+  document.body.style.width = "";
+  document.documentElement.classList.remove("is-mask-modal-open");
+  document.body.classList.remove("is-mask-modal-open");
+  window.removeEventListener("wheel", preventMaskPageScroll, { capture: true });
+  window.removeEventListener("touchmove", preventMaskPageScroll, { capture: true });
+  window.removeEventListener("keydown", preventMaskPageKeyScroll, true);
+  window.removeEventListener("resize", onMaskModalResize);
+  const card = document.querySelector(".mask-modal-card");
+  if (card) {
+    card.style.top = "";
+    card.style.maxHeight = "";
+  }
+  window.scrollTo(0, maskScrollYBefore);
+}
+
+async function openMaskModal() {
   const text = getInputValue();
   if (!text.trim()) {
     toast(t("badFile"));
@@ -1231,9 +1310,16 @@ function openMaskModal() {
   if (searchInput) searchInput.value = "";
   renderMaskKeys(currentMaskKeys, "");
 
+  ensureSiteModalStyles();
+  maskScrollYBefore = window.scrollY;
+  scrollTopAdsToViewport();
+
   modal.hidden = false;
   modal.removeAttribute("hidden");
   modal.style.display = "flex";
+  lockMaskPageScroll();
+  positionMaskCardAtWorkspace();
+  requestAnimationFrame(positionMaskCardAtWorkspace);
 }
 
 function closeMaskModal() {
@@ -1242,6 +1328,11 @@ function closeMaskModal() {
     modal.hidden = true;
     modal.setAttribute("hidden", "");
     modal.style.display = "none";
+  }
+  unlockMaskPageScroll();
+  const siteBackdrop = document.getElementById("itz-modal-backdrop");
+  if (!siteBackdrop || siteBackdrop.hidden) {
+    document.body.classList.remove("itz-modal-visible");
   }
 }
 
@@ -1514,6 +1605,15 @@ function boot() {
   });
   void showAdSense("editorAboveWorkspace", "#editor-ad-above-path");
   void showAdSense("editorBelowExport", "#editor-ad-below-export");
+  const splitAds = window.matchMedia("(min-width: 721px)");
+  const loadSplitAds = () => {
+    if (!splitAds.matches) return;
+    void showAdSense("editorAboveWorkspace", "#editor-ad-above-path-2");
+    void showAdSense("editorBelowExport", "#editor-ad-below-export-2");
+  };
+  loadSplitAds();
+  if (typeof splitAds.addEventListener === "function") splitAds.addEventListener("change", loadSplitAds);
+  else if (typeof splitAds.addListener === "function") splitAds.addListener(loadSplitAds);
 }
 
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);

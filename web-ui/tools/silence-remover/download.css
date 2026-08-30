@@ -37,7 +37,7 @@ body {
   min-height: var(--itz-ad-height, 90px);
   margin: 0;
   border-radius: var(--radius);
-  background: #0a0c10;
+  background: var(--bg-control, #0a0c10);
   border: 1px dashed var(--border);
   display: block;
   overflow: hidden;

@@ -1,9 +1,20 @@
 <!DOCTYPE html>
 <html lang="ko" data-tool-id="json-formatter">
 <head>
+  <script>
+    (function () {
+      var origAdd = window.addEventListener;
+      window.addEventListener = function (type, listener, options) {
+        if (type === 'unload') {
+          return origAdd.call(window, 'pagehide', listener, options);
+        }
+        return origAdd.call(window, type, listener, options);
+      };
+    })();
+  </script>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=12"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <script src="../common/site-runtime.js?v=16"></script>
   <title>JSON 포맷터 - JSON 정렬, 압축, 오류 고치기 | ItMatZip</title>
   <meta name="description" content="붙여넣은 JSON을 바로 정렬하고 한 줄로 압축합니다. 오류가 있으면 위치를 알려 주고, 깨진 문법도 고칩니다. 설치 없이 브라우저에서 쓰는 무료 JSON 포맷터입니다.">
   <meta name="keywords" content="JSON 포맷터, JSON 정렬, JSON 뷰티파이, JSON Beautify, JSON 압축, JSON 유효성 검사, JSON 포맷, JSONPath, JSON 예쁘게, API JSON">
@@ -53,10 +64,10 @@
   </script>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=25">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
-  <link rel="stylesheet" href="../common/tool-guide.css?v=6">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 </head>
 <body>
@@ -84,7 +95,10 @@
           <p class="privacy-chip" data-i18n="privacy">입력한 JSON은 서버로 올라가지 않습니다</p>
         </header>
 
-        <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+        <div class="editor-ad-row" role="group" aria-label="광고">
+          <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+          <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path-2" aria-label="광고"></div>
+        </div>
         <p class="banner" id="banner" role="status" aria-live="polite"></p>
       </div>
 
@@ -144,9 +158,9 @@
             <div class="output-error" id="output-error" hidden>
               <p class="output-error-kicker" data-i18n="errTitle">문법 오류</p>
               <ul class="output-error-list" id="output-error-list"></ul>
-              <p class="output-error-hint" data-i18n="errHintRepair">왼쪽은 원문 그대로입니다. 고칠 수 있으면 가운데에서 ‘오류 고치기’를 누르세요.</p>
+              <p class="output-error-hint" data-i18n="errHintRepair">입력란은 원문 그대로입니다. 고칠 수 있으면 ‘오류 고치기’를 누르세요.</p>
             </div>
-            <p class="output-empty" id="output-empty" data-i18n="empty">왼쪽 입력란에 JSON을 붙여넣은 뒤, 가운데에서 정렬하기를 누르세요.</p>
+            <p class="output-empty" id="output-empty" data-i18n="empty">입력란에 JSON을 붙여넣은 뒤, 정렬하기를 누르세요.</p>
           </div>
           <div class="pane-status"><span id="output-meta" data-i18n="statusReady">결과를 이 칸에서 확인하고 복사합니다.</span></div>
         </section>
@@ -174,7 +188,10 @@
       </div>
       <pre class="side-out" id="convert-out" hidden></pre>
 
-      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <div class="editor-ad-row editor-ad-row--below" role="group" aria-label="광고">
+        <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+        <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export-2" aria-label="광고"></div>
+      </div>
       <section class="tool-guide" aria-label="JSON Formatter 안내">
         <p class="tool-guide-kicker" data-i18n="guideKicker">JSON 포맷터</p>
         <h2 data-i18n="guideH2">온라인 JSON 포맷터로 정렬하고 압축하기</h2>
@@ -184,7 +201,7 @@
         <h3 data-i18n="guideHow">사용 방법</h3>
         <ol>
           <li data-i18n="guideLi1">JSON 텍스트를 붙여넣거나 파일 열기로 .json 파일을 불러옵니다. 서버에는 올라가지 않습니다.</li>
-          <li data-i18n="guideLi2">가운데에서 정렬하기를 누릅니다. 안 되면 오류 고치기를 누르세요. 왼쪽 원문은 그대로 둡니다.</li>
+          <li data-i18n="guideLi2">정렬하기를 누릅니다. 안 되면 오류 고치기를 누르세요. 입력란의 원문은 그대로 둡니다.</li>
           <li data-i18n="guideLi3">트리에서 키를 누르거나 JSONPath로 원하는 값만 복사합니다.</li>
           <li data-i18n="guideLi4">다른 사람에게 보여 주기 전에 민감값 가리기를 쓸 수 있습니다. 모든 개인정보를 가리지는 않습니다.</li>
         </ol>
@@ -236,9 +253,9 @@
     </div>
   </div>
 
-  <script type="module" src="../common/site-modal-boot.js"></script>
+  <script type="module" src="../common/site-modal-boot.js?v=3"></script>
   <script src="../common/site-guard.js?v=11"></script>
   <script src="../silence-remover/mobile-only.js?v=6"></script>
-  <script type="module" src="script.js?v=25"></script>
+  <script type="module" src="script.js?v=30"></script>
 </body>
 </html>

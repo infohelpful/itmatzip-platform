@@ -213,6 +213,59 @@ export function ensureSiteModalStyles() {
     .itz-modal-dialog .itz-install {
       color: inherit;
     }
+    html[data-theme="light"] .itz-modal-dialog {
+      background: #ffffff;
+      border-color: #d8dee8;
+      color: #0f172a;
+      box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16);
+    }
+    html[data-theme="light"] .itz-modal__title {
+      color: #0f172a;
+    }
+    html[data-theme="light"] .itz-modal__body,
+    html[data-theme="light"] .itz-modal__msg,
+    html[data-theme="light"] .itz-modal__steps,
+    html[data-theme="light"] .itz-modal__hint,
+    html[data-theme="light"] .itz-modal__status {
+      color: #334155;
+    }
+    html[data-theme="light"] .itz-modal__head {
+      border-bottom-color: #e2e8f0;
+    }
+    html[data-theme="light"] .itz-modal__foot {
+      background: #f8fafc;
+      border-top-color: #e2e8f0;
+    }
+    html[data-theme="light"] .itz-modal__btn {
+      background: #ffffff;
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    html[data-theme="light"] .itz-modal__btn:hover {
+      border-color: #94a3b8;
+      color: #0f172a;
+    }
+    html[data-theme="light"] .itz-modal__btn--primary {
+      border: none;
+      background: #2563eb;
+      color: #ffffff;
+    }
+    html[data-theme="light"] .itz-modal__btn--primary:hover {
+      background: #1d4ed8;
+      color: #ffffff;
+    }
+    html[data-theme="dark"] .itz-modal-dialog {
+      background: #1a1f2e;
+      border-color: #3a4560;
+      color: #e6edf7;
+    }
+    html[data-theme="dark"] .itz-modal__title {
+      color: #f8fafc;
+    }
+    html[data-theme="dark"] .itz-modal__body,
+    html[data-theme="dark"] .itz-modal__msg {
+      color: #cbd5e1;
+    }
   `;
   (document.head || document.documentElement).appendChild(style);
 }

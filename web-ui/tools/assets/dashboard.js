@@ -1,6 +1,6 @@
 import { showAdSense } from "../common/adsense.js?v=4";
-import { loadSiteConfig } from "../common/site-config.js?v=3";
-import { TOOLS } from "./tools-registry.js?v=17";
+import { loadSiteConfig } from "../common/site-config.js?v=4";
+import { TOOLS } from "./tools-registry.js?v=18";
 
 const MOBILE_MENU_ONLY_KEY = "itz-mobile-menu-only";
 

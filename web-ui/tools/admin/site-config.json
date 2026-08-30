@@ -5,7 +5,8 @@
     "ico-maker",
     "online-clock",
     "unattend-maker",
-    "json-formatter"
+    "json-formatter",
+    "currency-calculator"
   ],
   "adsense": {
     "enabled": true,

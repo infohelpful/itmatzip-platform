@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js?v=4";
+ *   import { showAdSense } from "../common/adsense.js?v=5";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
@@ -278,6 +278,20 @@ export async function showAdSense(unitKey, container) {
     console.warn(`[adsense] unknown or empty unit: ${unitKey}`);
     markAdSlotEmpty(el);
     return false;
+  }
+
+  // 이미 push 한 슬롯을 다시 넣거나, display:none 인 칸에 요청하면 가이드 위반
+  if (el.querySelector("ins.adsbygoogle")) {
+    return true;
+  }
+  try {
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") {
+      console.info(`[adsense] skip ${unitKey}: container is hidden`);
+      return false;
+    }
+  } catch {
+    /* ignore */
   }
 
   // localhost: Google 광고 스크립트(ss:/ui config 콘솔 스팸) 로드 자체를 생략

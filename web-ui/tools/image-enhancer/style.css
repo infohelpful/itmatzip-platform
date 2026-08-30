@@ -176,7 +176,7 @@ body {
   margin: 0 0 var(--editor-block-gap);
   min-height: var(--itz-ad-height, 90px);
   border-radius: var(--radius);
-  background: #0a0c10;
+  background: var(--bg-control, #0a0c10);
   border: 1px dashed var(--border);
   display: block;
   overflow: hidden;
@@ -255,7 +255,7 @@ body {
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #0f1318;
+  background: var(--bg-control, #0f1318);
   color: var(--text-main);
 }
 
@@ -382,7 +382,7 @@ body {
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #0f1318;
+  background: var(--bg-control, #0f1318);
   color: var(--text-main);
   font-size: 14px;
   font-weight: 500;
@@ -439,7 +439,7 @@ body {
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #0f1318;
+  background: var(--bg-control, #0f1318);
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -465,7 +465,7 @@ body {
 
 .toggle-card.is-disabled:has(input:checked) {
   border-color: var(--border);
-  background: #0f1318;
+  background: var(--bg-control, #0f1318);
   box-shadow: none;
 }
 
@@ -608,7 +608,7 @@ body {
   max-height: min(56vh, 640px);
   border-radius: 10px;
   border: 1px dashed var(--border);
-  background: #0a0d10;
+  background: var(--bg-control, #0a0d10);
   overflow: hidden;
   user-select: none;
   touch-action: none;
@@ -627,7 +627,7 @@ body {
   text-align: center;
   color: var(--text-dim);
   font-size: 14px;
-  background: #0a0d10;
+  background: var(--bg-control, #0a0d10);
 }
 
 .preview-empty.is-error {
@@ -861,7 +861,8 @@ body {
   width: min(420px, 92vw);
   padding: 28px;
   border-radius: var(--radius);
-  background: rgba(21, 26, 34, 0.96);
+  background: var(--panel-bg);
+  color: var(--text-main);
   border: 1px solid var(--border);
   text-align: center;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
@@ -876,7 +877,7 @@ body {
 
 .loading-track {
   height: 8px;
-  background: #0f1318;
+  background: var(--bg-control, #0f1318);
   border-radius: 999px;
   overflow: hidden;
   margin-top: 16px;
@@ -910,3 +911,164 @@ body {
   font-size: 14px;
   color: var(--text-dim);
 }
+
+/* itz-theme-contrast */
+html[data-theme="light"] .option-card label,
+html[data-theme="light"] .option-hint,
+html[data-theme="light"] .path-hint,
+html[data-theme="light"] .range-val,
+html[data-theme="light"] .preset-label,
+html[data-theme="light"] .chips-label,
+html[data-theme="light"] .size-pill {
+  color: #0f172a !important;
+}
+html[data-theme="light"] .chip:not(.active):not(.is-on),
+html[data-theme="light"] .preset-btn:not(.active) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .chip.active {
+  background: var(--accent, #3b82f6) !important;
+  color: #ffffff !important;
+}
+html[data-theme="light"] .path-row input,
+html[data-theme="light"] .option-card input[type="number"],
+html[data-theme="light"] .option-card input[type="text"] {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .btn-pick-file {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .media-summary-panel {
+  background: #f1f5f9;
+}
+html[data-theme="light"] .media-summary-title,
+html[data-theme="light"] .media-summary-hint,
+html[data-theme="light"] .media-summary-item dt,
+html[data-theme="light"] .media-summary-item dd {
+  color: #0f172a;
+}
+html[data-theme="dark"] .chip:not(.active):not(.is-on) {
+  color: #e2e8f0;
+}
+html[data-theme="dark"] .chip.active {
+  color: #ffffff;
+}
+html[data-theme="dark"] .range-val {
+  color: #e2e8f0;
+}
+html[data-theme="dark"] .path-row input,
+html[data-theme="dark"] .option-card input[type="number"],
+html[data-theme="dark"] .option-card input[type="text"] {
+  color: #ffffff;
+}
+
+/* itz-theme-controls */
+html[data-theme="light"] .toggle-card {
+  background: var(--bg-control, #f8fafc) !important;
+  border-color: var(--border, #d8dee8);
+  color: #0f172a;
+}
+html[data-theme="light"] .toggle-card-title,
+html[data-theme="light"] .option-label,
+html[data-theme="light"] .check-label {
+  color: #0f172a !important;
+}
+html[data-theme="light"] .toggle-card-desc,
+html[data-theme="light"] .option-hint,
+html[data-theme="light"] .choice small,
+html[data-theme="light"] .check-line small {
+  color: #475569 !important;
+}
+html[data-theme="light"] .toggle-card:has(input:checked) {
+  background: color-mix(in srgb, var(--accent) 12%, #ffffff) !important;
+  border-color: color-mix(in srgb, var(--accent) 42%, #d8dee8);
+}
+html[data-theme="light"] .toggle-card.is-disabled,
+html[data-theme="light"] .toggle-card.is-disabled:has(input:checked) {
+  opacity: 0.72;
+  background: var(--bg-control-muted, #e8eef4) !important;
+}
+html[data-theme="light"] .toggle-card.is-disabled .toggle-card-title,
+html[data-theme="light"] .toggle-card.is-disabled .toggle-card-desc {
+  color: #64748b !important;
+}
+html[data-theme="light"] .option-select,
+html[data-theme="light"] .option-field select {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .choice,
+html[data-theme="light"] .check-line {
+  background: var(--bg-control, #f8fafc) !important;
+  color: #0f172a;
+}
+html[data-theme="light"] .mode-chip:not(.active):not(.is-on) {
+  background: var(--bg-control, #f8fafc) !important;
+  color: #334155 !important;
+}
+html[data-theme="light"] .mode-chip.active,
+html[data-theme="light"] .mode-chip.is-on {
+  background: var(--accent, #3b82f6) !important;
+  color: #ffffff !important;
+}
+html[data-theme="light"] .size-pill:not(:has(input:checked)) {
+  background: #f8fafc !important;
+  color: #334155 !important;
+}
+html[data-theme="light"] .size-pill:has(input:checked) {
+  background: color-mix(in srgb, var(--accent) 16%, #ffffff) !important;
+  color: #0c4a6e !important;
+}
+html[data-theme="light"] .btn-pick-file:hover:not(:disabled) {
+  background: #e2e8f0 !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .toast {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .preview-dialog {
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .howto code {
+  background: #e8eef4 !important;
+  color: #0f172a !important;
+}
+html[data-theme="light"] .btn-action--download:not(.is-disabled) {
+  color: #0f766e !important;
+}
+html[data-theme="dark"] .toggle-card-title,
+html[data-theme="dark"] .option-label {
+  color: var(--text-main, #e2e8f0);
+}
+html[data-theme="dark"] .toggle-card-desc,
+html[data-theme="dark"] .option-hint,
+html[data-theme="dark"] .choice small,
+html[data-theme="dark"] .check-line small {
+  color: var(--text-subtle, #94a3b8);
+}
+html[data-theme="dark"] .option-select {
+  background: var(--bg-control, #0f1318);
+  color: var(--text-main, #e2e8f0);
+}
+html[data-theme="dark"] .path-row input {
+  background: var(--bg-control, #0f1318);
+  color: var(--text-main, #ffffff);
+}
+html[data-theme="dark"] .mode-chip:not(.active):not(.is-on) {
+  color: #cbd5e1;
+}
+html[data-theme="dark"] .size-pill:has(input:checked) {
+  color: #e0f2fe;
+}
+html[data-theme="light"] .preview-viewport,
+html[data-theme="light"] .preview-empty,
+html[data-theme="light"] .video-frame {
+  background: #eef2f7 !important;
+  color: #334155 !important;
+}
+

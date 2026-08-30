@@ -23,7 +23,7 @@ import {
   setSiteDialogStatus,
   showModalShell,
   showSiteDialog,
-} from "./site-modal.js?v=sm2";
+} from "./site-modal.js?v=sm3";
 
 installGlobals();
 

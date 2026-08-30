@@ -115,7 +115,7 @@ body.as-app .tool-guide {
   max-width: 1288px;
   margin: 0 auto;
   padding: 48px 20px 72px;
-  background: #0a0c10;
+  background: var(--bg-dark, #0a0c10);
 }
 
 .hub-inner > .tool-guide {
