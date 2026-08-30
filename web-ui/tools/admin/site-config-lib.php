@@ -480,18 +480,35 @@ function meta_lang_value(array $meta_langs, $lang, $field) {
   return is_string($v) ? trim($v) : '';
 }
 
+function bundled_og_path($kind, $id) {
+  $name = 'hub';
+  if ($kind === 'tool' && is_string($id) && preg_match('/^[a-z0-9-]+$/', $id)) {
+    $name = $id;
+  }
+  $rel = '/assets/og/' . $name . '.png';
+  $fs = OG_FS_DIR . DIRECTORY_SEPARATOR . $name . '.png';
+  if (is_file($fs)) {
+    return $rel;
+  }
+  if ($name !== 'hub' && is_file(OG_FS_DIR . DIRECTORY_SEPARATOR . 'hub.png')) {
+    return '/assets/og/hub.png';
+  }
+  return DEFAULT_OG_IMAGE;
+}
+
 function resolve_og_path(array $cfg, $kind, $id) {
   if ($kind === 'tool' && $id !== '') {
     $tool = $cfg['tools'][$id] ?? null;
     if (is_array($tool) && !empty($tool['ogImage'])) {
       return $tool['ogImage'];
     }
+    return bundled_og_path('tool', $id);
   }
   $hub = $cfg['hub']['ogImage'] ?? '';
   if (is_string($hub) && $hub !== '') {
     return $hub;
   }
-  return DEFAULT_OG_IMAGE;
+  return bundled_og_path('hub', 'hub');
 }
 
 function page_seo_fields(array $cfg, $kind, $id, $lang) {

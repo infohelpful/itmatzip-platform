@@ -1186,17 +1186,17 @@
     var displayTitle = "";
     if (id === "hub" && cfg.hub) {
       meta = cfg.hub.meta && cfg.hub.meta[currentLang];
-      ogImage = cfg.hub.ogImage || "";
+      ogImage = cfg.hub.ogImage || "/assets/og/hub.png";
     } else if (id.indexOf("legal-") === 0 && cfg.legal) {
       var legalId = id.slice(6);
       if (cfg.legal[legalId] && cfg.legal[legalId].meta) {
         meta = cfg.legal[legalId].meta[currentLang];
       }
-      ogImage = (cfg.hub && cfg.hub.ogImage) || "";
+      ogImage = (cfg.hub && cfg.hub.ogImage) || "/assets/og/hub.png";
     } else if (cfg.tools && cfg.tools[id]) {
       var tool = cfg.tools[id];
       if (tool.meta) meta = tool.meta[currentLang];
-      ogImage = tool.ogImage || (cfg.hub && cfg.hub.ogImage) || "";
+      ogImage = tool.ogImage || ("/assets/og/" + id + ".png");
       displayTitle = adminLangMap(tool.title);
     }
     return {
@@ -1225,7 +1225,15 @@
     setMeta('meta[name="twitter:description"]', "content", description);
     var selfUrl = publicPageUrl(currentLang);
     setMeta('meta[property="og:url"]', "content", selfUrl);
-    var ogImage = admin && admin.ogImage;
+    var ogImage = (admin && admin.ogImage) || (pack && pack.ogImage) || "";
+    if (!ogImage) {
+      var pageId = pageI18nId();
+      if (pageId && pageId.indexOf("legal-") !== 0 && pageId !== "hub") {
+        ogImage = "/assets/og/" + pageId + ".png";
+      } else {
+        ogImage = "/assets/og/hub.png";
+      }
+    }
     if (ogImage) {
       var abs = ogImage.indexOf("http") === 0 ? ogImage : (location.origin || "") + ogImage;
       setMeta('meta[property="og:image"]', "content", abs);

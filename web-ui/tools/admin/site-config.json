@@ -46,7 +46,7 @@
     }
   },
   "hub": {
-    "ogImage": "",
+    "ogImage": "/assets/og/hub.png",
     "meta": {
       "ko": {
         "title": "무음제거·AI자막·누끼·보컬제거 로컬툴 | ItMatZip",
@@ -118,7 +118,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/silence-remover.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -171,7 +171,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/auto-subtitle.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -224,7 +224,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/vocal-remover.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -277,7 +277,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/image-enhancer.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -330,7 +330,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/background-remover.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -383,7 +383,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/create-music.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -436,7 +436,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/magic-eraser.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -489,7 +489,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/voice-changer.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -542,7 +542,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/watermark-remover.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -595,7 +595,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/thumbnail-grabber.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -648,7 +648,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/ico-maker.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -701,7 +701,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/image-combiner.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -754,7 +754,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/online-clock.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -807,7 +807,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/json-formatter.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -860,7 +860,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/currency-calculator.png",
       "adsense": {
         "client": "",
         "units": {}
@@ -913,7 +913,7 @@
           "keywords": ""
         }
       },
-      "ogImage": "",
+      "ogImage": "/assets/og/unattend-maker.png",
       "adsense": {
         "client": "",
         "units": {}
