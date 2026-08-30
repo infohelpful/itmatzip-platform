@@ -74,7 +74,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
-    var href = "common/theme.css?v=17";
+    var href = "common/theme.css?v=18";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -89,13 +89,82 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=17");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=18");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = href;
     (document.head || document.documentElement).appendChild(link);
   })();
+
+  function htmlEscape(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function splitAccentHtml(text) {
+    var raw = String(text || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    var head = "";
+    var tail = raw;
+    var space = raw.lastIndexOf(" ");
+    if (space > 0 && space < raw.length - 1) {
+      head = raw.slice(0, space + 1);
+      tail = raw.slice(space + 1);
+    } else {
+      var camel = raw.match(/^([\x00-\x7F]*?[a-z0-9])([A-Z][A-Za-z0-9]+)$/);
+      if (camel) {
+        head = camel[1];
+        tail = camel[2];
+      }
+    }
+    if (!head) return htmlEscape(raw);
+    return htmlEscape(head) + '<span class="accent">' + htmlEscape(tail) + "</span>";
+  }
+
+  function findBrandTitleEl() {
+    var header =
+      document.querySelector(".app-header") ||
+      document.querySelector(".as-topbar") ||
+      document.querySelector(".hub-header") ||
+      document.querySelector(".itz-legal-shell > header");
+    if (!header) return null;
+    return (
+      header.querySelector(".logo-title-row > h1") ||
+      header.querySelector(".as-topbar-left > .as-logo") ||
+      header.querySelector("h1.as-logo") ||
+      header.querySelector(".header-copy > h1") ||
+      header.querySelector(".hub-title-cluster > .hub-title")
+    );
+  }
+
+  function paintBrandTitle(forcedText) {
+    if (isDownloadPage() || isAdminPath(location.pathname)) return;
+    var pageId = pageI18nId();
+    if (pageId && pageId.indexOf("legal-") === 0) return;
+    var el = findBrandTitleEl();
+    if (!el) return;
+    var cs = window.getComputedStyle(document.documentElement);
+    if (!(cs.getPropertyValue("--accent") || "").trim()) {
+      var asAccent = (cs.getPropertyValue("--as-accent") || "").trim();
+      if (asAccent) document.documentElement.style.setProperty("--accent", asAccent);
+    }
+    var forced = String(forcedText || "").trim();
+    var existing = el.querySelector(".accent, .as-logo-accent");
+    if (!forced && existing) {
+      existing.classList.add("accent");
+      return;
+    }
+    var html = splitAccentHtml(forced || (el.textContent || "").replace(/\s+/g, " ").trim());
+    if (!html) return;
+    if (el.classList.contains("as-logo")) {
+      html = html.replace('class="accent"', 'class="accent as-logo-accent"');
+    }
+    el.innerHTML = html;
+  }
 
   if (readTheme() === "light") {
     var boot = document.createElement("style");
@@ -1274,20 +1343,7 @@
   function applyAdminDisplayTitle() {
     if (isDownloadPage()) return;
     var admin = adminPageMeta();
-    if (!admin || !admin.displayTitle) return;
-    var header =
-      document.querySelector(".app-header") ||
-      document.querySelector(".as-topbar") ||
-      document.querySelector(".hub-header") ||
-      document.querySelector(".itz-legal-shell > header");
-    var titleEl = header
-      ? header.querySelector(".logo-title-row > h1") ||
-        header.querySelector(".as-topbar-left > .as-logo") ||
-        header.querySelector("h1.as-logo") ||
-        header.querySelector(".header-copy > h1") ||
-        header.querySelector(".hub-title-cluster > .hub-title")
-      : null;
-    if (titleEl) fillEl(titleEl, admin.displayTitle);
+    paintBrandTitle(admin && admin.displayTitle);
   }
 
   function fillEl(el, value) {

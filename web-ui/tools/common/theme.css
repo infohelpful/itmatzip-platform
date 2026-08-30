@@ -152,6 +152,28 @@ html[data-theme="light"] body {
   }
 }
 
+.logo-title-row > h1 .accent,
+.hub-title .accent,
+.as-logo .accent,
+.as-logo-accent,
+.header-copy h1 .accent {
+  color: var(--accent, var(--as-accent, #3b82f6));
+  text-shadow:
+    0 1px 0 color-mix(in srgb, var(--accent, var(--as-accent, #3b82f6)) 32%, transparent),
+    0 0 20px color-mix(in srgb, var(--accent, var(--as-accent, #3b82f6)) 38%, transparent);
+}
+
+html[data-theme="light"] .logo-title-row > h1 .accent,
+html[data-theme="light"] .hub-title .accent,
+html[data-theme="light"] .as-logo .accent,
+html[data-theme="light"] .as-logo-accent,
+html[data-theme="light"] .header-copy h1 .accent {
+  color: color-mix(in srgb, var(--accent, var(--as-accent, #2563eb)) 78%, #0f172a);
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7),
+    0 0 16px color-mix(in srgb, var(--accent, var(--as-accent, #2563eb)) 24%, transparent);
+}
+
 .itz-theme-toggle:hover {
   border-color: var(--accent, var(--as-accent, #3b82f6));
 }
