@@ -128,7 +128,12 @@ function updateEstimate() {
 
 function syncOptionUi() {
   bgCustomWrap.hidden = bgModeEl.value !== "custom";
-  qualityRow.hidden = formatEl.value !== "jpg";
+  const jpgOn = formatEl.value === "jpg";
+  qualityRow.classList.toggle("is-disabled", !jpgOn);
+  qualityEl.disabled = !jpgOn;
+  document.querySelectorAll(".fmt-chip").forEach((chip) => {
+    chip.classList.toggle("is-on", chip.dataset.format === formatEl.value);
+  });
   gapVal.textContent = `${gapEl.value}px`;
   qualityVal.textContent = `${qualityEl.value}%`;
   const constrained = isConstrainedDevice();
@@ -428,6 +433,12 @@ function bindUi() {
   bgModeEl.addEventListener("change", syncOptionUi);
   bgCustomEl.addEventListener("input", syncOptionUi);
   formatEl.addEventListener("change", syncOptionUi);
+  document.querySelectorAll(".fmt-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      formatEl.value = chip.dataset.format || "jpg";
+      formatEl.dispatchEvent(new Event("change"));
+    });
+  });
   qualityEl.addEventListener("input", syncOptionUi);
   previewClose.addEventListener("click", closePreview);
   previewModal.addEventListener("click", (event) => {

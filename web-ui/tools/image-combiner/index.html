@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <script src="../common/site-runtime.js?v=36"></script>
+  <script src="../common/site-runtime.js?v=39"></script>
   <title>이미지 세로로 이어붙이기 - Image Combiner | ItMatZip</title>
   <meta name="description" content="여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.">
   <meta name="keywords" content="이미지 이어붙이기, 사진 세로 합치기, 스크린샷 길게, Image Combiner, 영수증 이어붙이기">
@@ -53,7 +53,7 @@
   </script>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="style.css?v=3">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
@@ -64,10 +64,10 @@
       <header class="app-header">
         <span class="eyebrow">ItMatZip</span>
         <div class="logo-title-row">
-          <h1>Image <span class="accent">Combiner</span></h1>
+          <h1>사진 세로로 이어붙이기</h1>
           <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
         </div>
-        <p class="header-tagline" data-i18n="tagline">여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 파일은 이 기기를 떠나지 않습니다.</p>
+        <p class="header-tagline" data-i18n="tagline">여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다.</p>
       </header>
 
       <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
@@ -98,49 +98,74 @@
         <p class="composer-hint" data-i18n="listHint">↕ 를 잡고 위아래로 옮기거나 ▲ ▼ 로 한 칸씩 이동합니다.</p>
       </section>
 
-      <section class="composer" aria-label="이어붙이기 옵션" data-i18n-aria="ariaOpts">
-        <label class="composer-label" for="width-mode" data-i18n="widthLabel">기준 가로폭</label>
-        <select id="width-mode" class="opt-select">
-          <option value="max" data-i18n="widthMax">원본 중 가장 넓은 너비에 맞춤</option>
-          <option value="min" data-i18n="widthMin">원본 중 가장 좁은 너비에 맞춤</option>
-          <option value="720">720px</option>
-          <option value="1080">1080px</option>
-          <option value="1440">1440px</option>
-          <option value="original" data-i18n="widthOriginal">원본 너비 유지</option>
-        </select>
+      <section class="composer opts-panel" aria-label="이어붙이기 옵션" data-i18n-aria="ariaOpts">
+        <header class="opts-head">
+          <p class="opts-kicker" data-i18n="optsKicker">출력</p>
+          <h2 class="opts-title" data-i18n="optsTitle">이어붙이기 설정</h2>
+          <p class="opts-sub" data-i18n="optsSub">가로폭과 간격, 배경을 맞춘 뒤 저장할 때 한 장으로 붙입니다.</p>
+        </header>
 
-        <label class="composer-label range-label" for="gap-range" data-i18n="gapLabel">이미지 사이 간격</label>
-        <div class="range-row">
-          <input type="range" id="gap-range" min="0" max="50" value="0" step="1">
-          <span id="gap-value" class="range-val">0px</span>
+        <div class="opts-grid">
+          <article class="opt-card">
+            <label class="opt-label" for="width-mode" data-i18n="widthLabel">기준 가로폭</label>
+            <select id="width-mode" class="opt-select">
+              <option value="max" data-i18n="widthMax">원본 중 가장 넓은 너비에 맞춤</option>
+              <option value="min" data-i18n="widthMin">원본 중 가장 좁은 너비에 맞춤</option>
+              <option value="720">720px</option>
+              <option value="1080">1080px</option>
+              <option value="1440">1440px</option>
+              <option value="original" data-i18n="widthOriginal">원본 너비 유지</option>
+            </select>
+          </article>
+
+          <article class="opt-card">
+            <div class="opt-label-row">
+              <label class="opt-label" for="gap-range" data-i18n="gapLabel">이미지 사이 간격</label>
+              <span id="gap-value" class="range-val">0px</span>
+            </div>
+            <div class="range-row">
+              <input type="range" id="gap-range" min="0" max="50" value="0" step="1">
+            </div>
+          </article>
+
+          <article class="opt-card">
+            <label class="opt-label" for="bg-mode" data-i18n="bgLabel">배경색</label>
+            <div class="bg-row">
+              <select id="bg-mode" class="opt-select">
+                <option value="transparent" data-i18n="bgTransparent">투명 (PNG)</option>
+                <option value="#ffffff" data-i18n="bgWhite">흰색</option>
+                <option value="#000000" data-i18n="bgBlack">검은색</option>
+                <option value="custom" data-i18n="bgCustom">직접 선택</option>
+              </select>
+              <span id="bg-custom-wrap" hidden>
+                <input type="color" id="bg-custom" value="#ffffff" aria-label="배경색">
+              </span>
+            </div>
+          </article>
+
+          <article class="opt-card">
+            <span class="opt-label" id="format-label" data-i18n="formatLabel">출력 포맷</span>
+            <div class="fmt-seg" role="group" aria-labelledby="format-label">
+              <button type="button" class="fmt-chip is-on" data-format="jpg">JPG</button>
+              <button type="button" class="fmt-chip" data-format="png">PNG</button>
+            </div>
+            <select id="out-format" class="opt-select vis-hide" tabindex="-1" aria-hidden="true">
+              <option value="jpg" selected>JPG</option>
+              <option value="png">PNG</option>
+            </select>
+          </article>
+
+          <article class="opt-card opt-card--wide" id="quality-row">
+            <div class="opt-label-row">
+              <label class="opt-label" for="jpg-quality" data-i18n="qualityLabel">JPG 품질</label>
+              <span id="quality-value" class="range-val">95%</span>
+            </div>
+            <div class="range-row">
+              <input type="range" id="jpg-quality" min="80" max="100" value="95" step="1">
+            </div>
+          </article>
         </div>
 
-        <label class="composer-label" for="bg-mode" data-i18n="bgLabel">배경색</label>
-        <div class="bg-row">
-          <select id="bg-mode" class="opt-select">
-            <option value="transparent" data-i18n="bgTransparent">투명 (PNG)</option>
-            <option value="#ffffff" data-i18n="bgWhite">흰색</option>
-            <option value="#000000" data-i18n="bgBlack">검은색</option>
-            <option value="custom" data-i18n="bgCustom">직접 선택</option>
-          </select>
-          <span id="bg-custom-wrap" hidden>
-            <input type="color" id="bg-custom" value="#ffffff" aria-label="배경색">
-          </span>
-        </div>
-
-        <label class="composer-label" for="out-format" data-i18n="formatLabel">출력 포맷</label>
-        <select id="out-format" class="opt-select">
-          <option value="jpg" selected>JPG</option>
-          <option value="png">PNG</option>
-        </select>
-
-        <div id="quality-row">
-          <label class="composer-label range-label" for="jpg-quality" data-i18n="qualityLabel">JPG 품질</label>
-          <div class="range-row">
-            <input type="range" id="jpg-quality" min="80" max="100" value="95" step="1">
-            <span id="quality-value" class="range-val">95%</span>
-          </div>
-        </div>
         <p class="estimate-line" id="estimate-line"></p>
       </section>
 
@@ -164,7 +189,7 @@
       <section class="tool-guide" aria-label="Image Combiner 안내">
         <p class="tool-guide-kicker">Image Combiner</p>
         <h2>스크린샷·영수증을 세로로 이어붙이는 방법</h2>
-        <p class="tool-guide-lead">Image Combiner는 여러 장의 사진을 위에서 아래로 붙여 한 장의 긴 이미지로 저장합니다. 서버로 파일이 올라가지 않고, 이 브라우저 안에서만 이어붙입니다.</p>
+        <p class="tool-guide-lead">사진 세로로 이어붙이기는 여러 장의 사진을 위에서 아래로 붙여 한 장의 긴 이미지로 저장합니다. 서버로 파일이 올라가지 않고, 이 브라우저 안에서만 이어붙입니다.</p>
         <h3>이 도구가 하는 일</h3>
         <p>채팅 캡처, 영수증, 웹툰처럼 잘린 화면을 한 장으로 모읍니다. 가로폭을 맞추고 간격을 넣은 뒤 JPG 또는 PNG로 받습니다. 미리보기는 썸네일을 쌓아 보여 주고, 실제 합성은 저장을 누를 때만 해서 모바일에서 화면이 하얘지는 일을 줄입니다.</p>
         <h3>작업 과정</h3>
@@ -211,6 +236,6 @@
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <script src="../common/site-guard.js?v=12"></script>
   <script src="../silence-remover/mobile-only.js?v=9"></script>
-  <script type="module" src="script.js?v=2"></script>
+  <script type="module" src="script.js?v=4"></script>
 </body>
 </html>
