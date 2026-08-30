@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="image-combiner">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <script src="../common/site-runtime.js?v=36"></script>
+  <title>이미지 세로로 이어붙이기 - Image Combiner | ItMatZip</title>
+  <meta name="description" content="여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.">
+  <meta name="keywords" content="이미지 이어붙이기, 사진 세로 합치기, 스크린샷 길게, Image Combiner, 영수증 이어붙이기">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/image-combiner/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="이미지 세로로 이어붙이기 - Image Combiner | ItMatZip">
+  <meta property="og:description" content="여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/image-combiner/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ItMatZip Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="이미지 세로로 이어붙이기 - Image Combiner | ItMatZip">
+  <meta name="twitter:description" content="여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og-image.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "Image Combiner",
+      "alternateName": "이미지 세로로 이어붙이기",
+      "url": "https://tools.itmatzip.com/image-combiner/",
+      "description": "여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Any",
+      "inLanguage": "ko",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "Image Combiner", "item": "https://tools.itmatzip.com/image-combiner/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=1">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <span class="eyebrow">ItMatZip</span>
+        <div class="logo-title-row">
+          <h1>Image <span class="accent">Combiner</span></h1>
+          <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
+        </div>
+        <p class="header-tagline" data-i18n="tagline">여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 파일은 이 기기를 떠나지 않습니다.</p>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <section class="composer" aria-label="이미지 업로드" data-i18n-aria="ariaUpload">
+        <label class="composer-label" for="file-input" data-i18n="fileLabel">이미지 파일</label>
+        <p class="composer-hint" data-i18n="fileHint">JPG · PNG · WebP · GIF. EXIF 회전을 지원하는 브라우저에서는 방향을 맞춥니다. HEIC는 열리지 않을 수 있습니다. 1회 10~20장을 권장합니다.</p>
+        <div class="dropzone" id="dropzone">
+          <input
+            type="file"
+            id="file-input"
+            accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif"
+            multiple
+          >
+          <p class="dropzone-title" data-i18n="dropTitle">여기로 이미지를 놓거나 눌러서 여러 장 선택</p>
+          <p class="dropzone-sub" data-i18n="dropSub">순서는 올린 뒤 드래그 또는 위·아래 버튼으로 바꿀 수 있습니다</p>
+        </div>
+        <p class="composer-status" id="composer-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="composer" id="image-list" hidden aria-label="업로드 목록" data-i18n-aria="ariaList">
+        <div class="list-head">
+          <span class="composer-label" data-i18n="listLabel">순서</span>
+          <p id="list-meta" class="list-meta"></p>
+          <button type="button" id="btn-clear" class="btn-ghost" data-i18n="clear">전체 삭제</button>
+        </div>
+        <div class="card-list" id="card-list" role="list"></div>
+        <p class="composer-hint" data-i18n="listHint">↕ 를 잡고 위아래로 옮기거나 ▲ ▼ 로 한 칸씩 이동합니다.</p>
+      </section>
+
+      <section class="composer" aria-label="이어붙이기 옵션" data-i18n-aria="ariaOpts">
+        <label class="composer-label" for="width-mode" data-i18n="widthLabel">기준 가로폭</label>
+        <select id="width-mode" class="opt-select">
+          <option value="max" data-i18n="widthMax">원본 중 가장 넓은 너비에 맞춤</option>
+          <option value="min" data-i18n="widthMin">원본 중 가장 좁은 너비에 맞춤</option>
+          <option value="720">720px</option>
+          <option value="1080">1080px</option>
+          <option value="1440">1440px</option>
+          <option value="original" data-i18n="widthOriginal">원본 너비 유지</option>
+        </select>
+
+        <label class="composer-label range-label" for="gap-range" data-i18n="gapLabel">이미지 사이 간격</label>
+        <div class="range-row">
+          <input type="range" id="gap-range" min="0" max="50" value="0" step="1">
+          <span id="gap-value" class="range-val">0px</span>
+        </div>
+
+        <label class="composer-label" for="bg-mode" data-i18n="bgLabel">배경색</label>
+        <div class="bg-row">
+          <select id="bg-mode" class="opt-select">
+            <option value="transparent" data-i18n="bgTransparent">투명 (PNG)</option>
+            <option value="#ffffff" data-i18n="bgWhite">흰색</option>
+            <option value="#000000" data-i18n="bgBlack">검은색</option>
+            <option value="custom" data-i18n="bgCustom">직접 선택</option>
+          </select>
+          <span id="bg-custom-wrap" hidden>
+            <input type="color" id="bg-custom" value="#ffffff" aria-label="배경색">
+          </span>
+        </div>
+
+        <label class="composer-label" for="out-format" data-i18n="formatLabel">출력 포맷</label>
+        <select id="out-format" class="opt-select">
+          <option value="jpg" selected>JPG</option>
+          <option value="png">PNG</option>
+        </select>
+
+        <div id="quality-row">
+          <label class="composer-label range-label" for="jpg-quality" data-i18n="qualityLabel">JPG 품질</label>
+          <div class="range-row">
+            <input type="range" id="jpg-quality" min="80" max="100" value="95" step="1">
+            <span id="quality-value" class="range-val">95%</span>
+          </div>
+        </div>
+        <p class="estimate-line" id="estimate-line"></p>
+      </section>
+
+      <section class="stage" id="stage" aria-label="미리보기" data-i18n-aria="ariaPreview">
+        <div class="stage-empty" id="stage-empty">
+          <div class="stage-frame" aria-hidden="true"></div>
+          <p data-i18n="stageEmpty">이미지를 올리면 세로로 쌓인 미리보기가 표시됩니다. 합치는 작업은 저장을 누를 때만 합니다.</p>
+        </div>
+        <div id="stage-ready" hidden>
+          <p class="preview-caption" data-i18n="previewCaption">미리보기 (실제 합성은 저장 시)</p>
+          <div class="preview-stack" id="preview-stack"></div>
+          <div class="hero-actions">
+            <button type="button" id="btn-download" class="btn-primary btn-wide" data-i18n="download">세로로 합쳐서 다운로드</button>
+            <button type="button" id="btn-share" class="btn-ghost" hidden data-i18n="share">공유</button>
+          </div>
+          <p class="download-note" data-i18n="downloadNote">모바일에서 파일이 안 받아지면 미리보기에서 이미지를 길게 눌러 사진 앱에 저장하세요.</p>
+        </div>
+      </section>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="Image Combiner 안내">
+        <p class="tool-guide-kicker">Image Combiner</p>
+        <h2>스크린샷·영수증을 세로로 이어붙이는 방법</h2>
+        <p class="tool-guide-lead">Image Combiner는 여러 장의 사진을 위에서 아래로 붙여 한 장의 긴 이미지로 저장합니다. 서버로 파일이 올라가지 않고, 이 브라우저 안에서만 이어붙입니다.</p>
+        <h3>이 도구가 하는 일</h3>
+        <p>채팅 캡처, 영수증, 웹툰처럼 잘린 화면을 한 장으로 모읍니다. 가로폭을 맞추고 간격을 넣은 뒤 JPG 또는 PNG로 받습니다. 미리보기는 썸네일을 쌓아 보여 주고, 실제 합성은 저장을 누를 때만 해서 모바일에서 화면이 하얘지는 일을 줄입니다.</p>
+        <h3>작업 과정</h3>
+        <ol>
+          <li><strong>이미지 올리기.</strong> 한 번에 여러 장을 고르거나 끌어다 놓습니다. 10~20장 안쪽이 가장 안정적입니다.</li>
+          <li><strong>순서 맞추기.</strong> 카드를 위아래로 옮기거나 ▲ ▼ 로 한 칸씩 바꿉니다.</li>
+          <li><strong>폭·간격·배경.</strong> 가장 넓은 원본, 1080px 등 가로를 고르고 사이 여백과 배경색을 정합니다.</li>
+          <li><strong>저장.</strong> 세로로 합쳐서 다운로드합니다. 휴대폰에서는 미리보기를 길게 눌러 앨범에 넣을 수 있습니다.</li>
+        </ol>
+        <h3>이미지 화질 및 용량</h3>
+        <ul>
+          <li><strong>긴 결과는 JPG가 가볍습니다.</strong> 투명 배경이 필요할 때만 PNG를 고르세요.</li>
+          <li><strong>휴대폰은 가로를 자동으로 줄일 수 있습니다.</strong> 너무 긴 한 장은 브라우저 메모리 한도를 넘기기 쉽습니다.</li>
+          <li><strong>GIF는 첫 장면만 붙습니다.</strong> 움직이는 프레임은 유지되지 않습니다.</li>
+        </ul>
+        <p class="tool-guide-note">개인정보: 선택한 이미지는 이 기기 브라우저에서만 읽고, ItMatZip 서버로 전송되지 않습니다. 작업이 끝나면 페이지를 닫으면 메모리에서 사라집니다.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" hidden role="status" aria-live="polite"></div>
+
+  <div id="preview-modal" class="preview-modal" hidden>
+    <div class="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-modal-title">
+      <h2 id="preview-modal-title" data-i18n="previewModalTitle">결과 미리보기</h2>
+      <p class="preview-modal-hint" data-i18n="previewModalHint">이미지를 길게 눌러 사진 앱에 저장할 수 있습니다.</p>
+      <img id="preview-modal-img" alt="이어붙인 결과">
+      <div class="preview-modal-actions">
+        <button type="button" id="preview-modal-save" class="btn-primary" data-i18n="download">다운로드</button>
+        <button type="button" id="preview-modal-share" class="btn-ghost" data-i18n="share">공유</button>
+        <button type="button" id="preview-modal-close" class="btn-ghost" data-i18n="close">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">ItMatZip Tools는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=12"></script>
+  <script src="../silence-remover/mobile-only.js?v=9"></script>
+  <script type="module" src="script.js?v=2"></script>
+</body>
+</html>

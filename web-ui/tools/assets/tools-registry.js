@@ -158,6 +158,19 @@ export const TOOLS = [
     tags: ["ico", "아이콘", "png", "favicon", "윈도우", "icon", "변환"],
   },
   {
+    id: "image-combiner",
+    href: "image-combiner/",
+    title: "Image Combiner",
+    subtitle: "사진 세로로 이어붙이기",
+    description:
+      "여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.",
+    icon: "📑",
+    accent: "#10b981",
+    available: true,
+    badge: "NEW",
+    tags: ["이어붙이기", "세로", "합치기", "스크린샷", "영수증", "stitch", "combiner", "long screenshot"],
+  },
+  {
     id: "online-clock",
     href: "online-clock/",
     title: "온라인 시계",

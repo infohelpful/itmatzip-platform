@@ -76,6 +76,7 @@ ALLOWED_TOOL_IDS = frozenset(
         "watermark-remover",
         "thumbnail-grabber",
         "ico-maker",
+        "image-combiner",
         "unattend-maker",
         "online-clock",
         "json-formatter",
@@ -94,6 +95,7 @@ ALLOWED_TOOL_ID_ORDER = (
     "watermark-remover",
     "thumbnail-grabber",
     "ico-maker",
+    "image-combiner",
     "unattend-maker",
     "online-clock",
     "json-formatter",
@@ -170,6 +172,7 @@ def default_mobile_enabled_tool_ids() -> list:
         [
             "thumbnail-grabber",
             "ico-maker",
+            "image-combiner",
             "online-clock",
             "unattend-maker",
             "json-formatter",

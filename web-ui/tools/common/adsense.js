@@ -6,7 +6,7 @@
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
-import { loadSiteConfig } from "./site-config.js?v=6";
+import { loadSiteConfig } from "./site-config.js?v=7";
 
 /** @type {string} */
 let _client = "ca-pub-2088466558007407";

@@ -22,6 +22,7 @@ const ALLOWED_TOOL_IDS = array(
   'watermark-remover',
   'thumbnail-grabber',
   'ico-maker',
+  'image-combiner',
   'unattend-maker',
   'online-clock',
   'json-formatter',
@@ -151,6 +152,7 @@ function default_mobile_enabled_tool_ids() {
   return parse_tool_id_list(array(
     'thumbnail-grabber',
     'ico-maker',
+    'image-combiner',
     'online-clock',
     'unattend-maker',
     'json-formatter',

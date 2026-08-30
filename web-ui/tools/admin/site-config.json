@@ -3,6 +3,7 @@
   "mobileEnabledToolIds": [
     "thumbnail-grabber",
     "ico-maker",
+    "image-combiner",
     "online-clock",
     "unattend-maker",
     "json-formatter",
@@ -624,6 +625,59 @@
         "en": "",
         "ja": "",
         "zh": ""
+      },
+      "meta": {
+        "ko": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "en": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "ja": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        },
+        "zh": {
+          "title": "",
+          "description": "",
+          "keywords": ""
+        }
+      },
+      "ogImage": "",
+      "adsense": {
+        "client": "",
+        "units": {}
+      }
+    },
+    "image-combiner": {
+      "title": {
+        "ko": "Image Combiner",
+        "en": "Image Combiner",
+        "ja": "Image Combiner",
+        "zh": "Image Combiner"
+      },
+      "subtitle": {
+        "ko": "사진 세로로 이어붙이기",
+        "en": "Vertical photo stitch",
+        "ja": "写真を縦につなぐ",
+        "zh": "照片纵向拼接"
+      },
+      "description": {
+        "ko": "여러 장의 사진을 세로로 이어붙여 한 장으로 저장합니다. 서버 업로드 없이 브라우저에서만 처리됩니다.",
+        "en": "Stack photos top to bottom into one long image. Files stay in this browser—nothing is uploaded.",
+        "ja": "複数の写真を上から下へつなぎ、1枚の長い画像として保存します。サーバーへは上げません。",
+        "zh": "把多张照片从上到下拼成一张长图保存。文件只在浏览器处理，不会上传。"
+      },
+      "badge": {
+        "ko": "NEW",
+        "en": "NEW",
+        "ja": "NEW",
+        "zh": "NEW"
       },
       "meta": {
         "ko": {

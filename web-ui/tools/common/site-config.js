@@ -41,6 +41,7 @@ export const DEFAULT_SITE_CONFIG = {
   mobileEnabledToolIds: [
     "thumbnail-grabber",
     "ico-maker",
+    "image-combiner",
     "online-clock",
     "unattend-maker",
     "json-formatter",
