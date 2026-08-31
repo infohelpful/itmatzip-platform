@@ -395,6 +395,19 @@ function merge_default_tool_display(array $tools, array $defaults, $raw_tools = 
   return $tools;
 }
 
+function apply_hub_description_limits(array $cfg, array $defaults) {
+  $fb = $defaults['hub']['meta']['ko']['description'] ?? '';
+  if (!is_string($fb) || trim($fb) === '') {
+    return $cfg;
+  }
+  $cur = $cfg['hub']['meta']['ko']['description'] ?? '';
+  $len = function_exists('mb_strlen') ? mb_strlen((string) $cur, 'UTF-8') : strlen((string) $cur);
+  if ($len > 80) {
+    $cfg['hub']['meta']['ko']['description'] = itz_clip($fb, 80);
+  }
+  return $cfg;
+}
+
 function public_config() {
   $runtime = read_json_file(RUNTIME_CONFIG_FILE);
   $base = default_config();
@@ -413,6 +426,7 @@ function public_config() {
     ? $runtime['tools']
     : null;
   $cfg['tools'] = merge_default_tool_display($cfg['tools'], normalize_config($base), $raw_tools);
+  $cfg = apply_hub_description_limits($cfg, $base);
   return $cfg;
 }
 

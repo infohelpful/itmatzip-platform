@@ -415,6 +415,22 @@ def merge_default_tool_display(tools, defaults, raw_tools=None):
     return out
 
 
+def apply_hub_description_limits(cfg, defaults):
+    try:
+        fb = defaults["hub"]["meta"]["ko"]["description"]
+    except (KeyError, TypeError):
+        return cfg
+    if not isinstance(fb, str) or not fb.strip():
+        return cfg
+    try:
+        cur = cfg["hub"]["meta"]["ko"]["description"]
+    except (KeyError, TypeError):
+        cur = ""
+    if isinstance(cur, str) and len(cur) > 80:
+        cfg["hub"]["meta"]["ko"]["description"] = fb.strip()[:80]
+    return cfg
+
+
 def public_config() -> dict:
     runtime = _read_json(RUNTIME_CONFIG)
     base = default_config()
@@ -429,6 +445,7 @@ def public_config() -> dict:
     else:
         cfg = normalize_config(base)
     cfg["tools"] = merge_default_tool_display(cfg.get("tools") or {}, normalize_config(base), raw_tools)
+    cfg = apply_hub_description_limits(cfg, base)
     return cfg
 
 
