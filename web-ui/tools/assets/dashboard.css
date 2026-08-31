@@ -24,7 +24,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text-main);
-  font-family: "Pretendard", system-ui, sans-serif;
+  font-family: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   background-color: var(--bg-dark);
   background-image:
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(59, 130, 246, 0.12), transparent),
@@ -245,6 +245,14 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 18px;
+  contain: layout;
+}
+
+.hub-card-skel {
+  min-height: 200px;
+  pointer-events: none;
+  opacity: 0.45;
+  background: var(--panel-bg);
 }
 
 .hub-card {

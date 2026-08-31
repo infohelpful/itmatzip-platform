@@ -3,7 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="common/site-runtime.js?v=42"></script>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("itz-theme") === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", t);
+        document.documentElement.style.colorScheme = t;
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="common/theme.css?v=19">
+  <script src="common/site-runtime.js?v=43" defer></script>
   <title>ItMatZip Tools - 영상·오디오·이미지 로컬 웹 도구</title>
   <meta name="description" content="브라우저에서 바로 쓰는 무료 웹 도구. 무음 제거, 이미지 작업까지 IT맛집 툴즈.">
   <meta name="keywords" content="영상 편집, 무음 제거, 보컬 제거, 배경제거, 로컬 웹툴, ItMatZip">
@@ -41,10 +51,19 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <link rel="icon" type="image/x-icon" sizes="16x16" href="favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="favicon-32x32.ico">
-  <link rel="stylesheet" href="assets/dashboard.css?v=11">
+  <link rel="stylesheet" href="assets/dashboard.css?v=12">
   <link rel="stylesheet" href="silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="common/tool-guide.css?v=7">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="preload" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    media="print"
+    onload="this.media='all'"
+  >
+  <noscript>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  </noscript>
 </head>
 <body>
   <div class="hub-shell">
@@ -89,7 +108,20 @@
 
         <div class="hub-ad-banner" id="hub-ad-banner" aria-label="광고"></div>
 
-        <div class="hub-grid" id="hub-tool-grid" role="list"></div>
+        <div class="hub-grid" id="hub-tool-grid" role="list">
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+          <article class="hub-card hub-card-skel" aria-hidden="true"></article>
+        </div>
 
         <section class="tool-guide" aria-label="ItMatZip Tools 안내">
           <p class="tool-guide-kicker">Workspace</p>
@@ -126,8 +158,8 @@
   </div>
 
   <script type="module" src="common/site-modal-boot.js?v=4"></script>
-  <script src="common/site-guard.js?v=12"></script>
+  <script src="common/site-guard.js?v=13"></script>
   <script src="silence-remover/mobile-only.js?v=9"></script>
-  <script type="module" src="assets/dashboard.js?v=29"></script>
+  <script type="module" src="assets/dashboard.js?v=30"></script>
 </body>
 </html>

@@ -74,6 +74,7 @@
   applyTheme(readTheme());
 
   (function injectThemeCss() {
+    if (document.querySelector('link[href*="theme.css"]')) return;
     var href = "common/theme.css?v=19";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
