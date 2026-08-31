@@ -6,6 +6,9 @@ declare(strict_types=1);
  * assets/tools-registry.js 의 TOOLS 배열을 읽어 공개 도구 URL을 자동 반영합니다.
  */
 
+error_reporting(0);
+ini_set('display_errors', '0');
+
 header('Content-Type: application/xml; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: public, max-age=600');

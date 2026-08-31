@@ -12,6 +12,7 @@
   RewriteRule ^watermark-remover(/.*)?$ /kr/fixed-area-remover$1 [R=301,L]
 
   RewriteRule ^sitemap\.xml$ sitemap.php [L]
+  RewriteRule ^(kr|en|ja|zh)/sitemap\.xml$ /sitemap.php [L]
   RewriteRule ^seo-serve\.php$ - [L]
 
   # 관리자 경로는 언어 prefix 없음
@@ -46,6 +47,7 @@
   RewriteCond %{REQUEST_URI} !^/admin [NC]
   RewriteCond %{REQUEST_URI} !^/(common|assets)/ [NC]
   RewriteCond %{REQUEST_URI} !^/sitemap\.(xml|php)$ [NC]
+  RewriteCond %{REQUEST_URI} !^/(kr|en|ja|zh)/sitemap\.xml$ [NC]
   RewriteCond %{REQUEST_URI} !\.(css|js|mjs|map|png|jpe?g|gif|webp|svg|ico|woff2?|json|txt|xml|php|webmanifest)$ [NC]
   RewriteRule ^(.*)$ /kr/$1 [R=301,L]
 
