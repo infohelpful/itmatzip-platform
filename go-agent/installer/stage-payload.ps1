@@ -318,6 +318,11 @@ function Copy-ToolsWebUI {
         if ($LASTEXITCODE -ge 8) { throw "robocopy watermark-remover failed: $LASTEXITCODE" }
     }
 
+    if (Test-Path (Join-Path $toolsSrc "audio-join\index.html")) {
+        robocopy (Join-Path $toolsSrc "audio-join") (Join-Path $TargetDir "audio-join") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy audio-join failed: $LASTEXITCODE" }
+    }
+
     if (Test-Path (Join-Path $toolsSrc "assets")) {
         robocopy (Join-Path $toolsSrc "assets") (Join-Path $TargetDir "assets") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "robocopy assets failed: $LASTEXITCODE" }

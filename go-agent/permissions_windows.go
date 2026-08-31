@@ -89,6 +89,9 @@ func ensureRuntimeSitePackagesDir() {
 		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "workspace"))
 		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "source-cache"))
 		ensureDirWritable(filepath.Join(watermarkRemoverRoot, "wheels-cache"))
+		audioJoinRoot := filepath.Join(appData, "ItMatZip", "audio-join")
+		ensureDirWritable(audioJoinRoot)
+		ensureDirWritable(filepath.Join(audioJoinRoot, "workspace"))
 	}
 
 	if settingsRootPath != "" {

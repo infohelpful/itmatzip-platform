@@ -56,6 +56,19 @@ export const TOOLS = [
     tags: ["보컬", "vocal", "mr", "분리", "audio", "demucs", "ai"],
   },
   {
+    id: "audio-join",
+    href: "audio-join/",
+    title: "AudioJoin",
+    subtitle: "음원 이어붙이기 · 페이드",
+    description:
+      "로컬 음원을 순서대로 이어 붙입니다. 곡이 끝날 때 페이드아웃, 다음 곡 페이드인을 넣을 수 있습니다. 파일은 PC에서만 처리됩니다.",
+    icon: "🎧",
+    accent: "#fb7185",
+    available: true,
+    badge: "NEW",
+    tags: ["이어붙이기", "합치기", "merge", "join", "페이드", "mp3", "flac", "ogg", "wav", "playlist"],
+  },
+  {
     id: "image-enhancer",
     href: "image-enhancer/",
     title: "Image Enhancer",

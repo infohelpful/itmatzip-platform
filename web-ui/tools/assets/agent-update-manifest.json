@@ -1,11 +1,11 @@
 {
-    "version":  "1.5.15",
-    "published_at":  "2026-08-23",
+    "version":  "1.5.16",
+    "published_at":  "2026-08-31",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.15/itmatzip-agent.msi",
-    "sha256":  "72789d4e21f47f26ea57575a8dcb57c72d0ba28cb4d9c824ef7ba232d8865536",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.16/itmatzip-agent.msi",
+    "sha256":  "0f4c937950ba3135afc5beac77359d76d791fbafe07be4c8bcc35fecd191ba5a",
     "mandatory":  false,
-    "release_notes":  "Create Anime, Moving Image 툴 제거",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.15/itmatzip-agent.msi",
-    "msi_sha256":  "72789d4e21f47f26ea57575a8dcb57c72d0ba28cb4d9c824ef7ba232d8865536"
+    "release_notes":  "AudioJoin: 트랙별 볼륨, 앞뒤 무음 자르기, 한 파일 구간 추출",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.5.16/itmatzip-agent.msi",
+    "msi_sha256":  "0f4c937950ba3135afc5beac77359d76d791fbafe07be4c8bcc35fecd191ba5a"
 }

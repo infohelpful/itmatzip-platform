@@ -14,6 +14,7 @@ const ALLOWED_TOOL_IDS = array(
   'silence-remover',
   'auto-subtitle',
   'vocal-remover',
+  'audio-join',
   'image-enhancer',
   'background-remover',
   'create-music',

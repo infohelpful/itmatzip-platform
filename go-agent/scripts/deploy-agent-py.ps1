@@ -55,7 +55,9 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "routers\magic_eraser.py"; Dst = Join-Path $AgentDst "routers\magic_eraser.py" },
     @{ Src = Join-Path $AgentSrc "routers\voice_changer.py"; Dst = Join-Path $AgentDst "routers\voice_changer.py" },
     @{ Src = Join-Path $AgentSrc "routers\watermark_remover.py"; Dst = Join-Path $AgentDst "routers\watermark_remover.py" },
-    @{ Src = Join-Path $AgentSrc "routers\create_music.py"; Dst = Join-Path $AgentDst "routers\create_music.py" }
+    @{ Src = Join-Path $AgentSrc "routers\create_music.py"; Dst = Join-Path $AgentDst "routers\create_music.py" },
+    @{ Src = Join-Path $AgentSrc "engines\audio_join.py"; Dst = Join-Path $AgentDst "engines\audio_join.py" },
+    @{ Src = Join-Path $AgentSrc "routers\audio_join.py"; Dst = Join-Path $AgentDst "routers\audio_join.py" }
 )
 
 foreach ($f in $files) {

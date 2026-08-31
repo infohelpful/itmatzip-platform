@@ -9,6 +9,7 @@
     "magic-eraser",
     "voice-changer",
     "watermark-remover",
+    "audio-join",
     "thumbnail-grabber",
     "ico-maker",
     "image-combiner",

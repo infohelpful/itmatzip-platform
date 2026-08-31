@@ -1,4 +1,4 @@
-import { TOOLS } from "../assets/tools-registry.js?v=20";
+import { TOOLS } from "../assets/tools-registry.js?v=21";
 import { DEFAULT_SITE_CONFIG, mergeSiteConfig, SITE_LANGS } from "../common/site-config.js?v=7";
 
 const API_URL = "/admin/api.php";
@@ -59,7 +59,7 @@ function loadHubCatalog() {
       },
     };
     const s = document.createElement("script");
-    s.src = "../common/i18n/hub.js?v=16";
+    s.src = "../common/i18n/hub.js?v=20";
     s.onload = () => {
       hubReady = true;
       resolve();

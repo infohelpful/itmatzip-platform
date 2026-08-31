@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="audio-join">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <script src="../common/site-runtime.js?v=46"></script>
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>음원 이어붙이기 - AudioJoin | ItMatZip</title>
+  <meta name="description" content="로컬 음원을 순서대로 이어 붙입니다. 곡이 끝날 때 페이드아웃, 다음 곡 페이드인을 넣을 수 있습니다. 파일은 PC에서만 처리됩니다.">
+  <meta name="keywords" content="음원 합치기, 오디오 이어붙이기, MP3 합치기, 페이드인 페이드아웃, AudioJoin">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/audio-join/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="음원 이어붙이기 - AudioJoin | ItMatZip">
+  <meta property="og:description" content="로컬 음원을 순서대로 이어 붙입니다. 곡이 끝날 때 페이드아웃, 다음 곡 페이드인을 넣을 수 있습니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/audio-join/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og/audio-join.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ItMatZip Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="음원 이어붙이기 - AudioJoin | ItMatZip">
+  <meta name="twitter:description" content="로컬 음원을 순서대로 이어 붙입니다. 곡이 끝날 때 페이드아웃, 다음 곡 페이드인을 넣을 수 있습니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og/audio-join.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "AudioJoin",
+      "alternateName": "음원 이어붙이기",
+      "url": "https://tools.itmatzip.com/audio-join/",
+      "description": "로컬 음원을 순서대로 이어 붙입니다. 페이드인·페이드아웃을 넣을 수 있습니다.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Windows",
+      "inLanguage": "ko",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "AudioJoin", "item": "https://tools.itmatzip.com/audio-join/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+</head>
+<body>
+  <div class="app-container">
+    <main class="main-content">
+      <header class="app-header">
+        <span class="eyebrow">ItMatZip</span>
+        <div class="logo-title-row">
+          <h1>Audio<span class="accent">Join</span></h1>
+          <a href="../index.html" class="btn-to-dashboard" data-i18n="dash">대시보드로 이동</a>
+        </div>
+        <p class="header-tagline" data-i18n="tagline">로컬 음원을 순서대로 이어 붙입니다. 곡이 끝날 때 페이드아웃, 다음 곡은 페이드인할 수 있습니다.</p>
+        <p class="agent-line">
+          <span id="connection-status"></span>
+          <span id="bin-readiness"></span>
+        </p>
+      </header>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-above-path" aria-label="광고"></div>
+
+      <section class="composer" aria-label="음원 목록" data-i18n-aria="ariaList">
+        <div class="list-head">
+          <span class="composer-label" data-i18n="listLabel">트랙 순서</span>
+          <p id="list-meta" class="list-meta"></p>
+        </div>
+        <div class="pick-row">
+          <button type="button" class="btn-primary" id="btn-add-track" data-i18n="addTrack">음원 추가</button>
+          <button type="button" class="btn-ghost" id="btn-clear" data-i18n="clear">목록 비우기</button>
+        </div>
+        <p class="composer-hint" data-i18n="listHint">에이전트 파일 창에서 고릅니다. 트랙마다 볼륨과 구간을 정할 수 있습니다. 한 파일이면 구간만 잘라 저장합니다.</p>
+        <div class="card-list" id="card-list" role="list"></div>
+        <p class="composer-status" id="composer-status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="composer opts-panel" aria-label="이어붙이기 옵션" data-i18n-aria="ariaOpts">
+        <header class="opts-head">
+          <p class="opts-kicker" data-i18n="optsKicker">연결</p>
+          <h2 class="opts-title" data-i18n="optsTitle">페이드 · 출력</h2>
+          <p class="opts-sub" data-i18n="optsSub">한 곡이 끝날 때 페이드아웃하고, 다음 곡이 시작할 때 페이드인합니다.</p>
+        </header>
+        <div class="opts-grid">
+          <article class="opt-card">
+            <label class="opt-label" for="join-mode" data-i18n="modeLabel">연결 방식</label>
+            <select id="join-mode" class="opt-select">
+              <option value="sequential" selected data-i18n="modeSeq">순차 (페이드아웃 → 페이드인)</option>
+              <option value="crossfade" data-i18n="modeCross">크로스페이드 (겹치며 전환)</option>
+            </select>
+          </article>
+          <article class="opt-card" id="gap-card">
+            <div class="opt-label-row">
+              <label class="opt-label" for="gap-sec" data-i18n="gapLabel">곡 사이 무음</label>
+              <span id="gap-value" class="range-val">0초</span>
+            </div>
+            <input type="range" id="gap-sec" min="0" max="8" value="0" step="0.5">
+          </article>
+          <article class="opt-card" id="cross-card" hidden>
+            <div class="opt-label-row">
+              <label class="opt-label" for="crossfade-sec" data-i18n="crossLabel">겹치는 시간</label>
+              <span id="cross-value" class="range-val">2초</span>
+            </div>
+            <input type="range" id="crossfade-sec" min="0.5" max="8" value="2" step="0.5">
+          </article>
+          <article class="opt-card">
+            <div class="opt-label-row">
+              <label class="opt-label" for="fade-out-sec" data-i18n="fadeOutLabel">페이드아웃</label>
+              <span id="fade-out-value" class="range-val">3초</span>
+            </div>
+            <input type="range" id="fade-out-sec" min="0" max="12" value="3" step="0.5">
+          </article>
+          <article class="opt-card">
+            <div class="opt-label-row">
+              <label class="opt-label" for="fade-in-sec" data-i18n="fadeInLabel">페이드인</label>
+              <span id="fade-in-value" class="range-val">2초</span>
+            </div>
+            <input type="range" id="fade-in-sec" min="0" max="12" value="2" step="0.5">
+          </article>
+          <article class="opt-card opt-card--wide">
+            <label class="check-line">
+              <input type="checkbox" id="fade-first-in">
+              <span data-i18n="fadeFirst">첫 곡도 페이드인</span>
+            </label>
+            <label class="check-line">
+              <input type="checkbox" id="fade-last-out" checked>
+              <span data-i18n="fadeLast">마지막 곡도 페이드아웃</span>
+            </label>
+            <label class="check-line">
+              <input type="checkbox" id="opt-normalize">
+              <span data-i18n="normalize">전체 음량 맞추기 (loudnorm)</span>
+            </label>
+            <label class="check-line">
+              <input type="checkbox" id="opt-trim-silence">
+              <span data-i18n="trimSilence">각 트랙 앞뒤 무음 자동 자르기</span>
+            </label>
+          </article>
+          <article class="opt-card">
+            <label class="opt-label" for="out-format" data-i18n="formatLabel">출력 포맷</label>
+            <select id="out-format" class="opt-select">
+              <option value="mp3" selected>MP3</option>
+              <option value="wav">WAV</option>
+              <option value="flac">FLAC</option>
+              <option value="ogg">OGG</option>
+            </select>
+          </article>
+          <article class="opt-card">
+            <label class="opt-label" for="sample-rate" data-i18n="rateLabel">샘플레이트</label>
+            <select id="sample-rate" class="opt-select">
+              <option value="44100" selected>44.1 kHz</option>
+              <option value="48000">48 kHz</option>
+            </select>
+          </article>
+        </div>
+      </section>
+
+      <section class="stage">
+        <div class="hero-actions">
+          <button type="button" class="btn-primary btn-wide" id="btn-join" data-i18n="join">만들고 저장</button>
+        </div>
+        <div class="progress" id="join-progress" hidden>
+          <div class="progress-track"><div class="progress-bar" id="join-bar"></div></div>
+          <p id="join-message"></p>
+        </div>
+        <p class="download-note" id="result-note"></p>
+        <a class="btn-primary btn-wide result-link" id="result-link" hidden href="#" data-i18n="download">결과 다운로드</a>
+      </section>
+
+      <div class="editor-ad editor-ad-exempt" id="editor-ad-below-export" aria-label="광고"></div>
+      <section class="tool-guide" aria-label="AudioJoin 안내" data-i18n-aria="guide.aria">
+        <p class="tool-guide-kicker" data-i18n="guide.kicker">AudioJoin</p>
+        <h2 data-i18n="guide.h2">로컬 음원을 한 파일로 이어 붙이는 도구</h2>
+        <p class="tool-guide-lead" data-i18n="guide.lead">AudioJoin은 PC의 음원 여러 개를 고른 순서대로 붙입니다. 곡이 끝날 때 페이드아웃하고 다음 곡을 페이드인하거나, 겹치며 넘어가는 크로스페이드를 쓸 수 있습니다. 처리는 ItMatZip 에이전트의 FFmpeg가 담당하며 원본은 서버로 올라가지 않습니다.</p>
+        <h3 data-i18n="guide.what.h">이 도구가 하는 일</h3>
+        <p data-i18n="guide.what.p">플레이리스트처럼 여러 MP3·WAV·FLAC·OGG를 한 파일로 만듭니다. 샘플레이트가 달라도 맞춘 뒤 붙입니다. 긴 음원도 브라우저 메모리에 통째로 올리지 않습니다.</p>
+        <h3 data-i18n="guide.how.h">작업 과정</h3>
+        <ol>
+          <li data-i18n="guide.how1"><strong>에이전트 연결.</strong> Windows에서 ItMatZip 에이전트가 실행 중이어야 합니다.</li>
+          <li data-i18n="guide.how2"><strong>음원 추가.</strong> 파일 창에서 트랙을 고르고, 볼륨·시작·끝을 맞춘 뒤 순서를 정합니다. 한 파일이면 그 구간만 저장합니다.</li>
+          <li data-i18n="guide.how3"><strong>페이드·무음.</strong> 페이드아웃·페이드인과 곡 사이 무음, 크로스페이드, 앞뒤 무음 자르기를 고릅니다.</li>
+          <li data-i18n="guide.how4"><strong>저장.</strong> MP3·WAV·FLAC·OGG로 받아 PC에 둡니다.</li>
+        </ol>
+        <h3 data-i18n="guide.plus.h">이 도구의 장점</h3>
+        <ul>
+          <li data-i18n="guide.plus1"><strong>원본이 PC에 남습니다.</strong> 업로드형 웹앱과 달리 작업 파일이 외부 서버로 가지 않습니다.</li>
+          <li data-i18n="guide.plus2"><strong>긴 음원도 붙일 수 있습니다.</strong> 브라우저 PCM이 아니라 에이전트 FFmpeg가 스트림으로 처리합니다.</li>
+          <li data-i18n="guide.plus3"><strong>곡 경계가 덜 거칠습니다.</strong> 페이드와 간격, 음량 맞춤을 선택해서 붙입니다.</li>
+        </ul>
+        <p class="tool-guide-note" data-i18n="guide.note">페이드 길이가 곡 길이의 절반을 넘으면 자동으로 줄입니다. 아주 짧은 효과음끼리 붙이면 페이드가 거의 들어가지 않을 수 있습니다. 에이전트가 없는 환경에서는 이 도구를 쓸 수 없습니다.</p>
+      </section>
+    </main>
+  </div>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc">ItMatZip Tools는 데스크톱 PC 환경에 최적화되어 있습니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=13"></script>
+  <script src="../silence-remover/mobile-only.js?v=10"></script>
+  <script type="module" src="script.js?v=4"></script>
+</body>
+</html>
