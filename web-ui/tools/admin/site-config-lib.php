@@ -400,9 +400,12 @@ function apply_hub_description_limits(array $cfg, array $defaults) {
   if (!is_string($fb) || trim($fb) === '') {
     return $cfg;
   }
-  $cur = $cfg['hub']['meta']['ko']['description'] ?? '';
-  $len = function_exists('mb_strlen') ? mb_strlen((string) $cur, 'UTF-8') : strlen((string) $cur);
-  if ($len > 80) {
+  $cur = (string) ($cfg['hub']['meta']['ko']['description'] ?? '');
+  $len = function_exists('mb_strlen') ? mb_strlen($cur, 'UTF-8') : strlen($cur);
+  $mentions_caption = function_exists('mb_strpos')
+    ? (mb_strpos($cur, '자막') !== false)
+    : (strpos($cur, '자막') !== false);
+  if ($len > 80 || $mentions_caption) {
     $cfg['hub']['meta']['ko']['description'] = itz_clip($fb, 80);
   }
   return $cfg;

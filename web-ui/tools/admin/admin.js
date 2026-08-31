@@ -59,7 +59,7 @@ function loadHubCatalog() {
       },
     };
     const s = document.createElement("script");
-    s.src = "../common/i18n/hub.js?v=15";
+    s.src = "../common/i18n/hub.js?v=16";
     s.onload = () => {
       hubReady = true;
       resolve();

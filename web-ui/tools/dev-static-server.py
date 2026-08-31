@@ -426,7 +426,7 @@ def apply_hub_description_limits(cfg, defaults):
         cur = cfg["hub"]["meta"]["ko"]["description"]
     except (KeyError, TypeError):
         cur = ""
-    if isinstance(cur, str) and len(cur) > 80:
+    if (isinstance(cur, str) and (len(cur) > 80 or "자막" in cur):
         cfg["hub"]["meta"]["ko"]["description"] = fb.strip()[:80]
     return cfg
 
