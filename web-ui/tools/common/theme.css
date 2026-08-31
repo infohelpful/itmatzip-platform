@@ -883,7 +883,8 @@ html[data-theme="light"] .alert-kind {
 }
 
 html[data-theme="light"] .itz-modal-dialog,
-html[data-theme="light"] #itz-site-alert-dialog {
+html[data-theme="light"] #itz-site-alert-dialog,
+html[data-theme="light"] #itmatzip-bridge-install-dialog {
   background: #ffffff;
   border-color: #d8dee8;
   color: #0f172a;
@@ -894,7 +895,9 @@ html[data-theme="light"] .itz-modal__title,
 html[data-theme="light"] .itz-install__title,
 html[data-theme="light"] .itz-install__card-title,
 html[data-theme="light"] .itz-install__intro strong,
-html[data-theme="light"] .itz-install__card-text strong {
+html[data-theme="light"] .itz-install__card-text strong,
+html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__title,
+html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-title {
   color: #0f172a;
 }
 
@@ -910,8 +913,10 @@ html[data-theme="light"] .itz-install__card-note {
   color: #334155;
 }
 
-html[data-theme="light"] .itz-modal__head {
+html[data-theme="light"] .itz-modal__head,
+html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__head {
   border-bottom-color: #e2e8f0;
+  background: #f8fafc;
 }
 
 html[data-theme="light"] .itz-modal__foot,

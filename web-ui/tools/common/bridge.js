@@ -1816,6 +1816,91 @@ function ensureInstallDialogStyles() {
     .itz-install__btn--primary:hover {
       background: #60a5fa;
     }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog {
+      background: #ffffff;
+      color: #0f172a;
+      border-color: #d8dee8;
+      box-shadow: 0 24px 64px rgba(15, 23, 42, 0.16);
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install {
+      color: #334155;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__head {
+      background: #f8fafc;
+      border-bottom-color: #e2e8f0;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__title {
+      color: #0f172a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__body {
+      color: #334155;
+      scrollbar-color: #cbd5e1 #f1f5f9;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__intro p,
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__intro {
+      color: #334155;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__intro strong {
+      color: #0f172a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__body section {
+      border-color: #d8dee8;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card--new {
+      background: #eff6ff;
+      border-color: #93c5fd;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card--installed {
+      background: #f8fafc;
+      border-color: #d8dee8;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-title,
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card--new .itz-install__card-title,
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card--installed .itz-install__card-title {
+      color: #0f172a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-text,
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-note {
+      color: #475569;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-text strong {
+      color: #0f172a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__card-text code {
+      background: #e2e8f0;
+      color: #1e3a8a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__status {
+      color: #475569;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__foot {
+      background: #f8fafc;
+      border-top-color: #e2e8f0;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__btn--ghost {
+      background: #ffffff;
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__btn--primary {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    html[data-theme="light"] #itmatzip-bridge-install-dialog .itz-install__btn--primary:hover {
+      background: #1d4ed8;
+      color: #ffffff;
+    }
+    html[data-theme="dark"] #itmatzip-bridge-install-dialog .itz-install__title {
+      color: #f8fafc;
+    }
+    html[data-theme="dark"] #itmatzip-bridge-install-dialog .itz-install__intro p,
+    html[data-theme="dark"] #itmatzip-bridge-install-dialog .itz-install__intro strong,
+    html[data-theme="dark"] #itmatzip-bridge-install-dialog .itz-install {
+      color: #cbd5e1;
+    }
+    html[data-theme="dark"] #itmatzip-bridge-install-dialog .itz-install__intro strong {
+      color: #f1f5f9;
+    }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }

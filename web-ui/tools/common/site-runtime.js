@@ -75,7 +75,7 @@
 
   (function injectThemeCss() {
     if (document.querySelector('link[href*="theme.css"]')) return;
-    var href = "common/theme.css?v=19";
+    var href = "common/theme.css?v=20";
     var src = "";
     if (document.currentScript && document.currentScript.src) {
       src = document.currentScript.src;
@@ -90,7 +90,7 @@
       }
     }
     if (src) {
-      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=19");
+      href = src.replace(/site-runtime\.js[^/]*$/, "theme.css?v=20");
     }
     var link = document.createElement("link");
     link.rel = "stylesheet";
