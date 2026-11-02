@@ -1,3 +1,4 @@
+import { AlignmentRuntimeControl } from './platform/AlignmentRuntimeControl'
 import {
   startTransition,
   useCallback,
@@ -6845,6 +6846,7 @@ export default function App(): ReactElement {
                 GPU 런타임 설치
               </button>
             ) : null}
+            {modelReady ? <AlignmentRuntimeControl disabled={busy || isExtracting || realigning} /> : null}
           </div>
         </header>
 

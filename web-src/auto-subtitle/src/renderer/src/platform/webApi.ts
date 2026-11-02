@@ -8,7 +8,7 @@
  */
 import type {
   DepsStatus, ExportRequest, ExportResult, FfmpegCapabilities, GpuInstallProgressPayload, GpuRuntimeStatus,
-  OpenVideoDialogResult, ProjectOpenResult, ProjectSaveAsResult, ProjectSaveResult, RealignResult,
+  OpenVideoDialogResult, ProjectOpenResult, ProjectSaveAsResult, ProjectSaveResult, RealignRequest, RealignResult,
   ScriptOpenResult, SidecarApi, TranscribeDiagPayload, TranscribeErrorPayload, TranscribeMode,
   WaveformPeaksCachePathResult
 } from '../../../shared/ipc'
@@ -87,7 +87,11 @@ export function createWebApi(): SidecarApi {
         since = event.seq + 1
         if (event.type === 'modelReady') modelReady.emit()
         else if (event.type === 'mode') txMode.emit(event.payload as TranscribeMode)
-        else if (event.type === 'diag') txDiag.emit(event.payload as TranscribeDiagPayload)
+        else if (event.type === 'diag') {
+          const diag = event.payload as TranscribeDiagPayload
+          if (diag.message.includes('alignment_runtime_missing')) notifyAlignmentMissing()
+          txDiag.emit(diag)
+        }
         else if (event.type === 'progress') txProgress.emit(Number(event.payload))
         else if (event.type === 'complete') txComplete.emit(event.payload)
         else if (event.type === 'error') txError.emit(event.payload as TranscribeErrorPayload)
@@ -264,9 +268,25 @@ export function createWebApi(): SidecarApi {
     onTranscribeComplete: txComplete.on,
     onTranscribeError: txError.on,
 
-    // Precise re-alignment needs the WhisperX runtime, which the web agent installs in a later step.
-    realignWords: async (): Promise<RealignResult> => ({ ok: false, reason: '웹판 정밀 재정렬은 준비 중입니다.' }),
-    cancelRealignment: async () => {},
+    realignWords: async (request: RealignRequest): Promise<RealignResult> => {
+      try {
+        let status = await api<{ state: string; result?: RealignResult }>('/realign', request)
+        while (status.state === 'running') {
+          status = await api(`/realign?requestId=${encodeURIComponent(request.requestId)}&wait=5`)
+        }
+        const result = status.result ?? { ok: false, reason: '정렬 상태를 알 수 없습니다.' }
+        if (!result.ok && result.reason === 'alignment_runtime_missing') {
+          notifyAlignmentMissing()
+          return { ok: false, reason: '정밀 정렬이 아직 설치되지 않았습니다. 위쪽의 「정밀 정렬 설치」를 먼저 실행해 주세요.' }
+        }
+        return result
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
+    },
+    cancelRealignment: async (requestId: string) => {
+      await api('/realign/cancel', { requestId }).catch(() => {})
+    },
 
     // -- projects, scripts, exports --------------------------------------------------
     openProjectFile: async (): Promise<ProjectOpenResult> => {
@@ -329,3 +349,32 @@ export function createWebApi(): SidecarApi {
 }
 
 export { AgentUnavailable }
+
+// -- precise alignment runtime (web only; the desktop app ships it) ------------------------
+export type AlignmentStatus = { installed: boolean; modelPresent: boolean; ready: boolean; downloadHintMb: number }
+const alignmentMissingListeners = new Set<() => void>()
+
+/** Lets the install button reappear when an alignment attempt finds the runtime missing. */
+export function onAlignmentMissing(cb: () => void): () => void {
+  alignmentMissingListeners.add(cb)
+  return () => void alignmentMissingListeners.delete(cb)
+}
+
+function notifyAlignmentMissing(): void {
+  for (const cb of [...alignmentMissingListeners]) cb()
+}
+
+export function getAlignmentStatus(): Promise<AlignmentStatus> {
+  return api<AlignmentStatus>('/alignment')
+}
+
+export async function installAlignment(onProgress: (pct: number, stage: string) => void): Promise<void> {
+  let state = await api<{ state: string; pct: number; stage: string; error: string | null }>('/alignment/install', {}, 'POST')
+  while (state.state === 'running') {
+    onProgress(state.pct, state.stage)
+    await sleep(1000)
+    state = await api('/alignment/install')
+  }
+  if (state.state !== 'done') throw new Error(state.error || '정밀 정렬 설치에 실패했습니다.')
+  onProgress(100, '완료')
+}

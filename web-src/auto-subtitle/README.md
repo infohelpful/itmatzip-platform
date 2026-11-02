@@ -33,11 +33,24 @@ python -m uvicorn main:app --port 19887
 |-----------|------|
 | `ITMATZIP_AUTOSUB_PYTHON` | 사이드카 실행 Python (기본: 에이전트 Python) |
 | `ITMATZIP_AUTOSUB_MODELS_DIR` | Whisper 모델 폴더 (기본: `<agent data>/auto-subtitle/models`) |
-| `ITMATZIP_AUTOSUB_ALIGN_PYTHON` | WhisperX 정렬 Python (없으면 RMS 정렬로 대체) |
-| `AUTOSUBTITLE_AUDIOWAVEFORM_PATH` | audiowaveform.exe (없으면 파형 JSON 생략) |
+| `ITMATZIP_AUTOSUB_ALIGN_PYTHON` | WhisperX 정렬 Python 직접 지정 (기본: 설치한 정렬 런타임) |
+| `ITMATZIP_AUTOSUB_ALIGN_RUNTIME` | 정렬 런타임 폴더 (기본: `%APPDATA%\ItMatZip\engine-runtimeuto-subtitle-align`) |
+| `ITMATZIP_AUTOSUB_ALIGN_BASE_PYTHON` | 정렬 런타임을 만들 기준 Python (기본: 에이전트 Python) |
+| `AUTOSUBTITLE_AUDIOWAVEFORM_PATH` | audiowaveform.exe 직접 지정 (기본: 에이전트 bin에 자동 설치) |
+
+## 정밀 정렬 (WhisperX)
+
+필수 엔진(Whisper 1.6GB)과 따로, 화면 위쪽 「정밀 정렬 설치」로 처음 한 번 설치합니다.
+
+- 설치본 에이전트의 embeddable Python은 PYTHONPATH를 무시하고 venv도 없어서, 인터프리터 파일을 정렬 런타임 폴더로
+  복사해 따로 씁니다. 패키지는 `sidecar/requirements-alignment-cpu-win.lock.txt` 고정 버전(torch 2.8.0+cpu)입니다.
+- 설치 후 `torch/lib/*.lib`(빌드 전용, 약 2.6GB)를 지웁니다. 런타임 약 1.4GB.
+- 모델은 `kresnik/wav2vec2-large-xlsr-korean`의 `model.safetensors`와 JSON만 받습니다(약 1.27GB).
+- audiowaveform은 BBC 공식 릴리스 1.10.2 win64 zip을 해시 확인 후 에이전트 bin에 둡니다(GPL-3.0, 별도 실행 파일).
 
 ## 데스크톱과 다른 점
 
 - 영상은 에이전트 파일 선택 창으로 고릅니다. 브라우저는 끌어다 놓은 파일의 경로를 알려 주지 않습니다.
 - 프로젝트·자막 파일은 브라우저 저장/열기 창을 씁니다. "저장"은 이번 세션에 열었거나 저장한 파일에만 덮어씁니다.
-- 아직 없는 것: 자막 입힌 영상·MP3/WAV 내보내기, 정밀 재정렬(WhisperX 런타임 설치), audiowaveform 배포.
+- 정밀 정렬은 필수 엔진에 들어 있지 않고, 처음 쓸 때 따로 설치합니다.
+- 아직 없는 것: 자막 입힌 영상·MP3/WAV 내보내기.
