@@ -1,0 +1,139 @@
+"""Experimental Korean forced alignment adapter; isolated from the production ASR runtime."""
+from __future__ import annotations
+
+import copy
+import contextlib
+import re
+import sys
+from pathlib import Path
+
+from alignment_contract import alignment_summary, apply_character_alignment, reconcile_alignment_word_overlaps
+from alignment_text import build_alignment_text
+from alignment_windows import plan_alignment_windows, merge_window_alignments
+from alignment_audio import mapped_alignment_audio
+from alignment_endings import trim_quiet_word_ends
+
+KOREAN_MODEL = "kresnik/wav2vec2-large-xlsr-korean"
+# The repo ships the same weights twice (model.safetensors and pytorch_model.bin, ~1.27GB each)
+# plus training_args.bin; inference needs only the safetensors file and the JSON configs.
+MODEL_DOWNLOAD_PATTERNS = ["*.json", "model.safetensors"]
+REDUNDANT_MODEL_FILES = ("pytorch_model.bin", "training_args.bin")
+
+
+def prune_redundant_model_files(snapshot_dir: str | Path) -> int:
+    """Delete files older installs downloaded but inference never reads. Returns bytes freed.
+
+    Runs only when model.safetensors is present. In a Hugging Face cache the snapshot entry may be
+    a symlink into ``blobs/``; the blob is removed too unless another snapshot still links to it.
+    """
+    snapshot = Path(snapshot_dir)
+    if not (snapshot / "model.safetensors").is_file():
+        return 0
+    snapshots_root = snapshot.parent
+    freed = 0
+    for name in REDUNDANT_MODEL_FILES:
+        entry = snapshot / name
+        if not entry.exists() and not entry.is_symlink():
+            continue
+        target = entry.resolve() if entry.is_symlink() else None
+        size = entry.stat().st_size if entry.exists() else 0
+        entry.unlink()
+        if target is not None and target.is_file():
+            still_used = any(other.is_symlink() and other.resolve() == target
+                             for other in snapshots_root.glob("*/*") if other != entry)
+            if not still_used:
+                target.unlink()
+            else:
+                size = 0
+        freed += size
+    return freed
+
+
+def _unaligned_cue(cue: dict, index: int, reason: str) -> dict:
+    """Keep the raw ASR times and mark every word as not aligned (never claim precision)."""
+    result = copy.deepcopy(cue)
+    segment_id = str(cue.get("id") or f"segment:{index}")
+    words = []
+    for word_index, word in enumerate(result.get("words") or []):
+        word.setdefault("id", f"{segment_id}:word:{word_index}")
+        word.pop('charSpans', None)
+        word.pop('textSpanMap', None)
+        word.update(segmentId=segment_id, rawStart=word.get("rawStart", word.get("start")),
+                    rawEnd=word.get("rawEnd", word.get("end")), sourceStart=None, sourceEnd=None,
+                    alignmentScore=None, alignmentStatus="unaligned",
+                    reviewReasons=sorted(set(word.get("reviewReasons") or []) | {reason}))
+        words.append(word)
+    result["words"] = words
+    return result
+
+
+def align_korean(cues: list[dict], media_path: str, ffmpeg_path: str, cache_dir: str,
+                 revision: str, device: str = "cpu", source_origin_sec: float = 0,
+                 strict: bool = True) -> dict:
+    """Use a pinned HF commit, absolute source times and no VAD concatenation.
+
+    Long segments use ASR-anchored cores and context-only overlap. Words are emitted
+    exactly once; disagreement at a seam remains unaligned, with original times.
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("Alignment model revision must be a full 40-character commit SHA")
+    if device not in ("cpu", "cuda"):
+        raise ValueError("Unsupported alignment device")
+    from huggingface_hub import snapshot_download
+    # Third-party libraries may print while loading. stdout remains RPC-safe.
+    with contextlib.ExitStack() as resources, contextlib.redirect_stdout(sys.stderr):
+        import whisperx
+        model_path = snapshot_download(KOREAN_MODEL, revision=revision, cache_dir=cache_dir,
+                                       allow_patterns=MODEL_DOWNLOAD_PATTERNS)
+        try:
+            freed = prune_redundant_model_files(model_path)
+            if freed:
+                print(f"alignment model: removed {freed} bytes of unused weight files", file=sys.stderr, flush=True)
+        except OSError as error:  # cleanup must never block alignment
+            print(f"alignment model: cleanup skipped: {error!r}", file=sys.stderr, flush=True)
+        model, metadata = whisperx.load_align_model("ko", device, model_name=model_path)
+        audio = resources.enter_context(mapped_alignment_audio(media_path, ffmpeg_path, source_origin_sec))
+        duration = len(audio) / 16000
+        output = []
+        for index, cue in enumerate(cues):
+            identified = copy.deepcopy(cue)
+            segment_id = str(cue.get('id') or f'segment:{index}')
+            words = identified.get("words") or []
+            for wi, word in enumerate(words):
+                word.setdefault('id', f'{segment_id}:word:{wi}')
+            try:
+                windows = plan_alignment_windows(identified, duration)
+            except ValueError:
+                if strict:
+                    raise
+                output.append(_unaligned_cue(cue, index, "segment_bounds_unsupported"))
+                continue
+            if not words:
+                if strict:
+                    raise ValueError(f"Segment {index} needs raw ASR words to preserve identity")
+                output.append(copy.deepcopy(cue))
+                continue
+            results = []
+            for window in windows:
+                window_words = words[window.first:window.last]
+                alignment_inputs = [build_alignment_text(str(w['word']).strip(), w.get('readingOverride')) for w in window_words]
+                text = ' '.join(item['text'] for item in alignment_inputs)
+                try:
+                    aligned = whisperx.align([{"start": window.start, "end": window.end, "text": text}],
+                                         model, metadata, audio, device, return_char_alignments=True,
+                                         print_progress=False)
+                    chars = [char for segment in aligned["segments"] for char in (segment.get("chars") or [])]
+                    results.append(apply_character_alignment(window_words, chars, metadata["dictionary"], duration,
+                                                             segment_id, revision, alignment_inputs))
+                except Exception as error:  # noqa: BLE001 - one bad window must not discard the rest
+                    if strict:
+                        raise
+                    print(f"alignment failed for segment {index} window {window}: {error!r}", file=sys.stderr, flush=True)
+                    results.append(_unaligned_cue({'words': window_words}, index, "alignment_exception")['words'])
+            next_cue = copy.deepcopy(cue)
+            next_cue["words"] = trim_quiet_word_ends(merge_window_alignments(words, windows, results), audio)
+            output.append(next_cue)
+        output = reconcile_alignment_word_overlaps(output)
+        return {"schemaVersion": 1, "subtitles": output, "raw_subtitles": copy.deepcopy(cues),
+                "alignmentSummary": alignment_summary([w for c in output for w in c["words"]]),
+                "engine": "whisperx", "modelId": KOREAN_MODEL, "modelRevision": revision, "device": device}
