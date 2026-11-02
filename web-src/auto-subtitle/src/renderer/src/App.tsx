@@ -948,8 +948,6 @@ export default function App(): ReactElement {
   const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 엔진 미준비·설치 중(busy)에 드롭한 영상 — 준비되면 곧바로 추출 */
   const pendingAutoTranscribeRef = useRef<string | null>(null)
-  const fileDragDepthRef = useRef(0)
-  const [fileDragOverlay, setFileDragOverlay] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const previewStackRef = useRef<HTMLDivElement | null>(null)
@@ -6469,67 +6467,21 @@ export default function App(): ReactElement {
     [applyAutosubPayload, busy, isExtracting, modelReady]
   )
 
+  // Web build: file drag-and-drop is turned off (browsers hide a dropped file's disk path, which the
+  // local engine needs). Dropped files are only blocked so the browser does not open them in the tab.
   useEffect(() => {
-    const hasFiles = (e: globalThis.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
-
-    const onEnter = (e: globalThis.DragEvent) => {
-      if (!hasFiles(e)) return
+    const block = (e: globalThis.DragEvent) => {
+      if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
       e.preventDefault()
-      fileDragDepthRef.current += 1
-      if (fileDragDepthRef.current === 1) setFileDragOverlay(true)
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
     }
-    const onLeave = (e: globalThis.DragEvent) => {
-      if (!hasFiles(e)) return
-      e.preventDefault()
-      fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1)
-      if (fileDragDepthRef.current === 0) setFileDragOverlay(false)
-    }
-    const onOver = (e: globalThis.DragEvent) => {
-      if (hasFiles(e)) e.preventDefault()
-    }
-    const onDrop = (e: globalThis.DragEvent) => {
-      if (hasFiles(e)) e.preventDefault()
-      fileDragDepthRef.current = 0
-      setFileDragOverlay(false)
-      const files = e.dataTransfer?.files
-      if (!files?.length) return
-      const list = Array.from(files)
-      for (const f of list) {
-        const p = filePathFromDrop(f)
-        if (isAutosubDrop(f, p)) {
-          void loadDroppedAutosubFile(f)
-          return
-        }
-      }
-      let absPath: string | null = null
-      for (const f of list) {
-        const p = filePathFromDrop(f)
-        if (p && isVideoFilePath(p)) {
-          absPath = p
-          break
-        }
-      }
-      if (!absPath) {
-        // Web build: browsers hide a dropped file's disk path, which the local engine needs.
-        if (list.some((f) => isVideoFilePath(f.name))) {
-          window.alert('웹에서는 끌어다 놓은 영상의 위치를 알 수 없습니다. 영상 열기 버튼으로 선택해 주세요.')
-        }
-        return
-      }
-      processDroppedVideoPath(absPath)
-    }
-
-    document.addEventListener('dragenter', onEnter, true)
-    document.addEventListener('dragleave', onLeave, true)
-    document.addEventListener('dragover', onOver, true)
-    document.addEventListener('drop', onDrop, true)
+    document.addEventListener('dragover', block, true)
+    document.addEventListener('drop', block, true)
     return () => {
-      document.removeEventListener('dragenter', onEnter, true)
-      document.removeEventListener('dragleave', onLeave, true)
-      document.removeEventListener('dragover', onOver, true)
-      document.removeEventListener('drop', onDrop, true)
+      document.removeEventListener('dragover', block, true)
+      document.removeEventListener('drop', block, true)
     }
-  }, [loadDroppedAutosubFile, processDroppedVideoPath])
+  }, [])
 
   const previewMediaClass = [
     'preview-drop',
@@ -6811,7 +6763,7 @@ export default function App(): ReactElement {
                 title={
                   !modelReady
                     ? '엔진 준비 후 사용할 수 있습니다.'
-                    : '저장된 .autosub 프로젝트 열기 (창에 .autosub 파일을 끌어다 놓을 수도 있습니다)'
+                    : '저장된 .autosub 프로젝트 열기'
                 }
               >
                 불러오기
@@ -7097,12 +7049,14 @@ export default function App(): ReactElement {
               </>
             ) : (
               <div className={previewMediaClass}>
-                <div className="preview-drop-inner">
+                {/* Web build: browsers hide dropped files' paths, so this area opens the agent's file dialog. */}
+                <button type="button" className="preview-drop-inner" style={{ background: 'none', border: 0, cursor: 'pointer', width: '100%', height: '100%', color: 'inherit' }}
+                  disabled={isExtracting || busy} onClick={() => void selectVideoForExtraction()}>
                   <p className="video-drop-hint">
-                    영상 파일을 여기에 끌어다 놓으세요
+                    여기를 누르거나 오른쪽 위 「영상 선택 · 자막 추출」로 영상을 고르세요
                     <span className="video-drop-formats"> ({VIDEO_EXTENSIONS.join(', ')})</span>
                   </p>
-                </div>
+                </button>
               </div>
             )}
             {search.open ? (
@@ -7215,7 +7169,7 @@ export default function App(): ReactElement {
                 {subtitles.length === 0 ? (
                   <div className="subtitle-empty-placeholder" aria-live="polite">
                     <p className="subtitle-empty-hint-text">
-                      아직 자막이 없습니다. 영상을 창에 끌어다 놓으면 엔진이 준비된 뒤 Faster-Whisper 인식이
+                      아직 자막이 없습니다. 위의 「영상 선택 · 자막 추출」로 영상을 고르면 Faster-Whisper 인식이
                       자동으로 시작됩니다.
                     </p>
                   </div>
@@ -7286,12 +7240,6 @@ export default function App(): ReactElement {
               모델 다운로드 및 최적화 시작
             </button>
           </div>
-        </div>
-      ) : null}
-
-      {fileDragOverlay ? (
-        <div className="file-drag-overlay" aria-hidden>
-          <p className="file-drag-overlay-text">영상 또는 .autosub 프로젝트를 놓아주세요</p>
         </div>
       ) : null}
 
