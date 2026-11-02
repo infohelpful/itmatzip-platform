@@ -1,0 +1,36 @@
+{
+  "name": "itmatzip-auto-subtitle-web",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Unlicense",
+  "type": "module",
+  "description": "AutoSubtitle desktop renderer ported to the ItMatZip web tool; builds into web-ui/tools/auto-subtitle/app.",
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "framer-motion": "^12.38.0",
+    "konva": "^9.3.22",
+    "peaks.js": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-window": "^2.2.7",
+    "waveform-data": "^4.5.2",
+    "zustand": "^5.0.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/react-window": "^1.8.8",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.13",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "vitest": "^3.2.4"
+  }
+}
