@@ -153,6 +153,17 @@ def probe_media_timing(ffprobe: str, input_path: str | Path) -> MediaTiming:
     return parse_media_timing(json.loads(proc.stdout.decode("utf-8")))
 
 
+def probe_any(ffprobe: str, path: str | Path) -> dict[str, Any]:
+    """Container duration and audio presence for audio-only outputs (desktop audioExport.ts check)."""
+    proc = subprocess.run([ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
+                          capture_output=True, timeout=30, creationflags=_NO_WINDOW)
+    if proc.returncode != 0:
+        raise RuntimeError("출력 오디오 정보를 읽지 못했습니다.")
+    data = json.loads(proc.stdout.decode("utf-8"))
+    return {"duration": _num((data.get("format") or {}).get("duration")),
+            "hasAudio": any(s.get("codec_type") == "audio" for s in data.get("streams") or [])}
+
+
 # -- preparation -------------------------------------------------------------------------
 @dataclass
 class _Job:

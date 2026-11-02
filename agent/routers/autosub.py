@@ -9,11 +9,11 @@ import base64
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 
-from engines.autosub import alignment, media, paths, service
+from engines.autosub import alignment, export, media, paths, service
 
 router = APIRouter(prefix="/api/tools/auto-subtitle/v2", tags=["auto-subtitle"])
 
@@ -225,3 +225,68 @@ async def get_realign(requestId: str = Query(...), wait: float = Query(0.0, ge=0
 async def post_realign_cancel(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     await run_in_threadpool(service.cancel_realign, _str(body, "requestId"))
     return {"ok": True}
+
+
+# -- export (video burn-in, MP3/WAV) -----------------------------------------------------
+_MAX_STATE_PNG_BYTES = 32 * 1024 * 1024
+
+
+@router.post("/export/audio")
+async def post_export_audio(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    cuts = body.get("cutRanges") if isinstance(body.get("cutRanges"), list) else []
+    try:
+        return await run_in_threadpool(export.start_audio, _str(body, "inputPath"), _str(body, "outDir"),
+                                       _str(body, "format"), cuts)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise _bad(error) from error
+
+
+@router.post("/export/video")
+async def post_export_video(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        return await run_in_threadpool(export.start_video, _str(body, "inputPath"), _str(body, "outDir"))
+    except (OSError, ValueError, RuntimeError) as error:
+        raise _bad(error) from error
+
+
+@router.put("/export/video/{job_id}/state/{index}")
+async def put_export_state(job_id: str, index: int, request: Request) -> dict[str, Any]:
+    data = await request.body()
+    if len(data) > _MAX_STATE_PNG_BYTES:
+        raise HTTPException(status_code=413, detail="자막 이미지가 너무 큽니다.")
+    try:
+        await run_in_threadpool(export.put_state, job_id, index, data)
+    except (KeyError, ValueError) as error:
+        raise _bad(error) from error
+    return {"ok": True}
+
+
+@router.post("/export/video/{job_id}/encode")
+async def post_export_encode(job_id: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    schedule = body.get("schedule") if isinstance(body.get("schedule"), list) else []
+    clips = body.get("clips") if isinstance(body.get("clips"), list) else []
+    try:
+        await run_in_threadpool(export.start_encode, job_id, schedule, clips)
+    except (KeyError, ValueError, TypeError) as error:
+        raise _bad(error) from error
+    return {"ok": True}
+
+
+@router.get("/export/{job_id}")
+async def get_export(job_id: str) -> dict[str, Any]:
+    try:
+        return export.job_status(job_id)
+    except KeyError as error:
+        raise _bad(error, 404) from error
+
+
+@router.post("/export/{job_id}/cancel")
+async def post_export_cancel(job_id: str) -> dict[str, Any]:
+    export.cancel_job(job_id)
+    return {"ok": True}
+
+
+@router.post("/export/show-in-folder")
+async def post_export_show_in_folder(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    shown = await run_in_threadpool(export.show_in_folder, _str(body, "path"))
+    return {"ok": True} if shown else {"ok": False, "reason": "이번에 내보낸 파일만 폴더에서 열 수 있습니다."}
