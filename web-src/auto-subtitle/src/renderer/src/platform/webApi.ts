@@ -7,7 +7,7 @@
  * saved by the browser. IPC push events (progress, transcription results) become polling here.
  */
 import type {
-  DepsStatus, ExportRequest, ExportResult, FfmpegCapabilities, GpuInstallProgressPayload, GpuRuntimeStatus,
+  DepsStatus, ExportProgressPayload, ExportRequest, ExportResult, FfmpegCapabilities, GpuInstallProgressPayload, GpuRuntimeStatus,
   OpenVideoDialogResult, ProjectOpenResult, ProjectSaveAsResult, ProjectSaveResult, RealignRequest, RealignResult,
   ScriptOpenResult, SidecarApi, TranscribeDiagPayload, TranscribeErrorPayload, TranscribeMode,
   WaveformPeaksCachePathResult
@@ -17,9 +17,12 @@ import type { MediaFingerprintResult } from '../../../shared/projectMedia'
 import type { PcmRange, PcmReadResult } from '../../../shared/pcmAudio'
 import { parseAutosubProjectFile } from '../../../shared/autosubProject'
 import { decodeTextBuffer } from '../../../shared/scriptImport'
-import { mapSourceIntervalToProgram, validateClipPlan } from '../../../shared/clipPlan'
+import { clipPlanFromCuts, mapSourceIntervalToProgram, validateClipPlan } from '../../../shared/clipPlan'
+import { buildRenderSchedule } from '../../../shared/exportRenderSchedule'
+import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
+import { SubtitleFrameRenderer } from './subtitleFrameRenderer'
 import {
-  AgentUnavailable, api, apiBinary, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep
+  AgentUnavailable, agentFetch, api, apiBinary, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
 } from './agentClient'
 import { openFile, saveTextAs, saveTextInPlace } from './localFiles'
 import {
@@ -58,13 +61,16 @@ const UTF8_BOM = '﻿'
 const SCRIPT_FILE_MAX_BYTES = 8 * 1024 * 1024
 const PROJECT_TYPE = { description: 'AutoSubtitle 프로젝트', accept: { 'application/json': ['.autosub'] } }
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+/** Same rule as the desktop main process: only #rgb, #rrggbb or #rrggbbaa. */
+const sanitizeHexColor = (value: unknown): string | undefined =>
+  typeof value === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(value) ? value : undefined
 const baseName = (p: string) => (p.split(/[\\/]/).pop() || p).replace(/\.[^.]+$/, '')
 
 export function createWebApi(): SidecarApi {
   const modelProgress = channel<number>()
   const modelReady = channel<void>()
   const gpuProgress = channel<GpuInstallProgressPayload>()
-  const exportProgress = channel<{ percent: number; label?: string }>()
+  const exportProgress = channel<ExportProgressPayload>()
   const txMode = channel<TranscribeMode>()
   const txDiag = channel<TranscribeDiagPayload>()
   const txProgress = channel<number>()
@@ -129,6 +135,74 @@ export function createWebApi(): SidecarApi {
     if (saved === null) return { canceled: true }
     exportProgress.emit({ percent: 100 })
     return { canceled: false, outputPath: saved, format }
+  }
+
+  type ExportJob = { state: string; percent: number; label: string; encoderName: string | null
+    error: string | null; outputPath: string | null }
+
+  async function pollExport(jobId: string, fallbackLabel: string): Promise<string> {
+    for (;;) {
+      const job = await api<ExportJob>(`/export/${encodeURIComponent(jobId)}`)
+      exportProgress.emit({ percent: job.percent, label: job.label || fallbackLabel, encoderName: job.encoderName ?? undefined })
+      if (job.state === 'done' && job.outputPath) return job.outputPath
+      if (job.state === 'error') throw new Error(job.error || '내보내기에 실패했습니다.')
+      await sleep(500)
+    }
+  }
+
+  /** Video burn-in and MP3/WAV: the agent writes next to the media into a folder the user picks. */
+  async function exportMediaFile(req: ExportRequest): Promise<ExportResult> {
+    if (!Array.isArray(req.subtitles)) throw new Error('내보낼 자막 데이터가 없습니다.')
+    const picked = await controller<{ path?: string; cancelled?: boolean }>('/api/agent/pick-local-folder')
+    if (!picked.path) return { canceled: true }
+    const format = req.format
+    if (format === 'mp3' || format === 'wav') {
+      if (req.clipPlan) throw new Error('순서 변경·반복 클립의 오디오 단독 내보내기는 아직 지원하지 않습니다.')
+      const started = await api<{ jobId: string }>('/export/audio', {
+        inputPath: req.inputPath, outDir: picked.path, format, cutRanges: Array.isArray(req.cutRanges) ? req.cutRanges : []
+      })
+      return { canceled: false, outputPath: await pollExport(started.jobId, '오디오 인코딩 중…'), format }
+    }
+
+    exportProgress.emit({ percent: 2, label: 'FFmpeg·인코더 확인 중…' })
+    const job = await api<{ jobId: string; width: number; height: number; renderWidth: number; renderHeight: number
+      duration: number; fps: number; encoderName: string }>('/export/video', { inputPath: req.inputPath, outDir: picked.path })
+    const encoderName = job.encoderName
+    try {
+      // Same schedule and style defaults as the desktop `export:by-format` video branch.
+      const cuts = Array.isArray(req.cutRanges) ? req.cutRanges : []
+      const clips = validateClipPlan(req.clipPlan ?? clipPlanFromCuts(job.duration, cuts), job.duration)
+      const highlightColor = sanitizeHexColor(req.subtitleStyle?.wordHighlightColor)
+      const schedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
+      const st = req.subtitleStyle
+      const base: Omit<ExportSubtitleUpdatePayload, 'text' | 'words' | 'activeIndex'> = {
+        width: job.renderWidth, height: job.renderHeight, layoutWidth: job.width, layoutHeight: job.height,
+        fontFamily: st?.fontFamily ?? 'Malgun Gothic', fontSize: st?.fontSize ?? 26, textColor: st?.textColor ?? '#f4f6fb',
+        fontWeight: st?.fontWeight ?? 700, bgColor: st?.bgColor ?? '#080a10', bgOpacity: st?.bgOpacity ?? 62,
+        bgPaddingPct: st?.bgPaddingPct ?? 100, strokeColor: st?.strokeColor ?? '#000000', strokeWidth: st?.strokeWidth ?? 2,
+        x: st?.x ?? 50, y: st?.y ?? 10, wordHighlightColor: highlightColor
+      }
+      const renderer = new SubtitleFrameRenderer(job.renderWidth, job.renderHeight)
+      try {
+        for (const [i, state] of schedule.entries()) {
+          exportProgress.emit({ percent: 4 + Math.round((i / Math.max(1, schedule.length)) * 8),
+            label: `자막 렌더 중 ${i + 1}/${schedule.length}…`, encoderName })
+          const png = await renderer.render({ ...base, text: state.text, words: state.words, activeIndex: state.activeIndex })
+          const res = await agentFetch(`${toolApiBase}/export/video/${encodeURIComponent(job.jobId)}/state/${i}`,
+            { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png })
+          if (!res.ok) throw new Error(await readError(res))
+        }
+      } finally {
+        renderer.dispose()
+      }
+      await api(`/export/video/${encodeURIComponent(job.jobId)}/encode`, {
+        schedule: schedule.map((s) => ({ startFrame: s.startFrame, endFrame: s.endFrame })), clips
+      })
+      return { canceled: false, outputPath: await pollExport(job.jobId, '자막 렌더·합성·인코딩 중…'), format }
+    } catch (error) {
+      await api(`/export/${encodeURIComponent(job.jobId)}/cancel`, {}).catch(() => {})
+      throw error
+    }
   }
 
   const api_: SidecarApi = {
@@ -322,12 +396,17 @@ export function createWebApi(): SidecarApi {
       const saved = await saveTextAs(JSON.stringify(parsed.data, null, 2), suggested, PROJECT_TYPE)
       return saved === null ? { canceled: true } : { canceled: false, path: saved }
     },
-    exportByFormat: (req: ExportRequest) => exportSubtitleFile(req),
-    exportVideoWithBurnedSubtitles: async () => {
-      throw new WebApiNotReady('자막 입힌 영상 내보내기')
-    },
+    exportByFormat: (req: ExportRequest) =>
+      req.format === 'video' || req.format === 'mp3' || req.format === 'wav' ? exportMediaFile(req) : exportSubtitleFile(req),
+    exportVideoWithBurnedSubtitles: (req) => exportMediaFile({ ...req, format: 'video' }),
     onExportProgress: exportProgress.on,
-    showExportResultInFolder: async () => ({ ok: false as const, reason: '웹에서는 저장한 폴더를 열 수 없습니다.' }),
+    showExportResultInFolder: async (absoluteFilePath: string) => {
+      try {
+        return await api<{ ok: true } | { ok: false; reason: string }>('/export/show-in-folder', { path: absoluteFilePath })
+      } catch (error) {
+        return { ok: false as const, reason: errorText(error) }
+      }
+    },
 
     // -- misc ------------------------------------------------------------------------
     openExternal: async (url: string) => {

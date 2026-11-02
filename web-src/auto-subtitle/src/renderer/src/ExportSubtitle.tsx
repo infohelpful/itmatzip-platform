@@ -65,7 +65,7 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 
  */
 
-function buildPreviewSubtitleTextStyle(args: {
+export function buildPreviewSubtitleTextStyle(args: {
 
   videoNaturalWidth: number
 
@@ -427,6 +427,18 @@ export default function ExportSubtitle(): JSX.Element {
 
   }, [])
 
+  return <ExportSubtitleFrame data={data} textStyle={previewSubtitleTextStyle} />
+}
+
+
+/**
+ * One subtitle state as the export captures it. The web build renders this same markup to PNG
+ * (platform/subtitleFrameRenderer.ts) instead of capturing an offscreen window.
+ */
+export function ExportSubtitleFrame({ data, textStyle: previewSubtitleTextStyle }: {
+  data: ExportSubtitleUpdatePayload
+  textStyle: CSSProperties
+}): JSX.Element {
   // 줄 텍스트와 단어 조각이 어긋나면 강조 위치를 보장할 수 없으므로 일반 렌더로 돌아간다.
   const highlightWords =
     data.wordHighlightColor && data.words && data.words.length > 0 && data.words.join(' ') === data.text
@@ -483,5 +495,3 @@ export default function ExportSubtitle(): JSX.Element {
   )
 
 }
-
-
