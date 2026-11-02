@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-func autoSubtitleWorkspaceRoot() string {
-	return filepath.Join(settingsRootPath, "auto-subtitle", "workspace")
-}
-
 func resolveFFmpegExecutable() (string, error) {
 	if p, err := resolveBundledFFmpegTool("ffmpeg.exe"); err == nil {
 		return p, nil
