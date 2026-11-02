@@ -283,7 +283,7 @@ def start_transcription(path: str, alignment_mode: str | None, job_id: str) -> N
             params["prepared_audio_path"] = prepared["audioPath"]
             if alignment_mode in ("accurate", "fast"):
                 params["alignment_mode"] = alignment_mode
-            align_python = alignment.python_path()
+            align_python = alignment.ready_python()
             if align_python:
                 params["alignment_python"] = align_python
             params["waveform_out_json_path"] = media.waveform_cache_json_path(str(abs_path))["cachePath"]
@@ -436,7 +436,7 @@ def start_realign(request: dict[str, Any]) -> dict[str, Any]:
             or not isinstance(request.get("timelineId"), str) or not isinstance(request.get("revision"), int)
             or not isinstance(request.get("path"), str) or not isinstance(request.get("cues"), list)):
         return {"state": "done", "result": {"ok": False, "reason": "올바르지 않은 정렬 요청입니다."}}
-    align_python = alignment.python_path()
+    align_python = alignment.ready_python()
     if not align_python:
         return {"state": "done", "result": {"ok": False, "reason": "alignment_runtime_missing"}}
     with _realign_lock:

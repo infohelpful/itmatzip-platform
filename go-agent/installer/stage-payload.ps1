@@ -308,6 +308,11 @@ function Copy-ToolsWebUI {
         if ($LASTEXITCODE -ge 8) { throw "robocopy magic-eraser failed: $LASTEXITCODE" }
     }
 
+    if (Test-Path (Join-Path $toolsSrc "auto-subtitle\index.html")) {
+        robocopy (Join-Path $toolsSrc "auto-subtitle") (Join-Path $TargetDir "auto-subtitle") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+        if ($LASTEXITCODE -ge 8) { throw "robocopy auto-subtitle failed: $LASTEXITCODE" }
+    }
+
     if (Test-Path (Join-Path $toolsSrc "voice-changer\index.html")) {
         robocopy (Join-Path $toolsSrc "voice-changer") (Join-Path $TargetDir "voice-changer") /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "robocopy voice-changer failed: $LASTEXITCODE" }

@@ -96,6 +96,12 @@ def python_path() -> str | None:
     return str(python)
 
 
+def ready_python() -> str | None:
+    """Runtime and model both present; otherwise alignment would download 1.27GB mid-transcription."""
+    python = python_path()
+    return python if python and model_present() else None
+
+
 def status() -> dict[str, Any]:
     return {"installed": python_path() is not None, "modelPresent": model_present(),
             "ready": python_path() is not None and model_present(),
