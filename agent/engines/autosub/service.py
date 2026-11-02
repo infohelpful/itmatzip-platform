@@ -134,7 +134,7 @@ def start_prepare() -> dict[str, Any]:
 
 # -- GPU runtime -------------------------------------------------------------------------
 def gpu_status() -> dict[str, Any]:
-    from engines import auto_subtitle_gpu_runtime as gpu
+    from . import gpu_runtime as gpu
 
     raw = gpu.gpu_runtime_status()
     nvidia = _has_nvidia_gpu()
@@ -163,7 +163,7 @@ def gpu_install_state() -> dict[str, Any]:
 
 
 def start_gpu_install() -> dict[str, Any]:
-    from engines import auto_subtitle_gpu_runtime as gpu
+    from . import gpu_runtime as gpu
 
     with _gpu_lock:
         if _gpu_state["state"] == "running":

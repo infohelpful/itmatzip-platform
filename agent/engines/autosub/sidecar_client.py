@@ -70,7 +70,7 @@ class SidecarClient:
             env["AUTOSUBTITLE_FFMPEG_PATH"] = ff[0]
             prefix.append(os.path.dirname(ff[0]))
         try:
-            from engines import auto_subtitle_gpu_runtime as gpu
+            from . import gpu_runtime as gpu
 
             if gpu.is_gpu_runtime_installed():
                 prefix.append(str(gpu.gpu_runtime_dir()))

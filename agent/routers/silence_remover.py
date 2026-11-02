@@ -22,7 +22,8 @@ from pydantic import BaseModel, Field
 from common.async_io import run_sync
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe, is_ffmpeg_ready
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
-from engines import auto_subtitle, silence_remover
+from common.media_paths import normalize_media_path, resolve_existing_file
+from engines import silence_remover
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from runtime_paths import pick_file_available
 
@@ -40,8 +41,8 @@ SilenceRemoverReady = Annotated[None, Depends(_ensure_silence_remover_environmen
 
 def _resolve_media_path(raw: str) -> Path:
     """Windows NFC·₩ 경로 등을 정규화한 뒤 실제 파일을 찾습니다."""
-    norm = auto_subtitle.normalize_media_path(raw)
-    resolved = auto_subtitle.resolve_existing_file(norm)
+    norm = normalize_media_path(raw)
+    resolved = resolve_existing_file(norm)
     if resolved is None:
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {norm}")
     return resolved
