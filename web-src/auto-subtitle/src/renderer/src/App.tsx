@@ -6508,7 +6508,13 @@ export default function App(): ReactElement {
           break
         }
       }
-      if (!absPath) return
+      if (!absPath) {
+        // Web build: browsers hide a dropped file's disk path, which the local engine needs.
+        if (list.some((f) => isVideoFilePath(f.name))) {
+          window.alert('웹에서는 끌어다 놓은 영상의 위치를 알 수 없습니다. 영상 열기 버튼으로 선택해 주세요.')
+        }
+        return
+      }
       processDroppedVideoPath(absPath)
     }
 

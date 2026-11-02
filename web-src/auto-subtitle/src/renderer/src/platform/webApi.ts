@@ -1,69 +1,321 @@
 /**
  * Web replacement for the Electron preload bridge (`window.api`).
  *
- * The desktop renderer talks to Electron main + the Python sidecar through `window.api`.
- * On tools.itmatzip.com the same calls go to the local ItMatZip agent over HTTP instead.
- * Every method of `SidecarApi` is present so the renderer runs unchanged; calls that are not
- * wired to the agent yet reject with `WebApiNotReady` so the UI shows a clear error.
+ * Each method mirrors one desktop IPC handler (src/main/index.ts). Engine work goes to the local
+ * agent (`/api/tools/auto-subtitle/v2`, agent/routers/autosub.py); file dialogs for media use the
+ * agent's native picker so the engine gets a real path; projects and subtitle files are opened and
+ * saved by the browser. IPC push events (progress, transcription results) become polling here.
  */
-import type { SidecarApi } from '../../../shared/ipc'
+import type {
+  DepsStatus, ExportRequest, ExportResult, FfmpegCapabilities, GpuInstallProgressPayload, GpuRuntimeStatus,
+  OpenVideoDialogResult, ProjectOpenResult, ProjectSaveAsResult, ProjectSaveResult, RealignResult,
+  ScriptOpenResult, SidecarApi, TranscribeDiagPayload, TranscribeErrorPayload, TranscribeMode,
+  WaveformPeaksCachePathResult
+} from '../../../shared/ipc'
+import type { PreparedMediaResult } from '../../../shared/preparedMedia'
+import type { MediaFingerprintResult } from '../../../shared/projectMedia'
+import type { PcmRange, PcmReadResult } from '../../../shared/pcmAudio'
+import { parseAutosubProjectFile } from '../../../shared/autosubProject'
+import { decodeTextBuffer } from '../../../shared/scriptImport'
+import { mapSourceIntervalToProgram, validateClipPlan } from '../../../shared/clipPlan'
+import {
+  AgentUnavailable, api, apiBinary, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep
+} from './agentClient'
+import { openFile, saveTextAs, saveTextInPlace } from './localFiles'
+import {
+  buildAssText, buildMappedSubtitles, buildSrtText, buildTxtText, buildWebVttText, normalizeCutRanges,
+  normalizeMappedSubtitles
+} from './subtitleTextExport'
 
 export class WebApiNotReady extends Error {
   constructor(readonly method: string) {
-    super(`웹판에서 아직 연결되지 않은 기능입니다: ${method}`)
+    super(`웹판에서 아직 지원하지 않는 기능입니다: ${method}`)
     this.name = 'WebApiNotReady'
   }
 }
 
-const notReady = (method: string) => (): Promise<never> => Promise.reject(new WebApiNotReady(method))
-const noSubscription = () => () => {}
+/** Minimal event hub standing in for `ipcRenderer.on/removeListener`. */
+function channel<T>() {
+  const listeners = new Set<(value: T) => void>()
+  return {
+    on(cb: (value: T) => void) {
+      listeners.add(cb)
+      return () => void listeners.delete(cb)
+    },
+    emit(value: T) {
+      for (const cb of [...listeners]) {
+        try {
+          cb(value)
+        } catch (error) {
+          console.error(error)
+        }
+      }
+    }
+  }
+}
+
+const UTF8_BOM = '﻿'
+const SCRIPT_FILE_MAX_BYTES = 8 * 1024 * 1024
+const PROJECT_TYPE = { description: 'AutoSubtitle 프로젝트', accept: { 'application/json': ['.autosub'] } }
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const baseName = (p: string) => (p.split(/[\\/]/).pop() || p).replace(/\.[^.]+$/, '')
 
 export function createWebApi(): SidecarApi {
-  return {
-    prepareSourceMedia: notReady('prepareSourceMedia'),
-    cancelMediaPreparation: async () => {},
-    readPreparedPcm: notReady('readPreparedPcm'),
-    fingerprintMedia: notReady('fingerprintMedia'),
-    realignWords: notReady('realignWords'),
-    cancelRealignment: async () => {},
-    openVideoFileDialog: notReady('openVideoFileDialog'),
-    // Browsers never expose a dropped file's disk path; media is picked through the agent instead.
-    getPathForFile: () => '',
-    getMediaFileUrl: (absoluteFilePath: string) => {
-      throw new WebApiNotReady(`getMediaFileUrl(${absoluteFilePath})`)
+  const modelProgress = channel<number>()
+  const modelReady = channel<void>()
+  const gpuProgress = channel<GpuInstallProgressPayload>()
+  const exportProgress = channel<{ percent: number; label?: string }>()
+  const txMode = channel<TranscribeMode>()
+  const txDiag = channel<TranscribeDiagPayload>()
+  const txProgress = channel<number>()
+  const txComplete = channel<unknown>()
+  const txError = channel<TranscribeErrorPayload>()
+  let activeTranscription: string | null = null
+
+  async function pollTranscription(jobId: string): Promise<void> {
+    let since = 0
+    while (activeTranscription === jobId) {
+      let batch: { done: boolean; unknown?: boolean; events: Array<{ seq: number; type: string; payload: unknown }> }
+      try {
+        batch = await api(`/transcribe/events?jobId=${encodeURIComponent(jobId)}&since=${since}`)
+      } catch (error) {
+        if (activeTranscription === jobId) txError.emit({ message: errorText(error) })
+        break
+      }
+      if (activeTranscription !== jobId) break
+      for (const event of batch.events) {
+        since = event.seq + 1
+        if (event.type === 'modelReady') modelReady.emit()
+        else if (event.type === 'mode') txMode.emit(event.payload as TranscribeMode)
+        else if (event.type === 'diag') txDiag.emit(event.payload as TranscribeDiagPayload)
+        else if (event.type === 'progress') txProgress.emit(Number(event.payload))
+        else if (event.type === 'complete') txComplete.emit(event.payload)
+        else if (event.type === 'error') txError.emit(event.payload as TranscribeErrorPayload)
+      }
+      if (batch.done) break
+      await sleep(300)
+    }
+    if (activeTranscription === jobId) activeTranscription = null
+  }
+
+  async function registerMedia(path: string): Promise<string> {
+    return (await api<{ path: string }>('/media/register', { path })).path
+  }
+
+  async function exportSubtitleFile(req: ExportRequest): Promise<ExportResult> {
+    const format = req.format
+    if (format !== 'srt' && format !== 'vtt' && format !== 'ass' && format !== 'txt') {
+      throw new WebApiNotReady(`${format} 내보내기`)
+    }
+    // Same mapping as the desktop `export:by-format` handler.
+    const cuts = normalizeCutRanges(Array.isArray(req.cutRanges) ? req.cutRanges : [])
+    const plan = req.clipPlan ? validateClipPlan(req.clipPlan, Math.max(...req.clipPlan.map((c) => c.sourceEnd))) : null
+    const mapped = plan
+      ? req.subtitles.flatMap((cue) => mapSourceIntervalToProgram(cue.start, cue.end, plan)
+        .map((t) => ({ ...t, text: cue.text }))).sort((a, b) => a.start - b.start)
+      : normalizeMappedSubtitles(buildMappedSubtitles(req.subtitles, cuts))
+    const text = format === 'srt' ? buildSrtText(mapped)
+      : format === 'vtt' ? buildWebVttText(mapped, req.subtitleStyle)
+        : format === 'ass' ? buildAssText(mapped, req.subtitleStyle)
+          : buildTxtText(mapped)
+    const labels = { srt: 'SubRip', vtt: 'WebVTT', ass: 'Advanced SubStation Alpha', txt: 'Text' }
+    const name = `${req.inputPath ? baseName(req.inputPath) : 'AutoSubtitle_export'}.${format}`
+    const saved = await saveTextAs(UTF8_BOM + text, name,
+      { description: labels[format], accept: { 'text/plain': [`.${format}`] } })
+    if (saved === null) return { canceled: true }
+    exportProgress.emit({ percent: 100 })
+    return { canceled: false, outputPath: saved, format }
+  }
+
+  const api_: SidecarApi = {
+    // -- media -----------------------------------------------------------------------
+    prepareSourceMedia: async (path: string, requestId: string): Promise<PreparedMediaResult> => {
+      try {
+        let status = await api<{ state: string; result?: PreparedMediaResult }>('/media/prepare', { path, requestId })
+        while (status.state === 'running') {
+          status = await api(`/media/prepare?requestId=${encodeURIComponent(requestId)}&wait=5`)
+        }
+        return status.result ?? { ok: false, reason: '미디어 준비 상태를 알 수 없습니다.' }
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
     },
-    sidecarCall: (method: string) => Promise.reject(new WebApiNotReady(`sidecarCall:${method}`)),
-    getDepsStatus: notReady('getDepsStatus'),
-    getFfmpegCapabilities: notReady('getFfmpegCapabilities'),
-    prepareAllEngines: notReady('prepareAllEngines'),
-    getGpuRuntimeStatus: notReady('getGpuRuntimeStatus'),
-    installGpuRuntime: notReady('installGpuRuntime'),
-    onGpuInstallProgress: noSubscription,
+    cancelMediaPreparation: async (requestId: string) => {
+      await api('/media/prepare/cancel', { requestId }).catch(() => {})
+    },
+    readPreparedPcm: async (url: string, ranges: PcmRange[]): Promise<PcmReadResult> => {
+      const path = pathFromMediaUrl(url)
+      if (!path) return { ok: false, reason: '준비된 오디오 캐시만 읽을 수 있습니다.' }
+      try {
+        const res = await apiBinary('/media/pcm', { path, ranges })
+        if (!res.ok) return { ok: false, reason: await readError(res) }
+        const totalFrames = Number(res.headers.get('X-Pcm-Total-Frames'))
+        return { ok: true, block: { sampleRate: 48000, channels: 2, totalFrames, pcm: await res.arrayBuffer() } }
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
+    },
+    fingerprintMedia: async (path: string): Promise<MediaFingerprintResult> => {
+      try {
+        return await api<MediaFingerprintResult>('/media/fingerprint', { path })
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
+    },
+    openVideoFileDialog: async (): Promise<OpenVideoDialogResult> => {
+      const picked = await controller<{ video_path?: string; cancelled?: boolean }>('/api/agent/pick-local-subtitle-media')
+      if (!picked.video_path) return { canceled: true, filePaths: [] }
+      return { canceled: false, filePaths: [await registerMedia(picked.video_path)] }
+    },
+    // Browsers never expose a dropped file's disk path; the drop handler then asks for the dialog.
+    getPathForFile: () => '',
+    getMediaFileUrl: (absoluteFilePath: string) => mediaFileUrl(absoluteFilePath),
+    readLocalMediaFileBuffer: async (absoluteFilePath: string) => {
+      try {
+        const res = await fetch(mediaFileUrl(absoluteFilePath), { cache: 'no-store' })
+        if (!res.ok) return { ok: false as const, reason: await readError(res) }
+        return { ok: true as const, arrayBuffer: await res.arrayBuffer() }
+      } catch (error) {
+        return { ok: false as const, reason: errorText(error) }
+      }
+    },
+    readLocalPeaksJsonFile: async (absoluteFilePath: string) => {
+      try {
+        return await api<{ ok: true; json: unknown } | { ok: false; reason: string }>('/waveform/read', { path: absoluteFilePath })
+      } catch (error) {
+        return { ok: false as const, reason: errorText(error) }
+      }
+    },
+    getWaveformPeaksCachePath: async (absoluteVideoPath: string): Promise<WaveformPeaksCachePathResult> => {
+      try {
+        return await api<WaveformPeaksCachePathResult>('/waveform/cache-path', { path: absoluteVideoPath })
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
+    },
+    cancelWaveform: async (requestId: string) => {
+      await api('/waveform/cancel', { requestId }).catch(() => {})
+    },
+    sidecarCall: (method: string, params?: Record<string, unknown>) => api('/sidecar', { method, params: params ?? {} }),
+
+    // -- engine ----------------------------------------------------------------------
+    getDepsStatus: () => api<DepsStatus>('/deps'),
+    getFfmpegCapabilities: () => api<FfmpegCapabilities>('/ffmpeg'),
+    prepareAllEngines: async () => {
+      let state = await api<{ state: string; percent: number; error: string | null }>('/deps/prepare', {}, 'POST')
+      while (state.state === 'running') {
+        modelProgress.emit(Math.round(state.percent * 100) / 100)
+        await sleep(500)
+        state = await api('/deps/prepare')
+      }
+      if (state.state === 'error') throw new Error(state.error || '필수 엔진 준비에 실패했습니다.')
+      modelProgress.emit(100)
+      modelReady.emit()
+      return { ok: true as const }
+    },
+    getGpuRuntimeStatus: () => api<GpuRuntimeStatus>('/gpu'),
+    installGpuRuntime: async () => {
+      type GpuState = { state: string; pct: number; stage: string; error: string | null
+        result: { ok: true; source: 'local' | 'download' | 'existing'; dir: string } | null }
+      let state = await api<GpuState>('/gpu/install', {}, 'POST')
+      while (state.state === 'running') {
+        gpuProgress.emit({ pct: state.pct, stage: state.stage })
+        await sleep(500)
+        state = await api('/gpu/install')
+      }
+      if (state.state !== 'done' || !state.result) throw new Error(state.error || 'GPU 런타임 설치에 실패했습니다.')
+      gpuProgress.emit({ pct: 100, stage: '완료' })
+      return state.result
+    },
+    onGpuInstallProgress: gpuProgress.on,
+    onModelDownloadProgress: modelProgress.on,
+    onModelReady: modelReady.on,
+
+    // -- transcription ---------------------------------------------------------------
+    sendVideoDropPath: (absolutePath: string, alignmentMode?: 'accurate' | 'fast') => {
+      const jobId = crypto.randomUUID()
+      activeTranscription = jobId
+      void (async () => {
+        try {
+          const first = await api<{ done: boolean; events: Array<{ type: string; payload: unknown }> }>(
+            '/transcribe', { path: absolutePath, alignmentMode, jobId })
+          const failed = first.events.find((e) => e.type === 'error')
+          if (failed) {
+            activeTranscription = null
+            txError.emit(failed.payload as TranscribeErrorPayload)
+            return
+          }
+          await pollTranscription(jobId)
+        } catch (error) {
+          if (activeTranscription === jobId) {
+            activeTranscription = null
+            txError.emit({ message: errorText(error) })
+          }
+        }
+      })()
+    },
+    cancelTranscription: async () => {
+      activeTranscription = null
+      await api('/transcribe/cancel', {}).catch(() => {})
+    },
+    onTranscribeMode: txMode.on,
+    onTranscribeDiag: txDiag.on,
+    onTranscribeProgress: txProgress.on,
+    onTranscribeComplete: txComplete.on,
+    onTranscribeError: txError.on,
+
+    // Precise re-alignment needs the WhisperX runtime, which the web agent installs in a later step.
+    realignWords: async (): Promise<RealignResult> => ({ ok: false, reason: '웹판 정밀 재정렬은 준비 중입니다.' }),
+    cancelRealignment: async () => {},
+
+    // -- projects, scripts, exports --------------------------------------------------
+    openProjectFile: async (): Promise<ProjectOpenResult> => {
+      const picked = await openFile(PROJECT_TYPE)
+      if (!picked) return { canceled: true }
+      return { canceled: false, path: picked.path, content: await picked.file.text() }
+    },
+    openScriptFile: async (): Promise<ScriptOpenResult> => {
+      const picked = await openFile({ description: '대본·자막', accept: { 'text/plain': ['.txt', '.srt', '.vtt'] } })
+      if (!picked) return { canceled: true }
+      if (picked.file.size > SCRIPT_FILE_MAX_BYTES) return { canceled: false, ok: false, reason: '파일이 너무 큽니다(최대 8MB).' }
+      try {
+        const { text, encoding } = decodeTextBuffer(new Uint8Array(await picked.file.arrayBuffer()))
+        return { canceled: false, ok: true, path: picked.path, name: picked.file.name, text, encoding }
+      } catch (error) {
+        return { canceled: false, ok: false, reason: errorText(error) }
+      }
+    },
+    saveProjectFile: async (path: string, content: string): Promise<ProjectSaveResult> => {
+      try {
+        const parsed = parseAutosubProjectFile(JSON.parse(content))
+        if (!parsed.ok) return { ok: false, reason: parsed.reason }
+        const saved = await saveTextInPlace(path, JSON.stringify(parsed.data, null, 2))
+        return saved ? { ok: true } : { ok: false, reason: '이 파일에 다시 쓰려면 "다른 이름으로 저장"으로 위치를 한 번 골라 주세요.' }
+      } catch (error) {
+        return { ok: false, reason: errorText(error) }
+      }
+    },
+    saveProjectFileAs: async (content: string, defaultPath?: string): Promise<ProjectSaveAsResult> => {
+      const parsed = parseAutosubProjectFile(JSON.parse(content))
+      if (!parsed.ok) throw new Error(parsed.reason)
+      const suggested = defaultPath ? `${baseName(defaultPath)}.autosub` : 'New_AutoSubtitle.autosub'
+      const saved = await saveTextAs(JSON.stringify(parsed.data, null, 2), suggested, PROJECT_TYPE)
+      return saved === null ? { canceled: true } : { canceled: false, path: saved }
+    },
+    exportByFormat: (req: ExportRequest) => exportSubtitleFile(req),
+    exportVideoWithBurnedSubtitles: async () => {
+      throw new WebApiNotReady('자막 입힌 영상 내보내기')
+    },
+    onExportProgress: exportProgress.on,
+    showExportResultInFolder: async () => ({ ok: false as const, reason: '웹에서는 저장한 폴더를 열 수 없습니다.' }),
+
+    // -- misc ------------------------------------------------------------------------
     openExternal: async (url: string) => {
+      if (!/^https?:\/\//.test(url)) return { ok: false as const, reason: 'invalid-url' }
       window.open(url, '_blank', 'noopener,noreferrer')
       return { ok: true as const }
     },
-    exportVideoWithBurnedSubtitles: notReady('exportVideoWithBurnedSubtitles'),
-    exportByFormat: notReady('exportByFormat'),
-    onExportProgress: noSubscription,
-    showExportResultInFolder: notReady('showExportResultInFolder'),
-    onModelDownloadProgress: noSubscription,
-    onModelReady: noSubscription,
-    sendVideoDropPath: (absolutePath: string) => {
-      console.warn(new WebApiNotReady(`sendVideoDropPath(${absolutePath})`).message)
-    },
-    cancelTranscription: async () => {},
-    cancelWaveform: async () => {},
-    onTranscribeMode: noSubscription,
-    onTranscribeDiag: noSubscription,
-    onTranscribeProgress: noSubscription,
-    onTranscribeComplete: noSubscription,
-    onTranscribeError: noSubscription,
     notifySubtitleRenderReady: () => {},
-    openProjectFile: notReady('openProjectFile'),
-    openScriptFile: notReady('openScriptFile'),
-    saveProjectFile: notReady('saveProjectFile'),
-    saveProjectFileAs: notReady('saveProjectFileAs'),
     logWaveformDebug: async (scope: string, message: string, ...details: unknown[]) => {
       console.debug(`[waveform:${scope}]`, message, ...details)
       return { ok: true as const, path: '' }
@@ -71,9 +323,9 @@ export function createWebApi(): SidecarApi {
     logTimelineEdit: async (scope: string, message: string, ...details: unknown[]) => {
       console.debug(`[timeline:${scope}]`, message, ...details)
       return { ok: true as const, path: '' }
-    },
-    readLocalMediaFileBuffer: notReady('readLocalMediaFileBuffer'),
-    readLocalPeaksJsonFile: notReady('readLocalPeaksJsonFile'),
-    getWaveformPeaksCachePath: notReady('getWaveformPeaksCachePath')
+    }
   }
+  return api_
 }
+
+export { AgentUnavailable }

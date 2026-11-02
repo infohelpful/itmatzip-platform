@@ -260,7 +260,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 
 | 툴 | 문서 경로 |
 |----|-----------|
-| Auto Subtitle | `web-ui/tools/auto-subtitle/AUTO-SUBTITLE.MD` |
+| Auto Subtitle | `web-src/auto-subtitle/README.md` |
 | Vocal Remover | `web-ui/tools/vocal-remover/VOCAL-REMOVER.MD` |
 | Image Enhancer | `web-ui/tools/image-enhancer/IMAGE-ENHANCER.MD` |
 | Background Remover | `web-ui/tools/background-remover/BACKGROUND-REMOVER.MD` |
