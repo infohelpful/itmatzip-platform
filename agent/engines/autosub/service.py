@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any
 
-from . import media, paths
+from . import alignment, media, paths
 from .sidecar_client import SidecarError, client
 
 PREPARE_MODEL_TIMEOUT_SEC = 60 * 60
@@ -103,6 +103,8 @@ def _run_prepare() -> None:
 
             ensure_ffmpeg(on_progress=lambda pct, step="", detail="": _set_prepare(
                 percent=20.0 + 10.0 * float(pct) / 100.0, step=f"FFmpeg {detail or step}".strip()))
+        _set_prepare(percent=29.0, step="파형 도구 준비")
+        ensure_audiowaveform(quiet=True)
         _set_prepare(percent=30.0, step="Whisper 모델 준비")
         sc = client()
         sc.stop("restart with FFmpeg/GPU paths")  # pick up new PATH entries
@@ -250,6 +252,8 @@ def start_transcription(path: str, alignment_mode: str | None, job_id: str) -> N
         sc = client()
         started = time.monotonic()
         try:
+            # First, because installing it restarts the sidecar (which would drop a loaded model).
+            ensure_audiowaveform(quiet=True)
             status = sc.call("get_model_status") or {}
             if job.cancelled.is_set():
                 return
@@ -279,7 +283,7 @@ def start_transcription(path: str, alignment_mode: str | None, job_id: str) -> N
             params["prepared_audio_path"] = prepared["audioPath"]
             if alignment_mode in ("accurate", "fast"):
                 params["alignment_mode"] = alignment_mode
-            align_python = os.environ.get("ITMATZIP_AUTOSUB_ALIGN_PYTHON", "").strip()
+            align_python = alignment.python_path()
             if align_python:
                 params["alignment_python"] = align_python
             params["waveform_out_json_path"] = media.waveform_cache_json_path(str(abs_path))["cachePath"]
@@ -375,3 +379,116 @@ def sidecar_call(method: str, params: dict[str, Any]) -> Any:
     if method == "waveform_peaks":
         return generate_waveform(params)
     raise PermissionError(f"허용되지 않은 sidecar 메서드입니다: {method}")
+
+
+# -- audiowaveform -----------------------------------------------------------------------
+# Official BBC release, identical to the exe the desktop app bundles (GPL-3.0, run as a separate program).
+AUDIOWAVEFORM_URL = "https://github.com/bbc/audiowaveform/releases/download/1.10.2/audiowaveform-1.10.2-win64.zip"
+AUDIOWAVEFORM_ZIP_SHA256 = "17ab4657b9482ffa063d88d367598208060400af91c2c3e2b04723f98b418ad1"
+AUDIOWAVEFORM_EXE_SHA256 = "a5de21b75fe2d9f5e1ac756b7dd7a14bfd18918821f3a389097521354c7c418c"
+_aw_lock = threading.Lock()
+
+
+def ensure_audiowaveform(*, quiet: bool = False) -> str | None:
+    """Download audiowaveform.exe once; without it the editor still works, only peaks are slower."""
+    import hashlib
+    import io
+    import urllib.request
+    import zipfile
+
+    with _aw_lock:
+        existing = paths.audiowaveform_exe()
+        if existing:
+            return existing
+        try:
+            with urllib.request.urlopen(AUDIOWAVEFORM_URL, timeout=60) as resp:  # noqa: S310 - pinned https URL
+                data = resp.read()
+            if hashlib.sha256(data).hexdigest() != AUDIOWAVEFORM_ZIP_SHA256:
+                raise RuntimeError("audiowaveform 다운로드 파일의 해시가 맞지 않습니다.")
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                name = next(n for n in zf.namelist() if n.lower().endswith("audiowaveform.exe"))
+                exe = zf.read(name)
+            if hashlib.sha256(exe).hexdigest() != AUDIOWAVEFORM_EXE_SHA256:
+                raise RuntimeError("audiowaveform.exe 해시가 맞지 않습니다.")
+            target = paths.tool_bin_dir() / "audiowaveform.exe"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".exe.part")
+            tmp.write_bytes(exe)
+            os.replace(tmp, target)
+            client().stop("restart with audiowaveform")  # next call picks up AUTOSUBTITLE_AUDIOWAVEFORM_PATH
+            return str(target)
+        except Exception:  # noqa: BLE001
+            if quiet:
+                return None
+            raise
+
+
+# -- precise re-alignment ----------------------------------------------------------------
+_realign_lock = threading.Lock()
+_realign_jobs: dict[str, dict[str, Any]] = {}
+
+
+def start_realign(request: dict[str, Any]) -> dict[str, Any]:
+    """Port of desktop `alignment:realign`: WhisperX on the prepared audio in a worker of its own."""
+    from .sidecar_client import SidecarClient
+
+    if (not isinstance(request.get("requestId"), str) or not request["requestId"]
+            or not isinstance(request.get("timelineId"), str) or not isinstance(request.get("revision"), int)
+            or not isinstance(request.get("path"), str) or not isinstance(request.get("cues"), list)):
+        return {"state": "done", "result": {"ok": False, "reason": "올바르지 않은 정렬 요청입니다."}}
+    align_python = alignment.python_path()
+    if not align_python:
+        return {"state": "done", "result": {"ok": False, "reason": "alignment_runtime_missing"}}
+    with _realign_lock:
+        previous = list(_realign_jobs.values())
+    for job in previous:  # a new request replaces the running one, like the desktop app
+        job["cancelled"] = True
+        job["worker"].stop("새 정렬 요청으로 취소했습니다.")
+    worker = SidecarClient({"AUTOSUBTITLE_ALIGN_PYTHON": align_python,
+                            "AUTOSUBTITLE_ALIGN_CACHE": str(paths.align_cache_dir())})
+    job: dict[str, Any] = {"worker": worker, "done": threading.Event(), "result": None, "cancelled": False}
+    with _realign_lock:
+        _realign_jobs[request["requestId"]] = job
+
+    def work() -> None:
+        try:
+            prepared = media.prepare_blocking(request["path"])
+            if job["cancelled"]:
+                raise RuntimeError("정렬이 취소됐습니다.")
+            ff = paths.ffmpeg_paths()
+            reply = worker.call("realign_words", {**request, "path": prepared["audioPath"],
+                                                  "duration": prepared["duration"], "sourceOriginSec": 0,
+                                                  "ffmpeg": ff[0] if ff else ""}, TRANSCRIBE_TIMEOUT_SEC)
+            if job["cancelled"]:
+                raise RuntimeError("정렬이 취소됐습니다.")
+            job["result"] = {**(reply or {}), "ok": True}
+        except Exception as error:  # noqa: BLE001
+            job["result"] = {"ok": False, "reason": str(error)}
+        finally:
+            worker.stop()
+            job["done"].set()
+
+    threading.Thread(target=work, name="autosub-realign", daemon=True).start()
+    return {"state": "running"}
+
+
+def realign_status(request_id: str, wait_sec: float = 0.0) -> dict[str, Any]:
+    with _realign_lock:
+        job = _realign_jobs.get(request_id)
+    if job is None:
+        return {"state": "done", "result": {"ok": False, "reason": "정렬이 취소됐습니다."}}
+    if wait_sec > 0:
+        job["done"].wait(wait_sec)
+    if not job["done"].is_set():
+        return {"state": "running"}
+    with _realign_lock:
+        _realign_jobs.pop(request_id, None)
+    return {"state": "done", "result": job["result"]}
+
+
+def cancel_realign(request_id: str) -> None:
+    with _realign_lock:
+        job = _realign_jobs.get(request_id)
+    if job:
+        job["cancelled"] = True
+        job["worker"].stop("정렬을 취소했습니다.")

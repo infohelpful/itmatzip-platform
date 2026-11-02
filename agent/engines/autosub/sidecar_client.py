@@ -41,7 +41,8 @@ class SidecarError(RuntimeError):
 
 
 class SidecarClient:
-    def __init__(self) -> None:
+    def __init__(self, extra_env: dict[str, str] | None = None) -> None:
+        self._extra_env = dict(extra_env or {})
         self._proc: subprocess.Popen[bytes] | None = None
         self._call_lock = threading.Lock()  # one RPC at a time, in order
         self._state_lock = threading.Lock()
@@ -79,6 +80,7 @@ class SidecarClient:
         if aw:
             env["AUTOSUBTITLE_AUDIOWAVEFORM_PATH"] = aw
         env["PATH"] = os.pathsep.join([*prefix, env.get("PATH", "")])
+        env.update(self._extra_env)
         return env
 
     def _start(self) -> subprocess.Popen[bytes]:

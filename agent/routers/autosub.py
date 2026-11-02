@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 
-from engines.autosub import media, paths, service
+from engines.autosub import alignment, media, paths, service
 
 router = APIRouter(prefix="/api/tools/auto-subtitle/v2", tags=["auto-subtitle"])
 
@@ -189,4 +189,39 @@ async def get_transcribe_events(jobId: str = Query(...), since: int = Query(0, g
 @router.post("/transcribe/cancel")
 async def post_transcribe_cancel() -> dict[str, Any]:
     await run_in_threadpool(service.cancel_transcription)
+    return {"ok": True}
+
+
+# -- precise alignment (WhisperX) --------------------------------------------------------
+@router.get("/alignment")
+async def get_alignment() -> dict[str, Any]:
+    return await run_in_threadpool(alignment.status)
+
+
+@router.post("/alignment/install")
+async def post_alignment_install() -> dict[str, Any]:
+    try:
+        return alignment.start_install()
+    except RuntimeError as error:
+        raise _bad(error, 409) from error
+
+
+@router.get("/alignment/install")
+async def get_alignment_install() -> dict[str, Any]:
+    return alignment.install_state()
+
+
+@router.post("/realign")
+async def post_realign(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    return await run_in_threadpool(service.start_realign, body)
+
+
+@router.get("/realign")
+async def get_realign(requestId: str = Query(...), wait: float = Query(0.0, ge=0, le=10)) -> dict[str, Any]:
+    return await run_in_threadpool(service.realign_status, requestId, wait)
+
+
+@router.post("/realign/cancel")
+async def post_realign_cancel(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    await run_in_threadpool(service.cancel_realign, _str(body, "requestId"))
     return {"ok": True}

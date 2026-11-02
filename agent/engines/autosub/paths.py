@@ -34,6 +34,26 @@ def waveform_cache_dir() -> Path:
     return data_root() / "WaveformCache"
 
 
+def align_cache_dir() -> Path:
+    """Where the sidecar keeps the WhisperX alignment model (its default: <models>/hf-align-cache)."""
+    return models_dir() / "hf-align-cache"
+
+
+def align_runtime_dir() -> Path:
+    """Private Python for WhisperX/torch, kept apart from the agent's own packages."""
+    override = os.environ.get("ITMATZIP_AUTOSUB_ALIGN_RUNTIME", "").strip()
+    if override:
+        return Path(override)
+    appdata = os.environ.get("APPDATA", "").strip()
+    base = Path(appdata) / "ItMatZip" if appdata else Path.home() / ".itmatzip"
+    return base / "engine-runtime" / "auto-subtitle-align"
+
+
+def tool_bin_dir() -> Path:
+    """Agent-wide bin folder (FFmpeg lives here too); audiowaveform.exe is installed into it."""
+    return data_root().parent / "bin"
+
+
 def sidecar_python() -> str:
     """Interpreter for the sidecar subprocess; packages come from the tool runtime folder."""
     return os.environ.get("ITMATZIP_AUTOSUB_PYTHON", "").strip() or sys.executable
@@ -56,7 +76,7 @@ def ffmpeg_paths() -> tuple[str, str] | None:
 def audiowaveform_exe() -> str | None:
     override = os.environ.get("AUTOSUBTITLE_AUDIOWAVEFORM_PATH", "").strip()
     candidates = [Path(override)] if override else []
-    candidates += [data_root().parent / "bin" / "audiowaveform.exe",
+    candidates += [tool_bin_dir() / "audiowaveform.exe",
                    Path(__file__).resolve().parent / "bin" / "audiowaveform.exe"]
     for path in candidates:
         if path.is_file():
