@@ -34,7 +34,7 @@ python -m uvicorn main:app --port 19887
 | `ITMATZIP_AUTOSUB_PYTHON` | 사이드카 실행 Python (기본: 에이전트 Python) |
 | `ITMATZIP_AUTOSUB_MODELS_DIR` | Whisper 모델 폴더 (기본: `<agent data>/auto-subtitle/models`) |
 | `ITMATZIP_AUTOSUB_ALIGN_PYTHON` | WhisperX 정렬 Python 직접 지정 (기본: 설치한 정렬 런타임) |
-| `ITMATZIP_AUTOSUB_ALIGN_RUNTIME` | 정렬 런타임 폴더 (기본: `%APPDATA%\ItMatZip\engine-runtimeuto-subtitle-align`) |
+| `ITMATZIP_AUTOSUB_ALIGN_RUNTIME` | 정렬 런타임 폴더 (기본: `%APPDATA%\ItMatZip\engine-runtime\auto-subtitle-align`) |
 | `ITMATZIP_AUTOSUB_ALIGN_BASE_PYTHON` | 정렬 런타임을 만들 기준 Python (기본: 에이전트 Python) |
 | `AUTOSUBTITLE_AUDIOWAVEFORM_PATH` | audiowaveform.exe 직접 지정 (기본: 에이전트 bin에 자동 설치) |
 
