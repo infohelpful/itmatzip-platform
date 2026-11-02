@@ -79,17 +79,41 @@
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
-  <link rel="stylesheet" href="app/auto-subtitle.css?v=4">
-  <style>.as-root{height:100vh;min-height:640px;overflow:hidden}</style>
+  <link rel="stylesheet" href="app/auto-subtitle.css?v=5">
+  <style>
+    /* The desktop App.css pins html/body/#root to one non-scrolling window; on the web the editor
+       fills the first screen and the page scrolls on to the guide below it. */
+    html, body { height: auto !important; overflow-x: hidden !important; overflow-y: auto !important; }
+    #root.as-root { height: 100vh !important; min-height: 640px; overflow: hidden; overscroll-behavior: contain; }
+  </style>
 </head>
 <body class="as-app">
   <div id="root" class="as-root"></div>
 
-
+  <section class="tool-guide" aria-label="Auto Subtitle 안내">
+    <p class="tool-guide-kicker">Auto Subtitle</p>
+    <h2>로컬 영상에서 자막을 뽑고 단어 단위로 다듬는 편집기</h2>
+    <p class="tool-guide-lead">Auto Subtitle은 Faster-Whisper로 말소리를 글자로 바꾸고, 단어마다 시간을 맞춘 자막 칩으로 보여 줍니다. 문장과 싱크를 고친 뒤 SRT·TXT로 저장하거나 자막을 입힌 영상으로 내보냅니다. 영상은 PC 밖으로 나가지 않습니다.</p>
+    <h3>작업 과정</h3>
+    <ol>
+      <li><strong>엔진 준비.</strong> 처음 한 번 Whisper 모델(약 1.6GB)과 FFmpeg를 PC에 받습니다. NVIDIA 그래픽카드가 있으면 GPU 런타임도 설치할 수 있습니다.</li>
+      <li><strong>영상 선택과 자막 추출.</strong> 에이전트 파일 창에서 영상(mp4·mkv·avi)을 고르면 바로 자막을 뽑습니다.</li>
+      <li><strong>교정.</strong> 단어 칩과 문장을 고치고, 줄을 나누거나 합치고, 필요하면 싱크를 다시 맞춥니다. 실행 취소로 되돌릴 수 있습니다.</li>
+      <li><strong>저장과 내보내기.</strong> 프로젝트(.autosub)로 이어서 작업하고, SRT·TXT 또는 자막을 입힌 영상으로 내보냅니다.</li>
+    </ol>
+    <h3>이 도구의 장점</h3>
+    <ul>
+      <li><strong>단어 단위 싱크.</strong> 「정밀 정렬 설치」(약 2.5GB, 처음 한 번)를 하면 WhisperX로 단어 경계를 음성에 맞춥니다.</li>
+      <li><strong>미리보기 그대로 입힌 영상.</strong> 글꼴·크기·배경·외곽선·위치와 단어 강조가 미리보기와 같은 모양으로 영상에 들어갑니다.</li>
+      <li><strong>파일이 밖으로 나가지 않습니다.</strong> 인터뷰나 사내 영상도 외부 서버에 올리지 않고 자막을 만듭니다.</li>
+    </ul>
+    <p class="tool-guide-note">ItMatZip 에이전트 1.6.0 이상이 필요합니다. 작업 화면은 데스크톱 해상도에 맞춰져 있습니다.</p>
+  </section>
 
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <script src="../common/site-guard.js?v=13"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="app/auto-subtitle.js?v=4"></script>
+  <script type="module" src="site-glue.js?v=1"></script>
+  <script type="module" src="app/auto-subtitle.js?v=5"></script>
 </body>
 </html>

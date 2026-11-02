@@ -65,10 +65,22 @@ async function readError(res: Response): Promise<string> {
   return text || `HTTP ${res.status}`
 }
 
+/** The agent answers but has no v2 routes: it predates this web app. */
+export class AgentOutdated extends Error {
+  constructor() {
+    super('ItMatZip 에이전트를 1.6.0 이상으로 업데이트해 주세요. 지금 에이전트에는 이 자막 도구 기능이 없습니다.')
+    this.name = 'AgentOutdated'
+  }
+}
+
 export async function api<T>(path: string, body?: unknown, method?: 'GET' | 'POST'): Promise<T> {
   const res = await agentFetch(toolApiBase + path, body === undefined && method !== 'POST'
     ? { method: 'GET' }
     : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+  if (res.status === 404) {
+    const detail = await readError(res)
+    throw detail === 'Not Found' ? new AgentOutdated() : new Error(detail)
+  }
   if (!res.ok) throw new Error(await readError(res))
   return (await res.json()) as T
 }
