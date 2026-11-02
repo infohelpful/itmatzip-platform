@@ -47,7 +47,14 @@
     return "/" + prefix + rest;
   }
 
+  /** A page may pin its theme with <html data-force-theme="dark|light"> (e.g. the always-dark subtitle editor). */
+  function forcedTheme() {
+    var f = document.documentElement.getAttribute("data-force-theme");
+    return f === "dark" || f === "light" ? f : "";
+  }
+
   function readTheme() {
+    if (forcedTheme()) return forcedTheme();
     try {
       return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
     } catch (e) {
@@ -62,6 +69,7 @@
   }
 
   function writeTheme(theme) {
+    if (forcedTheme()) return;
     try {
       localStorage.setItem(THEME_KEY, theme);
     } catch (e) {
@@ -214,6 +222,7 @@
   }
 
   function mountThemeToggle() {
+    if (forcedTheme()) return;
     if (!document.querySelector(".itz-theme-toggle")) {
       var btn = createThemeToggle();
       var hubTitle = document.querySelector(".hub-title-cluster .hub-title, .hub-title-row .hub-title");

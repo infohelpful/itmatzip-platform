@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko" data-tool-id="auto-subtitle">
+<html lang="ko" data-tool-id="auto-subtitle" data-force-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=43"></script>
+  <script src="../common/site-runtime.js?v=44"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI 자막 추출 SRT - Auto Subtitle | ItMatZip</title>
   <meta name="description" content="로컬 영상·오디오에서 Faster-Whisper로 자막을 만들고 SRT로 저장합니다. 원본은 PC를 벗어나지 않습니다.">
@@ -85,6 +85,9 @@
        fills the first screen and the page scrolls on to the guide below it. */
     html, body { height: auto !important; overflow-x: hidden !important; overflow-y: auto !important; }
     #root.as-root { height: 100vh !important; min-height: 640px; overflow: hidden; overscroll-behavior: contain; }
+    /* The editor is always dark (desktop App.css :root). The site's light theme sets body text to near-black,
+       which unstyled app text (e.g. the extract dialog's cancel button) would inherit; keep the app's own colors. */
+    #root.as-root { color-scheme: dark; background: #0f1115; color: #e8eaed; font-family: system-ui, 'Segoe UI', sans-serif; }
   </style>
 </head>
 <body class="as-app">
