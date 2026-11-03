@@ -1,0 +1,19 @@
+/* Web-only ad slots (filled by web-ui/tools/auto-subtitle/site-glue.js). Hidden when ads are off. */
+.autosub-ad { box-sizing: border-box; min-width: 0; overflow: hidden; }
+.autosub-ad.is-ad-off { display: none !important; }
+
+/* Toolbar: the free space right of 「단어 강조」, before the export group. */
+.autosub-ad--toolbar {
+  flex: 1 1 auto; align-self: center; height: 90px; max-width: 970px;
+  /* Sit right next to 「단어 강조」; the export group keeps its own margin-left: auto. */
+  margin: 0 auto 0 16px; border-radius: 4px;
+}
+
+/* Preview column: fills the space under the player (and the extract info). */
+.autosub-ad--panel {
+  flex: 1 1 auto; min-height: 250px; margin-top: 12px; border-radius: 4px;
+}
+
+/* The desktop lets the tool group take all spare width (flex: 1 1 530px); on the web that space is the ad's. */
+.preview-subtitle-controls > .editor-subtitle-tools,
+.preview-subtitle-controls > .subtitle-format-toolbar { flex: 0 1 auto; }

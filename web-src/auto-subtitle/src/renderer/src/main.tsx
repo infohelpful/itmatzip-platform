@@ -10,6 +10,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import './tailwind.css'
 import './App.css'
 import './editorChrome.css'
+import './platform/webAds.css'
 
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>

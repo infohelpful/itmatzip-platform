@@ -6846,6 +6846,8 @@ export default function App(): ReactElement {
               onBgPaddingPct={(value) => setSubtitleBgPaddingPct(clampSubtitleBgPaddingPct(value))}
               onX={setSubtitleX} onY={(value) => setSubtitleY(clampSubtitleY(value))}
             />}
+            {/* Web build: ad slot filled by web-ui/tools/auto-subtitle/site-glue.js (React never renders into it). */}
+            <div id="autosub-ad-toolbar" className="autosub-ad autosub-ad--toolbar" aria-label="광고" />
             <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
               <div className="preview-export-main">
                 <select className="preview-export-format" value={exportFormat}
@@ -7078,6 +7080,8 @@ export default function App(): ReactElement {
                 {transcribeDiagnostics.map((message, i) => <p key={i}>{message}</p>)}
               </details>
             )}
+            {/* Web build: large ad below the preview, filled by site-glue.js. */}
+            <div id="autosub-ad-preview" className="autosub-ad autosub-ad--panel" aria-label="광고" />
           </section>
 
           <div

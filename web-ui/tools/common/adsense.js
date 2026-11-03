@@ -83,6 +83,7 @@ function scheduleFillWatch(ins, container, unitKey) {
  * @typedef {Object} AdSenseUnit
  * @property {string} slot
  * @property {string} [adFormat] `data-ad-format` (예: "horizontal", "auto")
+ * @property {boolean} [fillHeight] 고정 배너 높이 대신 컨테이너 높이(250~600px)를 쓴다
  * @property {boolean} [fullWidthResponsive]
  * @property {string} [style]
  * @property {number} [minWidth] 이 폭 미만이면 push 하지 않음 (TagError 방지)
@@ -139,7 +140,22 @@ export const AD_UNITS = {
     slot: "5724069500",
     minWidth: HORIZONTAL_MIN_WIDTH,
   },
+  /** 자막 도구 — 툴바 「단어 강조」 오른쪽 가로 배너 */
+  autosubToolbar: {
+    slot: "5724069500",
+    minWidth: 320,
+  },
+  /** 자막 도구 — 영상 미리보기 아래 남는 공간을 채우는 큰 광고 */
+  autosubPreviewPanel: {
+    slot: "5724069500",
+    minWidth: HORIZONTAL_MIN_WIDTH,
+    fillHeight: true,
+  },
 };
+
+/** fillHeight 단위: 칸 높이를 따르되 광고 규격 범위 안으로 */
+const FILL_AD_MIN_HEIGHT = 250;
+const FILL_AD_MAX_HEIGHT = 600;
 
 /**
  * @param {{ client?: string }} [cfg]
@@ -387,7 +403,9 @@ export async function showAdSense(unitKey, container) {
   el.removeAttribute("data-adsense-empty");
 
   const ins = document.createElement("ins");
-  const heightPx = bannerAdHeightPx();
+  const heightPx = unit.fillHeight
+    ? Math.max(FILL_AD_MIN_HEIGHT, Math.min(FILL_AD_MAX_HEIGHT, Math.floor(el.clientHeight || 0)))
+    : bannerAdHeightPx();
   ins.className = "adsbygoogle itz-ad-unit";
   ins.style.cssText = "display:block;width:100%;height:" + heightPx + "px";
   ins.setAttribute("data-ad-client", resolved.client || _client);
