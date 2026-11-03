@@ -889,15 +889,8 @@ export default function App(): ReactElement {
       return []
     }
   }
-  /** 자막 전용 작업 공간의 왼쪽 영상 미리보기 폭. */
-  const SPLIT_MIN = 20
-  const SPLIT_MAX = 65
-  const [previewWidthPct, setPreviewWidthPct] = useState(() => {
-    const raw = window.localStorage.getItem('autosubtitle:editor-preview-width-pct')
-    const parsed = Number(raw)
-    if (raw === null || !Number.isFinite(parsed)) return 48
-    return Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, parsed))
-  })
+  /** 영상 미리보기와 자막 목록은 50:50으로 고정한다(광고 위치가 움직이지 않도록 조절 불가). */
+  const previewWidthPct = 50
   const [busy, setBusy] = useState(false)
   const [editorTab, setEditorTab] = useState<'home' | 'subtitles' | 'format'>('subtitles')
   const [selectedSubtitleRows, setSelectedSubtitleRows] = useState<Set<number>>(() => new Set())
@@ -6554,9 +6547,6 @@ export default function App(): ReactElement {
     subtitleY
   ])
   useEffect(() => {
-    window.localStorage.setItem('autosubtitle:editor-preview-width-pct', String(previewWidthPct))
-  }, [previewWidthPct])
-  useEffect(() => {
     const payload = {
       subtitleFontFamily,
       subtitleFontSize,
@@ -6644,25 +6634,6 @@ export default function App(): ReactElement {
       window.removeEventListener('resize', updateVideoContentBox)
     }
   }, [previewWidthPct, videoPath])
-
-  const startSplitResize = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    e.preventDefault()
-    const onMove = (ev: globalThis.MouseEvent) => {
-      const next = (ev.clientX / window.innerWidth) * 100
-      const clamped = Math.max(SPLIT_MIN, Math.min(SPLIT_MAX, next))
-      setPreviewWidthPct(clamped)
-    }
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }, [])
 
   const projectFileUiDisabled = !modelReady || busy || isExtracting || projectIoBusy
 
@@ -6873,6 +6844,7 @@ export default function App(): ReactElement {
             style={{ width: `${previewWidthPct}%` }}
             data-waveform-no-dismiss="1"
           >
+            <div className="split-preview-top">
             {videoPath && !preparedMedia ? <p role="status">{mediaPrepareError || '영상과 음성의 시간축을 준비하고 있습니다…'}</p> : null}
             {playbackError ? <p role="alert">{playbackError}</p> : null}
             {videoPath ? (
@@ -7078,6 +7050,7 @@ export default function App(): ReactElement {
                 {transcribeDiagnostics.map((message, i) => <p key={i}>{message}</p>)}
               </details>
             )}
+            </div>
             {/* Web build: large ad below the preview, filled by site-glue.js. */}
             <div id="autosub-ad-preview" className="autosub-ad autosub-ad--panel" aria-label="광고" />
           </section>
@@ -7086,9 +7059,7 @@ export default function App(): ReactElement {
             className="split-divider"
             role="separator"
             aria-orientation="vertical"
-            aria-label="패널 너비 조절"
             data-waveform-no-dismiss="1"
-            onMouseDown={startSplitResize}
           />
 
           <aside className="split-subtitles" aria-label="자막 편집" style={{ width: `${100 - previewWidthPct}%` }}>

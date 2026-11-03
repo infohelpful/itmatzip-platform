@@ -138,3 +138,14 @@
 .subtitle-search-notice { margin: 0; color: #65d7ed; }
 .subtitle-search-hint { margin: 0; color: #6f8185; font-size: 10px; line-height: 1.4; }
 .app .subtitle-card--search-hit { border-color: #ffd54a; box-shadow: 0 0 0 1px #ffd54a66; }
+
+/* 50:50 고정 — 바를 움직일 수 없고, 영상을 넣어도 미리보기 영역 높이가 변하지 않아 광고가 밀리지 않는다. */
+.split-preview { container-type: inline-size; }
+.split-divider { cursor: default; pointer-events: none; }
+.split-preview-top {
+  flex: 0 0 auto; display: flex; flex-direction: column; min-height: 0; overflow-y: auto;
+  /* 영상 칸(16:9) + 재생 바·추출 정보 자리 */
+  height: calc(100cqw * 9 / 16 + 120px);
+}
+.split-preview-top > .preview-drop { flex: 0 0 auto; aspect-ratio: 16 / 9; width: 100%; }
+.autosub-ad--panel { flex: 1 1 auto; }
