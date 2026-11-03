@@ -136,11 +136,7 @@ export function SubtitleFormatToolbar(props: Props) {
   const colorIcon = (color: string, kind: string) => <span aria-hidden="true" className={`format-color-icon ${kind}`} style={{ borderBottomColor: color }}>A</span>
   return <div className="subtitle-format-toolbar" role="group" aria-label="전체 자막 서식"
     onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation() }}>
-    <button className="format-bold" type="button" title="굵게" aria-label="굵게" aria-pressed={props.fontWeight >= 700}
-      onClick={() => props.onFontWeight(props.fontWeight >= 700 ? 400 : 700)}>B</button>
-    <select aria-label="글꼴 굵기" value={props.fontWeight} onChange={(event) => props.onFontWeight(Number(event.target.value))}>
-      {[400, 500, 600, 700, 800, 900].map((weight) => <option key={weight} value={weight}>{weight}</option>)}
-    </select>
+    {/* Web build: bold toggle and weight select removed (weight keeps its current value). */}
     <select className="format-font" aria-label="글꼴" value={props.fontFamily} onChange={(event) => props.onFontFamily(event.target.value)}>
       {props.recentFonts.length > 0 && <optgroup label="최근 사용">{props.recentFonts.map((font) => <option key={font} value={font}>{font}</option>)}</optgroup>}
       <optgroup label="전체 글꼴">{Array.from(new Set([props.fontFamily, ...props.fonts])).map((font) => <option key={font} value={font}>{font}</option>)}</optgroup>

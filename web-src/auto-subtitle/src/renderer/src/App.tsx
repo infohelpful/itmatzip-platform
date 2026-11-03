@@ -6805,10 +6805,7 @@ export default function App(): ReactElement {
         <div className="preview-subtitle-controls-bar" data-waveform-no-dismiss="1"
           onKeyDown={event => { if (event.code === 'Space') event.stopPropagation() }}>
           <div className="preview-subtitle-controls">
-            <div className="editor-home-tools" role="group" aria-label="편집 기록">
-              <button type="button" onClick={undoSubtitleChange} disabled={!subtitles.length}><EditorToolIcon name="undo" /><span>실행 취소</span></button>
-              <button type="button" onClick={redoSubtitleChange} disabled={!subtitles.length}><EditorToolIcon name="redo" /><span>다시 실행</span></button>
-            </div>
+            {/* Web build: undo/redo toolbar buttons removed; Ctrl+Z / Ctrl+Y still work. */}
             {editorTab === 'subtitles' && <SubtitleActionsToolbar
               canAlign={!!videoPath && !!subtitles.length && !isExtracting && !projectIoBusy}
               canRead={!!subtitles.length && !isExtracting && !projectIoBusy && !realigning}
