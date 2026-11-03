@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=44"></script>
+  <script src="../common/site-runtime.js?v=45"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI 자막 추출 SRT - Auto Subtitle | ItMatZip</title>
   <meta name="description" content="로컬 영상·오디오에서 Faster-Whisper로 자막을 만들고 SRT로 저장합니다. 원본은 PC를 벗어나지 않습니다.">
@@ -100,17 +100,19 @@
     <p class="tool-guide-kicker">Auto Subtitle</p>
     <h2>로컬 영상에서 자막을 뽑고 단어 단위로 다듬는 편집기</h2>
     <p class="tool-guide-lead">Auto Subtitle은 Faster-Whisper로 말소리를 글자로 바꾸고, 단어마다 시간을 맞춘 자막 칩으로 보여 줍니다. 문장과 싱크를 고친 뒤 SRT·TXT로 저장하거나 자막을 입힌 영상으로 내보냅니다. 영상은 PC 밖으로 나가지 않습니다.</p>
+    <h3>이 도구가 하는 일</h3>
+    <p>왼쪽에서 영상을 재생하고, 오른쪽에서 줄마다 단어 칩과 문장을 고칩니다. 글꼴·크기·색·외곽선·배경·위치와 단어 강조를 미리보기에서 바로 확인하고, 그 모양 그대로 영상에 입힙니다.</p>
     <h3>작업 과정</h3>
     <ol>
       <li><strong>엔진 준비.</strong> 처음 한 번 Whisper 모델(약 1.6GB)과 FFmpeg를 PC에 받습니다. NVIDIA 그래픽카드가 있으면 GPU 런타임도 설치할 수 있습니다.</li>
-      <li><strong>영상 선택과 자막 추출.</strong> 에이전트 파일 창에서 영상(mp4·mkv·avi)을 고르면 바로 자막을 뽑습니다.</li>
+      <li><strong>영상 선택과 자막 추출.</strong> 「영상 선택 · 자막 추출」로 영상(mp4·mkv·avi)을 고르면 바로 자막을 뽑습니다.</li>
       <li><strong>교정.</strong> 단어 칩과 문장을 고치고, 줄을 나누거나 합치고, 필요하면 싱크를 다시 맞춥니다. 실행 취소로 되돌릴 수 있습니다.</li>
       <li><strong>저장과 내보내기.</strong> 프로젝트(.autosub)로 이어서 작업하고, SRT·TXT 또는 자막을 입힌 영상으로 내보냅니다.</li>
     </ol>
     <h3>이 도구의 장점</h3>
     <ul>
       <li><strong>단어 단위 싱크.</strong> 「정밀 정렬 설치」(약 2.5GB, 처음 한 번)를 하면 WhisperX로 단어 경계를 음성에 맞춥니다.</li>
-      <li><strong>미리보기 그대로 입힌 영상.</strong> 글꼴·크기·배경·외곽선·위치와 단어 강조가 미리보기와 같은 모양으로 영상에 들어갑니다.</li>
+      <li><strong>미리보기 그대로 입힌 영상.</strong> 미리보기에서 정한 자막 모양과 단어 강조가 그대로 영상에 들어갑니다.</li>
       <li><strong>파일이 밖으로 나가지 않습니다.</strong> 인터뷰나 사내 영상도 외부 서버에 올리지 않고 자막을 만듭니다.</li>
     </ul>
     <p class="tool-guide-note">ItMatZip 에이전트 1.6.0 이상이 필요합니다. 작업 화면은 데스크톱 해상도에 맞춰져 있습니다.</p>
