@@ -17,3 +17,7 @@
 /* The desktop lets the tool group take all spare width (flex: 1 1 530px); on the web that space is the ad's. */
 .preview-subtitle-controls > .editor-subtitle-tools,
 .preview-subtitle-controls > .subtitle-format-toolbar { flex: 0 1 auto; }
+
+/* Export format box: the desktop stretches it across a fixed 304px group; size it to its longest label. */
+.preview-subtitle-export-actions { flex: 0 0 auto; }
+.preview-export-main .preview-export-format { flex: 0 0 auto; width: 124px; }
