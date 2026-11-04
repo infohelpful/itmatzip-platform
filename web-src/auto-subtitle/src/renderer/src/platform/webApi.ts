@@ -175,19 +175,21 @@ export function createWebApi(): SidecarApi {
       const highlightColor = sanitizeHexColor(req.subtitleStyle?.wordHighlightColor)
       const schedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
       const st = req.subtitleStyle
-      const base: Omit<ExportSubtitleUpdatePayload, 'text' | 'words' | 'activeIndex'> = {
+      const base: Omit<ExportSubtitleUpdatePayload, 'text' | 'words' | 'activeIndex' | 'emphasis'> = {
         width: job.renderWidth, height: job.renderHeight, layoutWidth: job.width, layoutHeight: job.height,
         fontFamily: st?.fontFamily ?? 'Malgun Gothic', fontSize: st?.fontSize ?? 26, textColor: st?.textColor ?? '#f4f6fb',
         fontWeight: st?.fontWeight ?? 700, bgColor: st?.bgColor ?? '#080a10', bgOpacity: st?.bgOpacity ?? 62,
         bgPaddingPct: st?.bgPaddingPct ?? 100, strokeColor: st?.strokeColor ?? '#000000', strokeWidth: st?.strokeWidth ?? 2,
-        x: st?.x ?? 50, y: st?.y ?? 10, wordHighlightColor: highlightColor
+        x: st?.x ?? 50, y: st?.y ?? 10, wordHighlightColor: highlightColor,
+        emphasisColor: sanitizeHexColor(st?.emphasisColor), boxStyle: st?.boxStyle === 'capsule' ? 'capsule' : undefined
       }
       const renderer = new SubtitleFrameRenderer(job.renderWidth, job.renderHeight)
       try {
         for (const [i, state] of schedule.entries()) {
           exportProgress.emit({ percent: 4 + Math.round((i / Math.max(1, schedule.length)) * 8),
             label: `자막 렌더 중 ${i + 1}/${schedule.length}…`, encoderName })
-          const png = await renderer.render({ ...base, text: state.text, words: state.words, activeIndex: state.activeIndex })
+          const png = await renderer.render({ ...base, text: state.text, words: state.words, activeIndex: state.activeIndex,
+            emphasis: state.emphasis })
           const res = await agentFetch(`${toolApiBase}/export/video/${encodeURIComponent(job.jobId)}/state/${i}`,
             { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: png })
           if (!res.ok) throw new Error(await readError(res))

@@ -43,6 +43,17 @@ import { SILENCE_PLACEHOLDER_TEXT, scrubTimelineNoiseFromWordPiece } from '../..
 import { useSubtitleData } from './subtitleDataContext'
 import { peaksJsonRawDataLength } from './wordCanvas/peaksSentenceSlice'
 import { SentenceLineWaveformCanvas } from './waveform/SentenceLineWaveformCanvas'
+import { captionEmphasisOverlaps, DEFAULT_EMPHASIS_COLOR, emphasisColorByWordIndex } from '../../shared/captionEmphasis'
+import {
+  CaptionEmphasisMenu,
+  CaptionEmphasisOverlay,
+  type CaptionEmphasisMenuState
+} from './components/CaptionEmphasisEditor'
+
+/** 편집 textarea 우클릭 메뉴 → App 의 강조 변경. `text` 는 메뉴를 연 순간의 textarea 값이다. */
+export type CaptionEmphasisEdit =
+  | { kind: 'add'; text: string; start: number; end: number; color?: string }
+  | { kind: 'remove'; text: string; start: number; end: number }
 
 const WORD_LAYOUT_SPRING = { type: 'spring' as const, stiffness: 380, damping: 34 }
 /** 파형 타임라인 펼침 — 칩 너비·위치 전환을 조금 더 부드럽게 */
@@ -124,6 +135,10 @@ export type SubtitleVirtualListProps = {
   waveformPeaksJson?: JsonWaveformData | null
   /** 피크 길이 힌트(초) — App 의 `durationSec` 와 동일 정책 (`exactTimelineDurationSecFromWaveformJson` 보조) */
   waveformMediaDurationHintSec?: number
+  /** 강조 글자 전체 색 — 편집 칸 강조 표시·단어 칩 테두리 */
+  emphasisColor?: string
+  /** 편집 textarea 우클릭 메뉴의 강조 변경 */
+  onCaptionEmphasis?: (index: number, edit: CaptionEmphasisEdit) => void
 }
 
 /** `List` 의 `rowProps` — `index` / `style` / `ariaAttributes` 는 List가 주입 */
@@ -181,6 +196,8 @@ export type SubtitleListRowProps = {
   globalHoveredRowIndex: number | null
   /** 칩/캐럿 onMouseEnter 에서 자기 index 로, 워드행 onMouseLeave 에서 null 로 호출 */
   setGlobalHoveredRow: (idx: number | null) => void
+  emphasisColor: string
+  onCaptionEmphasis?: SubtitleVirtualListProps['onCaptionEmphasis']
 }
 
 /**
@@ -236,7 +253,9 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     waveformPeaksJson,
     waveformMediaDurationHintSec,
     globalHoveredRowIndex,
-    setGlobalHoveredRow
+    setGlobalHoveredRow,
+    emphasisColor,
+    onCaptionEmphasis
   } = props
   const requestFocusCaret = requestFocusWord
   const row = subtitles[index]
@@ -263,6 +282,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
   const textComposingRef = useRef(false)
   const lineEditDisplay = useMemo(() => subtitleLineEditDisplayText(row), [row.text, row.captionText, row.words])
   const subtitleTextDisplay = subtitleTextDraft ?? lineEditDisplay
+  /** 강조 글자가 들어 있는 단어 칩(저장 인덱스) → 테두리 색 */
+  const emphasisByWord = useMemo(() => emphasisColorByWordIndex(row, emphasisColor), [row, emphasisColor])
+  const [emphasisMenu, setEmphasisMenu] = useState<CaptionEmphasisMenuState | null>(null)
+  const closeEmphasisMenu = useCallback(() => setEmphasisMenu(null), [])
 
   useEffect(() => {
     if (textComposingRef.current) return
@@ -1793,7 +1816,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                       {...(chipWordId != null ? ({ 'data-word-id': String(chipWordId) } as const) : {})}
                       data-waveform-active-word-chip={isActiveWaveformChip ? '1' : undefined}
                       data-waveform-expanded-row-chip={waveformExpandedThisRow ? '1' : undefined}
-                      className={`subtitle-word-chip subtitle-word-chip--proportional${rw.isSilence ? ' subtitle-word-chip--silence' : ''}`}
+                      className={`subtitle-word-chip subtitle-word-chip--proportional${rw.isSilence ? ' subtitle-word-chip--silence' : ''}${emphasisByWord.has(storageWi) ? ' subtitle-word-chip--emphasis' : ''}`}
+                      style={emphasisByWord.has(storageWi)
+                        ? ({ '--chip-emphasis-color': emphasisByWord.get(storageWi) } as CSSProperties)
+                        : undefined}
                       onKeyDown={(e) => {
                         // Expanded waveform rows have no caret buttons. Delete the focused
                         // chip directly instead of losing the keystroke on the parent card.
@@ -1983,6 +2009,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         ) : null}
           </div>
         ) : null}
+        <div className="subtitle-card-textarea-wrap">
         <textarea
           id={`subtitle-v-${index}`}
           ref={subtitleTextareaRef}
@@ -2021,8 +2048,42 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           onKeyDown={onTextareaKeyDown}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            if (!onCaptionEmphasis || textComposingRef.current) return
+            const ta = e.currentTarget
+            const start = Math.min(ta.selectionStart, ta.selectionEnd)
+            const end = Math.max(ta.selectionStart, ta.selectionEnd)
+            const text = ta.value
+            const hasText = text.slice(start, end).trim().length > 0
+            const canRemove = captionEmphasisOverlaps(text, row.emphasis, start, end)
+            // 글자를 고르지 않았고 강조 위에도 없으면 브라우저 기본 메뉴(복사·붙여넣기)를 그대로 둔다.
+            if (!hasText && !canRemove) return
+            e.preventDefault()
+            e.stopPropagation()
+            setEmphasisMenu({ x: e.clientX, y: e.clientY, text, start, end: hasText ? end : start, canRemove })
+          }}
           spellCheck={false}
         />
+        <CaptionEmphasisOverlay textareaRef={subtitleTextareaRef} text={subtitleTextDisplay}
+          ranges={row.emphasis} defaultColor={emphasisColor} />
+        </div>
+        {emphasisMenu && onCaptionEmphasis ? (
+          <CaptionEmphasisMenu
+            state={emphasisMenu}
+            defaultColor={emphasisColor}
+            onClose={closeEmphasisMenu}
+            onEmphasize={(color) => {
+              const m = emphasisMenu
+              setEmphasisMenu(null)
+              onCaptionEmphasis(index, { kind: 'add', text: m.text, start: m.start, end: m.end, ...(color ? { color } : {}) })
+            }}
+            onRemove={() => {
+              const m = emphasisMenu
+              setEmphasisMenu(null)
+              onCaptionEmphasis(index, { kind: 'remove', text: m.text, start: m.start, end: m.end })
+            }}
+          />
+        ) : null}
       </article>
     </div>
   )
@@ -2288,7 +2349,9 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       waveformPeaksJson: props.waveformPeaksJson,
       waveformMediaDurationHintSec: props.waveformMediaDurationHintSec,
       globalHoveredRowIndex,
-      setGlobalHoveredRow: setGlobalHoveredRowIndex
+      setGlobalHoveredRow: setGlobalHoveredRowIndex,
+      emphasisColor: props.emphasisColor ?? DEFAULT_EMPHASIS_COLOR,
+      onCaptionEmphasis: props.onCaptionEmphasis
     }),
     [
       subtitles,
@@ -2333,7 +2396,9 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       requestFocusCard,
       registerCardFocus,
       globalHoveredRowIndex,
-      rowNumbers
+      rowNumbers,
+      props.emphasisColor,
+      props.onCaptionEmphasis
     ]
   )
 

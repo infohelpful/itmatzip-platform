@@ -9,6 +9,7 @@
  */
 import type { ProgramClip } from './clipPlan'
 import { HIGHLIGHT_HOLD_SEC, HIGHLIGHT_LEAD_SEC, resolveHighlightWordIndex } from './activeWordResolver'
+import type { CaptionEmphasis } from './captionEmphasis'
 
 /** 부동소수 경계 보정(초). 1µs 이하 오차는 같은 시각으로 본다. */
 const EDGE_EPS_SEC = 1e-6
@@ -25,6 +26,8 @@ export type ScheduleCue = {
   end: number
   text: string
   words?: readonly ScheduleWord[]
+  /** 강조 글자 범위(`text` 기준) — 상태에 그대로 싣는다 */
+  emphasis?: readonly CaptionEmphasis[]
 }
 
 export type RenderState = {
@@ -36,6 +39,8 @@ export type RenderState = {
   words?: string[]
   /** `words` 안의 활성 인덱스, 없으면 -1 */
   activeIndex: number
+  /** 강조 글자 범위 — 큐에 있을 때만 */
+  emphasis?: CaptionEmphasis[]
 }
 
 export type BuildRenderScheduleArgs = {
@@ -102,8 +107,9 @@ export function buildRenderSchedule(args: BuildRenderScheduleArgs): RenderState[
     const cue = cues[piece.cueIndex]!
     const text = cue.text.trim()
     const words = highlightWords ? usableWords(cue, text) : null
+    const emphasis = cue.emphasis?.length ? [...cue.emphasis] : undefined
     if (!words) {
-      states.push({ startFrame: first, endFrame: last, text, activeIndex: -1 })
+      states.push({ startFrame: first, endFrame: last, text, activeIndex: -1, ...(emphasis ? { emphasis } : {}) })
       continue
     }
 
@@ -137,7 +143,7 @@ export function buildRenderSchedule(args: BuildRenderScheduleArgs): RenderState[
       if (run && run.activeIndex === activeIndex && run.endFrame === startFrame) {
         run.endFrame = endFrame
       } else {
-        run = { startFrame, endFrame, text, words: wordTexts, activeIndex }
+        run = { startFrame, endFrame, text, words: wordTexts, activeIndex, ...(emphasis ? { emphasis } : {}) }
         states.push(run)
       }
     }

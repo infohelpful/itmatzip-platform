@@ -1,0 +1,37 @@
+/* 자막 편집 textarea 강조 표시 — textarea 위에 같은 배치로 겹친다(글자는 투명, 강조 배경만 보임) */
+.subtitle-card-textarea-wrap { position: relative; display: block; flex: 0 0 auto; width: 100%; min-width: 0; }
+.caption-emphasis-overlay {
+  position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden;
+  margin: 0; border-style: solid; border-color: transparent; color: transparent;
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+.caption-emphasis-overlay mark { color: transparent; border-radius: 3px; }
+
+/* 우클릭 메뉴 */
+.caption-emphasis-menu {
+  position: fixed; z-index: 10001; min-width: 176px; padding: 5px; box-sizing: border-box;
+  border: 1px solid #465154; border-radius: 8px; background: #141819; color: #dce5e7;
+  box-shadow: 0 8px 30px #0009; font: 12px system-ui, sans-serif;
+}
+.caption-emphasis-menu button { font: inherit; color: inherit; cursor: pointer; }
+.caption-emphasis-menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%; height: 32px; padding: 0 10px;
+  border: 0; border-radius: 5px; background: transparent; text-align: left;
+}
+.caption-emphasis-menu-item:hover, .caption-emphasis-menu-item:focus-visible { background: #2c3335; outline: none; }
+.caption-emphasis-menu-dot { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+.caption-emphasis-menu-dot--multi { background: conic-gradient(#4f46e5, #0891b2, #65a30d, #ca8a04, #dc2626, #9333ea, #4f46e5); }
+.caption-emphasis-menu-dot--none { border: 1px solid #8d9da0; background: transparent; }
+.caption-emphasis-menu-chevron { margin-left: auto; color: #8e9ea2; }
+.caption-emphasis-menu-colors { padding: 6px 8px 8px; border-top: 1px solid #343f41; border-bottom: 1px solid #343f41; margin: 2px 0; }
+.caption-emphasis-menu-swatches { display: grid; grid-template-columns: repeat(6, 22px); gap: 6px; }
+.caption-emphasis-menu-swatches button { width: 22px; height: 22px; padding: 0; border: 1px solid #ffffff2e; border-radius: 5px; }
+.caption-emphasis-menu-swatches button:hover, .caption-emphasis-menu-swatches button:focus-visible { outline: 2px solid #23c6e5; outline-offset: 1px; }
+.caption-emphasis-menu-custom { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.caption-emphasis-menu-custom > span { margin-right: auto; color: #94a5a8; }
+.caption-emphasis-menu-custom input[type='color'] { width: 28px; height: 26px; padding: 1px; border: 1px solid #424a4c; border-radius: 4px; background: #141819; cursor: pointer; }
+.caption-emphasis-menu-custom button { height: 26px; padding: 0 9px; border: 1px solid #424a4c; border-radius: 5px; background: #1d2325; }
+.caption-emphasis-menu-custom button:hover { border-color: #819296; background: #2c3335; }
+
+/* 강조 글자가 들어 있는 단어 칩 — 강조 색 테두리 */
+.app .subtitle-word-chip.subtitle-word-chip--emphasis { border-color: var(--chip-emphasis-color); box-shadow: inset 0 0 0 1px var(--chip-emphasis-color); }

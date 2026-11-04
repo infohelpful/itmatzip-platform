@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import './SubtitleFormatToolbar.css'
+import type { SubtitleBoxStyle } from '../../../shared/subtitleCapsule'
 
 type Props = {
   fontFamily: string
@@ -27,6 +28,14 @@ type Props = {
   onBgPaddingPct: (value: number) => void
   onX: (value: number) => void
   onY: (value: number) => void
+  /** 'capsule' = 캡슐 배경 프리셋 사용 중 */
+  boxStyle: SubtitleBoxStyle
+  onBoxStyle: (value: SubtitleBoxStyle) => void
+  /** 강조 글자 전체 색(개별 색이 없는 강조에 적용) */
+  emphasisColor: string
+  onEmphasisColor: (value: string) => void
+  /** 캡슐 프리셋 한 번에 적용(글꼴·크기·색·배경·외곽선) */
+  onApplyCapsulePreset: () => void
 }
 
 const COLORS = [
@@ -36,9 +45,10 @@ const COLORS = [
   '#ecfccb', '#fefce8', '#fff7ed', '#fef2f2', '#fdf2f8', '#faf5ff', '#eff6ff', '#ecfeff', '#ffffff'
 ]
 const FONT_SIZES = [14, 18, 22, 26, 32, 40, 50, 60, 75, 90, 100, 110, 125, 150, 200, 250, 300]
-type Panel = 'size' | 'text' | 'stroke' | 'background' | 'position'
+type Panel = 'size' | 'text' | 'stroke' | 'background' | 'position' | 'preset' | 'emphasis'
 const PANEL_TITLES: Record<Panel, string> = {
-  size: '글자 크기', text: '글자 색상', stroke: '테두리', background: '배경', position: '자막 위치'
+  size: '글자 크기', text: '글자 색상', stroke: '테두리', background: '배경', position: '자막 위치',
+  preset: '자막 디자인 프리셋', emphasis: '강조 색상'
 }
 
 /** Keep incomplete typing local; only finite, in-range values reach preview/export. */
@@ -148,6 +158,9 @@ export function SubtitleFormatToolbar(props: Props) {
     {button('background', <>{colorIcon(props.bgColor, 'format-background-icon')}<span>배경</span></>)}
     <span className="format-divider" />
     {button('position', <><span aria-hidden="true">↔</span><span>위치</span></>)}
+    <span className="format-divider" />
+    {button('preset', <><span aria-hidden="true" className="format-preset-icon" /><span>{props.boxStyle === 'capsule' ? '캡슐' : '프리셋'}</span></>)}
+    {button('emphasis', <><span aria-hidden="true" className="format-emphasis-icon" style={{ backgroundColor: props.emphasisColor }}>가</span><span>강조색</span></>)}
     <span className="format-scope">전체 자막에 적용</span>
     {panel && createPortal(<div ref={popup} id={id} role="dialog" aria-label={PANEL_TITLES[panel]} tabIndex={-1}
       className="subtitle-format-popup" style={position} data-waveform-no-dismiss="1">
@@ -171,6 +184,26 @@ export function SubtitleFormatToolbar(props: Props) {
         <NumberField label="배경 불투명도" value={props.bgOpacity} min={0} max={100} unit="%" onChange={props.onBgOpacity} />
         <NumberField label="배경 여백" value={props.bgPaddingPct} min={30} max={150} unit="%" onChange={props.onBgPaddingPct} />
         <button type="button" className="format-clear" onClick={() => props.onBgOpacity(0)}>배경 없음</button>
+      </>}
+      {panel === 'preset' && <>
+        <div className="format-preset-card">
+          <div className="format-preset-sample" aria-hidden="true">
+            <span className="format-preset-sample-capsule">
+              <span className="format-preset-sample-chip" style={{ backgroundColor: props.emphasisColor }}>무료 OCR</span> 사이트를 찾아서
+            </span>
+          </div>
+          <strong>캡슐 자막</strong>
+          <p className="format-help">Pretendard ExtraBold 46px · 흰 글자<br />반투명 남색 캡슐 배경 · 은은한 테두리와 그림자</p>
+          <button type="button" className="format-preset-apply" aria-pressed={props.boxStyle === 'capsule'}
+            onClick={() => props.onApplyCapsulePreset()}>{props.boxStyle === 'capsule' ? '캡슐 프리셋 다시 적용' : '캡슐 프리셋 적용'}</button>
+        </div>
+        {props.boxStyle === 'capsule' && <button type="button" className="format-clear" onClick={() => props.onBoxStyle('classic')}>
+          기본 배경 모양으로 (글꼴·색은 유지)</button>}
+      </>}
+      {panel === 'emphasis' && <>
+        <ColorPalette label="강조색" value={props.emphasisColor} onChange={props.onEmphasisColor} />
+        <p className="format-help">자막 편집 칸에서 글자를 드래그한 뒤 마우스 오른쪽 버튼 → 「강조」.<br />
+          「다른 색으로 강조」로 색을 따로 정한 글자는 그 색이 우선합니다.</p>
       </>}
       {panel === 'position' && <>
         <div className="format-position-presets" role="group" aria-label="좌우 위치 선택">

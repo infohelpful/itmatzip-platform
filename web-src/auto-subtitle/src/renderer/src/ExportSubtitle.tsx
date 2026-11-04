@@ -4,6 +4,8 @@ import { flushSync } from 'react-dom'
 
 import type { ExportSubtitleUpdatePayload } from '../../shared/ipc'
 import { getSubtitleBoxChromeInline } from '../../shared/subtitleBoxChrome'
+import { activeWordCharRange, DEFAULT_EMPHASIS_COLOR, emphasisRenderPieces, resolveCaptionEmphasis } from '../../shared/captionEmphasis'
+import { capsuleBoxOverrides, emphasisChipStyle, type SubtitleBoxStyle } from '../../shared/subtitleCapsule'
 
 
 
@@ -90,6 +92,8 @@ export function buildPreviewSubtitleTextStyle(args: {
   subtitleY: number
 
   subtitleBgPaddingPct: number
+  /** 'capsule' 이면 캡슐 배경(곡률·테두리·그림자·여백·최대 너비·글자 그림자)을 덮어쓴다 */
+  subtitleBoxStyle?: SubtitleBoxStyle
 
 }): CSSProperties {
 
@@ -139,7 +143,16 @@ export function buildPreviewSubtitleTextStyle(args: {
 
     overflowWrap: 'normal',
 
-    textShadow: `-${shadow}px 0 ${args.subtitleStrokeColor}, 0 ${shadow}px ${args.subtitleStrokeColor}, ${shadow}px 0 ${args.subtitleStrokeColor}, 0 -${shadow}px ${args.subtitleStrokeColor}, 0 2px 8px rgba(0,0,0,0.8)`
+    textShadow: `-${shadow}px 0 ${args.subtitleStrokeColor}, 0 ${shadow}px ${args.subtitleStrokeColor}, ${shadow}px 0 ${args.subtitleStrokeColor}, 0 -${shadow}px ${args.subtitleStrokeColor}, 0 2px 8px rgba(0,0,0,0.8)`,
+    ...(args.subtitleBoxStyle === 'capsule'
+      ? capsuleBoxOverrides({
+          fontSizePx: args.subtitleFontSize,
+          bgPaddingPct: args.subtitleBgPaddingPct,
+          layoutWidth: args.videoNaturalWidth,
+          strokeColor: args.subtitleStrokeColor,
+          strokeWidth: args.subtitleStrokeWidth
+        })
+      : {})
 
   }
 
@@ -187,6 +200,9 @@ function mergeUpdate(prev: ExportSubtitleUpdatePayload, raw: Partial<ExportSubti
     words: raw.words,
 
     activeIndex: raw.activeIndex ?? -1,
+
+    // 강조 범위도 프레임(자막 줄)마다 교체한다.
+    emphasis: raw.emphasis,
 
     wordHighlightColor: raw.wordHighlightColor ?? prev.wordHighlightColor
 
@@ -238,7 +254,8 @@ export default function ExportSubtitle(): JSX.Element {
 
         subtitleY: data.y,
 
-        subtitleBgPaddingPct: data.bgPaddingPct ?? 100
+        subtitleBgPaddingPct: data.bgPaddingPct ?? 100,
+        subtitleBoxStyle: data.boxStyle
 
       }),
 
@@ -264,6 +281,7 @@ export default function ExportSubtitle(): JSX.Element {
 
       data.width,
       data.layoutWidth,
+      data.boxStyle,
 
       data.x,
 
@@ -444,6 +462,16 @@ export function ExportSubtitleFrame({ data, textStyle: previewSubtitleTextStyle 
     data.wordHighlightColor && data.words && data.words.length > 0 && data.words.join(' ') === data.text
       ? data.words
       : null
+  // 강조 글자(키워드 칩)가 있으면 칩 단위로 그리고, 그 안에서 현재 발화 단어만 강조 색으로 바꾼다.
+  const emphasis = resolveCaptionEmphasis(data.text, data.emphasis)
+  const emphasisPieces = emphasis.length > 0
+    ? emphasisRenderPieces(
+        data.text,
+        emphasis,
+        data.emphasisColor ?? DEFAULT_EMPHASIS_COLOR,
+        highlightWords ? activeWordCharRange(highlightWords, data.activeIndex) : null
+      )
+    : null
 
   return (
 
@@ -462,7 +490,18 @@ export function ExportSubtitleFrame({ data, textStyle: previewSubtitleTextStyle 
 
             <p className="export-subtitle-plain" style={previewSubtitleTextStyle}>
 
-              {highlightWords ? (
+              {emphasisPieces ? (
+
+                emphasisPieces.map((piece, i) => {
+                  const parts = piece.parts.map((part, k) => (
+                    <span key={k} style={part.active ? { color: data.wordHighlightColor } : undefined}>{part.text}</span>
+                  ))
+                  return piece.color
+                    ? <span key={i} className="export-subtitle-emphasis" style={emphasisChipStyle(piece.color)}>{parts}</span>
+                    : <Fragment key={i}>{parts}</Fragment>
+                })
+
+              ) : highlightWords ? (
 
                 highlightWords.map((piece, i) => (
 

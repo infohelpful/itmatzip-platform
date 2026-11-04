@@ -64,6 +64,19 @@ import {
 } from '../../shared/phase5EditPolicy'
 import { SILENCE_PLACEHOLDER_TEXT } from '../../shared/wordContract'
 import { buildExportCueLines } from '../../shared/exportCuePipeline'
+import {
+  addCaptionEmphasis,
+  captionEmphasisText,
+  DEFAULT_EMPHASIS_COLOR,
+  isEmphasisHexColor,
+  reconcileCaptionEmphasis,
+  removeCaptionEmphasis,
+  withUserCaptionEmphasis
+} from '../../shared/captionEmphasis'
+import { CAPSULE_PRESET, capsuleBoxOverrides, parseSubtitleBoxStyle, type SubtitleBoxStyle } from '../../shared/subtitleCapsule'
+import { ensurePretendardLoaded, usesPretendard } from './subtitleFonts'
+import { renderPreviewSubtitleText, type PreviewEmphasisCache } from './previewSubtitleText'
+import type { CaptionEmphasisEdit } from './SubtitleVirtualList'
 
 import { applyProgramTimeRangeTombstoneCutToSubtitleLines } from '../../shared/subtitleTombstoneCut'
 import { getSubtitleBoxChromeInline } from '../../shared/subtitleBoxChrome'
@@ -118,7 +131,7 @@ import {
   type ScheduledMediaSegment
 } from './timeline/playbackSchedule'
 import { pickActiveEditorRow, resolveEditorHighlight, sourceTimelineDuration } from '../../shared/editorPlayback'
-import { setSubtitleVisibility, subtitlePreviewText } from '../../shared/subtitleVisibility'
+import { setSubtitleVisibility } from '../../shared/subtitleVisibility'
 import { replaceAllSubtitleMatches, replaceSubtitleMatch, type SubtitleSearchMatch } from '../../shared/subtitleSearch'
 import { SubtitleSearchPanel } from './components/SubtitleSearchPanel'
 import { WebAudioMasterPlayback } from './timeline/webAudioMasterPlayback'
@@ -155,6 +168,7 @@ const SUBTITLE_STYLE_STORAGE_KEY = 'autosubtitle:preview-subtitle-style'
 const RECENT_FONTS_STORAGE_KEY = 'autosubtitle:recent-fonts'
 const MAX_RECENT_FONTS = 5
 const SUBTITLE_FONT_PRESETS = [
+  'Pretendard',
   'Segoe UI',
   'Malgun Gothic',
   'Apple SD Gothic Neo',
@@ -247,6 +261,10 @@ function readSavedSubtitleStyle(): Partial<{
   subtitleStrokeWidth: number
   subtitleX: number
   subtitleY: number
+  /** 'capsule' = 캡슐 자막 프리셋 배경 */
+  subtitleBoxStyle: string
+  /** 강조 글자 전체 색 */
+  subtitleEmphasisColor: string
 }> | null {
   try {
     const raw = window.localStorage.getItem(SUBTITLE_STYLE_STORAGE_KEY)
@@ -1503,6 +1521,16 @@ export default function App(): ReactElement {
   const [subtitleStrokeWidth, setSubtitleStrokeWidth] = useState<number>(savedSubtitleStyle?.subtitleStrokeWidth ?? 2)
   const [subtitleX, setSubtitleX] = useState<number>(savedSubtitleStyle?.subtitleX ?? 50)
   const [subtitleY, setSubtitleY] = useState<number>(() => clampSubtitleY(savedSubtitleStyle?.subtitleY ?? 10))
+  const [subtitleBoxStyle, setSubtitleBoxStyle] = useState<SubtitleBoxStyle>(() =>
+    parseSubtitleBoxStyle(savedSubtitleStyle?.subtitleBoxStyle)
+  )
+  const [captionEmphasisColor, setCaptionEmphasisColor] = useState<string>(() =>
+    isEmphasisHexColor(savedSubtitleStyle?.subtitleEmphasisColor) ? savedSubtitleStyle.subtitleEmphasisColor : DEFAULT_EMPHASIS_COLOR
+  )
+  /** 재생 RAF 가 읽는 전체 강조 색 */
+  const captionEmphasisColorRef = useRef(captionEmphasisColor)
+  captionEmphasisColorRef.current = captionEmphasisColor
+  const previewEmphasisCacheRef = useRef<PreviewEmphasisCache>(null)
   const [availableFonts, setAvailableFonts] = useState<string[]>(() => [...SUBTITLE_FONT_PRESETS])
   const [recentFonts, setRecentFonts] = useState<string[]>(() => readRecentFonts())
   const [videoContentBox, setVideoContentBox] = useState({ left: 0, top: 0, width: 0, height: 0 })
@@ -1918,7 +1946,7 @@ export default function App(): ReactElement {
 
       const previewTextEl = previewSubtitleTextRef.current
       if (previewTextEl) {
-        previewTextEl.textContent = subtitlePreviewText(subsNow, editSec)
+        renderPreviewSubtitleText(previewTextEl, subsNow, editSec, captionEmphasisColorRef.current, previewEmphasisCacheRef)
       }
 
       const t = editSec
@@ -3125,7 +3153,8 @@ export default function App(): ReactElement {
       const recordHistory = options?.recordHistory ?? true
       setSentenceTokenTimeline((prevTl) => {
         const prev = sentenceTokenTimelineToSubtitleLines(prevTl)
-        const next = ensureWordIdentities(updater(prev))
+        // 줄 텍스트가 바뀌면 강조 글자 위치도 따라 옮긴다(강조가 없으면 그대로 통과).
+        const next = ensureWordIdentities(reconcileCaptionEmphasis(prev, updater(prev)))
         const nextTl = subtitleLinesToSentenceTokenTimeline(next)
         if (!recordHistory) return nextTl
         if (next === prev) return prevTl
@@ -3996,6 +4025,24 @@ export default function App(): ReactElement {
 
   const updateSubtitleAt = useCallback((index: number, text: string) => {
     applySubtitleChange((prev) => prev.map((s, j) => (j === index ? editSubtitleText(s, text) : s)))
+  }, [applySubtitleChange])
+
+  /** 편집 textarea 우클릭 메뉴 — 드래그한 글자 강조·다른 색 강조·강조 해제 */
+  const editCaptionEmphasisAt = useCallback((index: number, edit: CaptionEmphasisEdit) => {
+    applySubtitleChange((prev) => {
+      if (index < 0 || index >= prev.length) return prev
+      const cur = prev[index]!
+      // 입력 중이라 아직 줄에 반영되지 않은 글자가 있으면 먼저 반영한 뒤 강조한다.
+      const base = captionEmphasisText(cur) === edit.text ? cur : editSubtitleText(cur, edit.text)
+      const text = captionEmphasisText(base)
+      if (text !== edit.text) return prev
+      const ranges = edit.kind === 'add'
+        ? addCaptionEmphasis(text, base.emphasis, edit.start, edit.end, edit.color)
+        : removeCaptionEmphasis(text, base.emphasis, edit.start, edit.end)
+      const updated = withUserCaptionEmphasis(base, ranges)
+      if (updated === cur) return prev
+      return prev.map((s, j) => (j === index ? updated : s))
+    })
   }, [applySubtitleChange])
 
   const updateSubtitleRangeAt = useCallback((index: number, nextStart: number, nextEnd: number) => {
@@ -6144,7 +6191,8 @@ export default function App(): ReactElement {
           inputPath: videoPath,
           format: exportFormat,
           subtitles: buildExportCueLines(subtitles, {
-            includeWords: exportFormat === 'video' && wordHighlightEnabled
+            includeWords: exportFormat === 'video' && wordHighlightEnabled,
+            includeEmphasis: exportFormat === 'video'
           }),
           cutRanges: mergedWaveformPeaksStitchCuts,
           subtitleStyle: {
@@ -6163,6 +6211,9 @@ export default function App(): ReactElement {
             videoHeight: videoNaturalSize.height,
             ...(exportFormat === 'video' && wordHighlightEnabled
               ? { wordHighlightColor }
+              : {}),
+            ...(exportFormat === 'video'
+              ? { emphasisColor: captionEmphasisColor, boxStyle: subtitleBoxStyle }
               : {})
           }
         })
@@ -6188,6 +6239,8 @@ export default function App(): ReactElement {
       }
     })()
   }, [
+    captionEmphasisColor,
+    subtitleBoxStyle,
     mergedWaveformPeaksStitchCuts,
     exportFormat,
     isExporting,
@@ -6237,7 +6290,9 @@ export default function App(): ReactElement {
         x: subtitleX,
         y: subtitleY,
         wordHighlightEnabled,
-        wordHighlightColor
+        wordHighlightColor,
+        emphasisColor: captionEmphasisColor,
+        boxStyle: subtitleBoxStyle
       },
       subtitles
     }
@@ -6253,6 +6308,8 @@ export default function App(): ReactElement {
     if (generation !== projectGenerationRef.current) throw new Error('프로젝트가 변경되어 저장을 취소했습니다.')
     return JSON.stringify(payload, null, 2)
   }, [
+    captionEmphasisColor,
+    subtitleBoxStyle,
     cutRanges,
     subtitleBgColor,
     subtitleBgOpacity,
@@ -6386,6 +6443,8 @@ export default function App(): ReactElement {
     setSubtitleY(clampSubtitleY(st.y))
     setWordHighlightEnabled(st.wordHighlightEnabled ?? true)
     setWordHighlightColor(st.wordHighlightColor ?? '#ffff00')
+    setCaptionEmphasisColor(st.emphasisColor ?? DEFAULT_EMPHASIS_COLOR)
+    setSubtitleBoxStyle(st.boxStyle ?? 'classic')
     commitEditSecToUi(0)
     setIsPlaying(false)
     return true
@@ -6530,9 +6589,21 @@ export default function App(): ReactElement {
       whiteSpace: 'normal',
       wordBreak: 'keep-all',
       overflowWrap: 'normal' as const,
-      textShadow: `-${shadow}px 0 ${subtitleStrokeColor}, 0 ${shadow}px ${subtitleStrokeColor}, ${shadow}px 0 ${subtitleStrokeColor}, 0 -${shadow}px ${subtitleStrokeColor}, 0 2px 8px rgba(0,0,0,0.8)`
+      textShadow: `-${shadow}px 0 ${subtitleStrokeColor}, 0 ${shadow}px ${subtitleStrokeColor}, ${shadow}px 0 ${subtitleStrokeColor}, 0 -${shadow}px ${subtitleStrokeColor}, 0 2px 8px rgba(0,0,0,0.8)`,
+      // 캡슐 프리셋: 버닝(`buildPreviewSubtitleTextStyle`)과 같은 값으로 덮어쓴다.
+      ...(subtitleBoxStyle === 'capsule'
+        ? capsuleBoxOverrides({
+            fontSizePx: subtitleFontSize,
+            bgPaddingPct: subtitleBgPaddingPct,
+            layoutWidth: videoNaturalSize.width,
+            strokeColor: subtitleStrokeColor,
+            strokeWidth: subtitleStrokeWidth
+          })
+        : {})
     }
   }, [
+    subtitleBoxStyle,
+    videoNaturalSize.width,
     subtitleBgColor,
     subtitleBgOpacity,
     subtitleBgPaddingPct,
@@ -6546,6 +6617,17 @@ export default function App(): ReactElement {
     subtitleX,
     subtitleY
   ])
+  // 함께 싣는 Pretendard 를 고르면 프리뷰에도 바로 같은 글꼴이 보이게 등록한다.
+  useEffect(() => {
+    if (usesPretendard(subtitleFontFamily)) void ensurePretendardLoaded()
+  }, [subtitleFontFamily])
+  // 정지 중에도 강조를 바꾸면(우클릭 메뉴·전체 색) 프리뷰 자막을 바로 다시 그린다.
+  useEffect(() => {
+    const el = previewSubtitleTextRef.current
+    if (!el) return
+    renderPreviewSubtitleText(el, subtitles, playheadEditSecRef.current, captionEmphasisColor, previewEmphasisCacheRef)
+  }, [subtitles, captionEmphasisColor])
+
   useEffect(() => {
     const payload = {
       subtitleFontFamily,
@@ -6558,10 +6640,14 @@ export default function App(): ReactElement {
       subtitleStrokeColor,
       subtitleStrokeWidth,
       subtitleX,
-      subtitleY
+      subtitleY,
+      subtitleBoxStyle,
+      subtitleEmphasisColor: captionEmphasisColor
     }
     window.localStorage.setItem(SUBTITLE_STYLE_STORAGE_KEY, JSON.stringify(payload))
   }, [
+    subtitleBoxStyle,
+    captionEmphasisColor,
     subtitleBgColor,
     subtitleBgOpacity,
     subtitleBgPaddingPct,
@@ -6831,6 +6917,19 @@ export default function App(): ReactElement {
               onBgColor={setSubtitleBgColor} onBgOpacity={setSubtitleBgOpacity}
               onBgPaddingPct={(value) => setSubtitleBgPaddingPct(clampSubtitleBgPaddingPct(value))}
               onX={setSubtitleX} onY={(value) => setSubtitleY(clampSubtitleY(value))}
+              boxStyle={subtitleBoxStyle} onBoxStyle={setSubtitleBoxStyle}
+              emphasisColor={captionEmphasisColor} onEmphasisColor={setCaptionEmphasisColor}
+              onApplyCapsulePreset={() => {
+                setSubtitleFontFamily(CAPSULE_PRESET.fontFamily)
+                setSubtitleFontWeight(CAPSULE_PRESET.fontWeight)
+                setSubtitleFontSize(clampSubtitleFontSize(CAPSULE_PRESET.fontSize))
+                setSubtitleTextColor(CAPSULE_PRESET.textColor)
+                setSubtitleBgColor(CAPSULE_PRESET.bgColor)
+                setSubtitleBgOpacity(CAPSULE_PRESET.bgOpacity)
+                setSubtitleBgPaddingPct(CAPSULE_PRESET.bgPaddingPct)
+                setSubtitleStrokeWidth(CAPSULE_PRESET.strokeWidth)
+                setSubtitleBoxStyle('capsule')
+              }}
             />}
             {/* Web build: ad slot filled by web-ui/tools/auto-subtitle/site-glue.js (React never renders into it). */}
             <div id="autosub-ad-toolbar" className="autosub-ad autosub-ad--toolbar" aria-label="광고" />
@@ -7187,6 +7286,8 @@ export default function App(): ReactElement {
                           peaksZoomViewRange={peaksZoomViewRange}
                           waveformPeaksJson={waveformPeaksJsonData}
                           waveformMediaDurationHintSec={durationSec > 0 ? durationSec : undefined}
+                          emphasisColor={captionEmphasisColor}
+                          onCaptionEmphasis={editCaptionEmphasisAt}
                         />
                       </SubtitleDataProvider>
                     </div>

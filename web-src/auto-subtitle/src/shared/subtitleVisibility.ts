@@ -15,3 +15,10 @@ export function subtitlePreviewText(lines: readonly SubtitleLine[], time: number
   const line = index === null ? undefined : lines[index]
   return line && !line.isHidden ? line.text : ''
 }
+
+/** 프리뷰에 보일 줄(숨김이면 null) — `subtitlePreviewText` 와 같은 규칙. 강조 칩 렌더용. */
+export function subtitlePreviewLine(lines: readonly SubtitleLine[], time: number): SubtitleLine | null {
+  const index = pickActiveSubtitleIndex(lines, time)
+  const line = index === null ? undefined : lines[index]
+  return line && !line.isHidden ? line : null
+}

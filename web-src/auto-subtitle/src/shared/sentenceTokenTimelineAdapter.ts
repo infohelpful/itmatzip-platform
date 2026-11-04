@@ -55,15 +55,17 @@ function buildSentenceFromLine(line: SubtitleLine, li: number): TimelineSentence
       if (w.splitChain) t.splitChain = w.splitChain
       return t
     })
-    return {
+    const sentence: TimelineSentence = {
       id: sentenceIdForLineIndex(li),
       isHidden: line.isHidden,
       captionText,
       tokens,
       is_deleted: line.isDeleted === true ? true : false
     }
+    if (line.emphasis?.length) sentence.emphasis = line.emphasis
+    return sentence
   }
-  return {
+  const plain: TimelineSentence = {
     id: sentenceIdForLineIndex(li),
     isHidden: line.isHidden,
     captionText: line.captionText === line.text ? line.captionText : undefined,
@@ -77,6 +79,8 @@ function buildSentenceFromLine(line: SubtitleLine, li: number): TimelineSentence
     ],
     is_deleted: line.isDeleted === true ? true : false
   }
+  if (line.emphasis?.length) plain.emphasis = line.emphasis
+  return plain
 }
 
 function buildLineFromSentence(sentence: TimelineSentence): SubtitleLine | null {
@@ -123,6 +127,7 @@ function buildLineFromSentence(sentence: TimelineSentence): SubtitleLine | null 
   if (sentence.captionText !== undefined) line.captionText = sentence.captionText
   if (sentence.is_deleted === true) line.isDeleted = true
   if (sentence.isHidden === true) line.isHidden = true
+  if (sentence.emphasis?.length) line.emphasis = sentence.emphasis
   return line
 }
 

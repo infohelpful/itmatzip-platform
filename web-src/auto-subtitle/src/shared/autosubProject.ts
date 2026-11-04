@@ -4,6 +4,8 @@ import { parseManualBoundaryLocks, parseWordAlignmentMeta } from './wordAlignmen
 import { ensureWordIdentities } from './wordIdentity'
 import { parseMediaFingerprint, type MediaFingerprint } from './projectMedia'
 import { parseVirtualTimeline, type VirtualTimelineBlock } from './virtualTimeline'
+import { isEmphasisHexColor, parseCaptionEmphasis } from './captionEmphasis'
+import type { SubtitleBoxStyle } from './subtitleCapsule'
 
 export type { VirtualTimelineBlock }
 
@@ -25,6 +27,10 @@ export type AutosubProjectStyleV1 = {
   y: number
   wordHighlightEnabled?: boolean
   wordHighlightColor?: string
+  /** 강조 글자 전체 색(개별 색이 없는 강조에 적용) */
+  emphasisColor?: string
+  /** 'capsule' = 캡슐 자막 프리셋 배경 */
+  boxStyle?: SubtitleBoxStyle
 }
 
 export type AutosubProjectFile = {
@@ -91,7 +97,9 @@ function parseStyle(raw: unknown): AutosubProjectStyleV1 | null {
     y,
     wordHighlightEnabled: raw.wordHighlightEnabled === true,
     wordHighlightColor: typeof raw.wordHighlightColor === 'string' && /^#[a-f0-9]{6}$/i.test(raw.wordHighlightColor)
-      ? raw.wordHighlightColor : '#ffff00'
+      ? raw.wordHighlightColor : '#ffff00',
+    ...(isEmphasisHexColor(raw.emphasisColor) ? { emphasisColor: raw.emphasisColor } : {}),
+    ...(raw.boxStyle === 'capsule' ? { boxStyle: 'capsule' as const } : {})
   }
 }
 
@@ -106,6 +114,8 @@ function parseProjectSubtitles(raw: unknown, legacy: boolean): SubtitleLine[] | 
     if (typeof item.captionText === 'string') line.captionText = item.captionText
     if (item.isDeleted === true) line.isDeleted = true
     if (item.isHidden === true) line.isHidden = true
+    const emphasis = parseCaptionEmphasis(item.emphasis)
+    if (emphasis) line.emphasis = emphasis
     if (item.words !== undefined) {
       if (!Array.isArray(item.words)) return null
       line.words = []

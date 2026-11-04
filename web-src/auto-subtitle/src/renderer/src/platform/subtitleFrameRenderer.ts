@@ -12,6 +12,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
 import { ExportSubtitleFrame, buildPreviewSubtitleTextStyle } from '../ExportSubtitle'
 import exportSubtitleCss from '../exportSubtitle.css?inline'
+import { ensurePretendardLoaded, pretendardFontFaceCss, usesPretendard } from '../subtitleFonts'
 
 export class SubtitleFrameRenderer {
   private readonly host: HTMLDivElement
@@ -49,15 +50,19 @@ export class SubtitleFrameRenderer {
       subtitleStrokeWidth: data.strokeWidth,
       subtitleX: data.x,
       subtitleY: data.y,
-      subtitleBgPaddingPct: data.bgPaddingPct ?? 100
+      subtitleBgPaddingPct: data.bgPaddingPct ?? 100,
+      subtitleBoxStyle: data.boxStyle
     })
+    // SVG 이미지 안에서는 외부 글꼴을 못 불러오므로, 함께 싣는 글꼴은 data: URL 로 직접 넣는다.
+    const bundledFontCss = usesPretendard(data.fontFamily) ? await pretendardFontFaceCss() : ''
+    if (bundledFontCss) await ensurePretendardLoaded()
     flushSync(() => this.root.render(createElement(ExportSubtitleFrame, { data, textStyle })))
     if (data.text.trim()) await document.fonts.load(`${data.fontWeight} ${data.fontSize}px "${data.fontFamily}"`).catch(() => [])
     await document.fonts.ready
 
     const markup = new XMLSerializer().serializeToString(this.host.firstElementChild ?? document.createElement('div'))
     // vw/vh in the export stylesheet mean the capture window; pin them to the render size.
-    const css = `${exportSubtitleCss}\n.export-subtitle-root{width:${this.width}px;height:${this.height}px;}`
+    const css = `${bundledFontCss}${exportSubtitleCss}\n.export-subtitle-root{width:${this.width}px;height:${this.height}px;}`
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${this.width}" height="${this.height}">` +
       `<foreignObject x="0" y="0" width="${this.width}" height="${this.height}">` +
       `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${this.width}px;height:${this.height}px;margin:0;padding:0">` +

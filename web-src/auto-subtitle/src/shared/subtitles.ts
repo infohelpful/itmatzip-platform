@@ -6,6 +6,7 @@ import {
 } from './wordContract'
 import { parseManualBoundaryLocks, parseWordAlignmentMeta, type WordAlignmentMeta } from './wordAlignmentMeta'
 import { subtitlePresentationSpans } from './subtitlePresentation'
+import type { CaptionEmphasis } from './captionEmphasis'
 
 /** Python 사이드카(Faster-Whisper) 및 UI 공통 자막 줄 형식 */
 export type SubtitleWord = SubtitleWordCore & WordAlignmentMeta
@@ -49,6 +50,8 @@ export type SubtitleLine = {
   text: string
   /** User-edited caption text. Source word chips keep their original labels and times. */
   captionText?: string
+  /** 강조 글자 범위 — `subtitleLineEditDisplayText(line)` 기준 오프셋 (`captionEmphasis.ts`) */
+  emphasis?: CaptionEmphasis[]
   words?: SubtitleWord[]
   /**
    * true: 줄 자체가 tombstone — 줄 안의 모든 단어가 `isDeleted` 가 되었을 때 함께 표시.

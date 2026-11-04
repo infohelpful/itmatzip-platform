@@ -39,3 +39,13 @@
 .format-position-presets button { flex: 1; }
 .format-clear { width: 100%; margin-top: 8px; }
 .format-help { color: #94a5a8; font-size: 11px; line-height: 1.7; margin: 12px 0 0; }
+/* 자막 디자인 프리셋·강조 색 */
+.format-preset-icon { display: inline-block; width: 18px; height: 11px; border-radius: 6px; background: rgba(12, 13, 18, .9); border: 1px solid rgba(255, 255, 255, .35); }
+.format-emphasis-icon { display: inline-block; min-width: 18px; padding: 0 2px; line-height: 18px; border-radius: 4px; color: #fff; font-size: 12px; font-weight: 800; text-align: center; }
+.format-preset-card { display: flex; flex-direction: column; gap: 6px; }
+.format-preset-card strong { font-size: 12px; margin-top: 4px; }
+.format-preset-card .format-help { margin-top: 0; }
+.format-preset-sample { display: flex; justify-content: center; padding: 16px 6px; border-radius: 6px; background: linear-gradient(160deg, #04060d, #0c1f45); }
+.format-preset-sample-capsule { font-family: Pretendard, 'Malgun Gothic', sans-serif; font-weight: 800; font-size: 13px; color: #fff; padding: 5px 11px; border-radius: 12px; background: rgba(12, 13, 18, .66); border: 1px solid rgba(255, 255, 255, .08); box-shadow: 0 2px 8px rgba(0, 0, 0, .35); text-shadow: 0 0 2px rgba(0, 0, 0, .35); white-space: nowrap; }
+.format-preset-sample-chip { border-radius: 3px; padding: 0 3px; }
+.subtitle-format-popup .format-preset-apply { min-height: 32px; cursor: pointer; margin-top: 4px; }

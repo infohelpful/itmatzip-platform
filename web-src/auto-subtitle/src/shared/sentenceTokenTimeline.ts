@@ -26,6 +26,8 @@ export interface TimelineToken {
 export interface TimelineSentence {
   isHidden?: boolean
   captionText?: string
+  /** `SubtitleLine.emphasis` 라운드트립 보존용 */
+  emphasis?: import('./captionEmphasis').CaptionEmphasis[]
   id: string
   tokens: TimelineToken[]
   is_deleted?: boolean
