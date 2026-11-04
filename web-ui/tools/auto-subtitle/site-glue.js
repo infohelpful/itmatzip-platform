@@ -1,7 +1,7 @@
 /**
  * Site shell for the Auto Subtitle web app (the React bundle in app/ stays the desktop UI).
  * - Shows the shared "install / start the agent" dialog when the local agent is unreachable.
- * - Tells the user to update the agent when it predates the v2 API this app needs.
+ * - Prompts for an update when the installed agent is older than the published release.
  */
 import {
   checkAgentConnection,
@@ -10,11 +10,12 @@ import {
   getAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
-import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
+} from "../common/bridge.js?v=lna25";
+import { agentInstallDialogOptions, escHtml, fetchAgentReleaseManifest } from "../common/agent-install-ui.js?v=lna22";
 
 const MIN_AGENT_VERSION = "1.6.0";
 const NOTICE_ID = "autosub-agent-update";
+const UPDATE_SHOWN_PREFIX = "autosub-agent-update-shown:";
 
 configureBridge({ healthPath: "/health" });
 
@@ -68,6 +69,41 @@ function showUpdateNotice(version) {
   document.body.appendChild(box);
 }
 
+async function showAvailableUpdate(currentVersion) {
+  const release = await fetchAgentReleaseManifest();
+  if (!release.version || !olderThan(currentVersion, release.version)) return;
+  const shownKey = `${UPDATE_SHOWN_PREFIX}${release.version}`;
+  try {
+    if (sessionStorage.getItem(shownKey)) return;
+  } catch {
+    /* Private browsing may disable storage. */
+  }
+
+  const options = await installDialogOpts();
+  void showInstallAgentDialog({
+    ...options,
+    closeOnConnection: false,
+    title: `ItMatZip 에이전트 v${release.version} 업데이트`,
+    bodyHtml: `<p class="itz-modal__msg">현재 에이전트는 v${escHtml(currentVersion)}입니다. ` +
+      `최신 버전은 v${escHtml(release.version)}입니다. ` +
+      `아래에서 최신 설치 파일을 받은 뒤 실행해 주세요.</p>${options.bodyHtml}`,
+    primaryLabel: "업데이트 확인",
+    onPrimary: async () => {
+      const connection = await checkAgentConnection();
+      if (!connection.ok) return connection;
+      const res = await fetchAgent(`${getAgentOrigin()}/health`, { cache: "no-store" });
+      const health = await res.json();
+      const version = String(health?.agent_version ?? "");
+      return version && !olderThan(version, release.version)
+        ? { ok: true }
+        : { ok: false, error: `현재 v${version || "알 수 없음"}입니다. 설치 후 에이전트를 다시 실행해 주세요.` };
+    },
+    onShown: () => {
+      try { sessionStorage.setItem(shownKey, "1"); } catch { /* ignore */ }
+    },
+  });
+}
+
 async function checkAgentSupportsApp() {
   const agent = await checkAgentConnection();
   if (!agent.ok) return;
@@ -79,14 +115,20 @@ async function checkAgentSupportsApp() {
     if (res.status === 404) {
       const health = await fetchAgent(`${getAgentOrigin()}/health`, { cache: "no-store" }).then((r) => r.json()).catch(() => ({}));
       showUpdateNotice(health.agent_version);
+      if (health.agent_version && !devApiOverride()) {
+        await showAvailableUpdate(health.agent_version).catch(() => {});
+      }
       return;
     }
   } catch {
     return; // connection problems are handled by the monitor's install dialog
   }
   const health = await fetchAgent(`${getAgentOrigin()}/health`, { cache: "no-store" }).then((r) => r.json()).catch(() => null);
-  if (health?.agent_version && olderThan(health.agent_version, MIN_AGENT_VERSION) && !devApiOverride()) {
-    showUpdateNotice(health.agent_version);
+  if (health?.agent_version && !devApiOverride()) {
+    if (olderThan(health.agent_version, MIN_AGENT_VERSION)) {
+      showUpdateNotice(health.agent_version);
+    }
+    await showAvailableUpdate(health.agent_version).catch(() => {});
   }
 }
 

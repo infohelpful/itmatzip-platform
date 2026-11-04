@@ -1184,7 +1184,9 @@ export function startConnectionMonitor(opts = {}) {
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
       dismissActiveSiteModal();
-      if (_installDialog && !_installDialog.hasAttribute("hidden")) dismissInstallAgentDialog();
+      if (_installDialog && !_installDialog.hasAttribute("hidden") && _installDialogOptions?.closeOnConnection !== false) {
+        dismissInstallAgentDialog();
+      }
       void connectAgentWebSocket();
       lastOk = true;
       opts.onChange?.(true, { ...detail, ok: true });
