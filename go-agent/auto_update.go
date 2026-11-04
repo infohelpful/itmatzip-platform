@@ -83,6 +83,10 @@ func newUpdateManager() *updateManager {
 	updatesRoot := filepath.Join(settingsRootPath, "updates")
 	if custom := strings.TrimSpace(os.Getenv("ITMATZIP_UPDATE_ROOT")); custom != "" {
 		updatesRoot = custom
+	} else if cacheRoot, err := os.UserCacheDir(); err == nil {
+		// Tray updates run as the signed-in user. ProgramData may be owned by an
+		// older elevated installation and reject writes before the MSI can fix it.
+		updatesRoot = filepath.Join(cacheRoot, "ItMatZipAgent", "updates")
 	}
 	manifestURL := strings.TrimSpace(os.Getenv("ITMATZIP_UPDATE_MANIFEST_URL"))
 	if manifestURL == "" {
