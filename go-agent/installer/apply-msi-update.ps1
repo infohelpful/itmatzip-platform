@@ -46,7 +46,11 @@ function Invoke-MsiExecElevated {
   param([string[]]$Arguments)
   Write-UpdateLog ("msiexec elevated: " + ($Arguments -join " "))
   try {
-    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList $Arguments -Verb RunAs -Wait -PassThru
+    # Start-Process joins ArgumentList with spaces; quote paths before passing them.
+    $quotedArguments = @($Arguments | ForEach-Object {
+      if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+    })
+    $p = Start-Process -FilePath "msiexec.exe" -ArgumentList ($quotedArguments -join ' ') -Verb RunAs -Wait -PassThru
     if ($null -eq $p) {
       Write-UpdateLog "msiexec elevated: no process handle (UAC canceled?)"
       return 1223
@@ -66,6 +70,10 @@ try {
   Start-Sleep -Seconds 1
 
   $exit = Invoke-MsiExecElevated -Arguments @("/i", $MsiPath, "/qn", "/norestart", "/L*v", $LogPath)
+  if ($exit -eq 3010) {
+    Write-UpdateLog "msiexec completed; Windows restart required to finish replacing in-use files"
+    exit 3010
+  }
   if ($exit -ne 0) {
     Write-UpdateLog "msiexec failed with exit code $exit"
     exit $exit

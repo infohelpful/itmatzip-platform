@@ -2,7 +2,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?define ProductName = "ItMatZip Agent" ?>
-  <?define ProductVersion = "1.7.1.0" ?>
+  <?define ProductVersion = "1.7.2.0" ?>
   <?define Manufacturer = "ItMatZip" ?>
   <?define UpgradeCode = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" ?>
 
@@ -62,7 +62,7 @@
 
     <!-- WixQuietExec64: cmd.exe /c 없이 콘솔 창 없이 icacls 실행 -->
     <CustomAction Id="SetGrantDataFolderPermissions"
-                  Property="WixQuietExecCmdLine"
+                  Property="GrantDataFolderPermissions"
                   Value="&quot;[System64Folder]icacls.exe&quot; &quot;[DATAFOLDER].&quot; /grant *S-1-5-32-545:(OI)(CI)M /T /Q"
                   Execute="immediate" />
     <CustomAction Id="GrantDataFolderPermissions"
@@ -73,7 +73,7 @@
                   Return="ignore" />
 
     <CustomAction Id="SetGrantEngineSitePackagesPermissions"
-                  Property="WixQuietExecCmdLine"
+                  Property="GrantEngineSitePackagesPermissions"
                   Value="&quot;[System64Folder]icacls.exe&quot; &quot;[INSTALLFOLDER]engine\Lib\site-packages&quot; /grant *S-1-5-32-545:(OI)(CI)M /T /Q"
                   Execute="immediate" />
     <CustomAction Id="GrantEngineSitePackagesPermissions"
@@ -98,19 +98,18 @@
                   Return="asyncNoWait" />
 
     <CustomAction Id="SetStopTrayOnUpgrade"
-                  Property="WixQuietExecCmdLine"
-                  Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM itmatzip-agent.exe"
+                  Property="WixQuietExec64CmdLine"
+                  Value="&quot;[System64Folder]taskkill.exe&quot; /F /T /IM itmatzip-agent.exe"
                   Execute="immediate" />
     <CustomAction Id="StopTrayOnUpgrade"
                   BinaryKey="WixCA"
                   DllEntry="WixQuietExec64"
-                  Execute="deferred"
-                  Impersonate="no"
+                  Execute="immediate"
                   Return="ignore" />
 
     <CustomAction Id="SetStopTrayOnRemove"
-                  Property="WixQuietExecCmdLine"
-                  Value="&quot;[System64Folder]taskkill.exe&quot; /F /IM itmatzip-agent.exe"
+                  Property="StopTrayOnRemove"
+                  Value="&quot;[System64Folder]taskkill.exe&quot; /F /T /IM itmatzip-agent.exe"
                   Execute="immediate" />
     <CustomAction Id="StopTrayOnRemove"
                   BinaryKey="WixCA"
@@ -128,7 +127,7 @@
 
     <InstallExecuteSequence>
       <Custom Action="SetStopTrayOnUpgrade" Before="StopTrayOnUpgrade">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
-      <Custom Action="StopTrayOnUpgrade" Before="InstallFiles">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
+      <Custom Action="StopTrayOnUpgrade" Before="InstallValidate">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
       <Custom Action="SetGrantDataFolderPermissions" Before="GrantDataFolderPermissions">NOT REMOVE</Custom>
       <Custom Action="GrantDataFolderPermissions" After="InstallFiles">NOT REMOVE</Custom>
       <Custom Action="SetGrantEngineSitePackagesPermissions" Before="GrantEngineSitePackagesPermissions">NOT REMOVE</Custom>
