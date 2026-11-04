@@ -156,5 +156,8 @@ export function CaptionEmphasisMenu({ state, defaultColor, onEmphasize, onRemove
       onClick={() => onRemove()}>
       <span className="caption-emphasis-menu-dot caption-emphasis-menu-dot--none" />강조 해제
     </button>}
+    {!hasSelection && !state.canRemove && <p className="caption-emphasis-menu-hint">
+      강조할 글자를 드래그한 뒤 우클릭하세요.<br />강조를 지우려면 강조된 글자에 커서를 두고 우클릭하세요.
+    </p>}
   </div>, document.body)
 }

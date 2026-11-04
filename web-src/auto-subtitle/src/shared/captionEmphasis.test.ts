@@ -6,6 +6,7 @@ import {
   captionEmphasisSegments,
   captionEmphasisText,
   emphasisColorByWordIndex,
+  emphasisRangesByWordIndex,
   emphasisRenderPieces,
   mapEmphasisThroughTextEdit,
   parseCaptionEmphasis,
@@ -266,6 +267,16 @@ describe('emphasisColorByWordIndex', () => {
   it('marks chips whose characters are emphasized', () => {
     const line = withCaptionEmphasis(lineOf(['AI', '기능은', '로그인']), [{ start: 0, end: 5, text: 'AI 기능', color: '#DC2626' }])
     expect([...emphasisColorByWordIndex(line, '#4F46E5')]).toEqual([[0, '#DC2626'], [1, '#DC2626']])
+  })
+  it('gives the ranges under a chip so a chip right-click can remove exactly that emphasis', () => {
+    const line = withCaptionEmphasis(lineOf(['무료', 'OCR', '사이트를']), [
+      { start: 0, end: 6, text: '무료 OCR' }, { start: 7, end: 11, text: '사이트를', color: '#DC2626' }])
+    const byWord = emphasisRangesByWordIndex(line)
+    expect(byWord.get(1)).toEqual([{ start: 0, end: 6, text: '무료 OCR' }])
+    const hits = byWord.get(1)!
+    const text = captionEmphasisText(line)
+    const left = removeCaptionEmphasis(text, line.emphasis, Math.min(...hits.map(r => r.start)), Math.max(...hits.map(r => r.end)))
+    expect(left).toEqual([{ start: 7, end: 11, text: '사이트를', color: '#DC2626' }])
   })
   it('falls back to text matching for an edited caption', () => {
     const base = editSubtitleText(lineOf(['에이아이', '기능은']), 'AI 기능은')

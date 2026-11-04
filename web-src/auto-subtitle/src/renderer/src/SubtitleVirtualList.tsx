@@ -43,7 +43,7 @@ import { SILENCE_PLACEHOLDER_TEXT, scrubTimelineNoiseFromWordPiece } from '../..
 import { useSubtitleData } from './subtitleDataContext'
 import { peaksJsonRawDataLength } from './wordCanvas/peaksSentenceSlice'
 import { SentenceLineWaveformCanvas } from './waveform/SentenceLineWaveformCanvas'
-import { captionEmphasisOverlaps, DEFAULT_EMPHASIS_COLOR, emphasisColorByWordIndex } from '../../shared/captionEmphasis'
+import { captionEmphasisOverlaps, DEFAULT_EMPHASIS_COLOR, emphasisRangesByWordIndex } from '../../shared/captionEmphasis'
 import {
   CaptionEmphasisMenu,
   CaptionEmphasisOverlay,
@@ -283,7 +283,12 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
   const lineEditDisplay = useMemo(() => subtitleLineEditDisplayText(row), [row.text, row.captionText, row.words])
   const subtitleTextDisplay = subtitleTextDraft ?? lineEditDisplay
   /** 강조 글자가 들어 있는 단어 칩(저장 인덱스) → 테두리 색 */
-  const emphasisByWord = useMemo(() => emphasisColorByWordIndex(row, emphasisColor), [row, emphasisColor])
+  const emphasisRangesByWord = useMemo(() => emphasisRangesByWordIndex(row), [row])
+  const emphasisByWord = useMemo(() => {
+    const out = new Map<number, string>()
+    for (const [wi, hits] of emphasisRangesByWord) out.set(wi, hits[0]!.color ?? emphasisColor)
+    return out
+  }, [emphasisRangesByWord, emphasisColor])
   const [emphasisMenu, setEmphasisMenu] = useState<CaptionEmphasisMenuState | null>(null)
   const closeEmphasisMenu = useCallback(() => setEmphasisMenu(null), [])
 
@@ -1831,6 +1836,17 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                         clearSelection()
                         window.setTimeout(() => requestFocusCaret(index, storageWi), 0)
                       }}
+                      onContextMenu={(e) => {
+                        // 강조 테두리가 있는 칩: 그 강조를 해제·다른 색으로 바꾸는 메뉴(브라우저 기본 메뉴 대신)
+                        const hits = emphasisRangesByWord.get(storageWi)
+                        if (!hits?.length || !onCaptionEmphasis) return
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setEmphasisMenu({
+                          x: e.clientX, y: e.clientY, text: lineEditDisplay,
+                          start: Math.min(...hits.map(r => r.start)), end: Math.max(...hits.map(r => r.end)), canRemove: true
+                        })
+                      }}
                       onMouseEnter={() => {
                         // 칩 앞 caret 슬롯 — storage 축 = storageWi
                         setCaretIndex(storageWi)
@@ -2056,8 +2072,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             const text = ta.value
             const hasText = text.slice(start, end).trim().length > 0
             const canRemove = captionEmphasisOverlaps(text, row.emphasis, start, end)
-            // 글자를 고르지 않았고 강조 위에도 없으면 브라우저 기본 메뉴(복사·붙여넣기)를 그대로 둔다.
-            if (!hasText && !canRemove) return
+            // 편집 칸에서는 항상 강조 메뉴만 띄운다(할 일이 없으면 메뉴가 사용법을 안내한다).
             e.preventDefault()
             e.stopPropagation()
             setEmphasisMenu({ x: e.clientX, y: e.clientY, text, start, end: hasText ? end : start, canRemove })

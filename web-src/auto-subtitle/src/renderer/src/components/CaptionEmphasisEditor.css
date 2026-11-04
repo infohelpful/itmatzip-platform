@@ -35,3 +35,4 @@
 
 /* 강조 글자가 들어 있는 단어 칩 — 강조 색 테두리 */
 .app .subtitle-word-chip.subtitle-word-chip--emphasis { border-color: var(--chip-emphasis-color); box-shadow: inset 0 0 0 1px var(--chip-emphasis-color); }
+.caption-emphasis-menu-hint { margin: 0; padding: 8px 10px; max-width: 240px; color: #a7b5b8; line-height: 1.6; }

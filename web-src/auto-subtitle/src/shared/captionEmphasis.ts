@@ -432,11 +432,12 @@ export function reconcileCaptionEmphasis(prev: readonly SubtitleLine[], next: Su
 }
 
 /**
- * 단어 칩(저장 인덱스)별 강조 색 — 칩 테두리 표시용.
- * 줄 텍스트가 칩 문장 그대로면 위치로, 사용자가 문구를 고쳤으면 칩 글자가 강조 글자에 들어 있는지로 판단한다.
+ * 단어 칩(저장 인덱스)별로 그 칩 글자와 겹치는 강조 범위.
+ * 줄 텍스트가 칩 문장 그대로면 위치로, 사용자가 문구를 고쳤으면 칩 글자가 강조 글자에 들어 있는지로 판단한다
+ * (이때는 처음 맞는 강조 하나만).
  */
-export function emphasisColorByWordIndex(line: SubtitleLine, defaultColor: string): Map<number, string> {
-  const out = new Map<number, string>()
+export function emphasisRangesByWordIndex(line: SubtitleLine): Map<number, CaptionEmphasis[]> {
+  const out = new Map<number, CaptionEmphasis[]>()
   if (!line.emphasis?.length || !line.words?.length) return out
   const text = captionEmphasisText(line)
   const ranges = resolveCaptionEmphasis(text, line.emphasis)
@@ -453,8 +454,8 @@ export function emphasisColorByWordIndex(line: SubtitleLine, defaultColor: strin
     for (const { wi, piece } of pieces) {
       const s = offset
       const e = offset + piece.length
-      const hit = ranges.find(r => r.start < e && r.end > s)
-      if (hit) out.set(wi, hit.color ?? defaultColor)
+      const hits = ranges.filter(r => r.start < e && r.end > s)
+      if (hits.length) out.set(wi, hits)
       offset = e + 1
     }
     return out
@@ -466,8 +467,15 @@ export function emphasisColorByWordIndex(line: SubtitleLine, defaultColor: strin
       const t = norm(r.text)
       return t.includes(p) || (p.length > 0 && p.includes(t))
     })
-    if (hit) out.set(wi, hit.color ?? defaultColor)
+    if (hit) out.set(wi, [hit])
   }
+  return out
+}
+
+/** 단어 칩(저장 인덱스)별 강조 색 — 칩 테두리 표시용(겹치는 첫 강조의 색). */
+export function emphasisColorByWordIndex(line: SubtitleLine, defaultColor: string): Map<number, string> {
+  const out = new Map<number, string>()
+  for (const [wi, hits] of emphasisRangesByWordIndex(line)) out.set(wi, hits[0]!.color ?? defaultColor)
   return out
 }
 
