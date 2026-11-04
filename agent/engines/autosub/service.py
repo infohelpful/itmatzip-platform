@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from typing import Any
 
-from . import alignment, media, paths
+from . import alignment, hub_mirror, media, paths
 from .sidecar_client import SidecarError, client
 
 PREPARE_MODEL_TIMEOUT_SEC = 60 * 60
 TRANSCRIBE_TIMEOUT_SEC = 2 * 60 * 60
 # Pinned like the desktop sidecar's requirements.txt.
 SIDECAR_PIP_SPECS = ("faster-whisper==1.2.1", "av==18.0.0", "huggingface_hub>=0.26.0", "tqdm>=4.66.0")
+# Exact versions the mirrored wheel bundle holds; used for PyPI too so both paths install the same set.
+SIDECAR_LOCK_FILE = paths.SIDECAR_DIR / "requirements-sidecar-cp312-win.lock.txt"
+WHISPER_MODEL_DIRNAME = "deepdml-faster-whisper-large-v3-turbo-ct2"
 _IMPORT_CHECK = ("import faster_whisper, av, huggingface_hub, tqdm; "
                  "assert faster_whisper.__version__ == '1.2.1', faster_whisper.__version__; "
                  "assert av.__version__.startswith('18.'), av.__version__")
@@ -47,7 +51,7 @@ def deps_status() -> dict[str, Any]:
     status = _model_status() if packages_ok else {}
     loaded, present = bool(status.get("loaded")), bool(status.get("model_present"))
     if not packages_ok:
-        present = (paths.models_dir() / "deepdml-faster-whisper-large-v3-turbo-ct2" / "model.bin").is_file()
+        present = _whisper_model_present()
     return {"ffmpegOk": ffmpeg_ok, "modelLoaded": loaded, "modelPresent": present,
             "engineReady": ffmpeg_ok and packages_ok and (loaded or present), "packagesOk": packages_ok}
 
@@ -69,10 +73,10 @@ def _set_prepare(**kw: Any) -> None:
         _prepare_state.update(kw)
 
 
-def _pip_install() -> None:
+def _run_pip(extra: list[str]) -> None:
     from common.runtime_site_packages import finalize_runtime_pip, pip_install_cmd, pip_subprocess_env
 
-    cmd = [*pip_install_cmd(paths.TOOL_ID), *SIDECAR_PIP_SPECS]
+    cmd = [*pip_install_cmd(paths.TOOL_ID), *extra]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=_NO_WINDOW,
                             env=pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": paths.TOOL_ID}))
@@ -89,6 +93,78 @@ def _pip_install() -> None:
         raise RuntimeError("pip install 실패: " + (tail[-1] if tail else f"exit {proc.returncode}"))
 
 
+def _pip_install() -> None:
+    """library-hub wheel bundle first (offline install), then PyPI with the same pinned versions."""
+    if not hub_mirror.wheels_supported():
+        _run_pip(list(SIDECAR_PIP_SPECS))
+        return
+    archive = None
+    wheel_dir = hub_mirror.downloads_dir() / "base-wheels"
+    try:
+        _set_prepare(step="Python 패키지 내려받는 중 (library-hub)")
+        archive = hub_mirror.fetch("base_wheels", hub_mirror.downloads_dir(),
+                                   lambda f: _set_prepare(percent=12.0 * f, step="Python 패키지 내려받는 중"))
+        hub_mirror.extract(archive, wheel_dir)
+        _run_pip(["--no-index", "--find-links", str(wheel_dir), "-r", str(wheel_dir / "requirements.lock.txt")])
+        return
+    except Exception as error:  # noqa: BLE001 - fall back to PyPI
+        _set_prepare(step=f"library-hub 실패, PyPI 에서 설치: {str(error)[:80]}")
+    finally:
+        if archive:
+            hub_mirror.discard(archive)
+        shutil.rmtree(wheel_dir, ignore_errors=True)
+    _run_pip(["-r", str(SIDECAR_LOCK_FILE)])
+
+
+def _ensure_ffmpeg() -> None:
+    """Pinned FFmpeg from library-hub; BtbN's rolling GitHub release only when the mirror fails."""
+    from common import bin_manager as bm
+
+    def report(pct: float, step: str = "", detail: str = "") -> None:
+        _set_prepare(percent=20.0 + 9.0 * float(pct) / 100.0, step=f"FFmpeg {detail or step}".strip())
+
+    archive = None
+    extract_dir = hub_mirror.downloads_dir() / "ffmpeg"
+    try:
+        archive = hub_mirror.fetch("ffmpeg", hub_mirror.downloads_dir(),
+                                   lambda f: report(90.0 * f, detail="내려받는 중 (library-hub)"))
+        hub_mirror.extract(archive, extract_dir)
+        runtime = bm._find_ffmpeg_shared_runtime_dir(extract_dir)
+        if runtime is None:
+            raise RuntimeError("FFmpeg 묶음에서 ffmpeg.exe 를 찾지 못했습니다.")
+        bm._publish_ffmpeg_runtime_files(runtime, dest_dir=bm.get_ffmpeg_shared_dir())
+        if paths.ffmpeg_paths() is not None:
+            return
+    except Exception:  # noqa: BLE001 - fall back to the original source
+        pass
+    finally:
+        if archive:
+            hub_mirror.discard(archive)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+    bm.ensure_ffmpeg(on_progress=report)
+
+
+def _whisper_model_present() -> bool:
+    return (paths.models_dir() / WHISPER_MODEL_DIRNAME / "model.bin").is_file()
+
+
+def _ensure_whisper_model_from_hub() -> None:
+    """Put the Whisper model in place from library-hub; on failure the sidecar downloads it from Hugging Face."""
+    if _whisper_model_present():
+        return
+    archive = None
+    try:
+        archive = hub_mirror.fetch("whisper_model", hub_mirror.downloads_dir(),
+                                   lambda f: _set_prepare(percent=30.0 + 60.0 * f, step="Whisper 모델 다운로드"))
+        _set_prepare(step="Whisper 모델 압축 해제")
+        hub_mirror.extract(archive, paths.models_dir() / WHISPER_MODEL_DIRNAME)
+    except Exception as error:  # noqa: BLE001 - Hugging Face fallback in the sidecar
+        _set_prepare(step=f"library-hub 실패, Hugging Face 에서 받습니다: {str(error)[:80]}")
+    finally:
+        if archive:
+            hub_mirror.discard(archive)
+
+
 def _run_prepare() -> None:
     try:
         if not _sidecar_packages_ready():
@@ -99,13 +175,11 @@ def _run_prepare() -> None:
                 raise RuntimeError("자막 엔진 패키지를 불러오지 못했습니다. 다시 시도해 주세요.")
         _set_prepare(percent=20.0, step="FFmpeg 준비")
         if paths.ffmpeg_paths() is None:
-            from common.bin_manager import ensure_ffmpeg
-
-            ensure_ffmpeg(on_progress=lambda pct, step="", detail="": _set_prepare(
-                percent=20.0 + 10.0 * float(pct) / 100.0, step=f"FFmpeg {detail or step}".strip()))
+            _ensure_ffmpeg()
         _set_prepare(percent=29.0, step="파형 도구 준비")
         ensure_audiowaveform(quiet=True)
         _set_prepare(percent=30.0, step="Whisper 모델 준비")
+        _ensure_whisper_model_from_hub()
         sc = client()
         sc.stop("restart with FFmpeg/GPU paths")  # pick up new PATH entries
 
@@ -384,6 +458,8 @@ def sidecar_call(method: str, params: dict[str, Any]) -> Any:
 # -- audiowaveform -----------------------------------------------------------------------
 # Official BBC release, identical to the exe the desktop app bundles (GPL-3.0, run as a separate program).
 AUDIOWAVEFORM_URL = "https://github.com/bbc/audiowaveform/releases/download/1.10.2/audiowaveform-1.10.2-win64.zip"
+# library-hub copy first (byte-identical, same hash), then the BBC release.
+AUDIOWAVEFORM_URLS = (hub_mirror.asset_url("audiowaveform"), AUDIOWAVEFORM_URL)
 AUDIOWAVEFORM_ZIP_SHA256 = "17ab4657b9482ffa063d88d367598208060400af91c2c3e2b04723f98b418ad1"
 AUDIOWAVEFORM_EXE_SHA256 = "a5de21b75fe2d9f5e1ac756b7dd7a14bfd18918821f3a389097521354c7c418c"
 _aw_lock = threading.Lock()
@@ -401,10 +477,20 @@ def ensure_audiowaveform(*, quiet: bool = False) -> str | None:
         if existing:
             return existing
         try:
-            with urllib.request.urlopen(AUDIOWAVEFORM_URL, timeout=60) as resp:  # noqa: S310 - pinned https URL
-                data = resp.read()
-            if hashlib.sha256(data).hexdigest() != AUDIOWAVEFORM_ZIP_SHA256:
-                raise RuntimeError("audiowaveform 다운로드 파일의 해시가 맞지 않습니다.")
+            data = b""
+            errors: list[str] = []
+            for url in AUDIOWAVEFORM_URLS:
+                try:
+                    with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 - pinned https URLs
+                        data = resp.read()
+                    if hashlib.sha256(data).hexdigest() != AUDIOWAVEFORM_ZIP_SHA256:
+                        raise RuntimeError("audiowaveform 다운로드 파일의 해시가 맞지 않습니다.")
+                    break
+                except Exception as error:  # noqa: BLE001 - try the next source
+                    errors.append(f"{url}: {error}")
+                    data = b""
+            if not data:
+                raise RuntimeError("audiowaveform 을 받지 못했습니다: " + "; ".join(errors))
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 name = next(n for n in zf.namelist() if n.lower().endswith("audiowaveform.exe"))
                 exe = zf.read(name)

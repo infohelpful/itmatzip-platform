@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import paths
+from . import hub_mirror, paths
 
 LOCK_FILE = paths.SIDECAR_DIR / "requirements-alignment-cpu-win.lock.txt"
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
@@ -144,13 +144,35 @@ def _create_interpreter(root: Path) -> Path:
 
 
 def _pip_install(python: Path) -> None:
+    """library-hub wheel bundle first (offline, same lock), then the PyTorch index + PyPI."""
+    if hub_mirror.wheels_supported():
+        archive = None
+        wheel_dir = hub_mirror.downloads_dir() / "align-wheels"
+        try:
+            archive = hub_mirror.fetch("align_wheels", hub_mirror.downloads_dir(),
+                                       lambda f: _set(pct=3.0 + 45.0 * f, stage="패키지 내려받는 중 (library-hub)"))
+            _set(pct=48.0, stage="패키지 압축 해제 중")
+            hub_mirror.extract(archive, wheel_dir)
+            _set(pct=50.0, stage="패키지 설치 중")
+            _run_pip(python, ["--no-index", "--find-links", str(wheel_dir)])
+            return
+        except Exception as error:  # noqa: BLE001 - fall back to the original indexes
+            _set(stage=f"library-hub 실패, 원래 배포처에서 받습니다: {str(error)[:80]}")
+        finally:
+            if archive:
+                hub_mirror.discard(archive)
+            shutil.rmtree(wheel_dir, ignore_errors=True)
+    _run_pip(python, ["--index-url", TORCH_CPU_INDEX, "--extra-index-url", "https://pypi.org/simple"])
+
+
+def _run_pip(python: Path, source_args: list[str]) -> None:
     if _is_embeddable(python):
         # The private copy has no pip; the agent's Python installs into its site-packages.
         cmd = [str(_base_python()), "-m", "pip", "install", "--target", str(_site_packages(python))]
     else:
         cmd = [str(python), "-m", "pip", "install"]
     cmd += ["--no-warn-script-location", "--disable-pip-version-check", "--only-binary=:all:",
-            "--index-url", TORCH_CPU_INDEX, "--extra-index-url", "https://pypi.org/simple", "-r", str(LOCK_FILE)]
+            *source_args, "-r", str(LOCK_FILE)]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=_NO_WINDOW)
     tail: list[str] = []
@@ -186,7 +208,34 @@ def _verify(python: Path) -> None:
         raise RuntimeError("정렬 런타임 확인 실패: " + proc.stderr.decode("utf-8", "replace").strip()[-400:])
 
 
+def _model_snapshot_dir() -> Path:
+    return paths.align_cache_dir() / f"models--{MODEL_ID.replace('/', '--')}" / "snapshots" / model_revision()
+
+
+def _download_model_from_hub() -> bool:
+    """Pinned model files from library-hub, laid out as a Hugging Face cache snapshot."""
+    if model_revision() != "629c9a3501c10ba128bf3fa1eebb12af3be03f61":
+        return False  # mirror holds this revision only
+    archive = None
+    try:
+        archive = hub_mirror.fetch("align_model", hub_mirror.downloads_dir(),
+                                   lambda f: _set(pct=72.0 + 26.0 * f, stage="정렬 모델 내려받는 중 (library-hub)"))
+        hub_mirror.extract(archive, _model_snapshot_dir())
+        refs = _model_snapshot_dir().parent.parent / "refs"
+        refs.mkdir(parents=True, exist_ok=True)
+        (refs / "main").write_text(model_revision(), encoding="utf-8")
+        return model_present()
+    except Exception as error:  # noqa: BLE001 - Hugging Face fallback
+        _set(stage=f"library-hub 실패, Hugging Face 에서 받습니다: {str(error)[:80]}")
+        return False
+    finally:
+        if archive:
+            hub_mirror.discard(archive)
+
+
 def _download_model(python: Path) -> None:
+    if _download_model_from_hub():
+        return
     cache = paths.align_cache_dir()
     cache.mkdir(parents=True, exist_ok=True)
     code = ("import sys; from huggingface_hub import snapshot_download; "
