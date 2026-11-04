@@ -272,6 +272,28 @@ async def post_export_encode(job_id: str, body: dict[str, Any] = Body(...)) -> d
     return {"ok": True}
 
 
+@router.get("/export/downloads-dir")
+async def get_export_downloads_dir() -> dict[str, Any]:
+    """Default save folder for the export page (no folder picker)."""
+    try:
+        return {"path": str(await run_in_threadpool(export.downloads_dir))}
+    except OSError as error:
+        raise _bad(error, 500) from error
+
+
+@router.post("/export/text")
+async def post_export_text(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    text = body.get("text")
+    if not isinstance(text, str):
+        raise HTTPException(status_code=400, detail="'text' 값이 필요합니다.")
+    input_path = body.get("inputPath") if isinstance(body.get("inputPath"), str) else ""
+    try:
+        target = await run_in_threadpool(export.save_text, input_path, _str(body, "outDir"), _str(body, "format"), text)
+    except (OSError, ValueError) as error:
+        raise _bad(error) from error
+    return {"outputPath": str(target)}
+
+
 @router.get("/export/{job_id}")
 async def get_export(job_id: str) -> dict[str, Any]:
     try:

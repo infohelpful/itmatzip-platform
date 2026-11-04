@@ -55,6 +55,17 @@ export async function saveTextAs(content: string | Blob, suggestedName: string, 
   return suggestedName
 }
 
+/** 저장 창 없이 브라우저 기본 다운로드(보통 「다운로드」 폴더)로 받는다. */
+export function downloadTextFile(content: string, fileName: string): void {
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = Object.assign(document.createElement('a'), { href: url, download: fileName })
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
+
 /** Overwrite a file previously opened or saved in this session. */
 export async function saveTextInPlace(pseudoPath: string, content: string): Promise<boolean> {
   const handle = handles.get(pseudoPath)

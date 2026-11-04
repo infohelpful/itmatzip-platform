@@ -1,11 +1,11 @@
 {
-    "version":  "1.6.0",
-    "published_at":  "2026-11-03",
+    "version":  "1.7.0",
+    "published_at":  "2026-11-04",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.6.0/itmatzip-agent.msi",
-    "sha256":  "9e480645c7d8db893d98666eb65e141d4ed9f902f2256ff361f341c7fe84828c",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.0/itmatzip-agent.msi",
+    "sha256":  "f4e653181c956a1b94907e1e32f35b14f0916aefb41e49a3d9026cc582163b23",
     "mandatory":  false,
-    "release_notes":  "AutoSubtitle 웹판: 데스크톱 자막 편집기와 같은 전사·정밀 정렬(WhisperX)·단어 편집·자막 입힌 영상 내보내기. 기존 자막 엔진 제거.",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.6.0/itmatzip-agent.msi",
-    "msi_sha256":  "9e480645c7d8db893d98666eb65e141d4ed9f902f2256ff361f341c7fe84828c"
+    "release_notes":  "AutoSubtitle: 다운로드 폴더 기본 저장, 자막·대본 파일 저장, 내보내기 진행 화면",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.0/itmatzip-agent.msi",
+    "msi_sha256":  "f4e653181c956a1b94907e1e32f35b14f0916aefb41e49a3d9026cc582163b23"
 }

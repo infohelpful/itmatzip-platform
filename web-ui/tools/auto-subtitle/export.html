@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="auto-subtitle" data-force-theme="dark" data-autosub-page="export">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="../common/site-runtime.js?v=46"></script>
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>내보내기 - Auto Subtitle | ItMatZip</title>
+  <meta name="description" content="Auto Subtitle에서 만든 자막을 SRT·TXT 파일이나 자막을 입힌 영상으로 저장합니다. 저장한 파일은 PC의 다운로드 폴더에 남습니다.">
+  <meta name="robots" content="noindex,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/auto-subtitle/">
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+  <link rel="stylesheet" href="app/auto-subtitle.css?v=17">
+  <link rel="stylesheet" href="export.css?v=1">
+</head>
+<body class="as-app axp-page">
+  <header class="axp-topbar">
+    <a class="axp-logo" href="./" title="Auto Subtitle 편집 화면">AutoSubtitle</a>
+    <a class="axp-topbar-link" href="../"><span aria-hidden="true">←</span>대시보드</a>
+    <span class="axp-topbar-sep" aria-hidden="true"></span>
+    <span class="axp-topbar-title">내보내기</span>
+  </header>
+
+  <main class="axp-main">
+    <div class="axp-ad" id="axp-ad-top" aria-label="광고"></div>
+
+    <div id="root" class="axp-root"></div>
+
+    <section class="tool-guide axp-guide" data-static-guide aria-label="Auto Subtitle 내보내기 안내">
+      <div class="axp-guide-col axp-guide-intro">
+        <p class="tool-guide-kicker">Auto Subtitle</p>
+        <h2>내보낸 파일, 이렇게 쓰세요</h2>
+        <p class="tool-guide-lead">에이전트 1.7.0부터 내보낸 파일은 PC의 「다운로드」 폴더에 <code>원본이름_AutoSubtitle</code> 이름으로 저장됩니다. 같은 이름이 있으면 덮어쓰지 않고 (2), (3)을 붙입니다. 영상은 외부 서버로 올라가지 않고 이 PC에서만 만들어집니다.</p>
+        <h3>자막 입힌 영상 (MP4)</h3>
+        <p>편집 화면 미리보기에서 정한 글꼴·크기·색·배경과 강조 글자, 단어 강조가 그대로 영상에 들어갑니다. 유튜브 쇼츠·릴스처럼 자막을 화면에 새겨야 하는 곳에 바로 올릴 수 있습니다. 영상 길이와 PC 성능에 따라 몇 분이 걸릴 수 있고, NVIDIA 그래픽카드가 있으면 하드웨어 인코더로 더 빨리 끝납니다.</p>
+      </div>
+      <div class="axp-guide-col">
+        <h3>SRT 자막 파일 올리는 곳</h3>
+        <ul>
+          <li><strong>YouTube Studio.</strong> 동영상 → 자막 → 언어 추가 → 「파일 업로드」에서 .srt를 고르고 「타이밍 있음」을 선택합니다.</li>
+          <li><strong>Premiere Pro.</strong> 파일 → 가져오기로 .srt를 불러와 타임라인 위 트랙에 놓으면 캡션 트랙이 됩니다.</li>
+          <li><strong>DaVinci Resolve.</strong> 미디어 풀에 .srt를 넣고 타임라인으로 끌어 놓으면 자막 트랙이 생깁니다.</li>
+          <li><strong>CapCut·Vrew.</strong> 텍스트(자막) 메뉴의 「자막 파일 가져오기」로 불러옵니다.</li>
+        </ul>
+        <h3>대본 (TXT)</h3>
+        <p>시간 정보 없이 문장만 줄마다 담습니다. 블로그 글·영상 설명란·회의록 초안으로 쓰거나, 다른 영상에 「대본/SRT 가져오기」로 다시 맞출 때 씁니다.</p>
+      </div>
+      <div class="axp-guide-col">
+        <h3>자주 묻는 질문</h3>
+        <dl class="axp-faq">
+          <dt>파일이 어디에 저장됐나요?</dt>
+          <dd>「폴더 열기」를 누르면 저장된 파일이 선택된 채로 탐색기가 열립니다. 브라우저로 받은 경우에는 Ctrl+J(다운로드 목록)에서 열 수 있습니다.</dd>
+          <dt>작업 중에 이 탭을 닫아도 되나요?</dt>
+          <dd>영상은 자막 이미지를 그리는 동안 이 탭이 필요합니다. 「인코딩 중」 단계까지 끝날 때까지 탭을 열어 두세요. 편집하던 화면은 원래 탭에 그대로 있습니다.</dd>
+          <dt>「에이전트에 연결할 수 없습니다」가 떠요.</dt>
+          <dd>작업 표시줄 트레이에서 ItMatZip 에이전트가 실행 중인지 확인하세요. 실행 중이면 「다시 시도」를 누르면 됩니다.</dd>
+          <dt>미리보기와 영상 자막이 달라 보여요.</dt>
+          <dd>편집 화면 「자막 디자인」 탭의 설정이 그대로 쓰입니다. 바꾼 뒤 다시 「내보내기」를 누르면 새 파일로 저장됩니다.</dd>
+        </dl>
+      </div>
+    </section>
+
+    <div class="axp-ad" id="axp-ad-bottom" aria-label="광고"></div>
+  </main>
+
+  <script src="../common/site-guard.js?v=13"></script>
+  <script type="module" src="export-glue.js?v=1"></script>
+  <script type="module" src="app/auto-subtitle.js?v=17"></script>
+</body>
+</html>

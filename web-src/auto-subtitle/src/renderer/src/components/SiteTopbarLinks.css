@@ -1,0 +1,20 @@
+/* 편집기 상단 바(#111415) 안 — 로고 바로 오른쪽, 탭 앞 */
+.site-topbar-links { display: inline-flex; align-items: center; gap: 12px; margin: 0 14px 0 16px; padding-left: 16px; border-left: 1px solid #2f3537; min-width: 0; }
+.site-topbar-dashboard {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; box-sizing: border-box; white-space: nowrap;
+  border: 1px solid #41494b; border-radius: 99px; background: #181c1d; color: #d6dde0; font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.site-topbar-dashboard:hover { background: #2c3436; border-color: #718285; color: #fff; }
+.site-topbar-dashboard:focus-visible { outline: 2px solid #27bfdc; outline-offset: 2px; }
+.site-topbar-agent { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.site-topbar-agent-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: #6b787b; }
+.site-topbar-agent--online .site-topbar-agent-dot { background: #2fcf8f; box-shadow: 0 0 0 3px rgba(47, 207, 143, 0.16); }
+.site-topbar-agent--offline .site-topbar-agent-dot { background: #e5534b; box-shadow: 0 0 0 3px rgba(229, 83, 75, 0.16); }
+.site-topbar-agent-text { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.site-topbar-agent-main { color: #c7d1d3; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.site-topbar-agent--online .site-topbar-agent-main { color: #5fdcaa; }
+.site-topbar-agent--offline .site-topbar-agent-main { color: #f0908a; }
+.site-topbar-agent-ms { color: #7d8b8e; font-weight: 500; }
+.site-topbar-agent-sub { color: #7f8e91; font-size: 10.5px; white-space: nowrap; }
+@media (max-width: 1250px) { .site-topbar-agent-sub { display: none; } }
+@media (max-width: 1000px) { .site-topbar-agent { display: none; } .site-topbar-links { margin-right: 6px; } }

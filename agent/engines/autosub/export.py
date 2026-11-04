@@ -207,6 +207,55 @@ def output_path(input_path: Path, out_dir: str, ext: str) -> Path:
     return candidate
 
 
+_FOLDERID_DOWNLOADS = "{374DE290-123F-4565-9164-39C4925E467B}"
+
+
+def downloads_dir() -> Path:
+    """The user's Downloads folder (Windows known folder, so a moved/redirected folder is honoured)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class _GUID(ctypes.Structure):
+                _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                            ("Data4", ctypes.c_ubyte * 8)]
+
+            guid = _GUID()
+            ctypes.oledll.ole32.CLSIDFromString(_FOLDERID_DOWNLOADS, ctypes.byref(guid))
+            out = ctypes.c_wchar_p()
+            ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(out))
+            try:
+                if out.value and Path(out.value).is_dir():
+                    return Path(out.value)
+            finally:
+                ctypes.windll.ole32.CoTaskMemFree(out)
+        except (OSError, AttributeError, ValueError):
+            pass
+    fallback = Path.home() / "Downloads"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
+_TEXT_EXTS = {".srt", ".vtt", ".ass", ".txt"}
+_MAX_TEXT_BYTES = 20 * 1024 * 1024
+
+
+def save_text(input_path: str, out_dir: str, ext: str, text: str) -> Path:
+    """Write a subtitle/script text export (UTF-8 with BOM, like the browser save) without overwriting anything."""
+    ext = ext.lower() if ext.startswith(".") else f".{ext.lower()}"
+    if ext not in _TEXT_EXTS:
+        raise ValueError(f"지원하지 않는 내보내기 형식: {ext}")
+    data = ("\ufeff" + text).encode("utf-8")
+    if len(data) > _MAX_TEXT_BYTES:
+        raise ValueError("내보낼 자막이 너무 큽니다.")
+    target = output_path(Path(input_path or "AutoSubtitle"), out_dir, ext)
+    with open(target, "xb") as fh:
+        fh.write(data)
+    _exported.add(os.path.normcase(str(target)))
+    return target
+
+
 def _new_job(kind: str, output: Path) -> dict[str, Any]:
     job = {"id": str(uuid.uuid4()), "kind": kind, "output": output, "state": "waiting", "percent": 0, "label": "",
            "encoderName": None, "error": None, "cancel": threading.Event(), "tmp": Path(tempfile.mkdtemp(prefix="autosub-export-"))}

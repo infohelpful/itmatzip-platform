@@ -24,7 +24,7 @@ import { SubtitleFrameRenderer } from './subtitleFrameRenderer'
 import {
   AgentUnavailable, agentFetch, api, apiBinary, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
 } from './agentClient'
-import { openFile, saveTextAs, saveTextInPlace } from './localFiles'
+import { downloadTextFile, openFile, saveTextAs, saveTextInPlace } from './localFiles'
 import {
   buildAssText, buildMappedSubtitles, buildSrtText, buildTxtText, buildWebVttText, normalizeCutRanges,
   normalizeMappedSubtitles
@@ -112,6 +112,17 @@ export function createWebApi(): SidecarApi {
     return (await api<{ path: string }>('/media/register', { path })).path
   }
 
+  /** 사용자 「다운로드」 폴더(에이전트 1.7.0+). 예전 에이전트면 null — 호출부가 대체 방법을 쓴다. */
+  let downloadsDirPromise: Promise<string | null> | null = null
+  function downloadsDir(): Promise<string | null> {
+    downloadsDirPromise ??= api<{ path?: string }>('/export/downloads-dir')
+      .then((r) => (typeof r.path === 'string' && r.path ? r.path : null))
+      .catch(() => null)
+    const p = downloadsDirPromise
+    p.then((v) => { if (v === null) downloadsDirPromise = null }).catch(() => {})
+    return p
+  }
+
   async function exportSubtitleFile(req: ExportRequest): Promise<ExportResult> {
     const format = req.format
     if (format !== 'srt' && format !== 'vtt' && format !== 'ass' && format !== 'txt') {
@@ -130,6 +141,22 @@ export function createWebApi(): SidecarApi {
           : buildTxtText(mapped)
     const labels = { srt: 'SubRip', vtt: 'WebVTT', ass: 'Advanced SubStation Alpha', txt: 'Text' }
     const name = `${req.inputPath ? baseName(req.inputPath) : 'AutoSubtitle_export'}.${format}`
+    if (req.saveTo === 'downloads') {
+      // 내보내기 페이지: 폴더 선택 없이 「다운로드」 폴더로. 에이전트가 쓰면 「폴더 열기」도 된다.
+      const dir = await downloadsDir()
+      if (dir) {
+        try {
+          const res = await api<{ outputPath: string }>('/export/text', { inputPath: req.inputPath, outDir: dir, format, text })
+          exportProgress.emit({ percent: 100 })
+          return { canceled: false, outputPath: res.outputPath, format }
+        } catch {
+          /* 예전 에이전트 등 — 브라우저 다운로드로 */
+        }
+      }
+      downloadTextFile(UTF8_BOM + text, `${req.inputPath ? baseName(req.inputPath) : 'AutoSubtitle_export'}_AutoSubtitle.${format}`)
+      exportProgress.emit({ percent: 100 })
+      return { canceled: false, outputPath: name, format, savedByBrowser: true }
+    }
     const saved = await saveTextAs(UTF8_BOM + text, name,
       { description: labels[format], accept: { 'text/plain': [`.${format}`] } })
     if (saved === null) return { canceled: true }
@@ -153,7 +180,11 @@ export function createWebApi(): SidecarApi {
   /** Video burn-in and MP3/WAV: the agent writes next to the media into a folder the user picks. */
   async function exportMediaFile(req: ExportRequest): Promise<ExportResult> {
     if (!Array.isArray(req.subtitles)) throw new Error('내보낼 자막 데이터가 없습니다.')
-    const picked = await controller<{ path?: string; cancelled?: boolean }>('/api/agent/pick-local-folder')
+    // 내보내기 페이지는 「다운로드」 폴더에 바로 저장한다(예전 에이전트면 폴더 선택으로 대신).
+    const downloads = req.saveTo === 'downloads' ? await downloadsDir() : null
+    const picked = downloads
+      ? { path: downloads }
+      : await controller<{ path?: string; cancelled?: boolean }>('/api/agent/pick-local-folder')
     if (!picked.path) return { canceled: true }
     const format = req.format
     if (format === 'mp3' || format === 'wav') {

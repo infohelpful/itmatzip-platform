@@ -1,0 +1,46 @@
+/* Auto Subtitle 내보내기 페이지 — 편집기와 같은 어두운 화면. 편집기 CSS(App.css)가 #root 를 한 화면에 고정하므로 여기서 푼다. */
+html, body { height: auto !important; overflow-x: hidden !important; overflow-y: auto !important; }
+html, body.axp-page { background: #0f1115 !important; color: #e2e7e8; color-scheme: dark; }
+body.axp-page { margin: 0; font-family: Pretendard, system-ui, 'Segoe UI', sans-serif; }
+#root.axp-root { height: auto !important; overflow: visible !important; margin: 0; }
+
+.axp-topbar {
+  display: flex; align-items: center; gap: 14px; min-height: 52px; padding: 0 18px; box-sizing: border-box;
+  border-bottom: 1px solid #383e40; background: #111415;
+}
+.axp-logo { display: inline-flex; align-items: center; color: #f1f5f5; font-size: 16px; font-weight: 700; letter-spacing: -.5px; text-decoration: none; }
+.axp-logo::before { content: 'A'; display: inline-grid; place-items: center; width: 25px; height: 25px; margin-right: 9px; border-radius: 7px; background: #10accb; color: #fff; font-size: 18px; }
+.axp-topbar-link {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; box-sizing: border-box; margin-left: 4px;
+  border: 1px solid #41494b; border-radius: 99px; background: #181c1d; color: #d6dde0; font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.axp-topbar-link:hover { background: #2c3436; border-color: #718285; color: #fff; }
+.axp-topbar-sep { width: 1px; height: 18px; background: #2f3537; }
+.axp-topbar-title { color: #a2acae; font-size: 13px; font-weight: 650; }
+
+.axp-main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 48px; box-sizing: border-box; }
+/* 광고는 진행 카드·버튼과 충분히 떨어뜨린다 */
+.axp-ad { box-sizing: border-box; width: 100%; overflow: hidden; }
+#axp-ad-top { margin: 0 auto 28px; max-width: 970px; }
+#axp-ad-bottom { margin: 36px auto 0; max-width: 970px; }
+
+body.axp-page .tool-guide.axp-guide {
+  max-width: none !important; margin: 40px 0 0 !important; padding: 36px 0 0 !important; background: transparent !important;
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; align-items: start;
+  border-top: 1px solid #262b31;
+}
+.axp-guide-col > h3:first-child, .axp-guide-intro > .tool-guide-kicker:first-child { margin-top: 0; }
+.axp-guide code { padding: 1px 5px; border-radius: 4px; background: #1d2325; color: #dfe7e8; font-size: .92em; }
+.axp-faq { margin: 0; }
+.axp-faq dt { margin: 14px 0 4px; color: #e6ecee; font-weight: 700; font-size: 14px; }
+.axp-faq dt:first-child { margin-top: 0; }
+.axp-faq dd { margin: 0; color: #a9b6b9; font-size: 13.5px; line-height: 1.7; }
+@media (max-width: 1000px) {
+  body.axp-page .tool-guide.axp-guide { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .axp-guide-intro { grid-column: 1 / -1; margin-bottom: 26px; }
+}
+@media (max-width: 680px) {
+  .axp-main { padding: 20px 16px 40px; }
+  body.axp-page .tool-guide.axp-guide { grid-template-columns: minmax(0, 1fr); }
+  .axp-guide-col + .axp-guide-col { margin-top: 22px; }
+}

@@ -34,6 +34,24 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(export.render_dimensions(640, 360), (640, 360))
         self.assertEqual(export.render_dimensions(100, 100), (320, 240))
 
+    def test_downloads_dir_is_an_existing_folder(self):
+        folder = export.downloads_dir()
+        self.assertTrue(folder.is_dir())
+
+    def test_save_text_writes_bom_utf8_without_overwriting_and_allows_show_in_folder(self):
+        source = self.root / "강의 영상.mp4"
+        first = export.save_text(str(source), str(self.root), "srt", "1\n00:00:00,000 --> 00:00:01,000\n안녕\n")
+        self.assertEqual(first.name, "강의 영상_AutoSubtitle.srt")
+        self.assertEqual(first.read_bytes()[:3], b"\xef\xbb\xbf")
+        self.assertIn("안녕", first.read_text(encoding="utf-8-sig"))
+        second = export.save_text(str(source), str(self.root), ".srt", "x")
+        self.assertEqual(second.name, "강의 영상_AutoSubtitle (2).srt")
+        self.assertIn(__import__("os").path.normcase(str(second)), export._exported)
+        with self.assertRaises(ValueError):
+            export.save_text(str(source), str(self.root), "exe", "x")
+        with self.assertRaises(ValueError):
+            export.save_text(str(source), str(self.root / "missing"), "srt", "x")
+
     def test_output_never_overwrites_and_never_targets_the_source(self):
         source = self.root / "clip.mp4"
         source.write_bytes(b"x")

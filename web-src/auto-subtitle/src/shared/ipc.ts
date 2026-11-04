@@ -131,6 +131,11 @@ export type ExportFormat =
 export type ExportRequest = ExportVideoRequest & {
   format: ExportFormat
   subtitleStyle?: ExportSubtitleStyle
+  /**
+   * 'downloads' = 폴더 선택 없이 사용자 「다운로드」 폴더에 저장(웹 내보내기 페이지).
+   * 에이전트가 지원하지 않으면 영상은 폴더 선택, 자막 파일은 브라우저 다운로드로 대신한다.
+   */
+  saveTo?: 'downloads'
 }
 
 export type ExportVideoResult =
@@ -139,7 +144,13 @@ export type ExportVideoResult =
 
 export type ExportResult =
   | { canceled: true }
-  | { canceled: false; outputPath: string; format: ExportFormat }
+  | {
+      canceled: false
+      outputPath: string
+      format: ExportFormat
+      /** true: 브라우저 다운로드로 저장(경로는 파일 이름뿐이라 「폴더 열기」를 쓸 수 없다) */
+      savedByBrowser?: boolean
+    }
 
 /** `.autosub` 프로젝트 파일 열기 */
 export type ProjectOpenResult =
