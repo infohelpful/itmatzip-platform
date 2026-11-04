@@ -1428,6 +1428,7 @@
   function applyToolGuide(pack) {
     var guide = document.querySelector("section.tool-guide");
     if (!guide) return;
+    if (guide.hasAttribute("data-static-guide")) return;
     var kicker = guide.querySelector(".tool-guide-kicker");
     if (kicker && pack["guide.kicker"]) kicker.textContent = pack["guide.kicker"];
     var h2 = guide.querySelector("h2");

@@ -22,13 +22,14 @@ import { setWordReading } from '../../shared/wordReading'
 import { subtitleLinesMeaningfullyChanged } from '../../shared/subtitleEditHistory'
 import { WordReadingEditor } from './components/WordReadingEditor'
 import { SubtitleFormatToolbar } from './components/SubtitleFormatToolbar'
+import { SiteTopbarLinks } from './components/SiteTopbarLinks'
 import { SubtitleActionsToolbar } from './components/SubtitleActionsToolbar'
 import { EditorToolIcon } from './components/EditorToolIcon'
 import { sameMedia, type MediaFingerprint, type MediaFingerprintResult } from '../../shared/projectMedia'
 import type { PreparedMedia } from '../../shared/preparedMedia'
 import { seekVideoElementTo } from './timeline/seekVideo'
 
-import type { CutRange, DepsStatus, ExportFormat, GpuRuntimeStatus, TranscribeMode } from '../../shared/ipc'
+import type { CutRange, DepsStatus, ExportFormat, ExportRequest, GpuRuntimeStatus, TranscribeMode } from '../../shared/ipc'
 import {
   displayTextFromSubtitleWords,
   parseSubtitleLines,
@@ -64,6 +65,7 @@ import {
 } from '../../shared/phase5EditPolicy'
 import { SILENCE_PLACEHOLDER_TEXT } from '../../shared/wordContract'
 import { buildExportCueLines } from '../../shared/exportCuePipeline'
+import { saveExportJob } from './export/exportHandoff'
 import {
   addCaptionEmphasis,
   captionEmphasisText,
@@ -6177,6 +6179,49 @@ export default function App(): ReactElement {
 
   const exportVideo = useCallback(() => {
     if (!videoPath || subtitles.length === 0 || isExporting) return
+    const request: ExportRequest = {
+      inputPath: videoPath,
+      format: exportFormat,
+      subtitles: buildExportCueLines(subtitles, {
+        includeWords: exportFormat === 'video' && wordHighlightEnabled,
+        includeEmphasis: exportFormat === 'video'
+      }),
+      cutRanges: mergedWaveformPeaksStitchCuts,
+      subtitleStyle: {
+        fontFamily: subtitleFontFamily,
+        fontSize: subtitleFontSize,
+        textColor: subtitleTextColor,
+        fontWeight: subtitleFontWeight,
+        bgColor: subtitleBgColor,
+        bgOpacity: subtitleBgOpacity,
+        bgPaddingPct: subtitleBgPaddingPct,
+        strokeColor: subtitleStrokeColor,
+        strokeWidth: subtitleStrokeWidth,
+        x: subtitleX,
+        y: subtitleY,
+        videoWidth: videoNaturalSize.width,
+        videoHeight: videoNaturalSize.height,
+        ...(exportFormat === 'video' && wordHighlightEnabled
+          ? { wordHighlightColor }
+          : {}),
+        ...(exportFormat === 'video'
+          ? { emphasisColor: captionEmphasisColor, boxStyle: subtitleBoxStyle }
+          : {})
+      }
+    }
+    // 웹: 새 탭의 내보내기 페이지에서 작업하고 「다운로드」 폴더에 저장한다(편집 탭은 그대로 남는다).
+    // 팝업이 막혀 새 탭을 못 열면 예전처럼 이 화면에서 바로 내보낸다.
+    const exportTab = window.open('', '_blank')
+    if (exportTab) {
+      const videoName = videoPath.split(/[\\/]/).pop() || videoPath
+      void saveExportJob(request, videoName).then((id) => {
+        exportTab.location.href = new URL(`export.html?job=${encodeURIComponent(id)}`, window.location.href).href
+      }).catch((error) => {
+        exportTab.close()
+        setExportNotice(formatExportFailureMessage(error))
+      })
+      return
+    }
     const isVideoBurn = exportFormat === 'video'
     videoBurnExportRef.current = isVideoBurn
     setShowBurnEncoderUi(isVideoBurn)
@@ -6187,36 +6232,7 @@ export default function App(): ReactElement {
     setExportEncoderLine('')
     void (async () => {
       try {
-        const res = await window.api.exportByFormat({
-          inputPath: videoPath,
-          format: exportFormat,
-          subtitles: buildExportCueLines(subtitles, {
-            includeWords: exportFormat === 'video' && wordHighlightEnabled,
-            includeEmphasis: exportFormat === 'video'
-          }),
-          cutRanges: mergedWaveformPeaksStitchCuts,
-          subtitleStyle: {
-            fontFamily: subtitleFontFamily,
-            fontSize: subtitleFontSize,
-            textColor: subtitleTextColor,
-            fontWeight: subtitleFontWeight,
-            bgColor: subtitleBgColor,
-            bgOpacity: subtitleBgOpacity,
-            bgPaddingPct: subtitleBgPaddingPct,
-            strokeColor: subtitleStrokeColor,
-            strokeWidth: subtitleStrokeWidth,
-            x: subtitleX,
-            y: subtitleY,
-            videoWidth: videoNaturalSize.width,
-            videoHeight: videoNaturalSize.height,
-            ...(exportFormat === 'video' && wordHighlightEnabled
-              ? { wordHighlightColor }
-              : {}),
-            ...(exportFormat === 'video'
-              ? { emphasisColor: captionEmphasisColor, boxStyle: subtitleBoxStyle }
-              : {})
-          }
-        })
+        const res = await window.api.exportByFormat(request)
         if (res.canceled) {
           setExportProgress(0)
           setExportEncoderLine('')
@@ -6803,6 +6819,7 @@ export default function App(): ReactElement {
       >
         <header className="app-topbar">
           <h1 className="app-title">AutoSubtitle</h1>
+          <SiteTopbarLinks />
           <nav className="editor-tabs" aria-label="자막 도구">
             {([['subtitles','자막 추출·수정'],['format','자막 디자인']] as const).map(([tab,label]) =>
               <button key={tab} type="button" aria-pressed={editorTab === tab} onClick={() => setEditorTab(tab)}>{label}</button>)}

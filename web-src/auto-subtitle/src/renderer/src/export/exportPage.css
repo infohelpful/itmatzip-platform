@@ -1,0 +1,46 @@
+/* 내보내기 페이지 진행 카드 — 편집기(editorChrome.css)와 같은 어두운 색·청록 포인트 */
+.axp-card {
+  box-sizing: border-box; width: 100%; max-width: 760px; margin: 0 auto; padding: 26px 28px 24px;
+  border: 1px solid #343c3f; border-radius: 10px; background: #1a1f20; color: #e2e7e8;
+  font-family: Pretendard, system-ui, 'Segoe UI', sans-serif; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+.axp-head { display: flex; align-items: center; gap: 14px; }
+.axp-head-text { min-width: 0; }
+.axp-badge {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px;
+  border-radius: 50%; font-size: 19px; font-weight: 800; color: #0f1415; background: #2a3234;
+}
+.axp-badge--running, .axp-badge--loading { background: transparent; border: 3px solid #2c3a3d; border-top-color: #14b6d3; animation: axp-spin 0.9s linear infinite; box-sizing: border-box; }
+.axp-badge--done { background: #14b6d3; }
+.axp-badge--error, .axp-badge--missing { background: #e5534b; color: #fff; }
+.axp-badge--canceled { background: #5b6568; color: #fff; }
+@keyframes axp-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .axp-badge--running, .axp-badge--loading { animation: none; } }
+.axp-title { margin: 0; font-size: 19px; font-weight: 800; line-height: 1.35; color: #f1f5f6; }
+.axp-sub { display: flex; gap: 6px; align-items: center; margin: 5px 0 0; min-width: 0; color: #93a4a8; font-size: 13px; }
+.axp-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; color: #c8d3d5; }
+.axp-dot { color: #5b6568; }
+
+.axp-progress { position: relative; height: 10px; margin: 22px 0 0; overflow: hidden; border-radius: 99px; background: #273032; }
+.axp-progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #0f9fbc, #22c8e5); transition: width 0.35s ease; }
+.axp-progress-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 9px; color: #b4c1c4; font-size: 13px; }
+.axp-percent { font-variant-numeric: tabular-nums; color: #e2e7e8; font-weight: 700; }
+.axp-note { margin: 12px 0 0; color: #8d9da0; font-size: 12.5px; line-height: 1.65; }
+.axp-note--warn { color: #f0b35a; }
+.axp-error { margin: 18px 0 0; padding: 11px 13px; border: 1px solid #6b2f2c; border-radius: 7px; background: #2a1918; color: #f3c4c1; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+
+.axp-result { display: flex; flex-direction: column; gap: 6px; margin-top: 20px; padding: 12px 14px; border: 1px solid #2f393b; border-radius: 7px; background: #141819; }
+.axp-result-label { color: #8d9da0; font-size: 12px; }
+.axp-result-path { color: #dfe7e8; font: 13px/1.5 ui-monospace, Consolas, monospace; word-break: break-all; }
+
+.axp-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.axp-btn {
+  display: inline-flex; align-items: center; justify-content: center; height: 38px; padding: 0 16px; box-sizing: border-box;
+  border: 1px solid #424a4c; border-radius: 6px; background: #20272a; color: #e0e7e8; font: 600 13px/1 Pretendard, system-ui, sans-serif;
+  text-decoration: none; cursor: pointer;
+}
+.axp-btn:hover { border-color: #819296; background: #2c3335; }
+.axp-btn--primary { border-color: #14b6d3; background: #14b6d3; color: #071315; }
+.axp-btn--primary:hover { border-color: #3fcbe4; background: #3fcbe4; }
+.axp-btn:focus-visible { outline: 2px solid #27bfdc; outline-offset: 2px; }
+@media (max-width: 560px) { .axp-card { padding: 20px 18px; } .axp-file { max-width: 220px; } }
