@@ -12,7 +12,6 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna24";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
-import { showAdSense } from "../common/adsense.js?v=8";
 
 const MIN_AGENT_VERSION = "1.6.0";
 const NOTICE_ID = "autosub-agent-update";
@@ -107,30 +106,3 @@ void (async () => {
   }
   await checkAgentSupportsApp();
 })();
-
-/** Ad slots live inside the React editor; request each once it is mounted and laid out. */
-const AD_SLOTS = [
-  ["autosubToolbar", "#autosub-ad-toolbar"],
-  ["autosubPreviewPanel", "#autosub-ad-preview"],
-];
-
-function requestAdsWhenReady() {
-  const pending = new Map(AD_SLOTS);
-  const tryShow = () => {
-    for (const [unit, selector] of [...pending]) {
-      const el = document.querySelector(selector);
-      if (!el || el.clientWidth < 1 || el.clientHeight < 1) continue;
-      pending.delete(unit);
-      void showAdSense(unit, el);
-    }
-    return pending.size === 0;
-  };
-  if (tryShow()) return;
-  const observer = new MutationObserver(() => {
-    if (tryShow()) observer.disconnect();
-  });
-  observer.observe(document.getElementById("root") || document.body, { childList: true, subtree: true });
-  window.setTimeout(() => observer.disconnect(), 60_000);
-}
-
-requestAdsWhenReady();

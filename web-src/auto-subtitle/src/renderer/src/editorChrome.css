@@ -148,4 +148,3 @@
   height: calc(100cqw * 9 / 16 + 120px);
 }
 .split-preview-top > .preview-drop { flex: 0 0 auto; aspect-ratio: 16 / 9; width: 100%; }
-.autosub-ad--panel { flex: 1 1 auto; }

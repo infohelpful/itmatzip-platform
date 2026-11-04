@@ -1,38 +1,12 @@
-/* Web-only ad slots (filled by web-ui/tools/auto-subtitle/site-glue.js). Hidden when ads are off. */
-.autosub-ad { box-sizing: border-box; min-width: 0; overflow: hidden; }
-.autosub-ad.is-ad-off { display: none !important; }
+/* Web-only editor layout tweaks (ads removed from the tool page). */
 
-/* Toolbar: the free space right of 「단어 강조」, before the export group. */
-.autosub-ad--toolbar {
-  flex: 1 1 auto; align-self: center; height: 90px; max-width: 970px;
-  /* Right end of the toolbar (export moved to the top bar). */
-  margin: 0 0 0 auto; border-radius: 4px;
-}
-
-/* Preview column: fills the space under the player (and the extract info). */
-.autosub-ad--panel {
-  flex: 1 1 auto; min-height: 250px; margin-top: 12px; border-radius: 4px;
-}
-
-/* The desktop lets the tool group take all spare width (flex: 1 1 530px); on the web that space is the ad's. */
+/* The desktop lets the tool group take all spare width (flex: 1 1 530px); on the web the export group sits at the right end. */
 .preview-subtitle-controls > .editor-subtitle-tools,
 .preview-subtitle-controls > .subtitle-format-toolbar { flex: 0 1 auto; }
 
-/* Export format box: the desktop stretches it across a fixed 304px group; size it to its longest label. */
-.preview-subtitle-export-actions { flex: 0 0 auto; }
+/* Export group: right end of the editor toolbar, sized to its contents. */
+/* Narrow screens keep the desktop rule (export wraps onto its own row). */
+@media (min-width: 1151px) {
+  .preview-subtitle-controls > .preview-subtitle-export-actions { flex: 0 0 auto; margin-left: auto; }
+}
 .preview-export-main .preview-export-format { flex: 0 0 auto; width: 124px; }
-
-/* Web build: the export group lives in the top bar, right of 「저장」, at the top bar's button height. */
-.app-topbar .preview-subtitle-export-actions {
-  position: relative; flex-direction: row; align-items: center; align-self: center;
-  margin-left: 0; padding-left: 10px; border-left: 1px solid #353e40;
-}
-.app-topbar .preview-export-main { align-items: center; gap: 6px; }
-.app-topbar .preview-export-format { height: 30px; font-size: 12px; }
-.app-topbar .preview-export-btn { height: 30px; min-height: 30px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; }
-.app-topbar .preview-export-btn svg { width: 15px; height: 15px; }
-/* Status text floats under the group so the top bar keeps one row. */
-.app-topbar .preview-export-notice {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 60; margin: 0; white-space: nowrap;
-  padding: 5px 9px; border: 1px solid #353e40; border-radius: 5px; background: #1b2021; color: #dfe7e8; font-size: 12px;
-}

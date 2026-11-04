@@ -6844,24 +6844,6 @@ export default function App(): ReactElement {
                 저장
               </button>
             </div>
-            {/* Web build: export sits right of 「저장」 in the top bar. */}
-            <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
-              <div className="preview-export-main">
-                <select className="preview-export-format" value={exportFormat}
-                  onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
-                  aria-label="내보내기 형식"
-                  disabled={!videoPath || subtitles.length === 0 || isExporting || isExtracting}>
-                  {EXPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
-                <button type="button" className="app-topbar-gpu-btn preview-export-btn"
-                  disabled={!videoPath || subtitles.length === 0 || isExporting || isExtracting}
-                  onClick={exportVideo}
-                  title={!videoPath || subtitles.length === 0 ? '영상과 자막이 있어야 내보낼 수 있습니다.' : undefined}>
-                  <EditorToolIcon name="export" /><span>{isExporting ? '내보내는 중...' : '내보내기'}</span>
-                </button>
-              </div>
-              {exportNotice && <p role="status" className="preview-export-notice">{exportNotice}</p>}
-            </div>
             {showGpuRuntimeControls ? (
               <button
                 type="button"
@@ -6931,8 +6913,24 @@ export default function App(): ReactElement {
                 setSubtitleBoxStyle('capsule')
               }}
             />}
-            {/* Web build: ad slot filled by web-ui/tools/auto-subtitle/site-glue.js (React never renders into it). */}
-            <div id="autosub-ad-toolbar" className="autosub-ad autosub-ad--toolbar" aria-label="광고" />
+            {/* Web build: export sits at the right end of the editor toolbar (where the toolbar ad used to be). */}
+            <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
+              <div className="preview-export-main">
+                <select className="preview-export-format" value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
+                  aria-label="내보내기 형식"
+                  disabled={!videoPath || subtitles.length === 0 || isExporting || isExtracting}>
+                  {EXPORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                </select>
+                <button type="button" className="app-topbar-gpu-btn preview-export-btn"
+                  disabled={!videoPath || subtitles.length === 0 || isExporting || isExtracting}
+                  onClick={exportVideo}
+                  title={!videoPath || subtitles.length === 0 ? '영상과 자막이 있어야 내보낼 수 있습니다.' : undefined}>
+                  <EditorToolIcon name="export" /><span>{isExporting ? '내보내는 중...' : '내보내기'}</span>
+                </button>
+              </div>
+              {exportNotice && <p role="status" className="preview-export-notice">{exportNotice}</p>}
+            </div>
           </div>
         </div>
 
@@ -7150,8 +7148,6 @@ export default function App(): ReactElement {
               </details>
             )}
             </div>
-            {/* Web build: large ad below the preview, filled by site-glue.js. */}
-            <div id="autosub-ad-preview" className="autosub-ad autosub-ad--panel" aria-label="광고" />
           </section>
 
           <div
