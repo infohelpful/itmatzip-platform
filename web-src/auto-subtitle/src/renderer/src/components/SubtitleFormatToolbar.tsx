@@ -202,8 +202,8 @@ export function SubtitleFormatToolbar(props: Props) {
       </>}
       {panel === 'emphasis' && <>
         <ColorPalette label="강조색" value={props.emphasisColor} onChange={props.onEmphasisColor} />
-        <p className="format-help">자막 편집 칸에서 글자를 드래그한 뒤 마우스 오른쪽 버튼 → 「강조」.<br />
-          「다른 색으로 강조」로 색을 따로 정한 글자는 그 색이 우선합니다.</p>
+        <p className="format-help">자막 편집 칸에서 글자를 드래그하면 그 줄의 「영상 · 자막」 옆에 강조 버튼이 나옵니다(단축키 Ctrl+B).<br />
+          색 점이나 ▾로 색을 따로 정한 글자는 그 색이 우선합니다.</p>
       </>}
       {panel === 'position' && <>
         <div className="format-position-presets" role="group" aria-label="좌우 위치 선택">

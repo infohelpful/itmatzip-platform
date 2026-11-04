@@ -45,12 +45,12 @@ import { peaksJsonRawDataLength } from './wordCanvas/peaksSentenceSlice'
 import { SentenceLineWaveformCanvas } from './waveform/SentenceLineWaveformCanvas'
 import { captionEmphasisOverlaps, DEFAULT_EMPHASIS_COLOR, emphasisRangesByWordIndex } from '../../shared/captionEmphasis'
 import {
-  CaptionEmphasisMenu,
   CaptionEmphasisOverlay,
-  type CaptionEmphasisMenuState
+  CaptionEmphasisToolbar,
+  type CaptionEmphasisSelection
 } from './components/CaptionEmphasisEditor'
 
-/** 편집 textarea 우클릭 메뉴 → App 의 강조 변경. `text` 는 메뉴를 연 순간의 textarea 값이다. */
+/** 편집 칸 강조 막대·Ctrl+B → App 의 강조 변경. `text` 는 누르는 순간의 textarea 값이다. */
 export type CaptionEmphasisEdit =
   | { kind: 'add'; text: string; start: number; end: number; color?: string }
   | { kind: 'remove'; text: string; start: number; end: number }
@@ -137,7 +137,7 @@ export type SubtitleVirtualListProps = {
   waveformMediaDurationHintSec?: number
   /** 강조 글자 전체 색 — 편집 칸 강조 표시·단어 칩 테두리 */
   emphasisColor?: string
-  /** 편집 textarea 우클릭 메뉴의 강조 변경 */
+  /** 편집 칸 강조 막대·Ctrl+B 의 강조 변경 */
   onCaptionEmphasis?: (index: number, edit: CaptionEmphasisEdit) => void
 }
 
@@ -289,8 +289,30 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     for (const [wi, hits] of emphasisRangesByWord) out.set(wi, hits[0]!.color ?? emphasisColor)
     return out
   }, [emphasisRangesByWord, emphasisColor])
-  const [emphasisMenu, setEmphasisMenu] = useState<CaptionEmphasisMenuState | null>(null)
-  const closeEmphasisMenu = useCallback(() => setEmphasisMenu(null), [])
+  /** 편집 칸에서 지금 고른 범위(포커스가 있을 때만). 카드 머리 강조 막대를 띄운다. */
+  const [emphasisSel, setEmphasisSel] = useState<CaptionEmphasisSelection | null>(null)
+  const emphasisPaletteOpenRef = useRef(false)
+  const onEmphasisPaletteOpenChange = useCallback((open: boolean) => {
+    emphasisPaletteOpenRef.current = open
+    // 색상표를 닫았는데 편집 칸에 포커스가 없으면 막대도 닫는다.
+    if (!open && subtitleTextareaRef.current !== document.activeElement) setEmphasisSel(null)
+  }, [])
+  const syncEmphasisSel = useCallback(() => {
+    const ta = subtitleTextareaRef.current
+    if (!ta || ta !== document.activeElement) return
+    const start = Math.min(ta.selectionStart, ta.selectionEnd)
+    const end = Math.max(ta.selectionStart, ta.selectionEnd)
+    const text = ta.value
+    setEmphasisSel(prev => (prev && prev.start === start && prev.end === end && prev.text === text ? prev : { text, start, end }))
+  }, [])
+  const emphasisCanAdd = !!emphasisSel && emphasisSel.text.slice(emphasisSel.start, emphasisSel.end).trim().length > 0
+  const emphasisCanRemove = !!emphasisSel && captionEmphasisOverlaps(emphasisSel.text, row.emphasis, emphasisSel.start, emphasisSel.end)
+  const applyEmphasis = useCallback((sel: CaptionEmphasisSelection, color?: string) => {
+    onCaptionEmphasis?.(index, { kind: 'add', text: sel.text, start: sel.start, end: sel.end, ...(color ? { color } : {}) })
+  }, [onCaptionEmphasis, index])
+  const removeEmphasis = useCallback((sel: CaptionEmphasisSelection) => {
+    onCaptionEmphasis?.(index, { kind: 'remove', text: sel.text, start: sel.start, end: sel.end })
+  }, [onCaptionEmphasis, index])
 
   useEffect(() => {
     if (textComposingRef.current) return
@@ -1018,6 +1040,15 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     const mod = e.ctrlKey || e.metaKey
     if (mod) {
       const k = e.key.toLowerCase()
+      // Ctrl+B: 고른 글자 강조 ↔ 해제(커서만 있으면 그 자리의 강조 해제)
+      if (k === 'b' && !e.shiftKey && !e.altKey && onCaptionEmphasis) {
+        e.preventDefault()
+        const ta = e.currentTarget
+        const sel = { text: ta.value, start: Math.min(ta.selectionStart, ta.selectionEnd), end: Math.max(ta.selectionStart, ta.selectionEnd) }
+        if (captionEmphasisOverlaps(sel.text, row.emphasis, sel.start, sel.end)) removeEmphasis(sel)
+        else if (sel.text.slice(sel.start, sel.end).trim().length > 0) applyEmphasis(sel)
+        return
+      }
       if (k === 'z' && !e.shiftKey) {
         e.preventDefault()
         onUndo()
@@ -1657,6 +1688,8 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         onMouseDownCapture={(e) => {
           const t = e.target as HTMLElement
           if (t.closest('.subtitle-row-index')) return
+          // 강조 막대·색상표(포털)는 편집 칸 선택을 유지해야 하므로 카드 캐럿/포커스 처리에서 뺀다.
+          if (t.closest('.caption-emphasis-toolbar') || t.closest('.caption-emphasis-palette')) return
           if (t.closest('textarea') || t.closest('[data-subtitle-edit]')) return
           if (t.closest('.subtitle-waveform-mount')) return
           if (t.closest('.subtitle-word-chip') || t.closest('.subtitle-word-caret')) return
@@ -1729,6 +1762,11 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         </div>
         <div className="subtitle-card-head">
           <span className="subtitle-row-kind">▣ <span>영상 · 자막</span></span>
+          {emphasisSel && onCaptionEmphasis && (emphasisCanAdd || emphasisCanRemove) ? (
+            <CaptionEmphasisToolbar selection={emphasisSel} canAdd={emphasisCanAdd} canRemove={emphasisCanRemove}
+              defaultColor={emphasisColor} onEmphasize={applyEmphasis} onRemove={removeEmphasis}
+              onPaletteOpenChange={onEmphasisPaletteOpenChange} />
+          ) : null}
           <div className="subtitle-card-times" aria-label="자막 구간">
             <span className="subtitle-time">{formatTimecode(subtitlePresentationStart(subtitles, index))}</span>
             <span className="subtitle-time-sep">→</span>
@@ -1835,17 +1873,6 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                         onCardNavigate(rw.start)
                         clearSelection()
                         window.setTimeout(() => requestFocusCaret(index, storageWi), 0)
-                      }}
-                      onContextMenu={(e) => {
-                        // 강조 테두리가 있는 칩: 그 강조를 해제·다른 색으로 바꾸는 메뉴(브라우저 기본 메뉴 대신)
-                        const hits = emphasisRangesByWord.get(storageWi)
-                        if (!hits?.length || !onCaptionEmphasis) return
-                        e.preventDefault()
-                        e.stopPropagation()
-                        setEmphasisMenu({
-                          x: e.clientX, y: e.clientY, text: lineEditDisplay,
-                          start: Math.min(...hits.map(r => r.start)), end: Math.max(...hits.map(r => r.end)), canRemove: true
-                        })
                       }}
                       onMouseEnter={() => {
                         // 칩 앞 caret 슬롯 — storage 축 = storageWi
@@ -2060,45 +2087,20 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
               updateSubtitleAt(index, cur)
             }
             setSubtitleTextDraft(null)
+            // 강조 색상표를 쓰는 중이 아니면 카드 머리 강조 막대를 닫는다.
+            if (!emphasisPaletteOpenRef.current) setEmphasisSel(null)
           }}
           onKeyDown={onTextareaKeyDown}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
-          onContextMenu={(e) => {
-            if (!onCaptionEmphasis || textComposingRef.current) return
-            const ta = e.currentTarget
-            const start = Math.min(ta.selectionStart, ta.selectionEnd)
-            const end = Math.max(ta.selectionStart, ta.selectionEnd)
-            const text = ta.value
-            const hasText = text.slice(start, end).trim().length > 0
-            const canRemove = captionEmphasisOverlaps(text, row.emphasis, start, end)
-            // 편집 칸에서는 항상 강조 메뉴만 띄운다(할 일이 없으면 메뉴가 사용법을 안내한다).
-            e.preventDefault()
-            e.stopPropagation()
-            setEmphasisMenu({ x: e.clientX, y: e.clientY, text, start, end: hasText ? end : start, canRemove })
-          }}
+          onSelect={syncEmphasisSel}
+          onKeyUp={syncEmphasisSel}
+          onMouseUp={syncEmphasisSel}
           spellCheck={false}
         />
         <CaptionEmphasisOverlay textareaRef={subtitleTextareaRef} text={subtitleTextDisplay}
           ranges={row.emphasis} defaultColor={emphasisColor} />
         </div>
-        {emphasisMenu && onCaptionEmphasis ? (
-          <CaptionEmphasisMenu
-            state={emphasisMenu}
-            defaultColor={emphasisColor}
-            onClose={closeEmphasisMenu}
-            onEmphasize={(color) => {
-              const m = emphasisMenu
-              setEmphasisMenu(null)
-              onCaptionEmphasis(index, { kind: 'add', text: m.text, start: m.start, end: m.end, ...(color ? { color } : {}) })
-            }}
-            onRemove={() => {
-              const m = emphasisMenu
-              setEmphasisMenu(null)
-              onCaptionEmphasis(index, { kind: 'remove', text: m.text, start: m.start, end: m.end })
-            }}
-          />
-        ) : null}
       </article>
     </div>
   )

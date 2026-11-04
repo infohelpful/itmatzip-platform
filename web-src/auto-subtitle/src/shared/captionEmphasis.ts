@@ -188,7 +188,7 @@ export function removeCaptionEmphasis(
   return resolveCaptionEmphasis(text, cutRanges(text, current, s, e))
 }
 
-/** 선택 범위와 겹치는 강조가 있는지(우클릭 메뉴의 「강조 해제」 표시용). */
+/** 선택 범위와 겹치는 강조가 있는지(강조 막대의 「해제」 표시·Ctrl+B 판단용). */
 export function captionEmphasisOverlaps(
   text: string,
   ranges: readonly CaptionEmphasis[] | undefined,

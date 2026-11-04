@@ -4027,7 +4027,7 @@ export default function App(): ReactElement {
     applySubtitleChange((prev) => prev.map((s, j) => (j === index ? editSubtitleText(s, text) : s)))
   }, [applySubtitleChange])
 
-  /** 편집 textarea 우클릭 메뉴 — 드래그한 글자 강조·다른 색 강조·강조 해제 */
+  /** 편집 칸 강조 막대·Ctrl+B — 드래그한 글자 강조·다른 색 강조·강조 해제 */
   const editCaptionEmphasisAt = useCallback((index: number, edit: CaptionEmphasisEdit) => {
     applySubtitleChange((prev) => {
       if (index < 0 || index >= prev.length) return prev
@@ -6621,7 +6621,7 @@ export default function App(): ReactElement {
   useEffect(() => {
     if (usesPretendard(subtitleFontFamily)) void ensurePretendardLoaded()
   }, [subtitleFontFamily])
-  // 정지 중에도 강조를 바꾸면(우클릭 메뉴·전체 색) 프리뷰 자막을 바로 다시 그린다.
+  // 정지 중에도 강조를 바꾸면(강조 막대·Ctrl+B·전체 색) 프리뷰 자막을 바로 다시 그린다.
   useEffect(() => {
     const el = previewSubtitleTextRef.current
     if (!el) return
