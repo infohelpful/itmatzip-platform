@@ -83,8 +83,14 @@ def align_korean(cues: list[dict], media_path: str, ffmpeg_path: str, cache_dir:
     # Third-party libraries may print while loading. stdout remains RPC-safe.
     with contextlib.ExitStack() as resources, contextlib.redirect_stdout(sys.stderr):
         import whisperx
-        model_path = snapshot_download(KOREAN_MODEL, revision=revision, cache_dir=cache_dir,
-                                       allow_patterns=MODEL_DOWNLOAD_PATTERNS)
+        # Local copy first: a pinned revision never changes, and alignment must keep working
+        # even if the Hugging Face repository goes away.
+        try:
+            model_path = snapshot_download(KOREAN_MODEL, revision=revision, cache_dir=cache_dir,
+                                           allow_patterns=MODEL_DOWNLOAD_PATTERNS, local_files_only=True)
+        except Exception:  # noqa: BLE001 - not cached yet
+            model_path = snapshot_download(KOREAN_MODEL, revision=revision, cache_dir=cache_dir,
+                                           allow_patterns=MODEL_DOWNLOAD_PATTERNS)
         try:
             freed = prune_redundant_model_files(model_path)
             if freed:
