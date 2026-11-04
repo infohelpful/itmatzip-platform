@@ -94,6 +94,17 @@ func runTrayWithOptions(port int) error {
 	}
 	setupLogging()
 
+	// Started as SYSTEM (MSI custom action during an update): hand over to the signed-in user
+	// before taking the single-instance mutex, otherwise the user's tray would exit.
+	if runningAsLocalSystem() {
+		if err := relaunchTrayAsSessionUser(); err != nil {
+			log.Printf("warning: tray is running as SYSTEM and could not relaunch as the session user: %v", err)
+		} else {
+			log.Print("tray started as SYSTEM: relaunched as the session user, exiting")
+			return nil
+		}
+	}
+
 	mutex, ok, err := acquireTraySingleInstance()
 	if err != nil {
 		return fmt.Errorf("tray mutex: %w", err)
@@ -103,6 +114,9 @@ func runTrayWithOptions(port int) error {
 		return nil
 	}
 	defer windows.CloseHandle(mutex)
+
+	// Pinned FFmpeg from the MSI (vendor/ffmpeg) into the shared bin folder; replaces another build.
+	ensureBundledFFmpegInstalled()
 
 	initJobObject()
 
