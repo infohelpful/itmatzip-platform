@@ -1,9 +1,10 @@
 """library-hub mirror for every file the AutoSubtitle engine downloads.
 
 The originals live on PyPI, download.pytorch.org, Hugging Face (personal accounts) and GitHub
-(BtbN's rolling FFmpeg builds, BBC audiowaveform). Any of them can disappear, so a pinned copy of
+(BBC audiowaveform). Any of them can disappear, so a pinned copy of
 each one is kept in the `auto-subtitle-web-lib` release of infohelpful/library-hub. Callers try the
-mirror first and fall back to the original source when the mirror fails.
+mirror first and fall back to the original source when the mirror fails. FFmpeg is shared by every
+tool, so its pinned copy lives in common.bin_manager (library-hub release `ffmpeg-lib`).
 
 Every asset is pinned by size and SHA-256: a file that does not match is rejected, so the mirror can
 never install something other than the versions the agent was tested with.
@@ -36,9 +37,6 @@ ASSETS: dict[str, tuple[str, int, str]] = {
     # kresnik/wav2vec2-large-xlsr-korean @ 629c9a3501c10ba128bf3fa1eebb12af3be03f61 (Apache-2.0)
     "align_model": ("autosub-align-model-kresnik-629c9a3.zip", 1267281088,
                     "efc4de7555a66bbca2f9e27aaa606745547b54a24a9f767764d88c92afd3ba2e"),
-    # BtbN FFmpeg N-125875-g5d4d3bdc61 (2026-07-31) win64 gpl-shared (GPL-3.0)
-    "ffmpeg": ("ffmpeg-N-125875-g5d4d3bdc61-20260731-win64-gpl-shared.zip", 186103548,
-               "d22133cb12734a2de355fba6f12b50ee840b4a7e906250b146e9371036ee8dc6"),
     # BBC audiowaveform 1.10.2 official release zip, byte-identical (GPL-3.0)
     "audiowaveform": ("audiowaveform-1.10.2-win64.zip", 1468190,
                       "17ab4657b9482ffa063d88d367598208060400af91c2c3e2b04723f98b418ad1"),

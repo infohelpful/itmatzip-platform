@@ -369,10 +369,9 @@ if (-not (Select-String -Path $previewScript -Pattern "loadImageInto" -Quiet)) {
 }
 
 $FfmpegVendorDir = Join-Path $Staging "vendor\ffmpeg\gpl-shared"
-if (-not (Test-Path (Join-Path $FfmpegVendorDir "ffmpeg.exe"))) {
-    Write-Step "Staging bundled FFmpeg (gpl-shared) for MSI"
-    & (Join-Path $Root "scripts\install-ffmpeg-vendor.ps1") -TargetDir $FfmpegVendorDir
-}
+# Always run: the script keeps the pinned build and replaces any other (e.g. an older "latest" staging copy).
+Write-Step "Staging bundled FFmpeg (gpl-shared, pinned) for MSI"
+& (Join-Path $Root "scripts\install-ffmpeg-vendor.ps1") -TargetDir $FfmpegVendorDir
 
 Write-Step "Staging complete: $Staging"
 Get-ChildItem $Staging | Format-Table Name, Length -AutoSize
