@@ -13,10 +13,14 @@ func ensureBundledFFmpegInstalled() {
 		return
 	}
 	dst := filepath.Join(settingsRootPath, "bin", "gpl-shared")
-	if bundledFFmpegReady(dst) {
-		return
-	}
 	src := filepath.Join(installRootPath, "vendor", "ffmpeg", "gpl-shared")
+	srcBuild := ffmpegBuildMarker(src)
+	if bundledFFmpegReady(dst) {
+		// Same pinned build already in place (or an older MSI without a marker): keep it.
+		if srcBuild == "" || ffmpegBuildMarker(dst) == srcBuild {
+			return
+		}
+	}
 	if !bundledFFmpegReady(src) {
 		return
 	}
@@ -24,10 +28,12 @@ func ensureBundledFFmpegInstalled() {
 		log.Printf("warning: mkdir ffmpeg dest: %v", err)
 		return
 	}
-	log.Printf("installing bundled FFmpeg: %s -> %s", src, dst)
+	// /MIR: the shared folder must hold exactly the MSI's pinned build. Runs before any worker starts,
+	// so no FFmpeg DLL is in use; a leftover locked file would only be an unused extra DLL.
+	log.Printf("installing bundled FFmpeg %q: %s -> %s", srcBuild, src, dst)
 	cmd := exec.Command(
 		"robocopy", src, dst,
-		"/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS", "/NP",
+		"/MIR", "/NFL", "/NDL", "/NJH", "/NJS", "/NC", "/NS", "/NP",
 	)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -40,6 +46,16 @@ func ensureBundledFFmpegInstalled() {
 		}
 	}
 	log.Printf("warning: robocopy bundled ffmpeg failed: %v (%s)", err, strings.TrimSpace(string(out)))
+}
+
+// ffmpegBuildMarker reads ffmpeg-build.txt (written by scripts/install-ffmpeg-vendor.ps1 and
+// agent/common/bin_manager.py) — the pinned FFmpeg zip name, or "" when absent.
+func ffmpegBuildMarker(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "ffmpeg-build.txt"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func bundledFFmpegReady(dir string) bool {

@@ -27,6 +27,30 @@ class BinManagerFfmpegTests(unittest.TestCase):
         self.assertTrue(all("win64-gpl-shared" in u.lower() for u in urls))
         self.assertTrue(all(u.startswith("https://github.com/") for u in urls))
 
+    def test_pinned_ffmpeg_is_tried_first(self) -> None:
+        import common.bin_manager as bm
+
+        with mock.patch.dict("os.environ", {"ITMATZIP_FFMPEG_URL": ""}), \
+                mock.patch.object(bm, "_read_ffmpeg_url_cache", return_value=["https://example.invalid/latest.zip"]):
+            urls = bm._ffmpeg_download_urls()
+        self.assertEqual(urls[: len(bm.PINNED_FFMPEG_URLS)], list(bm.PINNED_FFMPEG_URLS))
+        self.assertTrue(bm.PINNED_FFMPEG_URLS[0].startswith("https://github.com/infohelpful/library-hub/"))
+        self.assertIn("-n7.1", bm.PINNED_FFMPEG_NAME)
+        self.assertIn("https://example.invalid/latest.zip", urls)
+
+    def test_pinned_ffmpeg_rejects_other_file(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import common.bin_manager as bm
+
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "ffmpeg.zip"
+            archive.write_bytes(b"x" * 1024)
+            with self.assertRaises(RuntimeError):
+                bm._verify_pinned_ffmpeg_archive(archive)
+            self.assertFalse(archive.exists())
+
     def test_min_archive_size_sane(self) -> None:
         self.assertGreater(_MIN_ARCHIVE_BYTES, 10 * 1024 * 1024)
 

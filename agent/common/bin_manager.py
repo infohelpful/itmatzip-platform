@@ -6,6 +6,7 @@ FFmpeg가 있는지 확인하고 없으면 다운로드하는 '설치 관리자'
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +27,17 @@ _FFMPEG_URL_CACHE_TTL_SEC = 6 * 3600.0
 DEFAULT_FFMPEG_BUNDLE_URL = _GITHUB_FFMPEG_RELEASES_API
 FFMPEG_BUNDLE_URL = os.environ.get("ITMATZIP_FFMPEG_URL", "").strip()
 FFMPEG_BUNDLE_URL_FALLBACKS: tuple[str, ...] = ()
+
+# 모든 도구 공통 고정 FFmpeg — 7.1 정식 릴리스 브랜치(torchcodec 0.7 이상 모두 호환).
+# BtbN latest 는 7.1 을 더 이상 내지 않고 오래된 autobuild 도 지워지므로 library-hub 에 같은 파일을 둔다.
+# 이 두 URL 은 크기·SHA-256 이 맞아야만 설치하고, 실패하면 BtbN latest(API)로 넘어간다.
+PINNED_FFMPEG_NAME = "ffmpeg-n7.1.5-12-g1fdbca85aa-win64-gpl-shared-7.1.zip"
+PINNED_FFMPEG_SIZE = 71578639
+PINNED_FFMPEG_SHA256 = "3e61e96b44bce30f0fad9fc31955be7fe4d6690d6a5a2b65c62494e262f8369e"
+PINNED_FFMPEG_URLS: tuple[str, ...] = (
+    "https://github.com/infohelpful/library-hub/releases/download/ffmpeg-lib/" + PINNED_FFMPEG_NAME,
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-07-31-14-10/" + PINNED_FFMPEG_NAME,
+)
 
 _STALE_LOCK_SEC = 600.0
 _DEFAULT_DOWNLOAD_TIMEOUT_SEC = 900.0
@@ -109,6 +121,9 @@ def _ffmpeg_download_urls(*, force_refresh: bool = False) -> list[str]:
     env_url = os.environ.get("ITMATZIP_FFMPEG_URL", "").strip()
     if env_url:
         urls.append(env_url)
+    for pinned in PINNED_FFMPEG_URLS:
+        if pinned not in urls:
+            urls.append(pinned)
 
     api_urls: list[str] = []
     if not force_refresh:
@@ -512,6 +527,8 @@ def ensure_ffmpeg(
                         timeout_sec=download_timeout_sec,
                         on_progress=on_progress,
                     )
+                    if url in PINNED_FFMPEG_URLS:
+                        _verify_pinned_ffmpeg_archive(archive_path)
 
                     if on_progress:
                         on_progress(4.5, "FFmpeg", "압축 해제 중…")
@@ -534,6 +551,7 @@ def ensure_ffmpeg(
                         )
 
                     _publish_ffmpeg_runtime_files(runtime_dir, dest_dir=get_ffmpeg_shared_dir())
+                    _write_ffmpeg_build_marker(PINNED_FFMPEG_NAME if url in PINNED_FFMPEG_URLS else None)
 
                     try:
                         archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
@@ -575,6 +593,7 @@ def ensure_ffmpeg(
                         if runtime_dir is None:
                             raise FileNotFoundError(f"shared runtime not found: {url}")
                         _publish_ffmpeg_runtime_files(runtime_dir, dest_dir=get_ffmpeg_shared_dir())
+                        _write_ffmpeg_build_marker(None)
                         try:
                             archive_path.unlink(missing_ok=True)  # type: ignore[arg-type]
                         except OSError:
@@ -598,6 +617,36 @@ def ensure_ffmpeg(
     finally:
         if held_lock:
             _release_download_lock()
+
+
+FFMPEG_BUILD_MARKER = "ffmpeg-build.txt"
+
+
+def _write_ffmpeg_build_marker(name: str | None) -> None:
+    """gpl-shared 에 설치한 고정 빌드 이름을 남긴다 (Go 에이전트가 MSI 번들과 비교). 고정 빌드가 아니면 지운다."""
+    marker = get_ffmpeg_shared_dir() / FFMPEG_BUILD_MARKER
+    try:
+        if name:
+            marker.write_text(name, encoding="utf-8")
+        else:
+            marker.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _verify_pinned_ffmpeg_archive(archive: Path) -> None:
+    """고정 FFmpeg 는 크기·SHA-256 이 정확히 같을 때만 설치 (다른 빌드가 섞이지 않게)."""
+    size = archive.stat().st_size
+    if size != PINNED_FFMPEG_SIZE:
+        archive.unlink(missing_ok=True)
+        raise RuntimeError(f"고정 FFmpeg 크기가 맞지 않습니다 ({size} != {PINNED_FFMPEG_SIZE})")
+    digest = hashlib.sha256()
+    with archive.open("rb") as f:
+        for block in iter(lambda: f.read(8 << 20), b""):
+            digest.update(block)
+    if digest.hexdigest() != PINNED_FFMPEG_SHA256:
+        archive.unlink(missing_ok=True)
+        raise RuntimeError("고정 FFmpeg SHA-256 이 맞지 않습니다")
 
 
 def _try_acquire_download_lock() -> bool:

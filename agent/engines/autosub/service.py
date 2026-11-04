@@ -117,31 +117,11 @@ def _pip_install() -> None:
 
 
 def _ensure_ffmpeg() -> None:
-    """Pinned FFmpeg from library-hub; BtbN's rolling GitHub release only when the mirror fails."""
-    from common import bin_manager as bm
+    """Shared FFmpeg: bin_manager installs the pinned 7.1 build from library-hub first."""
+    from common.bin_manager import ensure_ffmpeg
 
-    def report(pct: float, step: str = "", detail: str = "") -> None:
-        _set_prepare(percent=20.0 + 9.0 * float(pct) / 100.0, step=f"FFmpeg {detail or step}".strip())
-
-    archive = None
-    extract_dir = hub_mirror.downloads_dir() / "ffmpeg"
-    try:
-        archive = hub_mirror.fetch("ffmpeg", hub_mirror.downloads_dir(),
-                                   lambda f: report(90.0 * f, detail="내려받는 중 (library-hub)"))
-        hub_mirror.extract(archive, extract_dir)
-        runtime = bm._find_ffmpeg_shared_runtime_dir(extract_dir)
-        if runtime is None:
-            raise RuntimeError("FFmpeg 묶음에서 ffmpeg.exe 를 찾지 못했습니다.")
-        bm._publish_ffmpeg_runtime_files(runtime, dest_dir=bm.get_ffmpeg_shared_dir())
-        if paths.ffmpeg_paths() is not None:
-            return
-    except Exception:  # noqa: BLE001 - fall back to the original source
-        pass
-    finally:
-        if archive:
-            hub_mirror.discard(archive)
-        shutil.rmtree(extract_dir, ignore_errors=True)
-    bm.ensure_ffmpeg(on_progress=report)
+    ensure_ffmpeg(on_progress=lambda pct, step="", detail="": _set_prepare(
+        percent=20.0 + 9.0 * float(pct) / 100.0, step=f"FFmpeg {detail or step}".strip()))
 
 
 def _whisper_model_present() -> bool:

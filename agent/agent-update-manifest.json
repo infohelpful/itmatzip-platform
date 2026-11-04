@@ -1,11 +1,11 @@
 {
-  "version": "1.7.3",
+  "version": "1.7.4",
   "published_at": "2026-11-05",
   "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.3/itmatzip-agent.msi",
-  "sha256": "44dbdf8fbb151e9aebb2d023d1dc76cc25b25f097ad7c12d599ade7a778af639",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.4/itmatzip-agent.msi",
+  "sha256": "95f42c302d58eac1732af8f1bc04ca12ff59725c4dd3d2b304ef0146401e7837",
   "mandatory": false,
-  "release_notes": "AutoSubtitle 엔진 파일을 library-hub 미러에서 먼저 받도록 변경 (외부 배포처 중단 대비)",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.3/itmatzip-agent.msi",
-  "msi_sha256": "44dbdf8fbb151e9aebb2d023d1dc76cc25b25f097ad7c12d599ade7a778af639"
+  "release_notes": "모든 도구의 FFmpeg를 7.1.5 정식 빌드로 고정 (library-hub 미러, torchcodec 호환)",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.4/itmatzip-agent.msi",
+  "msi_sha256": "95f42c302d58eac1732af8f1bc04ca12ff59725c4dd3d2b304ef0146401e7837"
 }
