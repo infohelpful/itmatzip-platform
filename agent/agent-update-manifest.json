@@ -1,11 +1,11 @@
 {
-  "version": "1.7.2",
-  "published_at": "2026-11-04",
+  "version": "1.7.3",
+  "published_at": "2026-11-05",
   "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.2/itmatzip-agent.msi",
-  "sha256": "cf77ce96f591ed508b6878d7ba141352d4e4636badf5575b6a0c1dd038918656",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.3/itmatzip-agent.msi",
+  "sha256": "44dbdf8fbb151e9aebb2d023d1dc76cc25b25f097ad7c12d599ade7a778af639",
   "mandatory": false,
-  "release_notes": "MSI 업데이트 중 실행 중인 에이전트 종료 및 재부팅 문제 수정",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.2/itmatzip-agent.msi",
-  "msi_sha256": "cf77ce96f591ed508b6878d7ba141352d4e4636badf5575b6a0c1dd038918656"
+  "release_notes": "AutoSubtitle 엔진 파일을 library-hub 미러에서 먼저 받도록 변경 (외부 배포처 중단 대비)",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.3/itmatzip-agent.msi",
+  "msi_sha256": "44dbdf8fbb151e9aebb2d023d1dc76cc25b25f097ad7c12d599ade7a778af639"
 }
