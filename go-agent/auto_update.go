@@ -59,18 +59,20 @@ func (m UpdateManifest) MSISum() string {
 }
 
 type updateSnapshot struct {
-	LastCheckAt      *time.Time `json:"last_check_at,omitempty"`
-	LastError        string     `json:"last_error,omitempty"`
-	RemoteVersion    string     `json:"remote_version,omitempty"`
-	UpdateAvailable  bool       `json:"update_available"`
-	Downloading      bool       `json:"downloading"`
-	Applying         bool       `json:"applying"`
-	LocalVersion     string     `json:"local_version,omitempty"`
-	UpdateChannel    string     `json:"update_channel,omitempty"`
+	LastCheckAt     *time.Time `json:"last_check_at,omitempty"`
+	LastError       string     `json:"last_error,omitempty"`
+	RemoteVersion   string     `json:"remote_version,omitempty"`
+	UpdateAvailable bool       `json:"update_available"`
+	Checking        bool       `json:"checking"`
+	Downloading     bool       `json:"downloading"`
+	Applying        bool       `json:"applying"`
+	LocalVersion    string     `json:"local_version,omitempty"`
+	UpdateChannel   string     `json:"update_channel,omitempty"`
 }
 
 type updateManager struct {
 	mu           sync.RWMutex
+	runMu        sync.Mutex
 	state        updateSnapshot
 	manifestURL  string
 	updatesRoot  string
@@ -317,6 +319,30 @@ func (u *updateManager) appendUpdateLog(line string) {
 }
 
 func (u *updateManager) Check(apply bool) updateSnapshot {
+	u.runMu.Lock()
+	defer u.runMu.Unlock()
+	return u.check(apply)
+}
+
+// startUpdateNow runs the same verified MSI updater used by the background check.
+// It returns immediately so the browser can show progress while the download runs.
+func (u *updateManager) startUpdateNow() bool {
+	if !u.runMu.TryLock() {
+		return false
+	}
+	u.setState(func(s *updateSnapshot) {
+		s.Checking = true
+		s.LastError = ""
+	})
+	go func() {
+		defer u.runMu.Unlock()
+		defer u.setState(func(s *updateSnapshot) { s.Checking = false })
+		u.check(true)
+	}()
+	return true
+}
+
+func (u *updateManager) check(apply bool) updateSnapshot {
 	now := time.Now()
 	u.setState(func(s *updateSnapshot) {
 		s.LastCheckAt = &now
@@ -449,6 +475,9 @@ func mergeUpdateHealth(payload map[string]any) {
 		payload["agent_version"] = snap.LocalVersion
 	}
 	payload["update_available"] = snap.UpdateAvailable
+	payload["update_checking"] = snap.Checking
+	payload["update_downloading"] = snap.Downloading
+	payload["update_applying"] = snap.Applying
 	if snap.RemoteVersion != "" {
 		payload["remote_version"] = snap.RemoteVersion
 	}

@@ -196,6 +196,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		}
 		_ = json.NewEncoder(w).Encode(status)
 	})
+	mux.Handle("/api/agent/update", updateHTTPHandler(globalUpdateManager))
 	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"models": wm.store.List()})

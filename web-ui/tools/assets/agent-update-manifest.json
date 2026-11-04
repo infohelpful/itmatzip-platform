@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.0",
+    "version":  "1.7.1",
     "published_at":  "2026-11-04",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.0/itmatzip-agent.msi",
-    "sha256":  "f4e653181c956a1b94907e1e32f35b14f0916aefb41e49a3d9026cc582163b23",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.1/itmatzip-agent.msi",
+    "sha256":  "29177e8d7c95a36df30537ca491067270326dc607573f01b05568ab350cccfbe",
     "mandatory":  false,
-    "release_notes":  "AutoSubtitle: 다운로드 폴더 기본 저장, 자막·대본 파일 저장, 내보내기 진행 화면",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.0/itmatzip-agent.msi",
-    "msi_sha256":  "f4e653181c956a1b94907e1e32f35b14f0916aefb41e49a3d9026cc582163b23"
+    "release_notes":  "공통 에이전트 업데이트 팝업과 웹에서 즉시 업데이트 시작",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.1/itmatzip-agent.msi",
+    "msi_sha256":  "29177e8d7c95a36df30537ca491067270326dc607573f01b05568ab350cccfbe"
 }
