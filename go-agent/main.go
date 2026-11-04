@@ -385,7 +385,11 @@ func main() {
 		if err := createLaunchShortcuts(); err != nil {
 			log.Printf("warning: create shortcuts failed: %v", err)
 		}
-		if err := launchTrayProcess(); err != nil {
+		// The MSI runs --install as SYSTEM; a tray started from here would run as SYSTEM and miss the
+		// user's engine packages. The MSI's StartTrayIcon / the updater start the tray instead.
+		if runningAsLocalSystem() {
+			log.Print("install: running as SYSTEM, tray start left to the user session")
+		} else if err := launchTrayProcess(); err != nil {
 			log.Printf("warning: start tray after install: %v (reboot or run: itmatzip-agent.exe --tray)", err)
 		}
 		fmt.Println("agent installed (tray autostart registered)")
