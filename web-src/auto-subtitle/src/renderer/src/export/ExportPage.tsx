@@ -1,8 +1,8 @@
 /**
- * 웹 내보내기 페이지(`export.html?job=…`) — 편집 화면이 새 탭으로 연다.
+ * 웹 내보내기 페이지(`export.html?job=…`) — 편집 화면이 현재 창에서 이동해 온다(전면 광고 노출용).
  *
  * 실제 작업(자막 이미지 그리기 → 영상 합성·인코딩, 또는 SRT/대본 저장)을 이 페이지에서 진행하고,
- * 끝나면 사용자 「다운로드」 폴더에 저장한다. 편집 탭은 그대로 남아 있으므로 작업이 사라지지 않는다.
+ * 끝나면 사용자 「다운로드」 폴더에 저장한다.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import type { ExportFormat, ExportProgressPayload } from '../../../shared/ipc'
@@ -36,16 +36,16 @@ function errorMessage(error: unknown): string {
   return text.replace(/^Error:\s*/, '') || '알 수 없는 오류가 발생했습니다.'
 }
 
-/** 편집 탭으로 돌아간다(이 탭은 편집 화면이 열었으므로 닫을 수 있다). 열 수 없으면 편집 화면으로 이동. */
+/** 편집 화면으로 돌아간다 — 같은 창에서 왔으면 뒤로 가기, 아니면 편집 화면으로 이동. */
 function backToEditor(): void {
   try {
-    if (window.opener && !window.opener.closed) {
-      window.opener.focus()
-      window.close()
+    const ref = document.referrer ? new URL(document.referrer) : null
+    if (ref && ref.origin === window.location.origin && !ref.pathname.endsWith('export.html') && window.history.length > 1) {
+      window.history.back()
       return
     }
   } catch {
-    /* 다른 출처 등 — 아래로 */
+    /* 잘못된 referrer 등 — 아래로 */
   }
   window.location.href = './'
 }
@@ -151,7 +151,7 @@ export default function ExportPage(): ReactElement {
         <span className="axp-percent">{percent}%</span>
       </div>
       {progress.encoderName && <p className="axp-note">인코더: {progress.encoderName}</p>}
-      <p className="axp-note">작업이 끝날 때까지 이 탭을 닫지 마세요. 편집하던 화면은 원래 탭에 그대로 남아 있습니다.</p>
+      <p className="axp-note">작업이 끝날 때까지 이 페이지를 닫거나 다른 곳으로 이동하지 마세요.</p>
     </>}
 
     {phase.kind === 'done' && <>

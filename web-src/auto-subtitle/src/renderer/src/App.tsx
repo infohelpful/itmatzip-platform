@@ -65,7 +65,7 @@ import {
 } from '../../shared/phase5EditPolicy'
 import { SILENCE_PLACEHOLDER_TEXT } from '../../shared/wordContract'
 import { buildExportCueLines } from '../../shared/exportCuePipeline'
-import { saveExportJob } from './export/exportHandoff'
+import { clearEditorRestore, loadEditorSnapshot, markEditorRestore, pendingEditorRestore, saveExportJob } from './export/exportHandoff'
 import {
   addCaptionEmphasis,
   captionEmphasisText,
@@ -1606,6 +1606,7 @@ export default function App(): ReactElement {
     atSlash: false
   })
   const [isExporting, setIsExporting] = useState(false)
+  const buildProjectJsonRef = useRef<(() => Promise<string>) | null>(null)
   const [exportNotice, setExportNotice] = useState('')
   const [exportProgress, setExportProgress] = useState(0)
   const [exportProgressLabel, setExportProgressLabel] = useState('')
@@ -6209,15 +6210,27 @@ export default function App(): ReactElement {
           : {})
       }
     }
-    // 웹: 새 탭의 내보내기 페이지에서 작업하고 「다운로드」 폴더에 저장한다(편집 탭은 그대로 남는다).
-    // 팝업이 막혀 새 탭을 못 열면 예전처럼 이 화면에서 바로 내보낸다.
-    const exportTab = window.open('', '_blank')
-    if (exportTab) {
+    // 웹: 현재 창에서 내보내기(다운로드) 페이지로 이동해 작업하고 「다운로드」 폴더에 저장한다.
+    // 새 탭으로 열면 페이지 이동 시 뜨는 전면 광고가 나오지 않으므로 같은 창에서 이동한다.
+    if (typeof indexedDB !== 'undefined') {
       const videoName = videoPath.split(/[\\/]/).pop() || videoPath
-      void saveExportJob(request, videoName).then((id) => {
-        exportTab.location.href = new URL(`export.html?job=${encodeURIComponent(id)}`, window.location.href).href
-      }).catch((error) => {
-        exportTab.close()
+      setIsExporting(true)
+      setExportNotice('내보내기 페이지로 이동하는 중…')
+      // 편집 상태(자막·단어·컷·디자인)를 작업과 함께 저장해 두고, 돌아오면 그대로 되살린다.
+      // 저장하지 못하면 이동하지 않는다 — 편집한 내용이 사라지면 안 된다.
+      void (async () => {
+        const build = buildProjectJsonRef.current
+        if (!build) throw new Error('편집 상태를 저장할 수 없어 내보내기 페이지로 이동하지 않았습니다.')
+        const projectJson = await build()
+        const id = await saveExportJob(request, videoName, {
+          projectJson,
+          projectFilePath: projectFilePathRef.current,
+          exportFormat
+        })
+        markEditorRestore(id)
+        window.location.assign(new URL(`export.html?job=${encodeURIComponent(id)}`, window.location.href).href)
+      })().catch((error) => {
+        setIsExporting(false)
         setExportNotice(formatExportFailureMessage(error))
       })
       return
@@ -6465,6 +6478,46 @@ export default function App(): ReactElement {
     setIsPlaying(false)
     return true
   }, [commitEditSecToUi, pausePlayback])
+
+  // 내보내기(같은 창 이동) 직전 편집 상태 저장용 — exportVideo 가 이 함수보다 위에 있어 ref 로 넘긴다.
+  buildProjectJsonRef.current = buildAutosubProjectJson
+
+  // 내보내기 페이지에서 돌아왔을 때 편집 상태를 되살린다. 에이전트 상태 확인이 끝난 뒤에 해야
+  // 영상 경로 확인이 실패해 영상 연결이 끊기지 않는다.
+  const editorRestoreStartedRef = useRef(false)
+  useEffect(() => {
+    if (!depsResolved || editorRestoreStartedRef.current) return
+    const jobId = pendingEditorRestore()
+    if (!jobId) return
+    editorRestoreStartedRef.current = true
+    void (async () => {
+      try {
+        const snap = await loadEditorSnapshot(jobId)
+        if (!snap) { clearEditorRestore(); return }
+        const ok = await applyAutosubPayload(snap.projectFilePath, JSON.parse(snap.projectJson))
+        if (ok) {
+          setExportFormat(snap.exportFormat)
+          clearEditorRestore()
+        }
+      } catch (error) {
+        console.error('편집 상태 복원 실패', error)
+        setProjectMediaNotice('이전 편집 상태를 되살리지 못했습니다. 페이지를 새로고침하면 다시 시도합니다.')
+        editorRestoreStartedRef.current = false
+      }
+    })()
+  }, [applyAutosubPayload, depsResolved])
+
+  // 뒤로 가기로 페이지가 메모리에서 그대로 복원된 경우(bfcache) — 상태는 살아 있으므로 복원 표시만 지우고 버튼을 풀어 준다.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      clearEditorRestore()
+      setIsExporting(false)
+      setExportNotice('')
+    }
+    window.addEventListener('pageshow', onPageShow)
+    return () => window.removeEventListener('pageshow', onPageShow)
+  }, [])
 
   const relinkProjectMedia = useCallback(async () => {
     const generation = projectGenerationRef.current
@@ -6921,7 +6974,9 @@ export default function App(): ReactElement {
               onApplyCapsulePreset={() => {
                 setSubtitleFontFamily(CAPSULE_PRESET.fontFamily)
                 setSubtitleFontWeight(CAPSULE_PRESET.fontWeight)
-                setSubtitleFontSize(clampSubtitleFontSize(CAPSULE_PRESET.fontSize))
+                // 46px 는 1080p 기준 — 영상의 짧은 변에 비례해 넣어야 작은 영상에서 화면을 덮지 않는다.
+                const shortSide = Math.min(videoNaturalSize.width, videoNaturalSize.height)
+                setSubtitleFontSize(clampSubtitleFontSize(Math.round(CAPSULE_PRESET.fontSize * (shortSide > 0 ? shortSide : 1080) / 1080)))
                 setSubtitleTextColor(CAPSULE_PRESET.textColor)
                 setSubtitleBgColor(CAPSULE_PRESET.bgColor)
                 setSubtitleBgOpacity(CAPSULE_PRESET.bgOpacity)

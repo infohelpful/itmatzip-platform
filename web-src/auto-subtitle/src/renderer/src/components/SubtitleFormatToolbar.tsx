@@ -193,7 +193,7 @@ export function SubtitleFormatToolbar(props: Props) {
             </span>
           </div>
           <strong>캡슐 자막</strong>
-          <p className="format-help">Pretendard ExtraBold 46px · 흰 글자<br />반투명 남색 캡슐 배경 · 은은한 테두리와 그림자</p>
+          <p className="format-help">Pretendard ExtraBold 46px(1080p 기준) · 흰 글자<br />반투명 남색 캡슐 배경 · 은은한 테두리와 그림자</p>
           <button type="button" className="format-preset-apply" aria-pressed={props.boxStyle === 'capsule'}
             onClick={() => props.onApplyCapsulePreset()}>{props.boxStyle === 'capsule' ? '캡슐 프리셋 다시 적용' : '캡슐 프리셋 적용'}</button>
         </div>

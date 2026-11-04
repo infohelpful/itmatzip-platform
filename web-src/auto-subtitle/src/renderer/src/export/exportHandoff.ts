@@ -1,7 +1,7 @@
 /**
- * 편집 화면 → 내보내기 페이지(새 탭) 작업 전달.
+ * 편집 화면 → 내보내기 페이지(같은 창 이동) 작업 전달.
  *
- * 편집 탭은 그대로 두고, 내보내기 요청만 IndexedDB 에 넣어 새 탭(`export.html?job=…`)이 꺼내 쓴다.
+ * 내보내기 요청을 IndexedDB 에 넣고 `export.html?job=…` 으로 이동하면 그 페이지가 꺼내 쓴다.
  * 자막·단어 데이터가 길어 sessionStorage(약 5MB)를 넘을 수 있어 IndexedDB 를 쓴다.
  * 결과(저장 경로)도 같은 레코드에 남겨, 내보내기 페이지를 새로고침해도 같은 작업을 다시 돌리지 않는다.
  */
@@ -18,6 +18,36 @@ export type ExportHandoffJob = {
   videoName: string
   request: ExportRequest
   result?: ExportHandoffResult
+  /** 편집 화면 상태(.autosub 프로젝트 JSON 등) — 같은 창에서 편집 화면으로 돌아오면 이걸로 되살린다 */
+  editorSnapshot?: EditorSnapshot
+}
+
+export type EditorSnapshot = {
+  /** buildAutosubProjectJson() 결과 — 영상 경로·자막·단어·컷·자막 디자인 */
+  projectJson: string
+  /** 저장해 둔 .autosub 경로(있으면 「저장」이 같은 파일에 덮어쓰도록) */
+  projectFilePath: string | null
+  exportFormat: ExportRequest['format']
+}
+
+/** 이 탭에서 되살릴 작업 id — sessionStorage 는 같은 탭의 페이지 이동·새로고침에도 남는다 */
+const RESTORE_KEY = 'autosub.restoreEditorJob'
+
+export function markEditorRestore(jobId: string): void {
+  try { window.sessionStorage.setItem(RESTORE_KEY, jobId) } catch { /* 막힌 저장소 — 무시 */ }
+}
+
+export function pendingEditorRestore(): string | null {
+  try { return window.sessionStorage.getItem(RESTORE_KEY) } catch { return null }
+}
+
+export function clearEditorRestore(): void {
+  try { window.sessionStorage.removeItem(RESTORE_KEY) } catch { /* 무시 */ }
+}
+
+export async function loadEditorSnapshot(jobId: string): Promise<EditorSnapshot | null> {
+  const job = await loadExportJob(jobId)
+  return job?.editorSnapshot ?? null
 }
 
 const DB_NAME = 'autosub-export-handoff'
@@ -59,8 +89,8 @@ function newId(): string {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
-export async function saveExportJob(request: ExportRequest, videoName: string): Promise<string> {
-  const job: ExportHandoffJob = { id: newId(), createdAt: Date.now(), videoName, request }
+export async function saveExportJob(request: ExportRequest, videoName: string, editorSnapshot?: EditorSnapshot): Promise<string> {
+  const job: ExportHandoffJob = { id: newId(), createdAt: Date.now(), videoName, request, ...(editorSnapshot ? { editorSnapshot } : {}) }
   await withStore('readwrite', (store) => store.put(job))
   void pruneOldJobs()
   return job.id
