@@ -94,6 +94,57 @@ class MediaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "형식"):
             media.existing_media_file(str(secret))
 
+    def test_concurrent_prepare_of_same_video_runs_ffmpeg_once(self):
+        """Opening a video starts the viewer and the transcription preparation together. The second
+        must reuse the first one's WAV instead of replacing it while it is open (WinError 5)."""
+        import threading
+        import time
+
+        video = self.root / "영상.mp4"
+        video.write_bytes(b"x" * 1000)
+        timing = media.MediaTiming(duration=1.0, source_origin_sec=0.0, width=16, height=16, has_audio=True,
+                                   frame_rate="30/1", needs_preview_normalization=False)
+        calls = []
+
+        def fake_ffmpeg(_ffmpeg, args, _cancel):
+            calls.append(args)
+            time.sleep(0.3)
+            _wav(Path(args[-1]), 100)
+
+        results, errors = [], []
+
+        def run():
+            try:
+                results.append(media._prepare(video, threading.Event()))
+            except Exception as error:  # noqa: BLE001
+                errors.append(error)
+
+        with mock.patch.object(paths, "ffmpeg_paths", return_value=("ffmpeg", "ffprobe")), \
+                mock.patch.object(media, "probe_media_timing", return_value=timing), \
+                mock.patch.object(media, "_run_ffmpeg", side_effect=fake_ffmpeg):
+            threads = [threading.Thread(target=run) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(10)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(results), 2)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(results[0]["audioPath"], results[1]["audioPath"])
+        self.assertEqual([p.name for p in self.cache.iterdir() if p.suffix == ".wav" and p.stem.count(".")], [])
+
+    def test_publish_keeps_existing_target_when_replace_is_refused(self):
+        target = self.cache / "a.wav"
+        _wav(target, 100)
+        temp = self.cache / "a.tmp.wav"
+        _wav(temp, 100)
+        with mock.patch.object(media.os, "replace", side_effect=PermissionError(5, "denied")):
+            media._publish(temp, target)
+        target.unlink()
+        with mock.patch.object(media.os, "replace", side_effect=PermissionError(5, "denied")):
+            with self.assertRaises(PermissionError):
+                media._publish(temp, target)
+
     def test_path_token_round_trips_korean_paths(self):
         path = r"E:\영상\테스트 1.mp4"
         token = base64.urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
