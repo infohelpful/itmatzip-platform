@@ -2,7 +2,7 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
      xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <?define ProductName = "ItMatZip Agent" ?>
-  <?define ProductVersion = "1.7.5.0" ?>
+  <?define ProductVersion = "1.7.6.0" ?>
   <?define Manufacturer = "ItMatZip" ?>
   <?define UpgradeCode = "A1B2C3D4-E5F6-7890-ABCD-EF1234567890" ?>
 
@@ -97,9 +97,17 @@
                   Impersonate="yes"
                   Return="asyncNoWait" />
 
+    <!-- Files held open by a process (python312.zip under a running python.exe, or a tray that taskkill
+         could not end) are replaced/deleted only at the next reboot, and a queued delete of the old file
+         then wipes the newly installed one (1.7.1 -> reboot left engine\python312.zip missing and every
+         tool failed). End every process started from the install folder and wait (up to ~10s) until they
+         are gone, before InstallValidate / RemoveExistingProducts touch any file. Runs in the elevated
+         msiexec client (the auto-updater and the UAC prompt both elevate). Target is limited to 255
+         characters (ICE03), hence the short aliases. A deferred action cannot be used here: it may not
+         precede RemoveExistingProducts (error 2613). -->
     <CustomAction Id="SetStopTrayOnUpgrade"
                   Property="WixQuietExec64CmdLine"
-                  Value="&quot;[System64Folder]taskkill.exe&quot; /F /T /IM itmatzip-agent.exe"
+                  Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoP -NonI -C &quot;$d='[INSTALLFOLDER]';1..50|%{$p=gcim Win32_Process|?{$_.ExecutablePath -like ($d+'*')};if(!$p){break};$p|%{spps $_.ProcessId -F -EA 0};sleep -M 200}&quot;"
                   Execute="immediate" />
     <CustomAction Id="StopTrayOnUpgrade"
                   BinaryKey="WixCA"
@@ -126,8 +134,8 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="SetStopTrayOnUpgrade" Before="StopTrayOnUpgrade">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
-      <Custom Action="StopTrayOnUpgrade" Before="InstallValidate">(WIX_UPGRADE_DETECTED) AND NOT REMOVE</Custom>
+      <Custom Action="SetStopTrayOnUpgrade" Before="StopTrayOnUpgrade">NOT REMOVE</Custom>
+      <Custom Action="StopTrayOnUpgrade" Before="InstallValidate">NOT REMOVE</Custom>
       <Custom Action="SetGrantDataFolderPermissions" Before="GrantDataFolderPermissions">NOT REMOVE</Custom>
       <Custom Action="GrantDataFolderPermissions" After="InstallFiles">NOT REMOVE</Custom>
       <Custom Action="SetGrantEngineSitePackagesPermissions" Before="GrantEngineSitePackagesPermissions">NOT REMOVE</Custom>
