@@ -212,6 +212,31 @@ def _usable(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 44
 
 
+_key_locks: dict[str, threading.Lock] = {}
+_key_locks_guard = threading.Lock()
+
+
+def _key_lock(name: str) -> threading.Lock:
+    with _key_locks_guard:
+        return _key_locks.setdefault(name, threading.Lock())
+
+
+def _acquire(lock: threading.Lock, cancel: threading.Event) -> None:
+    while not lock.acquire(timeout=0.25):
+        if cancel.is_set():
+            raise MediaCancelled()
+
+
+def _publish(temp: Path, target: Path) -> None:
+    """Move a finished temp file into place. If the target appeared meanwhile and is open (Windows
+    refuses to replace an open file: WinError 5), keep the existing one; it holds the same data."""
+    try:
+        os.replace(temp, target)
+    except PermissionError:
+        if not _usable(target):
+            raise
+
+
 def _prepare(input_path: Path, cancel: threading.Event) -> dict[str, Any]:
     ff = paths.ffmpeg_paths()
     if not ff:
@@ -228,6 +253,11 @@ def _prepare(input_path: Path, cancel: threading.Event) -> dict[str, Any]:
     needs_preview = timing.needs_preview_normalization
     preview_path = key.with_suffix(".mp4") if needs_preview else input_path
     temps: list[Path] = []
+    # Opening a video starts the viewer preparation and the transcription preparation of the same
+    # file at once. One at a time per cache key: the second waits and reuses the first one's files
+    # instead of overwriting a WAV the first caller already has open.
+    lock = _key_lock(key.name)
+    _acquire(lock, cancel)
     try:
         needs_audio = not _usable(audio_path)
         needs_preview_file = needs_preview and not _usable(preview_path)
@@ -244,7 +274,7 @@ def _prepare(input_path: Path, cancel: threading.Event) -> dict[str, Any]:
                     ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-t", _js_num(timing.duration),
                      "-c:a", "pcm_s16le", "-rf64", "auto", str(temp)])
             _run_ffmpeg(ffmpeg, args, cancel)
-            os.replace(temp, audio_path)
+            _publish(temp, audio_path)
         if needs_preview_file:
             _require_disk(cache, _estimate_prepared_bytes(timing.duration, before.st_size, False, True))
             temp = cache / f"{key.name}.{uuid.uuid4()}.mp4"
@@ -256,7 +286,7 @@ def _prepare(input_path: Path, cancel: threading.Event) -> dict[str, Any]:
             prepared = probe_media_timing(ffprobe, temp)
             if abs(prepared.source_origin_sec) > 0.001 or abs(prepared.duration - timing.duration) > 0.1:
                 raise RuntimeError("미리보기 시간축을 원본 영상에 맞추지 못했습니다.")
-            os.replace(temp, preview_path)
+            _publish(temp, preview_path)
         after = input_path.stat()
         if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
             raise RuntimeError("준비 중 원본 영상이 변경되었습니다. 다시 열어 주세요.")
@@ -268,6 +298,7 @@ def _prepare(input_path: Path, cancel: threading.Event) -> dict[str, Any]:
         return {"audioPath": str(audio_path), "previewPath": str(preview_path), "duration": timing.duration,
                 "sourceOriginSec": timing.source_origin_sec, "hasAudio": timing.has_audio}
     finally:
+        lock.release()
         for temp in temps:
             temp.unlink(missing_ok=True)
 
