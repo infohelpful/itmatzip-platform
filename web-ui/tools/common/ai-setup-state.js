@@ -14,6 +14,13 @@ export const TOOLS = {
 export const running = s => !!s && (s.state === 'running' || /^(installing|downloading|preparing|verifying|extracting|checking)/.test(s.phase || ''));
 export const failed = s => !!s && (s.state === 'error' || ['error', 'failed'].includes(s.phase));
 
+export function setupGatePhase(toolId, { agentOk = false, apiStarting = false, readiness = null, job = null, optionalJobs = [] } = {}) {
+  if (!agentOk || apiStarting) return 'agent';
+  const config = TOOLS[toolId];
+  if (!config || !readiness || !config.ready(readiness) || running(job) || optionalJobs.some(running)) return 'setup';
+  return 'ready';
+}
+
 export function setupRows(toolId, readiness, job) {
   const config = TOOLS[toolId];
   if (!config) return [];

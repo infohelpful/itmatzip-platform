@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { TOOLS, setupRows, running, failed } from './ai-setup-state.js';
+import { TOOLS, setupRows, setupGatePhase, running, failed } from './ai-setup-state.js';
 
 test('all nine AI sites have a tool-specific setup definition', () => {
   assert.equal(Object.keys(TOOLS).length, 9);
@@ -44,4 +44,17 @@ test('failed and running phases remain distinct from waiting rows', () => {
   assert.equal(rows[0].state, 'ready');
   assert.equal(rows[1].state, 'ready');
   assert.equal(rows.filter(row => row.state === 'failed').length, 1);
+});
+
+test('all AI tools block work until required setup is complete', () => {
+  for (const [toolId, config] of Object.entries(TOOLS)) {
+    const ready = { binaries: {}, all_ready: true, engineReady: true, packagesOk: true, ffmpegOk: true, modelPresent: true };
+    for (const [key] of config.parts) ready.binaries[key] = true;
+    assert.equal(setupGatePhase(toolId), 'agent', toolId);
+    assert.equal(setupGatePhase(toolId, { agentOk: true, readiness: null }), 'setup', toolId);
+    assert.equal(setupGatePhase(toolId, { agentOk: true, readiness: {} }), 'setup', toolId);
+    assert.equal(setupGatePhase(toolId, { agentOk: true, readiness: ready, job: { state: 'running' } }), 'setup', toolId);
+    assert.equal(setupGatePhase(toolId, { agentOk: true, readiness: ready }), 'ready', toolId);
+  }
+  assert.equal(setupGatePhase('auto-subtitle', { agentOk: true, readiness: { engineReady: true }, optionalJobs: [{ state: 'running' }] }), 'setup');
 });

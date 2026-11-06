@@ -4,6 +4,7 @@
 .itz-agent-gate{position:fixed;inset:0;width:min(620px,calc(100vw - 32px));max-width:none;max-height:min(90vh,760px);margin:auto;padding:0;border:1px solid #354561;border-radius:22px;background:#151e2d;color:#f4f7fd;box-shadow:0 28px 90px #0009;font:15px/1.55 Pretendard,system-ui,sans-serif;overflow:auto}
 .itz-agent-gate::backdrop{background:rgba(7,13,25,.78);backdrop-filter:blur(8px)}
 .itz-agent-gate__content{padding:clamp(24px,5vw,42px)}
+.itz-agent-gate [hidden]{display:none!important}
 .itz-agent-gate__eyebrow{display:flex;align-items:center;gap:9px;color:#9ec5ff;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 .itz-agent-gate__pulse{width:9px;height:9px;border-radius:50%;background:#5b9dff;box-shadow:0 0 0 5px #5b9dff24}
 .itz-agent-gate h2{margin:18px 0 10px;font-size:clamp(23px,4vw,30px);line-height:1.27;letter-spacing:-.035em;color:#fff}
@@ -13,6 +14,13 @@
 .itz-agent-gate__step span{margin-bottom:7px;color:#72abff;font-size:12px;font-weight:800}
 .itz-agent-gate__step strong{font-size:13px;color:#f4f7fd}
 .itz-agent-gate__step small{color:#aabbd2;font-size:11px;line-height:1.5;word-break:keep-all}
+.itz-agent-gate__progress{margin:24px 0 18px;border:1px solid #37465e;border-radius:12px;background:#202c3e;overflow:hidden}
+.itz-agent-gate__count{margin:0;padding:13px 16px;border-bottom:1px solid #37465e;color:#c8ddf5;font-size:12px;font-weight:700}
+.itz-agent-gate__rows{max-height:min(42vh,320px);overflow:auto;padding:0 16px}
+.itz-agent-gate__rows .itz-setup__row{padding:12px 0}
+.itz-agent-gate__rows .itz-setup__row:last-child{border-bottom:0}
+.itz-agent-gate__rows .itz-setup__name{color:#f4f7fd;font-size:13px}
+.itz-agent-gate__rows .itz-setup__state{color:#b9cbe2}
 .itz-agent-gate__status{min-height:23px;margin:0 0 18px;padding:10px 12px;border:1px solid #3a5069;border-radius:9px;background:#213247;color:#c8ddf5;font-size:12px;word-break:keep-all}
 .itz-agent-gate__status--error{border-color:#795953;background:#34292c;color:#ffd0c4}
 .itz-agent-gate__actions{display:flex;gap:10px}
