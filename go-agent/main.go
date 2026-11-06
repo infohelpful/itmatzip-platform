@@ -109,9 +109,15 @@ func (h *wsHub) serveWS(w http.ResponseWriter, r *http.Request) {
 }
 
 func ensurePaths() error {
-	for _, dir := range []string{settingsRootPath, installRootPath, modelsRootPath, logsRootPath} {
+	for _, dir := range []string{settingsRootPath, logsRootPath} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
+		}
+	}
+	// Not needed to start; a missing one is created when it is first used.
+	for _, dir := range []string{installRootPath, modelsRootPath} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			log.Printf("warning: could not create %s: %v", dir, err)
 		}
 	}
 	ensureDataFolderWritable()
