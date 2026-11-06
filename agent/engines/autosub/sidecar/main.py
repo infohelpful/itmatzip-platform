@@ -31,6 +31,17 @@ from processor import _subprocess_creationflags, _which_ffmpeg, export_video_png
 from rms_vad_word_align import apply_rms_vad_word_align
 from alignment_runner import AlignmentUnavailable, run_accurate_alignment
 
+
+def _align_on_device(*args, device: str = "cpu", **kwargs):
+    """GPU alignment when requested; on any GPU failure (driver, out of memory) redo it on the CPU."""
+    if device != "cuda":
+        return run_accurate_alignment(*args, device="cpu", **kwargs)
+    try:
+        return run_accurate_alignment(*args, device="cuda", **kwargs)
+    except AlignmentUnavailable as error:
+        print(f"alignment on cuda failed, retrying on cpu: {error}", file=sys.stderr, flush=True)
+        return run_accurate_alignment(*args, device="cpu", **kwargs)
+
 # ---------------------------------------------------------------------------
 # Paths & model configuration
 # ---------------------------------------------------------------------------
@@ -699,7 +710,7 @@ def handle(method: str, params: dict[str, Any]) -> Any:
         if not os.path.isfile(media):
             raise ValueError('Media file is missing')
         ffmpeg = str(params.get('ffmpeg') or os.environ.get('AUTOSUBTITLE_FFMPEG_PATH') or '')
-        result = run_accurate_alignment(cues, media, ffmpeg,
+        result = _align_on_device(cues, media, ffmpeg,
             cache_dir=os.environ.get('AUTOSUBTITLE_ALIGN_CACHE', '').strip() or str(MODELS_ROOT / 'hf-align-cache'),
             source_origin_sec=float(params.get('sourceOriginSec', 0)),
             device=str(params.get('device') or 'cpu'))
@@ -785,7 +796,7 @@ def handle(method: str, params: dict[str, Any]) -> Any:
                 _emit_transcribe_progress(86.0)
                 ff_exe = ff_try or _which_ffmpeg(None)
                 cache_dir = os.environ.get("AUTOSUBTITLE_ALIGN_CACHE", "").strip() or str(MODELS_ROOT / "hf-align-cache")
-                aligned = run_accurate_alignment(
+                aligned = _align_on_device(
                     copy.deepcopy(subtitles), audio_path, str(ff_exe), cache_dir=cache_dir,
                     device=str(params.get("alignment_device") or "cpu"),
                     python=params.get("alignment_python"),

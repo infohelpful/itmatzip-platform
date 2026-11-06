@@ -38,6 +38,36 @@ class HubMirrorTest(unittest.TestCase):
             self.assertRegex(sha, r"^[0-9a-f]{64}$")
             self.assertTrue(hub_mirror.asset_url(key).startswith(hub_mirror.HUB_BASE_URL))
 
+    def test_split_asset_is_joined_and_verified(self) -> None:
+        whole = bytes(range(256)) * 40
+        parts = [whole[:4000], whole[4000:]]
+        sha = lambda b: hashlib.sha256(b).hexdigest()  # noqa: E731
+        hub_mirror.SPLIT_ASSETS["test_split"] = ("big.zip", len(whole), sha(whole),
+                                                 [("big.zip.001", len(parts[0]), sha(parts[0])),
+                                                  ("big.zip.002", len(parts[1]), sha(parts[1]))])
+        self.addCleanup(hub_mirror.SPLIT_ASSETS.pop, "test_split", None)
+        by_url = {hub_mirror.split_asset_url("big.zip.001"): parts[0], hub_mirror.split_asset_url("big.zip.002"): parts[1]}
+
+        def run(url, part, size, on_progress):
+            part.write_bytes(by_url[url])
+        with mock.patch.object(hub_mirror, "_download_once", run):
+            path = hub_mirror.fetch_split("test_split", self.tmp)
+        self.assertEqual(path.read_bytes(), whole)
+        self.assertFalse((self.tmp / "big.zip.001").exists())
+
+        path.unlink()
+        by_url[hub_mirror.split_asset_url("big.zip.002")] = b"x" * len(parts[1])  # tampered part
+        with mock.patch.object(hub_mirror, "_download_once", run), mock.patch.object(hub_mirror.time, "sleep"):
+            with self.assertRaises(RuntimeError):
+                hub_mirror.fetch_split("test_split", self.tmp)
+        self.assertFalse((self.tmp / "big.zip").exists())
+
+    def test_cuda_wheels_are_pinned_in_parts_under_2gb(self) -> None:
+        name, size, sha, parts = hub_mirror.SPLIT_ASSETS["align_cuda_wheels"]
+        self.assertRegex(sha, r"^[0-9a-f]{64}$")
+        self.assertEqual(sum(p[1] for p in parts), size)
+        self.assertTrue(all(p[1] < 2 * 1024**3 and p[0].startswith(name) for p in parts))
+
     def test_fetch_accepts_matching_file(self) -> None:
         with mock.patch.object(hub_mirror, "_download_once", self._fake_download(self.payload)):
             path = hub_mirror.fetch(self.key, self.tmp)

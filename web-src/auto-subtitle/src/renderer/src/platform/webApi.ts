@@ -463,7 +463,16 @@ export function createWebApi(): SidecarApi {
 export { AgentUnavailable }
 
 // -- precise alignment runtime (web only; the desktop app ships it) ------------------------
-export type AlignmentStatus = { installed: boolean; modelPresent: boolean; ready: boolean; downloadHintMb: number }
+export type AlignmentStatus = {
+  installed: boolean; modelPresent: boolean; ready: boolean; downloadHintMb: number
+  /** NVIDIA 그래픽카드가 있음 */
+  gpuPresent?: boolean
+  /** 지금 정렬하는 장치 */
+  device?: 'cuda' | 'cpu' | null
+  /** CPU용이 설치됐고 그래픽카드가 있어 GPU용으로 바꿀 수 있음 */
+  gpuUpgrade?: boolean
+  gpuUpgradeHintMb?: number
+}
 const alignmentMissingListeners = new Set<() => void>()
 
 /** Lets the install button reappear when an alignment attempt finds the runtime missing. */

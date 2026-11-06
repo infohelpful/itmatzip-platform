@@ -1,11 +1,11 @@
 {
-  "version": "1.7.7",
-  "published_at": "2026-11-05",
+  "version": "1.7.12",
+  "published_at": "2026-11-06",
   "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.7/itmatzip-agent.msi",
-  "sha256": "b6aa484191acd6526bdc5b30fe7cad174a330f8f9dc08fdef200dbe17156b5bf",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.12/itmatzip-agent.msi",
+  "sha256": "20bf688bbc70cb7190d1fe900f0eee814635bc8422f8f3e829ee869cdafae7b4",
   "mandatory": false,
-  "release_notes": "자동자막: 영상을 열 때 미리보기에 '액세스가 거부되었습니다'가 뜨던 문제 수정",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.7/itmatzip-agent.msi",
-  "msi_sha256": "b6aa484191acd6526bdc5b30fe7cad174a330f8f9dc08fdef200dbe17156b5bf"
+  "release_notes": "자동자막 AI 교정(Claude/ChatGPT), 읽기 쉬운 줄 나누기, NVIDIA 그래픽카드로 정밀 정렬 가속",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.12/itmatzip-agent.msi",
+  "msi_sha256": "20bf688bbc70cb7190d1fe900f0eee814635bc8422f8f3e829ee869cdafae7b4"
 }

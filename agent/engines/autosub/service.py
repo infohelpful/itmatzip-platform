@@ -340,6 +340,7 @@ def start_transcription(path: str, alignment_mode: str | None, job_id: str) -> N
             align_python = alignment.ready_python()
             if align_python:
                 params["alignment_python"] = align_python
+                params["alignment_device"] = alignment.device()
             params["waveform_out_json_path"] = media.waveform_cache_json_path(str(abs_path))["cachePath"]
             result = sc.call("transcribe", params, TRANSCRIBE_TIMEOUT_SEC) or {}
             if job.cancelled.is_set():
@@ -524,7 +525,8 @@ def start_realign(request: dict[str, Any]) -> dict[str, Any]:
             ff = paths.ffmpeg_paths()
             reply = worker.call("realign_words", {**request, "path": prepared["audioPath"],
                                                   "duration": prepared["duration"], "sourceOriginSec": 0,
-                                                  "ffmpeg": ff[0] if ff else ""}, TRANSCRIBE_TIMEOUT_SEC)
+                                                  "ffmpeg": ff[0] if ff else "", "device": alignment.device()},
+                                  TRANSCRIBE_TIMEOUT_SEC)
             if job["cancelled"]:
                 raise RuntimeError("정렬이 취소됐습니다.")
             job["result"] = {**(reply or {}), "ok": True}
