@@ -1,11 +1,11 @@
 {
-  "version": "1.7.13",
-  "published_at": "2026-11-06",
+  "version": "1.7.14",
+  "published_at": "2026-11-07",
   "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.13/itmatzip-agent.msi",
-  "sha256": "bcdf243324f9b9fa9eabb57eab728d41debba94636c7813a62fb09dee7131f9a",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.14/itmatzip-agent.msi",
+  "sha256": "0a4ab610a7fda0220774a1dd7d18c99ba413821dbd8ef4b9d2a9caefdb2125cd",
   "mandatory": false,
-  "release_notes": "자동자막 GPU 정렬용 파일을 library-hub에서 먼저 받도록 변경 (AI 교정·줄 나누기·GPU 정렬 포함)",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.13/itmatzip-agent.msi",
-  "msi_sha256": "bcdf243324f9b9fa9eabb57eab728d41debba94636c7813a62fb09dee7131f9a"
+  "release_notes": "새로 설치한 PC에서 트레이 아이콘이 실행되지 않던 문제 수정 (GPU 정렬·AI 교정 포함)",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.14/itmatzip-agent.msi",
+  "msi_sha256": "0a4ab610a7fda0220774a1dd7d18c99ba413821dbd8ef4b9d2a9caefdb2125cd"
 }
