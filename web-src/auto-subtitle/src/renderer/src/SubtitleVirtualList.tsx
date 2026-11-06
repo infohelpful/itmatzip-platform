@@ -39,7 +39,7 @@ import type { PeaksZoomViewRange } from './SubtitleWaveformPeaks'
 import { isTimeInWordSpan } from '../../shared/activeWordResolver'
 import { isRemovedSubtitleRow, resolveEditorHighlight } from '../../shared/editorPlayback'
 import { displayTextFromSubtitleWords } from '../../shared/subtitles'
-import { SILENCE_PLACEHOLDER_TEXT, scrubTimelineNoiseFromWordPiece } from '../../shared/wordContract'
+import { SILENCE_PLACEHOLDER_TEXT, scrubTimelineNoiseFromWordPiece, shouldOmitFromSubtitleEditLineText } from '../../shared/wordContract'
 import { useSubtitleData } from './subtitleDataContext'
 import { peaksJsonRawDataLength } from './wordCanvas/peaksSentenceSlice'
 import { SentenceLineWaveformCanvas } from './waveform/SentenceLineWaveformCanvas'
@@ -1156,6 +1156,34 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     }
   }
 
+  /**
+   * 텍스트창 클릭·커서 이동 → 그 글자가 속한 단어 시작으로 프리뷰를 옮겨 같은 자막이 보이게 한다.
+   * 같은 단어 안에서 움직이면 다시 시크하지 않는다(타이핑 중 재시크 방지).
+   */
+  const lastTextCaretSeekRef = useRef<number | null>(null)
+  const seekToTextCaret = (ta: HTMLTextAreaElement) => {
+    if (document.activeElement !== ta) return
+    const words = row.words ?? []
+    const offset = ta.selectionStart ?? 0
+    let sec = row.start
+    let pos = 0
+    let any = false
+    for (const w of words) {
+      if (w.isDeleted === true || w.isSilence === true) continue
+      const piece = scrubTimelineNoiseFromWordPiece(w.word)
+      if (piece.length === 0 || shouldOmitFromSubtitleEditLineText(piece)) continue
+      const start = pos + (any ? 1 : 0)
+      const end = start + piece.length
+      sec = w.start
+      if (offset <= end) break
+      pos = end
+      any = true
+    }
+    if (!Number.isFinite(sec) || lastTextCaretSeekRef.current === sec) return
+    lastTextCaretSeekRef.current = sec
+    onCardNavigate(sec)
+  }
+
   const seekAtCaret = (nextCaret: number) => {
     // 커서 이동 시에는 재생 위치를 변경하지 않는다.
     void nextCaret
@@ -2071,11 +2099,15 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             setSubtitleTextDraft(e.currentTarget.value)
             updateSubtitleAt(index, e.currentTarget.value)
           }}
-          onFocus={() => {
+          onFocus={(e) => {
             if (isPlaying) {
               markUserClickPause()
               onRequestPausePlayback('caption-textarea-focus')
             }
+            lastTextCaretSeekRef.current = null
+            const ta = e.currentTarget
+            // 클릭으로 들어온 경우 selectionStart 는 mouseup 뒤에 확정되므로 한 틱 뒤에 읽는다.
+            window.setTimeout(() => seekToTextCaret(ta), 0)
             setSubtitleTextDraft(lineEditDisplay)
             setCaretVisible(false)
             setCaretBlink(false)
@@ -2093,7 +2125,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           onKeyDown={onTextareaKeyDown}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
-          onSelect={syncEmphasisSel}
+          onSelect={(e) => { syncEmphasisSel(); seekToTextCaret(e.currentTarget) }}
           onKeyUp={syncEmphasisSel}
           onMouseUp={syncEmphasisSel}
           spellCheck={false}

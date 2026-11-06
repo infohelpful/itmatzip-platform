@@ -119,7 +119,13 @@
   // ─── 1. 콘텐츠 보호 (이벤트만 — 백그라운드 비용 0) ─────────────────────
 
   function installContentProtection() {
+    // Text the user types (subtitle editor, inputs) must stay selectable, copyable and cuttable.
+    const editable = (target) => {
+      const el = target instanceof Element ? target : target?.parentElement;
+      return Boolean(el?.closest?.('textarea, input, select, [contenteditable=""], [contenteditable="true"]'));
+    };
     const block = (e) => {
+      if (editable(e.target)) return;
       e.preventDefault();
     };
     document.addEventListener("contextmenu", block, true);
