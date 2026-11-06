@@ -7,7 +7,7 @@
   <meta charset="UTF-8">
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=43"></script>
+  <script src="../common/site-runtime.js?v=48"></script>
 
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
 
@@ -84,7 +84,7 @@
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
 
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=18">
 
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
 
@@ -163,6 +163,44 @@
 
             <div class="options-main">
 
+              <div class="options-row options-row-single">
+
+                <div class="option-card option-card-model">
+
+                  <label for="model-select" data-i18n="modelLabel">AI 분리 모델</label>
+
+                  <p class="option-hint" data-i18n="modelHint">MDX-Net은 기본 설치(약 105 MB)로 바로 쓸 수 있습니다. 다른 모델은 처음 선택해 분석할 때 내려받습니다.</p>
+
+                  <select id="model-select" class="option-select">
+
+                    <option value="mdxnet" data-i18n="model.mdxnet">MDX-Net (Voc_FT) · 빠름 · 기본</option>
+
+                    <option value="roformer" data-i18n="model.roformer">Mel-Band RoFormer · 최고 음질</option>
+
+                    <option value="demucs" data-i18n="model.demucs">Demucs v4 (HTDemucs) · 균형</option>
+
+                    <option value="ensemble" data-i18n="model.ensemble">앙상블 · 여러 모델 결합</option>
+
+                  </select>
+
+                  <fieldset class="ensemble-picks" id="ensemble-picks" hidden>
+
+                    <legend data-i18n="ensembleLegend">결합할 모델 (2개 이상)</legend>
+
+                    <label class="ensemble-pick"><input type="checkbox" name="ensemble-model" value="roformer" checked> Mel-Band RoFormer</label>
+
+                    <label class="ensemble-pick"><input type="checkbox" name="ensemble-model" value="mdxnet" checked> MDX-Net</label>
+
+                    <label class="ensemble-pick"><input type="checkbox" name="ensemble-model" value="demucs"> Demucs v4</label>
+
+                  </fieldset>
+
+                  <p class="model-status" id="model-status" role="status" aria-live="polite"></p>
+
+                </div>
+
+              </div>
+
               <div class="options-row">
 
                 <div class="option-card">
@@ -187,13 +225,13 @@
 
                   <label for="device-select" data-i18n="ui.device">실행 장치</label>
 
-                  <p class="option-hint" data-i18n="devHint">GPU(CUDA)가 있으면 자동 선택이 가장 빠릅니다.</p>
+                  <p class="option-hint" data-i18n="devHint">자동은 GPU를 우선 사용합니다 (MDX-Net: 모든 GPU · DirectML / RoFormer·Demucs: NVIDIA CUDA).</p>
 
                   <select id="device-select" class="option-select">
 
                     <option value="auto" data-i18n="ui.deviceAuto">자동 (권장)</option>
 
-                    <option value="cuda">CUDA (GPU)</option>
+                    <option value="cuda">GPU</option>
 
                     <option value="cpu">CPU</option>
 
@@ -216,6 +254,14 @@
                   <dt data-i18n="dtReady">준비</dt>
 
                   <dd id="summary-model-ready">확인 중</dd>
+
+                </div>
+
+                <div class="media-summary-item">
+
+                  <dt data-i18n="dtModel">모델</dt>
+
+                  <dd id="summary-model">MDX-Net</dd>
 
                 </div>
 
@@ -319,7 +365,7 @@
 
               <p class="vocal-task-loading__title" id="separation-loading-title" data-i18n="sepTitle">보컬·MR 분리</p>
 
-              <p class="vocal-task-loading__step" id="separation-loading-step" data-i18n="sepPrepStep">Demucs AI 분리 준비 중…</p>
+              <p class="vocal-task-loading__step" id="separation-loading-step" data-i18n="sepPrepStep">AI 분리 준비 중…</p>
 
               <div
                 class="vocal-task-loading__track"
@@ -357,7 +403,7 @@
 
             <p class="vocal-setup-loading__step" id="setup-loading-step"></p>
 
-            <p class="vocal-setup-loading__message" id="setup-loading-message" data-i18n="setupMsg">Demucs·PyTorch를 설치하고 있습니다.</p>
+            <p class="vocal-setup-loading__message" id="setup-loading-message" data-i18n="setupMsg">AI 실행 환경과 모델을 설치하고 있습니다.</p>
 
             <div
               class="vocal-setup-loading__track"
@@ -399,7 +445,7 @@
         <h2>한 트랙에서 보컬과 반주를 가르는 로컬 분리기</h2>
         <p class="tool-guide-lead">Vocal Remover는 로컬 오디오를 소스 분리 모델로 읽어, 노래 목소리와 반주(MR)를 따로 저장합니다. 업로드형 웹 분리기와 달리 원본과 결과는 PC 폴더에 남고, 원하는 쪽만 골라 받을 수 있습니다.</p>
         <h3>이 도구가 하는 일</h3>
-        <p>에이전트가 Demucs 계열 런타임으로 스테레오 혼합음을 보컬 스템과 반주 스템으로 나눕니다. 화면에서 진행 상태를 본 뒤, MR만 쓰거나 보컬만 쓰는 용도에 맞게 내보냅니다. 악보를 다시 연주하지 않고 기존 음원을 재료로 쓰는 작업에 맞춰져 있습니다.</p>
+        <p>에이전트가 MDX-Net·Mel-Band RoFormer·Demucs 분리 모델(또는 여러 모델을 결합한 앙상블)로 스테레오 혼합음을 보컬 스템과 반주 스템으로 나눕니다. 화면에서 진행 상태를 본 뒤, MR만 쓰거나 보컬만 쓰는 용도에 맞게 내보냅니다. 악보를 다시 연주하지 않고 기존 음원을 재료로 쓰는 작업에 맞춰져 있습니다.</p>
         <h3>작업 과정</h3>
         <ol>
           <li><strong>파일 지정.</strong> 찾아보기로 로컬 음원을 고릅니다. 일반적인 오디오 컨테이너를 지원합니다.</li>
@@ -438,11 +484,11 @@
 
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <link rel="stylesheet" href="../common/ai-setup-panel.css?v=3">
-  <script type="module" src="../common/ai-setup-panel.js?v=4"></script>
+  <script type="module" src="../common/ai-setup-panel.js?v=5"></script>
   <script type="module" src="../common/agent-update-boot.js?v=1"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=50"></script>
+  <script type="module" src="script.js?v=51"></script>
 
 </body>
 

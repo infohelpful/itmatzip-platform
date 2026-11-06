@@ -58,3 +58,12 @@ test('all AI tools block work until required setup is complete', () => {
   }
   assert.equal(setupGatePhase('auto-subtitle', { agentOk: true, readiness: { engineReady: true }, optionalJobs: [{ state: 'running' }] }), 'setup');
 });
+
+test('Vocal Remover opens with only the lightweight ONNX base model (no PyTorch/Demucs)', () => {
+  const onnxOnly = { binaries: { ffmpeg: true, ffprobe: true, runtime: true, model_ready: true, demucs: false, diffq: false } };
+  assert.equal(setupGatePhase('vocal-remover', { agentOk: true, readiness: onnxOnly }), 'ready');
+  const noModel = { binaries: { ffmpeg: true, ffprobe: true, runtime: true, model_ready: false } };
+  assert.equal(setupGatePhase('vocal-remover', { agentOk: true, readiness: noModel }), 'setup');
+  const rows = setupRows('vocal-remover', noModel, { phase: 'downloading_models', step: 'AI 모델 다운로드' });
+  assert.deepEqual(rows.map(row => row.state), ['ready', 'ready', 'ready', 'running']);
+});

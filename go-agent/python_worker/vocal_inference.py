@@ -9,7 +9,7 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 
-VOCAL_MODEL_IDS = frozenset({"mdx_extra_q", "vocal-remover", "vocal_remover"})
+VOCAL_MODEL_IDS = frozenset({"mdx_extra_q", "htdemucs", "vocal-remover", "vocal_remover"})
 
 
 def is_vocal_model(model_id: str) -> bool:
@@ -89,10 +89,14 @@ def run_vocal_separation(model_id: str, input_payload: bytes) -> dict:
         raise FileNotFoundError(f"audio file not found: {audio_path}")
 
     _ensure_agent_import_path(agent_dir)
-    from engines.vocal_remover import MODEL_NAME, is_demucs_installed, separate_stems
+    from engines.vocal_remover import MODEL_NAME, is_model_ready, separate_stems
 
-    if not is_demucs_installed():
-        raise RuntimeError("Demucs is not installed. Run /api/tools/vocal-remover/prepare first.")
+    # gRPC 경로는 기존 Demucs 전용 계약을 유지 (payload 에 model 이 오면 그 모델 사용)
+    model = str(data.get("model") or "demucs").strip().lower()
+    if not is_model_ready(model):
+        raise RuntimeError(
+            f"Vocal model '{model}' is not ready. Run /api/tools/vocal-remover/prepare?model={model} first."
+        )
 
     progress_log: list[dict] = []
 
@@ -106,12 +110,13 @@ def run_vocal_separation(model_id: str, input_payload: bytes) -> dict:
         timeout_sec=timeout_sec,
         device=device,
         on_progress=on_progress,
+        model=model,
     )
 
     return {
         "status": "ok",
         "model_id": model_id or MODEL_NAME,
-        "engine": "demucs",
+        "engine": model,
         "instrumental_path": str(result.instrumental_path),
         "vocals_path": str(result.vocals_path),
         "export_path": str(result.export_path),

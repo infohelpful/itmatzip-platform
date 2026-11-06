@@ -59,6 +59,128 @@ const separationLoadingTrack = document.getElementById("separation-loading-track
 const separationLoadingBar = document.getElementById("separation-loading-bar");
 const dualWaveformSection = document.getElementById("dual-waveform-section");
 const dropZoneEl = document.querySelector(".drop-zone");
+const modelSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById("model-select"));
+const ensemblePicks = document.getElementById("ensemble-picks");
+const modelStatusEl = document.getElementById("model-status");
+const summaryModel = document.getElementById("summary-model");
+const ensembleInputs = /** @type {HTMLInputElement[]} */ (
+  Array.from(document.querySelectorAll('#ensemble-picks input[name="ensemble-model"]'))
+);
+
+const STORAGE_MODEL = "vocal-remover:model";
+const STORAGE_ENSEMBLE = "vocal-remover:ensemble-models";
+const MODEL_LABELS = {
+  mdxnet: "MDX-Net",
+  roformer: "Mel-Band RoFormer",
+  demucs: "Demucs v4",
+  ensemble: "앙상블",
+};
+
+function storageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode 등 — 선택은 이번 페이지에서만 유지 */
+  }
+}
+
+function selectedModel() {
+  return modelSelect?.value || "mdxnet";
+}
+
+function selectedEnsembleModels() {
+  return ensembleInputs.filter((el) => el.checked).map((el) => el.value);
+}
+
+/** 실제로 실행할 기본 모델 목록 */
+function selectionModels() {
+  return selectedModel() === "ensemble" ? selectedEnsembleModels() : [selectedModel()];
+}
+
+function selectionIsValid() {
+  return selectedModel() !== "ensemble" || selectedEnsembleModels().length >= 2;
+}
+
+function selectionQuery() {
+  const model = selectedModel();
+  let q = `model=${encodeURIComponent(model)}`;
+  if (model === "ensemble") q += `&ensemble=${encodeURIComponent(selectedEnsembleModels().join(","))}`;
+  return q;
+}
+
+function selectionLabel() {
+  if (selectedModel() !== "ensemble") return MODEL_LABELS[selectedModel()] || selectedModel();
+  const names = selectedEnsembleModels().map((m) => MODEL_LABELS[m] || m).join(" + ");
+  return `${window.itzT("model.ensemble", "앙상블").split("·")[0].trim()} (${names})`;
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  if (bytes >= 1e9) return `${(bytes / 1073741824).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(bytes / 1048576))} MB`;
+}
+
+function restoreModelSelection() {
+  const saved = storageGet(STORAGE_MODEL);
+  if (modelSelect && saved && Array.from(modelSelect.options).some((o) => o.value === saved)) {
+    modelSelect.value = saved;
+  }
+  const savedEnsemble = (storageGet(STORAGE_ENSEMBLE) || "").split(",").filter(Boolean);
+  if (savedEnsemble.length >= 2) {
+    for (const el of ensembleInputs) el.checked = savedEnsemble.includes(el.value);
+  }
+  syncModelPickerUi();
+}
+
+function syncModelPickerUi() {
+  if (ensemblePicks) ensemblePicks.hidden = selectedModel() !== "ensemble";
+  if (summaryModel) summaryModel.textContent = selectionLabel();
+}
+
+/** readiness.selection 결과를 모델 카드 상태 문구에 반영 */
+function renderModelStatus(selection) {
+  if (!modelStatusEl) return;
+  modelStatusEl.classList.remove("is-ok", "is-warn");
+  if (!selectionIsValid()) {
+    modelStatusEl.classList.add("is-warn");
+    modelStatusEl.textContent = window.itzT("ensembleNeedTwo", "앙상블은 모델을 2개 이상 선택해야 합니다.");
+    return;
+  }
+  if (!selection || typeof selection !== "object") {
+    modelStatusEl.textContent = "";
+    return;
+  }
+  const notes = [];
+  if (selection.ready) {
+    modelStatusEl.classList.add("is-ok");
+    notes.push(window.itzT("modelReady", "설치됨 · 바로 사용 가능"));
+  } else {
+    modelStatusEl.classList.add("is-warn");
+    const size = formatBytes(Number(selection.download_bytes) || 0);
+    notes.push(
+      window.ITZ_I18N?.tf?.("modelNeedsDl", { size }) ||
+        window.itzT("modelNeedsDl", "처음 분석할 때 약 {size} 다운로드").replace("{size}", size),
+    );
+  }
+  if (selection.runtime === "torch") {
+    notes.push(window.itzT("modelTorchNote", "PyTorch 실행 환경이 필요하며 NVIDIA GPU(CUDA)에서 권장합니다."));
+  }
+  if (selectedModel() === "ensemble") {
+    notes.push(window.itzT("ensembleTime", "선택한 모델을 차례로 실행하므로 처리 시간이 모델 수만큼 늘어납니다."));
+  }
+  modelStatusEl.textContent = notes.join(" ");
+}
+
+/** @type {Record<string, any> | null} */
+let lastSelection = null;
 
 const DOWNLOAD_PAGE = "download.html";
 const STORAGE_MR_URL = "vocal-remover:mr-download-url";
@@ -187,22 +309,28 @@ function setSeparationLoading(active, { title, step, message, progress } = {}) {
 function applySeparationStatusToOverlay(data) {
   const msg = data?.message || "";
   const pct = typeof data?.progress === "number" ? data.progress : undefined;
-  let step = msg || window.itzT("ui.demucsRun", "Demucs AI 분리 중…");
-  if (data?.phase === "running" && !msg) {
-    step = window.itzT("ui.demucsRun", "Demucs AI 분리 중…");
-  }
+  const step = msg || window.itzT("sepRunning", "AI 분리 중…");
   setSeparationLoading(true, {
     title: window.itzT("sepTitle", "보컬·MR 분리"),
     step,
-    message: pct != null ? window.itzT("ui.demucsStems", "음악(MR)과 보컬 스템을 생성하고 있습니다.") : window.itzT("ui.sepQueued", "에이전트에 분리 작업을 요청했습니다."),
+    message: pct != null ? stemsMessage() : window.itzT("ui.sepQueued", "에이전트에 분리 작업을 요청했습니다."),
     progress: pct,
   });
+}
+
+function stemsMessage() {
+  const model = selectionLabel();
+  return (
+    window.ITZ_I18N?.tf?.("sepStemsMsg", { model }) ||
+    window.itzT("sepStemsMsg", "{model}이(가) MR·보컬 스템을 생성합니다.").replace("{model}", model)
+  );
 }
 
 function syncSummaryFromDom() {
   if (summaryFormat && outputFormatSelect) {
     summaryFormat.textContent = outputFormatSelect.selectedOptions[0]?.textContent || "WAV";
   }
+  syncModelPickerUi();
 }
 
 let modelReadyKnown = false;
@@ -324,8 +452,10 @@ function updateActionButtons() {
   }
   if (btnStartSeparation) {
     // 모델 미준비여도 분석하기 클릭 시 refreshToolStatus() → prepareModel() 실행
-    btnStartSeparation.disabled = separationBusy || !hasAudioPath();
+    btnStartSeparation.disabled = separationBusy || !hasAudioPath() || !selectionIsValid();
   }
+  if (modelSelect) modelSelect.disabled = separationBusy;
+  for (const el of ensembleInputs) el.disabled = separationBusy;
   if (exportLink) {
     exportLink.classList.toggle("is-disabled", !isExportEnabled());
   }
@@ -345,7 +475,7 @@ async function parseApiError(res) {
 }
 
 async function getToolStatus() {
-  const res = await fetchAgent(`${getAgentOrigin()}/api/tools/vocal-remover/status`, {
+  const res = await fetchAgent(`${getAgentOrigin()}/api/tools/vocal-remover/status?${selectionQuery()}`, {
     method: "GET",
     cache: "no-store",
   });
@@ -376,34 +506,30 @@ async function prepareModel({ force = false } = {}) {
     step: "설치 시작",
     message: force
       ? "wheels_gpu.zip 분할 파일을 받아 CUDA PyTorch를 설치합니다. 수십 분 걸릴 수 있습니다."
-      : "Demucs·diffq·AI 모델을 설치합니다.",
+      : `${selectionLabel()} 실행 환경과 AI 모델을 설치합니다.`,
     progress: 5,
   });
 
   try {
-    let status = await fetchPrepareStatus().catch(() => null);
-    if (status && isPrepareInProgress(status.phase)) {
-      applyPrepareStatusToOverlay(status);
-    } else {
-      const prepareUrl = `${getAgentOrigin()}/api/tools/vocal-remover/prepare${force ? "?force=true" : ""}`;
-      const res = await fetchAgent(prepareUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        throw new Error(`prepare 실패: ${await parseApiError(res)}`);
+    // 다른 모델(예: 설치 현황 패널의 기본 MDX-Net) 준비가 먼저 돌고 있었다면,
+    // 그 작업이 끝난 뒤 이번 선택으로 한 번 더 준비를 요청합니다.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let status = await fetchPrepareStatus().catch(() => null);
+      if (status && isPrepareInProgress(status.phase)) {
+        applyPrepareStatusToOverlay(status);
+      } else {
+        status = await kickPrepare(force && attempt === 0);
       }
-      status = await res.json().catch(() => null);
-    }
 
-    if (status && typeof status === "object") {
-      applyPrepareStatusToOverlay(status);
-    }
+      if (status && typeof status === "object") {
+        applyPrepareStatusToOverlay(status);
+      }
 
-    await pollPrepareStatus({ force });
-    const data = await getToolStatus();
-    toolReady = !!data.model_ready;
+      await pollPrepareStatus({ force });
+      const data = await getToolStatus();
+      toolReady = !!data.model_ready;
+      if (toolReady) break;
+    }
     setModelReadySummary(toolReady);
     updateActionButtons();
     if (!toolReady) {
@@ -422,7 +548,7 @@ async function prepareModel({ force = false } = {}) {
 }
 
 async function kickPrepare(force = false) {
-  const prepareUrl = `${getAgentOrigin()}/api/tools/vocal-remover/prepare${force ? "?force=true" : ""}`;
+  const prepareUrl = `${getAgentOrigin()}/api/tools/vocal-remover/prepare?${selectionQuery()}${force ? "&force=true" : ""}`;
   const res = await fetchAgent(prepareUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -603,6 +729,10 @@ async function pollSeparateStatus() {
 
 async function runSeparationForFile(audioPath) {
   if (!audioPath) return;
+  if (!selectionIsValid()) {
+    renderModelStatus(lastSelection);
+    return;
+  }
   if (!toolReady) {
     const ok = await refreshToolStatus();
     if (!ok) return;
@@ -610,7 +740,8 @@ async function runSeparationForFile(audioPath) {
 
   syncSummaryFromDom();
   const format = outputFormatSelect?.value || "wav";
-  const body = { audio_path: audioPath, format };
+  const body = { audio_path: audioPath, format, model: selectedModel() };
+  if (selectedModel() === "ensemble") body.ensemble_models = selectedEnsembleModels();
   const dv = deviceSelect?.value || "auto";
   if (dv && dv !== "auto") body.device = dv;
 
@@ -624,7 +755,7 @@ async function runSeparationForFile(audioPath) {
   setSeparationLoading(true, {
     title: window.itzT("ui.sepTitle", "보컬·MR 분리"),
     step: window.itzT("ui.sepStart", "분리 작업 시작"),
-    message: window.itzT("ui.demucsStems", "Demucs AI가 MR·보컬 스템을 생성합니다."),
+    message: stemsMessage(),
     progress: 3,
   });
 
@@ -638,7 +769,7 @@ async function runSeparationForFile(audioPath) {
           setSeparationLoading(true, {
             title: "보컬·MR 분리",
             step: "에이전트에 요청 중",
-            message: "Demucs 분리 작업을 시작합니다.",
+            message: `${selectionLabel()} 분리 작업을 시작합니다.`,
             progress: 5,
           });
         }
@@ -805,13 +936,13 @@ async function pickLocalFile() {
 }
 
 /**
- * @param {{ agentOk?: boolean, wheels?: object, binaries?: object }} ctx
+ * @param {{ agentOk?: boolean, wheels?: object, binaries?: object, selection?: object }} ctx
  */
 function setComputeCapabilityBadge(ctx) {
   const el = document.getElementById("compute-capability");
   if (!el) return;
 
-  el.classList.remove("is-gpu", "is-cpu", "is-pending");
+  el.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
 
   if (ctx.agentOk === false) {
     el.classList.add("is-pending");
@@ -822,6 +953,7 @@ function setComputeCapabilityBadge(ctx) {
 
   const w = ctx.wheels && typeof ctx.wheels === "object" ? ctx.wheels : null;
   const b = ctx.binaries && typeof ctx.binaries === "object" ? ctx.binaries : null;
+  const sel = ctx.selection && typeof ctx.selection === "object" ? ctx.selection : null;
 
   if (!w && !b) {
     el.classList.add("is-pending");
@@ -830,16 +962,27 @@ function setComputeCapabilityBadge(ctx) {
     return;
   }
 
+  // MDX-Net(ONNX): DirectML 로 NVIDIA·AMD·Intel GPU 모두 사용, GPU 가 없으면 CPU
+  if (sel && sel.runtime === "onnx") {
+    el.classList.add("is-gpu");
+    el.textContent = "GPU · DirectML";
+    el.title =
+      "MDX-Net은 ONNX Runtime DirectML로 NVIDIA·AMD·Intel GPU를 사용하고, GPU를 쓸 수 없으면 CPU로 동작합니다.";
+    return;
+  }
+
   const gpuDetected = Boolean(w && w.gpu_detected);
   const cudaReady = Boolean(b && b.cuda_available);
-  const cudaMismatch = Boolean(w && w.cuda_torch_reinstall_needed);
-  const cpuMismatch = Boolean(w && w.cpu_torch_reinstall_needed);
+  // torch 가 아직 없으면 "재설치 필요"가 아니라 "설치 전" 상태
+  const torchInstalled = Boolean(b && b.demucs);
+  const cudaMismatch = torchInstalled && Boolean(w && w.cuda_torch_reinstall_needed);
+  const cpuMismatch = torchInstalled && Boolean(w && w.cpu_torch_reinstall_needed);
   const torchVer = w && w.torch_version ? String(w.torch_version) : "";
 
   if (cudaReady) {
     el.classList.add("is-gpu");
     el.textContent = window.itzT("gpuCudaOk", "GPU · CUDA 사용 가능");
-    el.title = `PyTorch ${torchVer} — Demucs 분리 시 GPU로 동작합니다.`;
+    el.title = `PyTorch ${torchVer} — RoFormer·Demucs 분리 시 GPU로 동작합니다.`;
     return;
   }
 
@@ -868,7 +1011,7 @@ function setComputeCapabilityBadge(ctx) {
 
   el.classList.add("is-cpu");
   el.textContent = window.itzT("cpuOnly", "CPU만 가능");
-  el.title = "NVIDIA GPU가 감지되지 않았습니다. Demucs는 CPU wheel로 설치·실행됩니다.";
+  el.title = "NVIDIA GPU가 감지되지 않았습니다. RoFormer·Demucs는 CPU로 동작해 오래 걸립니다 (MDX-Net 권장).";
 }
 
 async function runTorchWheelFixupIfNeeded(w, b) {
@@ -911,7 +1054,7 @@ async function checkVocalToolReadiness(knownOk) {
   if (knownOk === false) {
     setComputeCapabilityBadge({ agentOk: false });
     binEl.className = "bin-readiness is-warn";
-    binEl.textContent = window.itzT("binNoAgent", "에이전트 미연결 → FFmpeg · Demucs 점검 불가");
+    binEl.textContent = window.itzT("binNoAgent", "에이전트 미연결 → FFmpeg · AI 모델 점검 불가");
     return;
   }
 
@@ -919,25 +1062,33 @@ async function checkVocalToolReadiness(knownOk) {
   if (!agent.ok) {
     setComputeCapabilityBadge({ agentOk: false });
     binEl.className = "bin-readiness is-warn";
-    binEl.textContent = window.itzT("binNoAgent", "에이전트 미연결 → FFmpeg · Demucs 점검 불가");
+    binEl.textContent = window.itzT("binNoAgent", "에이전트 미연결 → FFmpeg · AI 모델 점검 불가");
+    return;
+  }
+
+  if (!selectionIsValid()) {
+    renderModelStatus(null);
+    toolReady = false;
+    updateActionButtons();
     return;
   }
 
   if (!toolReady) {
     binEl.className = "bin-readiness is-warn";
-    binEl.textContent = window.itzT("binChecking", "FFmpeg · Demucs · diffq 확인 중…");
+    binEl.textContent = window.itzT("binChecking", "FFmpeg · AI 모델 확인 중…");
     if (!_readinessCheckedOnce) {
       setSetupLoading(true, {
         title: window.itzT("envCheck", "환경 확인"),
-        message: window.itzT("envCheckMsg", "FFmpeg·Demucs 설치 여부를 확인하고 있습니다…"),
+        message: window.itzT("envCheckMsg", "FFmpeg·AI 모델 설치 여부를 확인하고 있습니다…"),
       });
     }
   }
 
+  const requestedQuery = selectionQuery();
   try {
     const data = await requestAgent({
       method: "GET",
-      path: "/api/tools/vocal-remover/readiness",
+      path: `/api/tools/vocal-remover/readiness?${requestedQuery}`,
       onProgress: (ev) => {
         if (ev.phase === "request") {
           binEl.textContent =
@@ -945,30 +1096,36 @@ async function checkVocalToolReadiness(knownOk) {
         }
       },
     });
+    // 응답 대기 중 사용자가 모델을 바꿨으면 이 결과는 버림 (change 핸들러가 다시 조회)
+    if (requestedQuery !== selectionQuery()) return;
     _readinessCheckedOnce = true;
     const b = data && typeof data === "object" ? data.binaries : null;
     const w = data && typeof data === "object" ? data.wheels : null;
-    setComputeCapabilityBadge({ agentOk: true, wheels: w, binaries: b });
+    const sel = data && typeof data === "object" ? data.selection : null;
+    lastSelection = sel;
+    renderModelStatus(sel);
+    setComputeCapabilityBadge({ agentOk: true, wheels: w, binaries: b, selection: sel });
     if (!b) {
       binEl.className = "bin-readiness is-err";
       binEl.textContent = window.itzT("binBadResp", "준비 상태 응답이 비정상입니다.");
       return;
     }
 
+    const usesTorch = sel?.runtime === "torch";
     const parts = [];
     if (b.ffmpeg && b.ffprobe) parts.push("FFmpeg");
     else parts.push("FFmpeg ✗");
-    if (b.demucs) parts.push("Demucs");
-    else parts.push("Demucs ✗");
-    if (b.diffq) parts.push("diffq");
-    else parts.push("diffq ✗");
-    if (b.cuda_available) parts.push("CUDA");
-    else if (w?.cuda_torch_reinstall_needed) parts.push(window.itzT("cudaReinstall", "CUDA 재설치 필요"));
-    else if (w?.cpu_torch_reinstall_needed) parts.push(window.itzT("cpuWheelNeed", "CPU wheel 교체 필요"));
+    parts.push(b.model_ready ? selectionLabel() : `${selectionLabel()} ✗`);
+    if (usesTorch && b.demucs) {
+      if (b.cuda_available) parts.push("CUDA");
+      else if (w?.cuda_torch_reinstall_needed) parts.push(window.itzT("cudaReinstall", "CUDA 재설치 필요"));
+      else if (w?.cpu_torch_reinstall_needed) parts.push(window.itzT("cpuWheelNeed", "CPU wheel 교체 필요"));
+    }
 
-    const allCore = b.ffmpeg && b.ffprobe && b.demucs && b.diffq;
+    const allCore = b.ffmpeg && b.ffprobe && b.runtime;
     const torchFixup =
-      allCore &&
+      usesTorch &&
+      b.demucs &&
       w &&
       ((w.cuda_torch_reinstall_needed && !b.cuda_available) || w.cpu_torch_reinstall_needed);
     if (torchFixup) {
@@ -1004,13 +1161,29 @@ async function checkVocalToolReadiness(knownOk) {
     binEl.textContent = window.ITZ_I18N?.tf?.("binPrepFail", { msg }) || `환경 준비 실패: ${msg}`;
     await showInstallAgentDialog({
       title: "Vocal Remover 환경을 준비하지 못했습니다",
-      bodyHtml: `<p>에이전트 PC에서 FFmpeg 또는 Demucs 설치에 실패했을 수 있습니다.</p><p><code>${escHtml(msg)}</code></p>`,
+      bodyHtml: `<p>에이전트 PC에서 FFmpeg 또는 AI 실행 환경 설치에 실패했을 수 있습니다.</p><p><code>${escHtml(msg)}</code></p>`,
       onPrimary: async () => {
         await checkVocalToolReadiness();
       },
     });
   }
 }
+
+function onModelSelectionChange() {
+  storageSet(STORAGE_MODEL, selectedModel());
+  if (selectedEnsembleModels().length >= 2) storageSet(STORAGE_ENSEMBLE, selectedEnsembleModels().join(","));
+  syncModelPickerUi();
+  toolReady = false;
+  modelReadyKnown = false;
+  if (summaryModelReady) summaryModelReady.textContent = window.itzT("ui.checkingShort", "확인 중");
+  renderModelStatus(null);
+  updateActionButtons();
+  void checkVocalToolReadiness(true);
+}
+
+modelSelect?.addEventListener("change", onModelSelectionChange);
+for (const el of ensembleInputs) el.addEventListener("change", onModelSelectionChange);
+restoreModelSelection();
 
 btnPickLocalFile?.addEventListener("click", () => void pickLocalFile());
 btnNewJob?.addEventListener("click", () => {
@@ -1090,6 +1263,8 @@ document.addEventListener("itz:lang-change", () => {
     binEl.textContent = window.itzT("waitPrep", "Vocal Remover · 환경 준비 대기");
   }
   if (exportLink && !exportLink.classList.contains("is-busy")) resetExportLinkUi();
+  syncModelPickerUi();
+  renderModelStatus(lastSelection);
   if (typeof dualPlayer.applyLang === "function") dualPlayer.applyLang();
 });
 

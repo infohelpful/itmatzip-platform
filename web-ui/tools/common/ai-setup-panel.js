@@ -1,7 +1,7 @@
 /** Shared installation status for AI tools. The agent remains the source of truth. */
 import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna26';
 import { getAgentDownloadHref } from './agent-install-ui.js?v=lna22';
-import { TOOLS, running, failed, setupRows, setupGatePhase } from './ai-setup-state.js?v=2';
+import { TOOLS, running, failed, setupRows, setupGatePhase } from './ai-setup-state.js?v=3';
 const number = v => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
 const mb = v => `${(v / 1048576).toFixed(0)} MB`;
 
@@ -111,6 +111,10 @@ export function mountAiSetupPanel(toolId) {
           const size = hasBytes ? `${mb(bytesDone)} / ${mb(bytesTotal)}` : '';
           const detail = row.state === 'running' ? [job?.step || job?.stage || job?.message || '설치 중', size, !hasBytes && overallPct !== null ? `전체 준비 ${Math.round(overallPct)}%` : ''].filter(Boolean).join(' · ') : row.state === 'failed' ? error || job?.error || '설치에 실패했습니다.' : '';
           addRow(row.label, row.state === 'ready' ? '완료' : row.state === 'running' ? '진행 중' : row.state === 'failed' ? '실패' : '대기', detail, null, pct, gateRows);
+        }
+        // 필수 항목은 끝났지만 사용자가 고른 추가 모델(예: Vocal Remover RoFormer)을 설치 중인 경우
+        if (running(job) && rows.length && rows.every(row => row.state === 'ready')) {
+          addRow('추가 구성요소', '진행 중', [job?.step || job?.stage || job?.message || '설치 중', job?.detail].filter(Boolean).join(' · '), null, overallPct, gateRows);
         }
       }
       for (const [label, optionalJob] of [['GPU 가속', optional.gpuJob], ['정밀 정렬 AI 모델', optional.alignmentJob]]) {

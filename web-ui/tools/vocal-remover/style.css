@@ -367,6 +367,60 @@ body {
   font-weight: 600;
 }
 
+/* AI 분리 모델 선택 */
+.ensemble-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.ensemble-picks[hidden] {
+  display: none;
+}
+
+.ensemble-picks legend {
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.option-card .ensemble-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-main, #fff);
+  cursor: pointer;
+}
+
+.ensemble-pick input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.model-status {
+  margin: 10px 0 0;
+  min-height: 1.4em;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.model-status.is-ok {
+  color: #22c55e;
+}
+
+.model-status.is-warn {
+  color: #f59e0b;
+}
+
 .mode-chips {
   display: flex;
   flex-wrap: wrap;
@@ -962,6 +1016,12 @@ html[data-theme="light"] .preset-label,
 html[data-theme="light"] .chips-label,
 html[data-theme="light"] .size-pill {
   color: #0f172a !important;
+}
+html[data-theme="light"] .model-status.is-ok {
+  color: #15803d;
+}
+html[data-theme="light"] .model-status.is-warn {
+  color: #b45309;
 }
 html[data-theme="light"] .chip:not(.active):not(.is-on),
 html[data-theme="light"] .preset-btn:not(.active) {

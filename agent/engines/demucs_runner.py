@@ -41,6 +41,26 @@ def _bootstrap_ffmpeg_dll_path() -> None:
 
 _bootstrap_ffmpeg_dll_path()
 
+
+def _allow_trusted_demucs_checkpoints() -> None:
+    """PyTorch 2.6+ 는 torch.load 기본값이 weights_only=True 라서 demucs 4.0.1 의
+    로컬 --repo 체크포인트(모델 객체 pickle, htdemucs.th)를 읽지 못합니다.
+    원격 경로(load_state_dict_from_url)는 원래 weights_only=False 로 동작했습니다.
+    로컬 가중치는 다운로드 시 공식 파일(955717e8-8726e21a.th)과 SHA-256 을 대조하므로
+    이 runner 프로세스에서만 기존 동작을 복원합니다."""
+    import torch
+
+    original = torch.load
+
+    def load(*args, **kwargs):
+        kwargs.setdefault("weights_only", False)
+        return original(*args, **kwargs)
+
+    torch.load = load
+
+
+_allow_trusted_demucs_checkpoints()
+
 import numpy as np
 import demucs.audio as demucs_audio
 from demucs.separate import main as demucs_main

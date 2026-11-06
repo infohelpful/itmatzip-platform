@@ -66,7 +66,8 @@ VOCAL_REMOVER_ROOT = Path(os.environ.get("APPDATA", Path.home() / ".itmatzip")) 
 MODEL_ROOT = VOCAL_REMOVER_ROOT / "models"
 WORKSPACE_ROOT = VOCAL_REMOVER_ROOT / "workspace"
 SUPPORTED_FORMATS = {"wav", "mp3", "flac"}
-MODEL_NAME = "mdx_extra_q"
+# Demucs CLI 모델 이름 (--repo 로 로컬 htdemucs.th 를 사용)
+MODEL_NAME = "htdemucs"
 ALLOWED_AUDIO_SUFFIXES = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wma", ".opus"}
 
 
@@ -185,15 +186,8 @@ def _stream_pipe_text(pipe, sink: list[str], on_line: Callable[[str], None] | No
             on_line(line)
 
 
-def _run_demucs_with_progress(
-    command: list[str],
-    timeout_sec: float,
-    on_progress: Callable[[float, str], None],
-    *,
-    duration_sec: float = 0.0,
-    device_label: str = "cpu",
-) -> tuple[int, str, str]:
-    """Demucs stderr tqdm + 경과 시간으로 12~88% 구간 진행률을 부드럽게 갱신합니다."""
+def runner_subprocess_env() -> dict[str, str]:
+    """Demucs/MDX/Roformer runner 공통 환경 (FFmpeg PATH · runtime site · agent PYTHONPATH)."""
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
     agent_root = agent_package_root()
@@ -213,6 +207,23 @@ def _run_demucs_with_progress(
             env["PYTHONPATH"] = agent_root_str + os.pathsep + existing_py_path
     else:
         env["PYTHONPATH"] = agent_root_str
+    env["ITMATZIP_AGENT_DIR"] = env.get("ITMATZIP_AGENT_DIR") or agent_root_str
+    return env
+
+
+def _run_demucs_with_progress(
+    command: list[str],
+    timeout_sec: float,
+    on_progress: Callable[[float, str], None],
+    *,
+    duration_sec: float = 0.0,
+    device_label: str = "cpu",
+    pct_range: tuple[float, float] = (12.0, 88.0),
+) -> tuple[int, str, str]:
+    """Demucs stderr tqdm + 경과 시간으로 pct_range 구간 진행률을 부드럽게 갱신합니다."""
+    env = runner_subprocess_env()
+    agent_root_str = str(agent_package_root())
+    lo_pct, hi_pct = pct_range
     kwargs: dict = {
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
@@ -232,14 +243,14 @@ def _run_demucs_with_progress(
     stages_done = 0
     stage_bar_pct = 0.0
     stage_estimate = 4
-    last_mapped = 12.0
+    last_mapped = lo_pct
     estimated_sec = _estimate_demucs_seconds(duration_sec, device_label)
     stop_heartbeat = threading.Event()
     started = time.monotonic()
 
     def publish(mapped: float, message: str) -> None:
         nonlocal last_mapped
-        mapped = max(last_mapped, min(88.0, mapped))
+        mapped = max(last_mapped, min(hi_pct, mapped))
         last_mapped = mapped
         on_progress(mapped, message)
 
@@ -257,7 +268,7 @@ def _run_demucs_with_progress(
             stage_bar_pct = bar_pct
         denom = max(stage_estimate, stages_done + 1)
         overall = min(0.99, (stages_done + stage_bar_pct / 100.0) / denom)
-        mapped = 12.0 + overall * 76.0
+        mapped = lo_pct + overall * (hi_pct - lo_pct)
         publish(mapped, f"Demucs AI 분리 중… ({int(overall * 100)}%, {device_label.upper()})")
 
     def consume_stdout() -> None:
@@ -275,7 +286,7 @@ def _run_demucs_with_progress(
         while not stop_heartbeat.wait(2.0):
             elapsed = time.monotonic() - started
             time_ratio = min(0.92, elapsed / estimated_sec)
-            mapped = 12.0 + time_ratio * 76.0
+            mapped = lo_pct + time_ratio * (hi_pct - lo_pct)
             publish(
                 mapped,
                 f"Demucs AI 분리 중… ({int(time_ratio * 100)}%, {device_label.upper()}, "
@@ -295,7 +306,7 @@ def _run_demucs_with_progress(
         out_thread.join(timeout=10.0)
         err_thread.join(timeout=10.0)
         hb.join(timeout=1.0)
-    publish(88.0, "Demucs 분리 완료, 결과 파일을 정리합니다…")
+    publish(hi_pct, "Demucs 분리 완료, 결과 파일을 정리합니다…")
     stdout_text = "".join(stdout_lines)
     stderr_text = "".join(stderr_lines)
     return proc.returncode, stdout_text, stderr_text
@@ -394,12 +405,11 @@ def is_demucs_installed() -> bool:
     return True
 
 
-def is_model_ready() -> bool:
-    if not is_demucs_installed() or not _is_diffq_installed():
-        return False
-    if needs_cuda_torch_reinstall() or needs_cpu_torch_reinstall():
-        return False
-    return True
+def is_model_ready(model: str | None = None, ensemble_models: list[str] | None = None) -> bool:
+    """선택한 모델(기본 MDX-Net) 또는 앙상블 구성의 런타임·가중치가 모두 준비됐는지."""
+    from engines import vocal_models
+
+    return vocal_models.is_selection_ready(vocal_models.resolve_models(model, ensemble_models))
 
 
 def _format_megabytes(num_bytes: int) -> str:
@@ -1728,46 +1738,26 @@ def install_dependencies(on_progress: PrepareProgressCallback | None = None) -> 
     return bundle
 
 
-def download_models(on_progress: PrepareProgressCallback | None = None) -> None:
-    activate_runtime_site_packages(RUNTIME_TOOL_ID)
-    if not is_demucs_installed():
-        raise RuntimeError("Demucs가 먼저 설치되어야 모델을 다운로드할 수 있습니다.")
+def download_models(
+    on_progress: PrepareProgressCallback | None = None,
+    models: list[str] | None = None,
+) -> None:
+    """선택 모델 가중치를 library-hub 에서 받아 SHA-256 검증 (기본: Demucs htdemucs)."""
+    from engines import vocal_models
 
-    # 에이전트 프로세스에 torch가 이미 로드된 뒤 재import 하면 docstring 충돌이 나므로
-    # 모델 다운로드는 별도 Python 프로세스에서 수행합니다.
-    script = (
-        engine_python_c_prefix(RUNTIME_TOOL_ID)
-        + "from demucs.pretrained import get_model\n"
-        + f"get_model({MODEL_NAME!r})\n"
-        + "print('MODEL_OK')\n"
-    )
-
-    def load_model() -> str:
-        proc = run_hidden(
-            [sys.executable, "-c", script],
-            capture_output=True,
-            text=True,
-            timeout=3600,
-        )
-        if proc.returncode != 0:
-            detail = (proc.stderr or proc.stdout or "unknown").strip()
-            raise RuntimeError(detail[-2000:] if len(detail) > 2000 else detail)
-        out = (proc.stdout or "").strip()
-        if "MODEL_OK" not in out:
-            raise RuntimeError(out[-1000:] or "model download produced no confirmation")
-        return out
-
-    try:
-        _run_with_heartbeat(
-            load_model,
-            on_progress,
-            progress_pct=86.0,
-            step="AI 모델 다운로드",
-            detail=f"Demucs pretrained · {MODEL_NAME}",
-            interval_sec=4.0,
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Demucs 모델 다운로드 중 오류가 발생했습니다: {exc}") from exc
+    targets = [m for m in (models or ["demucs"]) if not vocal_models.is_weights_ready(m)]
+    if not targets:
+        return
+    lo, hi = 84.0, 99.0
+    span = (hi - lo) / len(targets)
+    for idx, mid in enumerate(targets):
+        try:
+            vocal_models.download_weights(
+                mid, on_progress=on_progress, pct_range=(lo + span * idx, lo + span * (idx + 1))
+            )
+        except Exception as exc:
+            label = vocal_models.MODELS[mid].label
+            raise RuntimeError(f"{label} 모델 다운로드 중 오류가 발생했습니다: {exc}") from exc
 
 
 def _demucs_output_matches_stem(path: Path, selected_stem: str) -> bool:
@@ -1958,16 +1948,156 @@ def _separate_stems_via_grpc(
     )
 
 
+def _demucs_speed_hint(device_resolved: str) -> str:
+    torch_ver = installed_torch_version() or "?"
+    if device_resolved == "cuda":
+        return f"GPU(CUDA) · torch {torch_ver}"
+    if needs_cuda_torch_reinstall():
+        return f"CPU로 동작 · torch {torch_ver} (GPU wheel 미적용 — 준비를 다시 실행하세요)"
+    if needs_cpu_torch_reinstall():
+        return f"CPU로 동작 · torch {torch_ver} (CUDA wheel 잔존 — 준비를 다시 실행하세요)"
+    return f"CPU · torch {torch_ver}"
+
+
+def _separate_demucs_to_dir(
+    input_path: Path,
+    work_dir: Path,
+    *,
+    timeout_sec: float,
+    device: str | None,
+    report: Callable[[float, str], None],
+    pct_range: tuple[float, float],
+) -> tuple[Path, Path]:
+    """htdemucs(로컬 --repo) 2-stem 분리 → (vocals.wav, no_vocals.wav)."""
+    from engines import vocal_models
+
+    if not is_demucs_installed():
+        raise RuntimeError("Demucs가 설치되지 않았습니다. 먼저 /prepare를 호출하세요.")
+    if not vocal_models.is_weights_ready("demucs"):
+        raise RuntimeError("Demucs 모델(htdemucs)이 없습니다. 먼저 /prepare?model=demucs 를 호출하세요.")
+
+    output_dir = work_dir / "demucs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    used_input = _ensure_min_duration(input_path, min_seconds=6.0)
+    device_resolved = _resolve_device(device)
+    audio_duration = _get_duration_seconds(used_input) or _get_duration_seconds(input_path) or 0.0
+    report(pct_range[0], f"Demucs 분리를 시작합니다… ({_demucs_speed_hint(device_resolved)})")
+
+    runner = demucs_runner_script()
+    if not runner.is_file():
+        raise RuntimeError(f"demucs_runner.py 없음: {runner}")
+    if not Path(sys.executable).is_file():
+        raise RuntimeError(f"Python 실행 파일 없음: {sys.executable}")
+
+    command = [
+        sys.executable,
+        "-u",
+        str(runner),
+        "-n",
+        MODEL_NAME,
+        "--repo",
+        str(vocal_models.weights_dir("demucs")),
+        "-d",
+        device_resolved,
+        "--two-stems",
+        "vocals",
+        "--out",
+        str(output_dir),
+        str(used_input),
+    ]
+    jobs = _demucs_jobs_count()
+    if jobs > 1:
+        command.extend(["-j", str(jobs)])
+    overlap = os.environ.get("ITMATZIP_DEMUCS_OVERLAP", "").strip()
+    if overlap:
+        command.extend(["--overlap", overlap])
+    if os.environ.get("ITMATZIP_DEMUCS_NO_SPLIT", "").strip() in {"1", "true", "yes"}:
+        command.append("--no-split")
+
+    try:
+        returncode, stdout, stderr = _run_demucs_with_progress(
+            command,
+            timeout_sec,
+            report,
+            duration_sec=float(audio_duration),
+            device_label=device_resolved,
+            pct_range=pct_range,
+        )
+    finally:
+        try:
+            if used_input != input_path and used_input.exists():
+                used_input.unlink(missing_ok=True)
+        except Exception:
+            pass
+    if returncode != 0:
+        detail = _format_demucs_failure(returncode, stdout, stderr, command)
+        msg = "Demucs 분리 실행에 실패했습니다.\n" + detail
+        combined = stdout + stderr
+        if "AssertionError" in combined or "pad1d" in combined:
+            msg += "\n(짧은 오디오·모델 불일치일 수 있습니다. 더 긴 파일로 시도해 보세요.)"
+        raise RuntimeError(msg)
+
+    stem_key = used_input.stem
+    instrumental_wav = _find_demucs_output(output_dir, stem_key, "no_vocals")
+    vocals_wav = _find_demucs_output(output_dir, stem_key, "vocals")
+    if instrumental_wav is None or vocals_wav is None:
+        raise RuntimeError("Demucs 분리 결과(MR·보컬) 파일을 찾을 수 없습니다.")
+    return vocals_wav, instrumental_wav
+
+
+def _separate_single_to_dir(
+    mid: str,
+    input_path: Path,
+    work_dir: Path,
+    *,
+    timeout_sec: float,
+    device: str | None,
+    report: Callable[[float, str], None],
+    pct_range: tuple[float, float],
+) -> tuple[Path, Path]:
+    """모델 하나 실행 → (vocals.wav, instrumental.wav)."""
+    from engines import vocal_models
+
+    if mid == "demucs":
+        return _separate_demucs_to_dir(
+            input_path, work_dir, timeout_sec=timeout_sec, device=device, report=report, pct_range=pct_range
+        )
+    vocals_out = work_dir / f"{mid}-vocals.wav"
+    inst_out = work_dir / f"{mid}-instrumental.wav"
+    runner = vocal_models.separate_mdx if mid == "mdxnet" else vocal_models.separate_roformer
+    info = runner(
+        input_path,
+        vocals_out,
+        inst_out,
+        device=device,
+        timeout_sec=timeout_sec,
+        on_progress=report,
+        pct_range=pct_range,
+    )
+    provider = info.get("provider")
+    if provider:
+        report(pct_range[1], f"{vocal_models.MODELS[mid].label} 완료 ({provider})")
+    return vocals_out, inst_out
+
+
 def separate_stems(
     input_path: Path,
     output_format: str,
     timeout_sec: float = 3600.0,
     device: str | None = None,
     on_progress: Callable[[float, str], None] | None = None,
+    model: str | None = None,
+    ensemble_models: list[str] | None = None,
 ) -> SeparationResult:
-    """MR(no_vocals)와 보컬 스템을 항상 함께 추출합니다."""
+    """MR(반주)와 보컬 스템을 항상 함께 추출합니다. model: mdxnet | demucs | roformer | ensemble."""
+    from engines import vocal_models
 
-    if os.environ.get("ITMATZIP_USE_GRPC_INFERENCE", "").strip().lower() in {"1", "true", "yes"}:
+    models = vocal_models.resolve_models(model, ensemble_models)
+
+    if (
+        models == ["demucs"]
+        and os.environ.get("ITMATZIP_USE_GRPC_INFERENCE", "").strip().lower() in {"1", "true", "yes"}
+    ):
         return _separate_stems_via_grpc(
             input_path,
             output_format,
@@ -1987,94 +2117,71 @@ def separate_stems(
         raise ValueError(f"지원되지 않는 출력 포맷입니다: {output_format}")
     if not input_path.is_file():
         raise FileNotFoundError(f"입력 파일을 찾을 수 없습니다: {input_path}")
-    if not is_demucs_installed():
-        raise RuntimeError("Demucs가 설치되지 않았습니다. 먼저 /prepare를 호출하세요.")
+    for mid in models:
+        if not vocal_models.is_model_ready(mid):
+            label = vocal_models.MODELS[mid].label
+            raise RuntimeError(f"{label} 모델이 준비되지 않았습니다. 먼저 /prepare 를 호출하세요.")
 
     report(5.0, "분리 작업을 준비합니다…")
-    output_dir = WORKSPACE_ROOT / f"demucs-output-{int(time.time() * 1000)}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    used_input = _ensure_min_duration(input_path, min_seconds=6.0)
-    device_resolved = _resolve_device(device)
+    work_dir = vocal_models.job_dir()
+    started = time.monotonic()
 
-    audio_duration = _get_duration_seconds(used_input) or _get_duration_seconds(input_path) or 0.0
-    torch_ver = installed_torch_version() or "?"
-    if device_resolved == "cuda":
-        speed_hint = f"GPU(CUDA) · torch {torch_ver}"
-    elif needs_cuda_torch_reinstall():
-        speed_hint = (
-            f"CPU로 동작 · torch {torch_ver} (GPU wheel 미적용 — 준비를 다시 실행하세요)"
-        )
-    elif needs_cpu_torch_reinstall():
-        speed_hint = (
-            f"CPU로 동작 · torch {torch_ver} (CUDA wheel 잔존 — 준비를 다시 실행하세요)"
-        )
-    else:
-        speed_hint = f"CPU · torch {torch_ver}"
-    report(8.0, f"Demucs 분리를 시작합니다… ({speed_hint})")
-
-    runner = demucs_runner_script()
-    if not runner.is_file():
-        raise RuntimeError(f"demucs_runner.py 없음: {runner}")
-    if not Path(sys.executable).is_file():
-        raise RuntimeError(f"Python 실행 파일 없음: {sys.executable}")
-
-    command = [
-        sys.executable,
-        "-u",
-        str(runner),
-        "-n",
-        MODEL_NAME,
-        "-d",
-        device_resolved,
-        "--two-stems",
-        "vocals",
-        "--out",
-        str(output_dir),
-        str(used_input),
-    ]
-    jobs = _demucs_jobs_count()
-    if jobs > 1:
-        command.extend(["-j", str(jobs)])
-    overlap = os.environ.get("ITMATZIP_DEMUCS_OVERLAP", "").strip()
-    if overlap:
-        command.extend(["--overlap", overlap])
-    if os.environ.get("ITMATZIP_DEMUCS_NO_SPLIT", "").strip() in {"1", "true", "yes"}:
-        command.append("--no-split")
-
-    returncode, stdout, stderr = _run_demucs_with_progress(
-        command,
-        timeout_sec,
-        report,
-        duration_sec=float(audio_duration),
-        device_label=device_resolved,
-    )
-    if returncode != 0:
-        detail = _format_demucs_failure(returncode, stdout, stderr, command)
-        msg = "Demucs 분리 실행에 실패했습니다.\n" + detail
-        combined = stdout + stderr
-        if "AssertionError" in combined or "pad1d" in combined:
-            msg += "\n(짧은 오디오·모델 불일치일 수 있습니다. 더 긴 파일로 시도해 보세요.)"
-        raise RuntimeError(msg)
-
-    report(90.0, "분리 결과 파일을 찾는 중…")
-    stem_key = used_input.stem
-    instrumental_wav = _find_demucs_output(output_dir, stem_key, "no_vocals")
-    vocals_wav = _find_demucs_output(output_dir, stem_key, "vocals")
-    if instrumental_wav is None or vocals_wav is None:
-        raise RuntimeError("분리 결과(MR·보컬) 파일을 찾을 수 없습니다.")
-
-    report(93.0, "MR·보컬 wav 파일을 저장하는 중…")
-    stamp = int(time.time() * 1000)
-    inst_out = WORKSPACE_ROOT / f"{input_path.stem}-{stamp}-mr.wav"
-    voc_out = WORKSPACE_ROOT / f"{input_path.stem}-{stamp}-vocals.wav"
-    shutil.copy2(instrumental_wav, inst_out)
-    shutil.copy2(vocals_wav, voc_out)
+    def remaining_timeout() -> float:
+        return max(30.0, timeout_sec - (time.monotonic() - started))
 
     try:
-        if used_input != input_path and used_input.exists():
-            used_input.unlink(missing_ok=True)
-    except Exception:
-        pass
+        if len(models) == 1:
+            vocals_wav, instrumental_wav = _separate_single_to_dir(
+                models[0],
+                input_path,
+                work_dir,
+                timeout_sec=remaining_timeout(),
+                device=device,
+                report=report,
+                pct_range=(8.0, 88.0),
+            )
+        else:
+            names = " + ".join(vocal_models.MODELS[m].label for m in models)
+            report(6.0, f"앙상블 분리를 시작합니다 ({names})")
+            lo, hi = 8.0, 80.0
+            span = (hi - lo) / len(models)
+            sources: list[tuple[str, Path]] = []
+            for idx, mid in enumerate(models):
+                label = vocal_models.MODELS[mid].label
+
+                def step_report(pct: float, msg: str, _i=idx, _label=label) -> None:
+                    report(pct, f"[{_i + 1}/{len(models)} {_label}] {msg}")
+
+                vocals_part, _ = _separate_single_to_dir(
+                    mid,
+                    input_path,
+                    work_dir,
+                    timeout_sec=remaining_timeout(),
+                    device=device,
+                    report=step_report,
+                    pct_range=(lo + span * idx, lo + span * (idx + 1)),
+                )
+                sources.append((mid, vocals_part))
+            vocals_wav = work_dir / "ensemble-vocals.wav"
+            instrumental_wav = work_dir / "ensemble-instrumental.wav"
+            vocal_models.blend_ensemble(
+                input_path,
+                sources,
+                vocals_wav,
+                instrumental_wav,
+                timeout_sec=remaining_timeout(),
+                on_progress=report,
+                pct_range=(80.0, 88.0),
+            )
+
+        report(90.0, "MR·보컬 wav 파일을 저장하는 중…")
+        stamp = int(time.time() * 1000)
+        inst_out = WORKSPACE_ROOT / f"{input_path.stem}-{stamp}-mr.wav"
+        voc_out = WORKSPACE_ROOT / f"{input_path.stem}-{stamp}-vocals.wav"
+        shutil.copy2(instrumental_wav, inst_out)
+        shutil.copy2(vocals_wav, voc_out)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     report(96.0, "다운로드용 MR 파일을 변환하는 중…")
     export_path = _export_stem_wav(inst_out, output_format, f"{input_path.stem}-{stamp}-mr-export")
@@ -2096,6 +2203,8 @@ def _run_separation_job(
     output_format: str,
     timeout_sec: float,
     device: str | None,
+    model: str | None = None,
+    ensemble_models: list[str] | None = None,
 ) -> None:
     try:
         result = separate_stems(
@@ -2104,6 +2213,8 @@ def _run_separation_job(
             timeout_sec=timeout_sec,
             device=device,
             on_progress=lambda p, m: _set_separation_job("running", p, m),
+            model=model,
+            ensemble_models=ensemble_models,
         )
         _set_separation_job("ready", 100.0, "MR·보컬 분리가 완료되었습니다.", result)
     except subprocess.TimeoutExpired:
@@ -2117,6 +2228,8 @@ def start_separation_job(
     output_format: str,
     timeout_sec: float = 3600.0,
     device: str | None = None,
+    model: str | None = None,
+    ensemble_models: list[str] | None = None,
 ) -> SeparationJobStatus:
     global _separate_thread
 
@@ -2130,7 +2243,7 @@ def start_separation_job(
         _separate_job.message = "분리 작업을 시작합니다…"
         _separate_thread = threading.Thread(
             target=_run_separation_job,
-            args=(input_path, output_format, timeout_sec, device),
+            args=(input_path, output_format, timeout_sec, device, model, ensemble_models),
             daemon=True,
         )
         _separate_thread.start()
@@ -2143,5 +2256,8 @@ def separate_audio(
     output_format: str,
     timeout_sec: float = 3600.0,
     device: str | None = None,
+    model: str | None = None,
 ) -> Path:
-    return separate_stems(input_path, output_format, timeout_sec=timeout_sec, device=device).export_path
+    return separate_stems(
+        input_path, output_format, timeout_sec=timeout_sec, device=device, model=model
+    ).export_path

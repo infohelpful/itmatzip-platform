@@ -27,6 +27,7 @@ def _ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 from common.pick_local_file import behind_go_proxy, run_audio_pick_dialog
 from engines import silence_remover as silence_remover_engine
+from engines import vocal_models
 from engines import vocal_remover
 from runtime_paths import pick_audio_available
 
@@ -47,6 +48,7 @@ class VocalRemoverPrepareStatus(BaseModel):
     message: str | None = None
     step: str | None = None
     detail: str | None = None
+    models: list[str] = Field(default_factory=list, description="이 준비 작업이 설치하는 기본 모델 목록")
 
 
 class VocalRemoverSeparateBody(BaseModel):
@@ -54,6 +56,13 @@ class VocalRemoverSeparateBody(BaseModel):
     format: str = Field(..., description="다운로드용 MR 출력 포맷")
     timeout_sec: float = Field(3600.0, ge=10.0, le=7200.0)
     device: str | None = Field(None, description="실행 장치: 'cpu' 또는 'cuda' (미지정 시 자동)")
+    model: str = Field(
+        vocal_models.DEFAULT_MODEL,
+        description="mdxnet | demucs | roformer | ensemble",
+    )
+    ensemble_models: list[str] | None = Field(
+        None, description="model=ensemble 일 때 결합할 모델 (기본: roformer + mdxnet)"
+    )
 
 
 class VocalRemoverSeparateStatus(BaseModel):
@@ -116,7 +125,22 @@ def _get_prepare_state() -> VocalRemoverPrepareStatus:
             message=_prepare_state.message,
             step=_prepare_state.step,
             detail=_prepare_state.detail,
+            models=list(_prepare_state.models),
         )
+
+
+def _parse_selection(model: str | None, ensemble: str | list[str] | None) -> tuple[str, list[str]]:
+    """쿼리/바디 선택 → (정규화된 선택 id, 실행할 기본 모델 목록). 잘못된 값은 400."""
+    items: list[str] | None
+    if isinstance(ensemble, str):
+        items = [p.strip() for p in ensemble.split(",") if p.strip()] or None
+    else:
+        items = ensemble
+    try:
+        mid = vocal_models.normalize_model(model)
+        return mid, vocal_models.resolve_models(mid, items)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _prepare_phase_for_step(step: str) -> str:
@@ -126,12 +150,18 @@ def _prepare_phase_for_step(step: str) -> str:
     return "installing_dependencies"
 
 
-def _run_prepare() -> None:
+def _run_prepare(models: list[str]) -> None:
     def report(pct: float, step: str, detail: str = "") -> None:
         phase = _prepare_phase_for_step(step)
         message = f"{step} — {detail}" if detail else step
         _set_prepare_state(phase, pct, message, step=step, detail=detail or None)
 
+    def model_report(pct: float, step: str, detail: str = "") -> None:
+        message = f"{step} — {detail}" if detail else step
+        _set_prepare_state("downloading_models", pct, message, step=step, detail=detail or None)
+
+    runtimes = {vocal_models.MODELS[m].runtime for m in models}
+    labels = " + ".join(vocal_models.MODELS[m].label for m in models)
     try:
         _set_prepare_state(
             "installing_dependencies",
@@ -141,79 +171,52 @@ def _run_prepare() -> None:
             detail="없으면 다운로드합니다 (최초 1회)",
         )
         ensure_ffmpeg(download_timeout_sec=900.0)
-
-        _set_prepare_state(
-            "installing_dependencies",
-            5.0,
-            "Demucs·diffq 환경 확인 중…",
-            step="환경 확인",
-            detail="설치된 패키지·GPU·wheel 번들을 점검합니다",
-        )
         vocal_remover.ensure_workspace()
 
-        if not vocal_remover.is_demucs_installed():
-            installed = vocal_remover.install_dependencies(on_progress=report)
-            bundle_label = "GPU(CUDA)" if installed == "gpu" else "CPU"
-        elif vocal_remover.needs_cpu_torch_reinstall():
-            report(
-                8.0,
-                "CPU wheel 교체",
-                "PyTorch CUDA(+cu) 빌드를 CPU wheel로 교체합니다 (GPU 미감지)",
-            )
-            vocal_remover.reinstall_cpu_torch_wheels(on_progress=report)
-            bundle_label = "CPU"
-        elif vocal_remover.needs_cuda_torch_reinstall():
-            report(
-                8.0,
-                "CUDA wheel 교체",
-                "PyTorch CPU(+cpu) 빌드를 GPU(CUDA) wheel로 교체합니다",
-            )
-            vocal_remover.reinstall_cuda_torch_wheels(on_progress=report)
-            bundle_label = "GPU(CUDA)"
-        else:
-            bundle = vocal_remover.installed_torch_wheel_variant() or vocal_remover.select_wheel_bundle()
-            bundle_label = "GPU(CUDA)" if bundle == "gpu" else "CPU"
-        torch_ver = vocal_remover.installed_torch_version() or "?"
-        cuda_note = "CUDA 사용 가능" if vocal_remover.is_cuda_available() else "CPU 모드"
-        _set_prepare_state(
-            "installing_dependencies",
-            82.0,
-            f"라이브러리 설치 완료 ({bundle_label} · torch {torch_ver} · {cuda_note})",
-            step="라이브러리 설치 완료",
-            detail=f"{bundle_label} · torch {torch_ver} · {cuda_note}",
-        )
-
-        _set_prepare_state(
-            "downloading_models",
-            84.0,
-            "AI 모델 다운로드를 시작합니다…",
-            step="AI 모델",
-            detail=f"Demucs pretrained 모델({vocal_remover.MODEL_NAME})",
-        )
-
-        def model_report(pct: float, step: str, detail: str = "") -> None:
-            message = f"{step} — {detail}" if detail else step
-            _set_prepare_state("downloading_models", pct, message, step=step, detail=detail or None)
-
-        try:
-            vocal_remover.download_models(on_progress=model_report)
+        status_note = ""
+        if "torch" in runtimes:
+            status_note = _prepare_torch_runtime(report)
+        if "onnx" in runtimes:
+            onnx_range = (82.0, 85.0) if "torch" in runtimes else (5.0, 40.0)
             _set_prepare_state(
-                "ready",
-                100.0,
-                "Vocal Remover 준비가 완료되었습니다.",
-                step="완료",
-                detail=cuda_note,
+                "installing_dependencies",
+                onnx_range[0],
+                "ONNX 실행 환경 확인 중…",
+                step="ONNX 실행 환경",
+                detail="onnxruntime-directml · numpy (약 38 MB)",
             )
-            return
-        except NotImplementedError:
-            _set_prepare_state(
-                "ready",
-                100.0,
-                "Demucs 설치가 완료되었습니다. 모델은 첫 분리 시 자동으로 다운로드됩니다.",
-                step="완료",
-                detail="모델은 첫 분리 시 자동 다운로드",
-            )
-            return
+            vocal_models.install_onnx_runtime(on_progress=report, pct_range=onnx_range)
+            if not status_note:
+                status_note = "ONNX Runtime (DirectML GPU / CPU)"
+
+        weights_lo = 85.0 if "torch" in runtimes else 40.0
+        pending = [m for m in models if not vocal_models.is_weights_ready(m)]
+        if pending:
+            span = (99.0 - weights_lo) / len(pending)
+            for idx, mid in enumerate(pending):
+                _set_prepare_state(
+                    "downloading_models",
+                    weights_lo + span * idx,
+                    f"AI 모델 다운로드 · {vocal_models.MODELS[mid].label}",
+                    step="AI 모델",
+                    detail=f"{vocal_models.MODELS[mid].filename} "
+                    f"({vocal_models.MODELS[mid].size_bytes / 1048576:.0f} MB)",
+                )
+                vocal_models.download_weights(
+                    mid,
+                    on_progress=model_report,
+                    pct_range=(weights_lo + span * idx, weights_lo + span * (idx + 1)),
+                )
+
+        if not vocal_models.is_selection_ready(models):
+            raise RuntimeError("설치 후에도 모델 준비 상태를 확인하지 못했습니다.")
+        _set_prepare_state(
+            "ready",
+            100.0,
+            f"Vocal Remover 준비가 완료되었습니다. ({labels})",
+            step="완료",
+            detail=status_note or None,
+        )
     except Exception as exc:
         _set_prepare_state(
             "failed",
@@ -224,20 +227,79 @@ def _run_prepare() -> None:
         )
 
 
+def _prepare_torch_runtime(report) -> str:
+    """Demucs·Roformer 공용 PyTorch 런타임 설치/교정 (5~82%) → 상태 설명 문자열."""
+    _set_prepare_state(
+        "installing_dependencies",
+        5.0,
+        "PyTorch·Demucs 환경 확인 중…",
+        step="환경 확인",
+        detail="설치된 패키지·GPU·wheel 번들을 점검합니다",
+    )
+    if not vocal_remover.is_demucs_installed():
+        installed = vocal_remover.install_dependencies(on_progress=report)
+        bundle_label = "GPU(CUDA)" if installed == "gpu" else "CPU"
+    elif vocal_remover.needs_cpu_torch_reinstall():
+        report(8.0, "CPU wheel 교체", "PyTorch CUDA(+cu) 빌드를 CPU wheel로 교체합니다 (GPU 미감지)")
+        vocal_remover.reinstall_cpu_torch_wheels(on_progress=report)
+        bundle_label = "CPU"
+    elif vocal_remover.needs_cuda_torch_reinstall():
+        report(8.0, "CUDA wheel 교체", "PyTorch CPU(+cpu) 빌드를 GPU(CUDA) wheel로 교체합니다")
+        vocal_remover.reinstall_cuda_torch_wheels(on_progress=report)
+        bundle_label = "GPU(CUDA)"
+    else:
+        bundle = vocal_remover.installed_torch_wheel_variant() or vocal_remover.select_wheel_bundle()
+        bundle_label = "GPU(CUDA)" if bundle == "gpu" else "CPU"
+    torch_ver = vocal_remover.installed_torch_version() or "?"
+    cuda_note = "CUDA 사용 가능" if vocal_remover.is_cuda_available() else "CPU 모드"
+    note = f"{bundle_label} · torch {torch_ver} · {cuda_note}"
+    _set_prepare_state(
+        "installing_dependencies",
+        82.0,
+        f"라이브러리 설치 완료 ({note})",
+        step="라이브러리 설치 완료",
+        detail=note,
+    )
+    return note
+
+
 @router.get("/readiness")
-def get_readiness() -> dict[str, object]:
+def get_readiness(
+    model: str | None = Query(None, description="mdxnet(기본) | demucs | roformer | ensemble"),
+    ensemble: str | None = Query(None, description="model=ensemble 일 때 쉼표 구분 모델 목록"),
+) -> dict[str, object]:
     """
     Vocal Remover 페이지 진입 시 바이너리·모델 존재만 확인합니다.
     다운로드·설치는 POST /prepare 에서 수행합니다.
+    model 을 생략하면 기본(필수) 모델 MDX-Net 기준으로 판정합니다 — AI 설치 현황 패널이 사용.
     """
-    planned = vocal_remover.select_wheel_bundle()
-    installed = vocal_remover.installed_torch_wheel_variant()
+    selection, models = _parse_selection(model, ensemble)
+    needs_torch = any(vocal_models.MODELS[m].runtime == "torch" for m in models)
+    demucs_installed = vocal_remover.is_demucs_installed()
+    if needs_torch:
+        runtime_ready = vocal_models.is_torch_runtime_ready()
+        if any(vocal_models.MODELS[m].runtime == "onnx" for m in models):
+            runtime_ready = runtime_ready and vocal_models.is_onnx_runtime_installed()
+    else:
+        runtime_ready = vocal_models.is_onnx_runtime_installed()
     return {
         "ok": True,
         "tool": "vocal-remover",
+        "selection": {
+            "model": selection,
+            "models": models,
+            "runtime": "torch" if needs_torch else "onnx",
+            "ready": vocal_models.is_selection_ready(models),
+            "download_bytes": vocal_models.pending_download_bytes(models),
+        },
+        "models": vocal_models.model_catalog(),
+        "ensemble": {
+            "default_models": list(vocal_models.DEFAULT_ENSEMBLE),
+            "weights": vocal_models.ENSEMBLE_WEIGHTS,
+        },
         "wheels": {
-            "planned_bundle": planned,
-            "installed_bundle": installed,
+            "planned_bundle": vocal_remover.select_wheel_bundle(),
+            "installed_bundle": vocal_remover.installed_torch_wheel_variant(),
             "gpu_detected": vocal_remover.has_nvidia_gpu(),
             "cuda_torch_reinstall_needed": vocal_remover.needs_cuda_torch_reinstall(),
             "cpu_torch_reinstall_needed": vocal_remover.needs_cpu_torch_reinstall(),
@@ -246,21 +308,42 @@ def get_readiness() -> dict[str, object]:
         "binaries": {
             "ffmpeg": _ffmpeg_available(),
             "ffprobe": _ffprobe_available(),
-            "demucs": vocal_remover.is_demucs_installed(),
+            "runtime": runtime_ready,
+            "onnxruntime": vocal_models.is_onnx_runtime_installed(),
+            "demucs": demucs_installed,
             "diffq": vocal_remover._is_diffq_installed(),
-            "model_ready": vocal_remover.is_model_ready(),
-            "cuda_available": vocal_remover.is_cuda_available(),
+            "model_ready": vocal_models.is_selection_ready(models),
+            "cuda_available": vocal_remover.is_cuda_available() if demucs_installed else False,
+        },
+    }
+
+
+@router.get("/models")
+def get_models() -> dict[str, object]:
+    return {
+        "ok": True,
+        "default_model": vocal_models.DEFAULT_MODEL,
+        "models": vocal_models.model_catalog(),
+        "ensemble": {
+            "default_models": list(vocal_models.DEFAULT_ENSEMBLE),
+            "weights": vocal_models.ENSEMBLE_WEIGHTS,
         },
     }
 
 
 @router.get("/status")
-def get_status() -> dict[str, object]:
+def get_status(
+    model: str | None = Query(None),
+    ensemble: str | None = Query(None),
+) -> dict[str, object]:
+    selection, models = _parse_selection(model, ensemble)
     return {
         "ok": True,
         "tool": "vocal-remover",
+        "model": selection,
+        "models": models,
         "demucs_installed": vocal_remover.is_demucs_installed(),
-        "model_ready": vocal_remover.is_model_ready(),
+        "model_ready": vocal_models.is_selection_ready(models),
         "supported_formats": ["wav", "mp3", "flac"],
     }
 
@@ -320,19 +403,29 @@ async def post_waveform_peaks(body: VocalRemoverWaveformPeaksBody, _: VocalRemov
 @router.post("/prepare")
 def post_prepare(
     force: bool = Query(False, description="이미 ready여도 CUDA wheel 등 재준비 강제"),
+    model: str | None = Query(None, description="mdxnet(기본) | demucs | roformer | ensemble"),
+    ensemble: str | None = Query(None, description="model=ensemble 일 때 쉼표 구분 모델 목록"),
 ) -> VocalRemoverPrepareStatus:
     global _prepare_thread
 
+    _, models = _parse_selection(model, ensemble)
+    needs_torch = any(vocal_models.MODELS[m].runtime == "torch" for m in models)
     with _prepare_lock:
         if _prepare_thread is not None and _prepare_thread.is_alive():
             _prepare_state.detail = (
-                "GPU wheel 다운로드·설치가 이미 진행 중입니다. 진행률을 계속 갱신합니다."
+                "다운로드·설치가 이미 진행 중입니다. 진행률을 계속 갱신합니다."
             )
             return _get_prepare_state()
 
-        cuda_fixup = vocal_remover.needs_cuda_torch_reinstall()
-        cpu_fixup = vocal_remover.needs_cpu_torch_reinstall()
-        if _prepare_state.phase == "ready" and not force and not cuda_fixup and not cpu_fixup:
+        cuda_fixup = needs_torch and vocal_remover.needs_cuda_torch_reinstall()
+        cpu_fixup = needs_torch and vocal_remover.needs_cpu_torch_reinstall()
+        if not force and not cuda_fixup and not cpu_fixup and vocal_models.is_selection_ready(models):
+            _prepare_state.phase = "ready"
+            _prepare_state.progress = 100.0
+            _prepare_state.message = "Vocal Remover 준비가 완료되었습니다."
+            _prepare_state.step = "완료"
+            _prepare_state.detail = None
+            _prepare_state.models = list(models)
             return _get_prepare_state()
 
         if cpu_fixup:
@@ -344,12 +437,16 @@ def post_prepare(
             _prepare_state.step = "설치 시작"
             _prepare_state.detail = "wheels_gpu.zip 분할 파일을 다운로드합니다"
         else:
-            _prepare_state.message = "Vocal Remover 준비를 시작합니다…"
+            labels = " + ".join(vocal_models.MODELS[m].label for m in models)
+            _prepare_state.message = f"Vocal Remover 준비를 시작합니다… ({labels})"
             _prepare_state.step = "설치 시작"
-            _prepare_state.detail = "Demucs·diffq·PyTorch wheel 준비"
+            _prepare_state.detail = (
+                "PyTorch·AI 모델 준비" if needs_torch else "ONNX 실행 환경·AI 모델 준비 (약 105 MB)"
+            )
         _prepare_state.phase = "installing_dependencies"
         _prepare_state.progress = 5.0
-        _prepare_thread = threading.Thread(target=_run_prepare, daemon=True)
+        _prepare_state.models = list(models)
+        _prepare_thread = threading.Thread(target=_run_prepare, args=(list(models),), daemon=True)
         _prepare_thread.start()
 
     return _get_prepare_state()
@@ -385,14 +482,21 @@ def post_separate(body: VocalRemoverSeparateBody, _: VocalRemoverReady) -> Vocal
     if not path.is_file():
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {path}")
 
-    if not vocal_remover.is_demucs_installed():
-        raise HTTPException(status_code=503, detail="Demucs 패키지가 설치되지 않았습니다. 먼저 /prepare를 호출하세요.")
+    selection, models = _parse_selection(body.model, body.ensemble_models)
+    if not vocal_models.is_selection_ready(models):
+        labels = ", ".join(vocal_models.MODELS[m].label for m in models if not vocal_models.is_model_ready(m))
+        raise HTTPException(
+            status_code=503,
+            detail=f"모델이 준비되지 않았습니다 ({labels}). 먼저 /prepare?model={selection} 를 호출하세요.",
+        )
 
     job = vocal_remover.start_separation_job(
         path,
         body.format,
         timeout_sec=body.timeout_sec,
         device=body.device,
+        model=selection,
+        ensemble_models=models if selection == vocal_models.ENSEMBLE_ID else None,
     )
     return _separate_status_payload(job)
 
