@@ -1,4 +1,7 @@
-"""WhisperX precise-alignment runtime: a private Python with torch 2.8 (CPU) plus the Korean model.
+"""WhisperX precise-alignment runtime: a private Python with torch 2.8 plus the Korean model.
+
+torch is the CPU build, replaced by the CUDA 12.8 build when an NVIDIA GPU is present, so alignment
+runs on the GPU like transcription does (an 11-minute video: ~70s on CPU).
 
 The desktop app runs `align_worker.py` in a separate interpreter given by AUTOSUBTITLE_ALIGN_PYTHON.
 Here that interpreter is built on first use:
@@ -28,6 +31,10 @@ from . import hub_mirror, paths
 
 LOCK_FILE = paths.SIDECAR_DIR / "requirements-alignment-cpu-win.lock.txt"
 TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu128"
+# Same versions as the lock file, CUDA 12.8 builds (CUDA libraries are inside the torch wheel on Windows).
+TORCH_CUDA_PINS = ("torch==2.8.0+cu128", "torchaudio==2.8.0+cu128", "torchvision==0.23.0+cu128")
+TORCH_CUDA_HINT_MB = 3500
 MODEL_ID = "kresnik/wav2vec2-large-xlsr-korean"
 MODEL_BYTES = 1_267_280_408  # model.safetensors + JSON configs at the pinned revision
 RUNTIME_HINT_MB = 1400
@@ -102,10 +109,48 @@ def ready_python() -> str | None:
     return python if python and model_present() else None
 
 
+_nvidia: bool | None = None
+
+
+def nvidia_present() -> bool:
+    """NVIDIA GPU with a working driver (cached; nvidia-smi ships with the driver)."""
+    global _nvidia
+    if _nvidia is None:
+        try:
+            proc = subprocess.run(["nvidia-smi", "-L"], capture_output=True, timeout=10, creationflags=_NO_WINDOW)
+            _nvidia = proc.returncode == 0 and b"GPU" in proc.stdout
+        except (OSError, subprocess.TimeoutExpired):
+            _nvidia = False
+    return _nvidia
+
+
+def _marker() -> dict[str, Any]:
+    try:
+        info = json.loads((paths.align_runtime_dir() / _MARKER).read_text(encoding="utf-8"))
+        return info if isinstance(info, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def runtime_device() -> str:
+    """Which torch build the runtime holds: 'cuda' or 'cpu'."""
+    return "cuda" if _marker().get("device") == "cuda" else "cpu"
+
+
+def device() -> str:
+    """Device to align on: the GPU when the CUDA build is installed and an NVIDIA GPU is present."""
+    return "cuda" if runtime_device() == "cuda" and nvidia_present() else "cpu"
+
+
 def status() -> dict[str, Any]:
-    return {"installed": python_path() is not None, "modelPresent": model_present(),
-            "ready": python_path() is not None and model_present(),
-            "downloadHintMb": RUNTIME_HINT_MB + round(MODEL_BYTES / 1024**2)}
+    installed = python_path() is not None
+    gpu = nvidia_present()
+    hint = RUNTIME_HINT_MB + round(MODEL_BYTES / 1024**2) + (TORCH_CUDA_HINT_MB if gpu else 0)
+    return {"installed": installed, "modelPresent": model_present(),
+            "ready": installed and model_present(),
+            "downloadHintMb": hint, "gpuPresent": gpu, "device": device() if installed else None,
+            "gpuUpgrade": installed and gpu and runtime_device() != "cuda",
+            "gpuUpgradeHintMb": TORCH_CUDA_HINT_MB}
 
 
 # -- install -------------------------------------------------------------------------------
@@ -199,9 +244,39 @@ def _strip_build_only_files(python: Path) -> int:
     return freed
 
 
-def _verify(python: Path) -> None:
+TORCH_CPU_PINS = ("torch==2.8.0+cpu", "torchaudio==2.8.0+cpu", "torchvision==0.23.0+cpu")
+
+
+def _install_cuda_torch(python: Path, start: float, end: float, index: str = TORCH_CUDA_INDEX,
+                        pins: tuple[str, ...] = TORCH_CUDA_PINS) -> None:
+    """Swap the torch build in place (same versions, packages only; nothing else changes)."""
+    if _is_embeddable(python):
+        cmd = [str(_base_python()), "-m", "pip", "install", "--target", str(_site_packages(python)), "--upgrade"]
+    else:
+        cmd = [str(python), "-m", "pip", "install"]
+    cmd += ["--no-warn-script-location", "--disable-pip-version-check", "--only-binary=:all:", "--no-deps",
+            "--force-reinstall", "--index-url", index, *pins]
+    _set(pct=start, stage=f"GPU(CUDA)용 torch 내려받는 중 (약 {TORCH_CUDA_HINT_MB / 1000:.1f}GB)")
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            errors="replace", creationflags=_NO_WINDOW)
+    tail: list[str] = []
+    assert proc.stdout
+    for line in proc.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        tail = (tail + [line])[-20:]
+        if line.startswith("Installing collected packages"):
+            _set(pct=start + (end - start) * 0.8, stage="GPU(CUDA)용 torch 설치 중")
+    if proc.wait() != 0:
+        raise RuntimeError("GPU용 torch 설치 실패: " + (tail[-1] if tail else f"exit {proc.returncode}"))
+
+
+def _verify(python: Path, cuda: bool = False) -> None:
     check = ("import torch, whisperx, forced_align; "
-             "assert torch.__version__ == '2.8.0+cpu', torch.__version__")
+             + ("assert torch.__version__ == '2.8.0+cu128', torch.__version__; "
+                "assert torch.cuda.is_available(), 'CUDA not available'" if cuda else
+                "assert torch.__version__ == '2.8.0+cpu', torch.__version__"))
     proc = subprocess.run([str(python), "-c", check], capture_output=True, timeout=600, creationflags=_NO_WINDOW,
                           env={**os.environ, "PYTHONUTF8": "1"})
     if proc.returncode != 0:
@@ -253,24 +328,51 @@ def _download_model(python: Path) -> None:
         raise RuntimeError("정렬 모델 다운로드 실패: " + proc.stderr.read().decode("utf-8", "replace").strip()[-400:])
 
 
+def _write_marker(root: Path, device_name: str, freed: int) -> None:
+    (root / _MARKER).write_text(json.dumps({"sidecarDir": str(paths.SIDECAR_DIR), "strippedBytes": freed,
+                                            "revision": model_revision(), "device": device_name}), encoding="utf-8")
+
+
+def _try_cuda(python: Path, start: float, end: float) -> bool:
+    """CUDA torch on an NVIDIA PC. On failure the CPU build is put back and alignment stays on the CPU."""
+    try:
+        _install_cuda_torch(python, start, end)
+        _strip_build_only_files(python)
+        _set(pct=end, stage="GPU 동작 확인 중")
+        _verify(python, cuda=True)
+        return True
+    except Exception as error:  # noqa: BLE001 - CPU keeps working
+        _set(stage=f"GPU용 설치 실패, CPU로 정렬합니다: {str(error)[:120]}")
+        _install_cuda_torch(python, end, end, TORCH_CPU_INDEX, TORCH_CPU_PINS)
+        _strip_build_only_files(python)
+        return False
+
+
 def _run_install() -> None:
     root = paths.align_runtime_dir()
     try:
         root.mkdir(parents=True, exist_ok=True)
+        python = _runtime_python(root)
+        if python_path() is not None and runtime_device() == "cpu" and nvidia_present():
+            # Existing CPU runtime on a PC with an NVIDIA GPU: swap torch only.
+            ok = _try_cuda(python, 5.0, 90.0)
+            _write_marker(root, "cuda" if ok else "cpu", 0)
+            _set(pct=100.0, stage="완료" if ok else "완료 (CPU)", state="done")
+            return
         (root / _MARKER).unlink(missing_ok=True)
         _set(pct=1.0, stage="정렬용 Python 준비")
         python = _create_interpreter(root)
         _write_sidecar_pth(python)
         _set(pct=3.0, stage="패키지 내려받는 중")
         _pip_install(python)
-        _set(pct=68.0, stage="설치 정리 중")
+        _set(pct=40.0, stage="설치 정리 중")
         freed = _strip_build_only_files(python)
-        _set(pct=70.0, stage="설치 확인 중")
+        _set(pct=42.0, stage="설치 확인 중")
         _verify(python)
+        device_name = "cuda" if nvidia_present() and _try_cuda(python, 43.0, 68.0) else "cpu"
         if not model_present():
             _download_model(python)
-        (root / _MARKER).write_text(json.dumps({"sidecarDir": str(paths.SIDECAR_DIR), "strippedBytes": freed,
-                                                "revision": model_revision()}), encoding="utf-8")
+        _write_marker(root, device_name, freed)
         _set(pct=100.0, stage="완료", state="done")
     except Exception as error:  # noqa: BLE001 - reported to the UI
         _set(state="error", error=str(error))

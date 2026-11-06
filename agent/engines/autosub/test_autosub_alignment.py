@@ -32,6 +32,18 @@ class AlignmentRuntimeTests(unittest.TestCase):
         (self.root / "ready.json").write_text(json.dumps({"sidecarDir": sidecar_dir}), encoding="utf-8")
         return python
 
+    def test_device_follows_installed_torch_build_and_gpu(self):
+        self._fake_embedded_runtime(str(paths.SIDECAR_DIR))
+        with mock.patch.object(alignment, "nvidia_present", return_value=True):
+            self.assertEqual(alignment.device(), "cpu")  # CPU build installed
+            self.assertTrue(alignment.status()["gpuUpgrade"])
+            info = json.loads((self.root / "ready.json").read_text(encoding="utf-8"))
+            (self.root / "ready.json").write_text(json.dumps({**info, "device": "cuda"}), encoding="utf-8")
+            self.assertEqual(alignment.device(), "cuda")
+            self.assertFalse(alignment.status()["gpuUpgrade"])
+        with mock.patch.object(alignment, "nvidia_present", return_value=False):
+            self.assertEqual(alignment.device(), "cpu")  # CUDA build but no GPU (card removed): CPU
+
     def test_revision_comes_from_the_sidecar(self):
         self.assertRegex(alignment.model_revision(), r"^[0-9a-f]{40}$")
 
