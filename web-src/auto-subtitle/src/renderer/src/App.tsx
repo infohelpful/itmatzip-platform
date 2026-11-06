@@ -1965,14 +1965,14 @@ export default function App(): ReactElement {
       }
       wordHighlightPrevCardRef.current = ai
 
-      const prevActiveCard = activeSubtitleCardIdxRef.current
-      if (prevActiveCard !== null && prevActiveCard !== ai) {
-        document.getElementById(`subtitle-card-${prevActiveCard}`)?.classList.remove('subtitle-card--active')
-      }
+      // Clear every marked card, not only the remembered index: after a split or merge the virtual
+      // rows are re-numbered and the class would stay on a card that is now a different line.
+      const activeCardEl = ai !== null ? document.getElementById(`subtitle-card-${ai}`) : null
+      document.querySelectorAll('.subtitle-card--active').forEach((el) => {
+        if (el !== activeCardEl) el.classList.remove('subtitle-card--active')
+      })
       activeSubtitleCardIdxRef.current = ai
-      if (ai !== null) {
-        document.getElementById(`subtitle-card-${ai}`)?.classList.add('subtitle-card--active')
-      }
+      activeCardEl?.classList.add('subtitle-card--active')
 
       if (!playing) {
         wordHighlightActiveChipElRef.current?.classList.remove('subtitle-word-chip--active')
@@ -2714,6 +2714,12 @@ export default function App(): ReactElement {
     },
     [dispatchSeekIntent]
   )
+
+  // Rows are re-numbered by splits/merges; re-mark the playhead card once the list has re-rendered.
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => commitEditSecToUi(playheadEditSecRef.current))
+    return () => window.cancelAnimationFrame(id)
+  }, [subtitles, commitEditSecToUi])
 
   const seekToSubtitleStartFromNavigate = useCallback(
     (startSec: number) => {
@@ -6852,7 +6858,7 @@ export default function App(): ReactElement {
   }, []), [subtitles])
 
   return (
-    <div className={`app app--subtitle-only editor-tab-${editorTab}`}>
+    <div className={`app app--subtitle-only editor-tab-${editorTab}${isPlaying ? ' is-playing' : ''}`}>
       {projectMediaNotice ? <div className="app-gpu-install-banner" role="status" data-testid="project-media-notice">
         <p className="app-gpu-install-banner-text">{projectMediaNotice}</p>
         {!videoPath && projectMediaRef.current.path ? <button type="button" disabled={projectIoBusy} onClick={relinkProjectMedia}>원본 영상 연결</button> : null}
