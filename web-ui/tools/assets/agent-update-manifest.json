@@ -1,11 +1,11 @@
 {
-  "version": "1.7.14",
-  "published_at": "2026-11-07",
-  "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.14/itmatzip-agent.msi",
-  "sha256": "0a4ab610a7fda0220774a1dd7d18c99ba413821dbd8ef4b9d2a9caefdb2125cd",
-  "mandatory": false,
-  "release_notes": "새로 설치한 PC에서 트레이 아이콘이 실행되지 않던 문제 수정 (GPU 정렬·AI 교정 포함)",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.14/itmatzip-agent.msi",
-  "msi_sha256": "0a4ab610a7fda0220774a1dd7d18c99ba413821dbd8ef4b9d2a9caefdb2125cd"
+    "version":  "1.7.15",
+    "published_at":  "2026-11-07",
+    "package_type":  "msi",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.15/itmatzip-agent.msi",
+    "sha256":  "0159697a8268d5be319c38d08c483064f89008dd2802960e4449a83f5c322daa",
+    "mandatory":  false,
+    "release_notes":  "Vocal Remover AI 모델 선택(MDX-Net·RoFormer·Demucs·앙상블) 추가, 기본 설치 약 100MB로 축소",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.15/itmatzip-agent.msi",
+    "msi_sha256":  "0159697a8268d5be319c38d08c483064f89008dd2802960e4449a83f5c322daa"
 }
