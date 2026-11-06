@@ -46,7 +46,10 @@ func initPaths() {
 		settingsRootPath = `C:\ProgramData\itmatzip-agent`
 	}
 
-	modelsRootPath = filepath.Join(installRootPath, "models")
+	// Models are downloaded at run time by the (non-elevated) tray, so they live in the data folder that the
+	// installer makes writable for Users. Program Files is read-only for them: a fresh install has no
+	// install\models folder and creating it failed, which stopped the tray from starting at all.
+	modelsRootPath = filepath.Join(settingsRootPath, "models")
 	engineRootPath = filepath.Join(installRootPath, "engine")
 	logsRootPath = filepath.Join(settingsRootPath, "logs")
 }
