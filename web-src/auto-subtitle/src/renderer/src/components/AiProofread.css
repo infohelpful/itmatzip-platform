@@ -59,3 +59,14 @@
 .ai-btn--primary { background: #0f6f80; border-color: #13b6d4; color: #fff; }
 .ai-btn--primary:hover:not(:disabled) { background: #12839a; }
 .ai-link { align-self: flex-start; padding: 0; border: 0; background: none; color: #e78a8a; font-size: 12px; cursor: pointer; }
+.ai-seg { display: flex; gap: 6px; }
+.ai-seg-btn {
+  flex: 1 1 0; height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  border: 1px solid #42494b; border-radius: 6px; background: #1b2122; color: #c5d1d4; font-size: 13px; cursor: pointer;
+}
+.ai-seg-btn.is-on { border-color: #13b6d4; background: #12313a; color: #fff; font-weight: 600; }
+.ai-seg-btn:disabled { opacity: .5; cursor: default; }
+.ai-dot { width: 7px; height: 7px; border-radius: 50%; background: #56636a; }
+.ai-dot.is-ok { background: #3ecf8e; }
+.ai-inline-link { padding: 0; border: 0; background: none; color: #65d7ed; font: inherit; text-decoration: underline; cursor: pointer; }
+select.ai-input { height: 34px; }

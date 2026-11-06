@@ -1,4 +1,4 @@
-"""AI proofreading: request/answer validation, key storage, and the job flow with a fake Claude client."""
+"""AI proofreading: request/answer validation, key storage, and the job flow with fake Claude/ChatGPT clients."""
 from __future__ import annotations
 
 import json
@@ -72,8 +72,7 @@ class AnswerTests(unittest.TestCase):
         self.assertEqual(out["lineStarts"], [0, 2])
 
 
-@unittest.skipUnless(sys.platform == "win32", "DPAPI is Windows-only")
-class SettingsTests(unittest.TestCase):
+class _SettingsCase(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -82,23 +81,56 @@ class SettingsTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def test_key_round_trip_is_encrypted_and_never_in_status(self):
-        key = "sk-ant-api03-" + "x" * 40 + "AbCd"
-        ai_settings.set_api_key(key)
-        self.assertNotIn(key, self.path.read_text(encoding="utf-8"))
-        self.assertEqual(ai_settings.api_key(), key)
+
+@unittest.skipUnless(sys.platform == "win32", "DPAPI is Windows-only")
+class SettingsTests(_SettingsCase):
+    def test_keys_per_provider_are_encrypted_and_never_in_status(self):
+        claude = "sk-ant-api03-" + "x" * 40 + "AbCd"
+        gpt = "sk-proj-" + "y" * 40 + "WxYz"
+        ai_settings.set_api_key("claude", claude)
+        ai_settings.set_api_key("openai", gpt)
+        raw = self.path.read_text(encoding="utf-8")
+        self.assertNotIn(claude, raw)
+        self.assertNotIn(gpt, raw)
+        self.assertEqual(ai_settings.api_key("claude"), claude)
+        self.assertEqual(ai_settings.api_key("openai"), gpt)
         status = ai_settings.status()
-        self.assertEqual(status, {"configured": True, "keyHint": "AbCd", "glossary": []})
-        self.assertNotIn(key, json.dumps(status))
-        ai_settings.delete_api_key()
-        self.assertIsNone(ai_settings.api_key())
-        self.assertFalse(ai_settings.status()["configured"])
+        self.assertEqual(status["provider"], "claude")
+        self.assertEqual(status["providers"]["claude"]["keyHint"], "AbCd")
+        self.assertEqual(status["providers"]["openai"]["keyHint"], "WxYz")
+        self.assertNotIn(claude, json.dumps(status))
+        ai_settings.delete_api_key("claude")
+        self.assertIsNone(ai_settings.api_key("claude"))
+        self.assertEqual(ai_settings.api_key("openai"), gpt)
+
+    def test_old_single_key_file_is_read_as_claude(self):
+        sealed = __import__("base64").b64encode(ai_settings._dpapi(b"sk-ant-old-key-1234", True)).decode()
+        self.path.write_text(json.dumps({"apiKey": sealed, "apiKeyHint": "1234"}), encoding="utf-8")
+        self.assertEqual(ai_settings.api_key("claude"), "sk-ant-old-key-1234")
+        self.assertTrue(ai_settings.status()["providers"]["claude"]["configured"])
+
+
+class ProviderSettingsTests(_SettingsCase):
+    def test_provider_and_model_choice(self):
+        self.assertEqual(ai_settings.model("claude"), "claude-haiku-5-5")
+        self.assertEqual(ai_settings.model("openai"), "gpt-6-luna")
+        ai_settings.set_model("openai", "gpt-6.1-sol")
+        ai_settings.set_provider("openai")
+        self.assertEqual(ai_settings.provider(), "openai")
+        self.assertEqual(ai_settings.status()["providers"]["openai"]["model"], "gpt-6.1-sol")
+        with self.assertRaises(ValueError):
+            ai_settings.set_model("openai", "gpt-4o-mini")
+        with self.assertRaises(ValueError):
+            ai_settings.check_provider("gemini")
 
     def test_key_format_and_glossary(self):
         with self.assertRaises(ValueError):
-            ai_settings.normalize_key("sk-proj-abc")
+            ai_settings.normalize_key("claude", "sk-proj-abc")
         with self.assertRaises(ValueError):
-            ai_settings.normalize_key("sk-ant-a b")
+            ai_settings.normalize_key("openai", "sk-ant-abc")
+        with self.assertRaises(ValueError):
+            ai_settings.normalize_key("claude", "sk-ant-a b")
+        self.assertEqual(ai_settings.normalize_key("openai", " sk-proj-abc "), "sk-proj-abc")
         self.assertEqual(ai_settings.normalize_glossary(["  이지 캡처 ", "이지 캡처", "", 3, "JPEG XL"]),
                          ["이지 캡처", "JPEG XL"])
         ai_settings.set_glossary(["JPEG XL"])
@@ -108,7 +140,6 @@ class SettingsTests(unittest.TestCase):
 class _FakeStream:
     def __init__(self, text: str, stop_reason: str = "end_turn"):
         self.text, self.stop_reason = text, stop_reason
-        self.kwargs: dict = {}
 
     def __enter__(self):
         return self
@@ -125,43 +156,75 @@ class _FakeStream:
                                content=[SimpleNamespace(type="text", text=self.text)])
 
 
-class JobTests(unittest.TestCase):
-    def _run(self, stream: _FakeStream) -> dict:
-        calls = {}
+ANSWER = {"corrections": [{"id": 0, "text": "JPEG"}, {"id": 1, "text": "XL"}], "line_starts": [0],
+          "uncertain": [], "emphasis": []}
 
+
+class JobTests(unittest.TestCase):
+    def _run(self, provider: str, client: object, model: str) -> dict:
+        with mock.patch.object(ai_settings, "api_key", return_value="sk-test"), \
+                mock.patch.object(ai_settings, "glossary", return_value=["JPEG XL"]), \
+                mock.patch.object(ai_settings, "model", return_value=model), \
+                mock.patch.object(ai_proofread, "_client", return_value=client):
+            job_id = ai_proofread.start({"words": ["제이펙", "엑셀"], "lineStarts": [0], "maxUnits": 20,
+                                         "provider": provider})
+            return ai_proofread.status(job_id, wait_sec=5)
+
+    def _claude(self, stream: _FakeStream, calls: dict) -> object:
         def fake_stream(**kwargs):
             calls.update(kwargs)
             return stream
+        return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(stream=fake_stream)))
 
-        client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(stream=fake_stream)))
-        with mock.patch.object(ai_settings, "api_key", return_value="sk-ant-test"), \
-                mock.patch.object(ai_settings, "glossary", return_value=["JPEG XL"]), \
-                mock.patch.object(ai_proofread, "_client", return_value=client):
-            job_id = ai_proofread.start({"words": ["제이펙", "엑셀"], "lineStarts": [0], "maxUnits": 20})
-            result = ai_proofread.status(job_id, wait_sec=5)
-        result["_calls"] = calls
-        return result
-
-    def test_done_with_validated_result(self):
-        answer = {"corrections": [{"id": 0, "text": "JPEG"}, {"id": 1, "text": "XL"}], "line_starts": [0],
-                  "uncertain": [], "emphasis": []}
-        out = self._run(_FakeStream(json.dumps(answer)))
+    def test_claude_haiku_default(self):
+        calls: dict = {}
+        out = self._run("claude", self._claude(_FakeStream(json.dumps(ANSWER)), calls), "claude-haiku-5-5")
         self.assertEqual(out["state"], "done")
-        self.assertEqual(out["result"]["corrections"], [{"id": 0, "text": "JPEG"}, {"id": 1, "text": "XL"}])
-        calls = out["_calls"]
-        self.assertEqual(calls["model"], "claude-opus-5-5")
-        self.assertEqual(calls["fallbacks"], "default")
+        self.assertEqual(out["result"]["corrections"], ANSWER["corrections"])
+        self.assertEqual(calls["model"], "claude-haiku-5-5")
+        self.assertNotIn("fallbacks", calls)  # Haiku has no server-side fallback
         self.assertEqual(calls["output_config"]["format"]["type"], "json_schema")
         self.assertIn("JPEG XL", calls["messages"][0]["content"])
 
+    def test_claude_opus_uses_fallbacks(self):
+        calls: dict = {}
+        self._run("claude", self._claude(_FakeStream(json.dumps(ANSWER)), calls), "claude-opus-5-5")
+        self.assertEqual(calls["fallbacks"], "default")
+
+    def test_openai_responses_call(self):
+        calls: dict = {}
+
+        def create(**kwargs):
+            calls.update(kwargs)
+            usage = SimpleNamespace(input_tokens=80, output_tokens=10, input_tokens_details=SimpleNamespace(cached_tokens=0))
+            return SimpleNamespace(status="completed", output=[], usage=usage, output_text=json.dumps(ANSWER))
+
+        out = self._run("openai", SimpleNamespace(responses=SimpleNamespace(create=create)), "gpt-6-luna")
+        self.assertEqual(out["state"], "done")
+        self.assertEqual(out["provider"], "openai")
+        self.assertEqual(calls["model"], "gpt-6-luna")
+        self.assertEqual(calls["text"]["format"]["type"], "json_schema")
+        self.assertTrue(calls["text"]["format"]["strict"])
+        self.assertIn("JPEG XL", calls["input"][0]["content"])
+
+    def test_openai_refusal_and_incomplete(self):
+        def make(status: str, part_type: str):
+            def create(**kwargs):
+                part = SimpleNamespace(type=part_type)
+                return SimpleNamespace(status=status, output=[SimpleNamespace(content=[part])], usage=None, output_text="")
+            return SimpleNamespace(responses=SimpleNamespace(create=create))
+        self.assertIn("거절", self._run("openai", make("completed", "refusal"), "gpt-6-luna")["error"])
+        self.assertIn("잘렸", self._run("openai", make("incomplete", "output_text"), "gpt-6-luna")["error"])
+
     def test_refusal_and_bad_json_are_errors(self):
-        self.assertEqual(self._run(_FakeStream("{}", stop_reason="refusal"))["state"], "error")
-        self.assertIn("해석", self._run(_FakeStream("not json"))["error"])
+        calls: dict = {}
+        self.assertEqual(self._run("claude", self._claude(_FakeStream("{}", "refusal"), calls), "claude-haiku-5-5")["state"], "error")
+        self.assertIn("해석", self._run("claude", self._claude(_FakeStream("not json"), calls), "claude-haiku-5-5")["error"])
 
     def test_no_key(self):
         with mock.patch.object(ai_settings, "api_key", return_value=None):
             with self.assertRaises(ai_proofread.ProofreadError):
-                ai_proofread.start({"words": ["a"], "lineStarts": [0], "maxUnits": 20})
+                ai_proofread.start({"words": ["a"], "lineStarts": [0], "maxUnits": 20, "provider": "openai"})
 
 
 if __name__ == "__main__":

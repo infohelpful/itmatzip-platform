@@ -314,13 +314,20 @@ async def post_export_show_in_folder(body: dict[str, Any] = Body(...)) -> dict[s
     return {"ok": True} if shown else {"ok": False, "reason": "이번에 내보낸 파일만 폴더에서 열 수 있습니다."}
 
 
-# -- AI proofreading (Claude) ------------------------------------------------------------
-# These routes hold the user's API key and spend their API credit. Accept JSON only: a plain
+# -- AI proofreading (Claude / ChatGPT) --------------------------------------------------
+# These routes hold the user's API keys and spend their API credit. Accept JSON only: a plain
 # form/text POST from another site needs no CORS preflight, so it could otherwise reach them.
 def _require_json(request: Request) -> None:
     content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
     if content_type != "application/json":
         raise HTTPException(status_code=415, detail="JSON 요청만 받습니다.")
+
+
+def _provider(value: Any) -> str:
+    try:
+        return ai_settings.check_provider(value)
+    except ValueError as error:
+        raise _bad(error) from error
 
 
 @router.get("/ai/settings")
@@ -331,29 +338,45 @@ async def get_ai_settings() -> dict[str, Any]:
 @router.put("/ai/key")
 async def put_ai_key(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     _require_json(request)
+    provider = _provider(body.get("provider"))
     try:
-        key = ai_settings.normalize_key(body.get("apiKey"))
-        await run_in_threadpool(ai_proofread.test_key, key)
-        await run_in_threadpool(ai_settings.set_api_key, key)
+        key = ai_settings.normalize_key(provider, body.get("apiKey"))
+        await run_in_threadpool(ai_proofread.test_key, provider, key, ai_settings.model(provider))
+        await run_in_threadpool(ai_settings.set_api_key, provider, key)
     except (ValueError, ai_proofread.ProofreadError, RuntimeError) as error:
         raise _bad(error) from error
     return await run_in_threadpool(ai_settings.status)
 
 
 @router.delete("/ai/key")
-async def delete_ai_key() -> dict[str, Any]:
-    await run_in_threadpool(ai_settings.delete_api_key)
+async def delete_ai_key(provider: str = Query(...)) -> dict[str, Any]:
+    await run_in_threadpool(ai_settings.delete_api_key, _provider(provider))
+    return await run_in_threadpool(ai_settings.status)
+
+
+@router.put("/ai/provider")
+async def put_ai_provider(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Which AI to use, and optionally that AI's model (low-cost default or higher quality)."""
+    _require_json(request)
+    provider = _provider(body.get("provider"))
+    try:
+        if body.get("model") is not None:
+            await run_in_threadpool(ai_settings.set_model, provider, body.get("model"))
+        await run_in_threadpool(ai_settings.set_provider, provider)
+    except (ValueError, OSError) as error:
+        raise _bad(error) from error
     return await run_in_threadpool(ai_settings.status)
 
 
 @router.post("/ai/test")
-async def post_ai_test(request: Request) -> dict[str, Any]:
+async def post_ai_test(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     _require_json(request)
-    key = await run_in_threadpool(ai_settings.api_key)
+    provider = _provider(body.get("provider"))
+    key = await run_in_threadpool(ai_settings.api_key, provider)
     if not key:
         raise HTTPException(status_code=400, detail="등록된 API 키가 없습니다.")
     try:
-        await run_in_threadpool(ai_proofread.test_key, key)
+        await run_in_threadpool(ai_proofread.test_key, provider, key, ai_settings.model(provider))
     except ai_proofread.ProofreadError as error:
         raise _bad(error) from error
     return {"ok": True}

@@ -1,12 +1,13 @@
 /**
- * AI 교정(Claude) — 툴바 버튼, AI 연동 설정(키·용어 사전), 실행·결과 확인 창, 적용 뒤 칩 표시.
+ * AI 교정(Claude / ChatGPT 중 선택) — 툴바 버튼, AI 연동 설정(키·용어 사전), 실행·결과 확인 창, 적용 뒤 칩 표시.
  * 키는 에이전트가 PC 에 암호화해 보관하고 이 화면에는 끝 4자리만 온다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
 import { applyProofread, proofreadSource, type ProofreadResult } from '../aiProofread'
 import {
-  deleteAiKey, getAiSettings, runProofread, saveAiKey, saveGlossary, type AiSettings, type ProofreadUsage
+  chooseAi, deleteAiKey, getAiSettings, MODEL_LABEL, PROVIDER_LABEL, runProofread, saveAiKey, saveGlossary,
+  type AiProvider, type AiSettings, type ProofreadUsage
 } from '../platform/aiAgent'
 import './AiProofread.css'
 
@@ -71,6 +72,7 @@ export function AiProofread(props: Props): JSX.Element {
   }
 
   const start = async () => {
+    if (!settings?.configured) { setSettingsOpen(true); return }
     const source = proofreadSource(subtitles)
     if (source.units.length === 0) { setError('교정할 자막이 없습니다.'); return }
     onBeforeRun()
@@ -80,6 +82,7 @@ export function AiProofread(props: Props): JSX.Element {
     setRunning({ elapsed: 0 })
     try {
       const { answer, usage } = await runProofread({
+        provider: settings!.provider,
         words: source.units.map(u => u.text), lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, emphasize
       }, ctrl.signal, elapsed => setRunning({ elapsed }))
       // 기다리는 동안 자막을 고쳤을 수 있으니 지금 자막에 맞춰 다시 만든다(바뀐 단어가 있으면 중단).
@@ -124,10 +127,10 @@ export function AiProofread(props: Props): JSX.Element {
     <>
       <button type="button" className="app-topbar-gpu-btn preview-project-btn subtitle-panel-action-btn ai-proofread-btn"
         disabled={disabled} onClick={openRun}
-        title="Claude가 오타를 고치고, 문장 단위로 한 줄에 들어가게 줄을 나눕니다. 단어 시간은 바뀌지 않습니다.">
+        title="AI(Claude 또는 ChatGPT)가 오타를 고치고, 문맥에 맞게 화면 한 줄에 들어가도록 줄을 나눕니다. 단어 시간은 바뀌지 않습니다.">
         AI 교정
       </button>
-      <button type="button" className="ai-proofread-gear" aria-label="AI 연동 설정" title="AI 연동 설정 (Claude API 키 · 용어 사전)"
+      <button type="button" className="ai-proofread-gear" aria-label="AI 연동 설정" title="AI 연동 설정 (Claude / ChatGPT 선택 · API 키 · 용어 사전)"
         onClick={() => { setError(null); setSettingsOpen(true) }}>
         ⚙
       </button>
@@ -161,20 +164,37 @@ export function AiProofread(props: Props): JSX.Element {
       ) : null}
       {markStyle ? <style>{markStyle}</style> : null}
 
-      {settingsOpen ? (
+      {settingsOpen && !runOpen ? (
         <AiSettingsDialog settings={settings} onChange={setSettings} onClose={() => { setSettingsOpen(false); void refresh() }} />
       ) : null}
 
       {runOpen ? (
         <div className="extract-modal-backdrop" role="presentation">
           <div className="extract-modal-card ai-card ai-card--wide" role="dialog" aria-modal="true" aria-labelledby="ai-run-title">
-            <h2 id="ai-run-title" className="extract-modal-title">AI 교정 (Claude)</h2>
+            <h2 id="ai-run-title" className="extract-modal-title">AI 교정</h2>
             {review ? (
               <ReviewBody review={review} onJump={onJump} />
             ) : (
               <div className="ai-body">
+                {settings ? (
+                  <>
+                    <AiChoice settings={settings} busy={!!running}
+                      onChoose={p => { void chooseAi(p).then(setSettings).catch(e => setError(String(e?.message ?? e))) }} />
+                    <p className="ai-muted ai-small">
+                      모델: {MODEL_LABEL[settings.providers[settings.provider].model] ?? settings.providers[settings.provider].model}
+                      {' · '}
+                      <button type="button" className="ai-inline-link" onClick={() => setSettingsOpen(true)}>바꾸기</button>
+                    </p>
+                    {!settings.configured ? (
+                      <p className="ai-error">
+                        {PROVIDER_LABEL[settings.provider]} API 키가 없습니다.{' '}
+                        <button type="button" className="ai-inline-link" onClick={() => setSettingsOpen(true)}>키 등록하기</button>
+                      </p>
+                    ) : null}
+                  </>
+                ) : null}
                 <p className="ai-muted">
-                  자막 글자만 Claude로 보냅니다. 영상과 음성은 PC 밖으로 나가지 않고, 단어 시간도 바뀌지 않습니다.
+                  자막 글자만 AI로 보냅니다. 영상과 음성은 PC 밖으로 나가지 않고, 단어 시간도 바뀌지 않습니다.
                   사용한 만큼 등록한 API 키로 요금이 나갑니다.
                 </p>
                 <ul className="ai-plan">
@@ -189,7 +209,7 @@ export function AiProofread(props: Props): JSX.Element {
                   <span className="ai-swatch" style={{ background: emphasisColor }} />
                 </label>
                 {running ? (
-                  <p className="ai-status" role="status">Claude가 교정하는 중… {clock(running.elapsed)}</p>
+                  <p className="ai-status" role="status">{settings ? PROVIDER_LABEL[settings.provider] : 'AI'}가 교정하는 중… {clock(running.elapsed)}</p>
                 ) : null}
               </div>
             )}
@@ -209,12 +229,16 @@ export function AiProofread(props: Props): JSX.Element {
               ) : (
                 <>
                   <button type="button" className="ai-btn" onClick={() => setRunOpen(false)}>닫기</button>
-                  <button type="button" className="ai-btn ai-btn--primary" onClick={() => void start()} disabled={disabled}>교정 시작</button>
+                  <button type="button" className="ai-btn ai-btn--primary" onClick={() => void start()}
+                    disabled={disabled || !settings?.configured}>교정 시작</button>
                 </>
               )}
             </div>
           </div>
         </div>
+      ) : null}
+      {settingsOpen && runOpen ? (
+        <AiSettingsDialog settings={settings} onChange={setSettings} onClose={() => { setSettingsOpen(false); void refresh() }} />
       ) : null}
     </>
   )
@@ -264,6 +288,29 @@ function ReviewBody({ review, onJump }: { review: Review; onJump: (sec: number) 
   )
 }
 
+function AiChoice({ settings, busy, onChoose }: {
+  settings: AiSettings
+  busy: boolean
+  onChoose: (provider: AiProvider) => void
+}): JSX.Element {
+  return (
+    <div className="ai-seg" role="radiogroup" aria-label="사용할 AI">
+      {(['claude', 'openai'] as const).map(p => (
+        <button key={p} type="button" role="radio" aria-checked={settings.provider === p} disabled={busy}
+          className={`ai-seg-btn${settings.provider === p ? ' is-on' : ''}`} onClick={() => onChoose(p)}>
+          {PROVIDER_LABEL[p]}
+          <span className={settings.providers[p].configured ? 'ai-dot is-ok' : 'ai-dot'} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const KEY_HELP: Record<AiProvider, string> = {
+  claude: 'console.anthropic.com → Settings → API Keys 에서 만든 sk-ant- 로 시작하는 키',
+  openai: 'platform.openai.com → API keys 에서 만든 sk- 로 시작하는 키'
+}
+
 function AiSettingsDialog({ settings, onChange, onClose }: {
   settings: AiSettings | null
   onChange: (s: AiSettings) => void
@@ -289,36 +336,62 @@ function AiSettingsDialog({ settings, onChange, onClose }: {
     }
   }
 
+  if (!settings) {
+    return (
+      <div className="extract-modal-backdrop" role="presentation">
+        <div className="extract-modal-card ai-card" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
+          <h2 id="ai-settings-title" className="extract-modal-title">AI 연동</h2>
+          <p className="ai-error">에이전트에서 AI 설정을 읽지 못했습니다. ItMatZip 에이전트를 최신 버전으로 업데이트해 주세요.</p>
+          <div className="ai-row-end"><button type="button" className="ai-btn" onClick={onClose}>닫기</button></div>
+        </div>
+      </div>
+    )
+  }
+
+  const provider = settings.provider
+  const state = settings.providers[provider]
+  const label = PROVIDER_LABEL[provider]
+
   return (
     <div className="extract-modal-backdrop" role="presentation">
       <div className="extract-modal-card ai-card" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
-        <h2 id="ai-settings-title" className="extract-modal-title">AI 연동 (Claude)</h2>
+        <h2 id="ai-settings-title" className="extract-modal-title">AI 연동</h2>
         <div className="ai-body">
-          <h3 className="ai-sub">API 키</h3>
-          {settings?.configured ? (
-            <p className="ai-ok">연결됨 · …{settings.keyHint}</p>
+          <h3 className="ai-sub">사용할 AI</h3>
+          <AiChoice settings={settings} busy={busy}
+            onChoose={p => { setKey(''); void run(() => chooseAi(p), `${PROVIDER_LABEL[p]}로 교정합니다.`) }} />
+
+          <h3 className="ai-sub">{label} 모델</h3>
+          <select className="ai-input" value={state.model} disabled={busy}
+            onChange={e => void run(() => chooseAi(provider, e.target.value), '모델을 바꿨습니다.')}>
+            {state.models.map(m => <option key={m} value={m}>{MODEL_LABEL[m] ?? m}</option>)}
+          </select>
+
+          <h3 className="ai-sub">{label} API 키</h3>
+          {state.configured ? (
+            <p className="ai-ok">연결됨 · …{state.keyHint}</p>
           ) : (
             <p className="ai-muted">
-              Anthropic Console(console.anthropic.com)에서 발급한 Claude API 키를 넣어 주세요.
-              키는 이 PC의 에이전트에만 암호화해 저장되고, 사이트 서버로는 보내지 않습니다.
+              {KEY_HELP[provider]}를 넣어 주세요. 키는 이 PC의 에이전트에만 암호화해 저장되고, 사이트 서버로는 보내지 않습니다.
             </p>
           )}
           <div className="ai-key-row">
-            <input type="password" className="ai-input" placeholder={settings?.configured ? '새 키로 바꾸기 (sk-ant-…)' : 'sk-ant-…'}
+            <input type="password" className="ai-input"
+              placeholder={state.configured ? '새 키로 바꾸기' : provider === 'claude' ? 'sk-ant-…' : 'sk-…'}
               value={key} autoComplete="off" spellCheck={false} onChange={e => setKey(e.target.value)} />
             <button type="button" className="ai-btn ai-btn--primary" disabled={busy || !key.trim()}
-              onClick={async () => { if (await run(() => saveAiKey(key), '키를 확인하고 저장했습니다.')) setKey('') }}>
+              onClick={async () => { if (await run(() => saveAiKey(provider, key), '키를 확인하고 저장했습니다.')) setKey('') }}>
               {busy ? '확인 중…' : '연결 확인 후 저장'}
             </button>
           </div>
-          {settings?.configured ? (
+          {state.configured ? (
             <button type="button" className="ai-link" disabled={busy}
-              onClick={() => void run(deleteAiKey, '키를 지웠습니다.')}>키 삭제</button>
+              onClick={() => void run(() => deleteAiKey(provider), '키를 지웠습니다.')}>{label} 키 삭제</button>
           ) : null}
 
-          <h3 className="ai-sub">용어 사전</h3>
+          <h3 className="ai-sub">용어 사전 (두 AI 공통)</h3>
           <p className="ai-muted ai-small">채널명·제품명·사람 이름처럼 자주 틀리는 말을 한 줄에 하나씩 적어 두면, AI가 이 표기대로 고칩니다.</p>
-          <textarea className="ai-input ai-glossary" rows={6} value={glossary} spellCheck={false}
+          <textarea className="ai-input ai-glossary" rows={5} value={glossary} spellCheck={false}
             placeholder={'예)\nJPEG XL\n이지캡처\nItMatZip'} onChange={e => setGlossary(e.target.value)} />
           <div className="ai-row-end">
             <button type="button" className="ai-btn" disabled={busy}
