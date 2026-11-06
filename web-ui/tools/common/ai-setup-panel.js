@@ -129,8 +129,10 @@ export function mountAiSetupPanel(toolId) {
         autoStarted = true;
         if (!readyNotified) { readyNotified = true; window.dispatchEvent(new CustomEvent('itz:ai-setup-ready', { detail: { toolId } })); }
         if (!collapsedOnReady && expanded && !running(job) && !running(optional.gpuJob) && !running(optional.alignmentJob)) { collapsedOnReady = true; expanded = false; body.hidden = true; head.setAttribute('aria-expanded', 'false'); }
-      } else readyNotified = false;
-      else if (!running(job) && !failed(job) && !autoStarted) { autoStarted = true; busy = false; await start(); }
+      } else {
+        readyNotified = false;
+        if (!running(job) && !failed(job) && !autoStarted) { autoStarted = true; busy = false; await start(); }
+      }
     } catch (e) { error = e instanceof Error ? e.message : String(e); render(); }
     finally { busy = false; }
   }

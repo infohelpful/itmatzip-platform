@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { TOOLS, setupRows, running, failed } from './ai-setup-state.js';
 
 test('all nine AI sites have a tool-specific setup definition', () => {
@@ -21,6 +22,12 @@ test('all AI entry pages load the common panel before their tool script', () => 
     assert.ok(html.indexOf('ai-setup-panel.css') > 0, dir);
     assert.ok(panelAt < html.lastIndexOf('script.js') || dir === 'auto-subtitle', dir);
   }
+});
+
+test('the shared panel parses as a browser module', () => {
+  const source = readFileSync(new URL('./ai-setup-panel.js', import.meta.url), 'utf8');
+  const result = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: source, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('AutoSubtitle reports actual completed prerequisites and the active model', () => {
