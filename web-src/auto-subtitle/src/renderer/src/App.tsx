@@ -78,6 +78,7 @@ import {
 import { CAPSULE_PRESET, capsuleBoxOverrides, parseSubtitleBoxStyle, type SubtitleBoxStyle } from '../../shared/subtitleCapsule'
 import { ensurePretendardLoaded, usesPretendard } from './subtitleFonts'
 import { renderPreviewSubtitleText, type PreviewEmphasisCache } from './previewSubtitleText'
+import { AiProofread, previewLineCapacityUnits } from './components/AiProofread'
 import type { CaptionEmphasisEdit } from './SubtitleVirtualList'
 
 import { applyProgramTimeRangeTombstoneCutToSubtitleLines } from '../../shared/subtitleTombstoneCut'
@@ -7275,6 +7276,23 @@ export default function App(): ReactElement {
                           자동 줄바꿈
                         </button>
                       </span>
+                      <AiProofread
+                        subtitles={subtitles}
+                        measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
+                        emphasisColor={captionEmphasisColor}
+                        disabled={isExtracting || projectIoBusy || realigning}
+                        onBeforeRun={() => {
+                          pausePlayback('ai-proofread')
+                          setWaveformLineIndex(null)
+                          setWaveformWordId(null)
+                        }}
+                        onApply={(lines) => {
+                          setGapFillWhenBuildingVrew(false)
+                          applySubtitleChange(() => lines)
+                          setAlignmentNotice('AI 교정을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.')
+                        }}
+                        onJump={seekToSubtitleStartFromNavigate}
+                      />
                     </div>
                   ) : null}
                 </div>

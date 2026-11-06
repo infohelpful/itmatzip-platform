@@ -1,0 +1,324 @@
+"""AI proofreading of AutoSubtitle captions with Claude.
+
+Only text goes to Claude: the transcript as numbered words plus where each caption line starts.
+Claude answers with word-level corrections, new line starts, words it is unsure about and
+(optionally) words to emphasize. Word timings never leave the PC and are never changed: the
+editor applies the answer onto its existing words (web-src .../aiProofread.ts).
+
+The answer is validated here; anything out of range or out of order is dropped rather than trusted.
+"""
+from __future__ import annotations
+
+import json
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+try:
+    import anthropic
+except ImportError:  # engine from an older MSI: AI proofreading is unavailable, everything else works
+    anthropic = None  # type: ignore[assignment]
+
+from engines.autosub import ai_settings
+
+MODEL = "claude-opus-5-5"
+MAX_WORDS = 40_000
+MAX_WORD_LENGTH = 200
+MAX_REASON_LENGTH = 200
+
+SYSTEM_PROMPT = """You proofread Korean video subtitles produced by speech recognition (Whisper).
+
+The transcript is a numbered list of words in speaking order, and `line_starts` lists the word id
+that begins each caption line. Every word already carries the exact time it was spoken; you never
+see or change timing. You change only the text of words and where caption lines begin.
+
+1. Corrections. Fix misrecognized words, spelling, spacing inside a word, numbers and English or
+   product names, and punctuation, using the surrounding context. Keep the speaker's own wording,
+   tone and spoken style; do not rewrite sentences, summarize, translate or make them more formal.
+   Return a correction only for a word whose text should change, as {"id", "text"}. Keep one word
+   per id: when two recognized words are really one ("1" ".05" -> "1.05"), put the joined text on
+   the first id and "" on the second. Never move text between distant ids.
+2. Line starts. Re-split the transcript into caption lines that read naturally, the way a
+   careful human subtitler would: one sentence per line when it fits; otherwise break at clause or
+   phrase boundaries (after a connective ending, before a new clause), never inside a word, between
+   a number and its unit, or between a modifier and the word it modifies. `max_units` is the width
+   of one screen line and only a ceiling: never exceed it, but do not fill lines up to it either -
+   a shorter line that ends at a natural boundary is better than a full line that cuts a phrase.
+   Width counts a Hangul or other full-width character as 1 and an ASCII letter, digit, space or
+   punctuation as 0.5. Avoid one- or two-word lines unless the sentence is that short.
+   `pauses` lists the words (`before_id`) that come after a stretch with no speech (an intro, music, a long pause),
+   with its length in seconds: always start a new line at each of them, so speech on either side
+   of a silence never shares a line. Return the full list of starting word ids, beginning with the
+   first id, strictly increasing.
+3. Uncertain words. When a word is probably misheard but the context does not show the right text
+   (a name, a number, a word that would also make sense), leave its text unchanged and list it in
+   `uncertain` with a short Korean reason for the editor (under 60 characters).
+4. Glossary. Terms in `glossary` are the correct spellings for names and terms in this video.
+   When a recognized word is clearly one of them, correct it to that exact spelling.
+5. Emphasis. Only when `emphasize` is true: list the ids of the few words a viewer should notice
+   (key numbers, product names, the main point of a sentence), at most about one per line on
+   average. Otherwise return an empty list."""
+
+OUTPUT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "corrections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "text": {"type": "string"}},
+                "required": ["id", "text"],
+                "additionalProperties": False,
+            },
+        },
+        "line_starts": {"type": "array", "items": {"type": "integer"}},
+        "uncertain": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"id": {"type": "integer"}, "reason": {"type": "string"}},
+                "required": ["id", "reason"],
+                "additionalProperties": False,
+            },
+        },
+        "emphasis": {"type": "array", "items": {"type": "integer"}},
+    },
+    "required": ["corrections", "line_starts", "uncertain", "emphasis"],
+    "additionalProperties": False,
+}
+
+
+# -- request validation ------------------------------------------------------------------
+@dataclass
+class ProofreadRequest:
+    words: list[str]
+    line_starts: list[int]
+    max_units: int
+    emphasize: bool
+    pauses: list[dict[str, Any]] = field(default_factory=list)
+
+
+def parse_request(body: dict[str, Any]) -> ProofreadRequest:
+    words = body.get("words")
+    if not isinstance(words, list) or not words:
+        raise ValueError("교정할 자막이 없습니다.")
+    if len(words) > MAX_WORDS:
+        raise ValueError(f"자막이 너무 깁니다(단어 {len(words)}개, 최대 {MAX_WORDS}개).")
+    texts: list[str] = []
+    for w in words:
+        if not isinstance(w, str) or not w.strip() or len(w) > MAX_WORD_LENGTH:
+            raise ValueError("자막 단어 형식이 올바르지 않습니다.")
+        texts.append(w.strip())
+    starts = body.get("lineStarts")
+    if not isinstance(starts, list) or not all(isinstance(s, int) and not isinstance(s, bool) for s in starts):
+        raise ValueError("줄 정보 형식이 올바르지 않습니다.")
+    max_units = body.get("maxUnits")
+    if not isinstance(max_units, int) or isinstance(max_units, bool) or not 4 <= max_units <= 80:
+        raise ValueError("줄당 글자 수는 4~80 사이여야 합니다.")
+    return ProofreadRequest(texts, _clean_starts(starts, len(texts)), max_units, body.get("emphasize") is True,
+                            _clean_pauses(body.get("pauses"), len(texts)))
+
+
+def _clean_pauses(raw: Any, n: int) -> list[dict[str, Any]]:
+    out: dict[int, float] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        g, sec = item.get("id"), item.get("sec")
+        if isinstance(g, int) and not isinstance(g, bool) and 0 < g < n and isinstance(sec, (int, float)) and sec > 0:
+            out[g] = round(float(sec), 1)
+    return [{"before_id": g, "sec": sec} for g, sec in sorted(out.items())]
+
+
+def _clean_starts(starts: list[Any], n: int) -> list[int]:
+    clean = sorted({s for s in starts if isinstance(s, int) and not isinstance(s, bool) and 0 <= s < n})
+    if not clean or clean[0] != 0:
+        clean.insert(0, 0)
+    return clean
+
+
+def build_user_message(req: ProofreadRequest, terms: list[str]) -> str:
+    payload = {
+        "max_units": req.max_units,
+        "emphasize": req.emphasize,
+        "glossary": terms,
+        "line_starts": req.line_starts,
+        "pauses": req.pauses,
+        "words": [{"id": i, "text": t} for i, t in enumerate(req.words)],
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def validate_answer(raw: Any, req: ProofreadRequest) -> dict[str, Any]:
+    """Keep only well-formed, in-range items. Line starts fall back to the current ones if unusable."""
+    n = len(req.words)
+    data = raw if isinstance(raw, dict) else {}
+
+    def valid_id(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < n
+
+    corrections: dict[int, str] = {}
+    for item in data.get("corrections") or []:
+        if not isinstance(item, dict) or not valid_id(item.get("id")) or not isinstance(item.get("text"), str):
+            continue
+        text = " ".join(item["text"].split())
+        if len(text) > MAX_WORD_LENGTH or text == req.words[item["id"]]:
+            continue
+        corrections[item["id"]] = text
+    # A word may be emptied only when a neighbour absorbed it; never blank a whole line.
+    starts_raw = data.get("line_starts")
+    starts = _clean_starts(starts_raw, n) if isinstance(starts_raw, list) and starts_raw else list(req.line_starts)
+    bounds = starts + [n]
+    for a, b in zip(bounds, bounds[1:]):
+        if all(corrections.get(i, req.words[i]) == "" for i in range(a, b)):
+            for i in range(a, b):
+                corrections.pop(i, None)
+
+    uncertain: dict[int, str] = {}
+    for item in data.get("uncertain") or []:
+        if isinstance(item, dict) and valid_id(item.get("id")) and isinstance(item.get("reason"), str):
+            uncertain[item["id"]] = item["reason"].strip()[:MAX_REASON_LENGTH] or "확인이 필요합니다."
+    emphasis = sorted({i for i in (data.get("emphasis") or []) if valid_id(i)}) if req.emphasize else []
+    return {
+        "corrections": [{"id": i, "text": t} for i, t in sorted(corrections.items())],
+        "lineStarts": starts,
+        "uncertain": [{"id": i, "reason": r} for i, r in sorted(uncertain.items())],
+        "emphasis": emphasis,
+    }
+
+
+# -- Claude call -------------------------------------------------------------------------
+class ProofreadError(RuntimeError):
+    pass
+
+
+def _client(key: str) -> "anthropic.Anthropic":
+    if anthropic is None:
+        raise ProofreadError("AI 교정을 쓰려면 ItMatZip 에이전트를 최신 버전으로 업데이트해 주세요.")
+    return anthropic.Anthropic(api_key=key, max_retries=2)
+
+
+def explain_api_error(error: Exception) -> str:
+    if isinstance(error, anthropic.AuthenticationError):
+        return "API 키가 올바르지 않습니다. 키를 다시 확인해 주세요."
+    if isinstance(error, anthropic.PermissionDeniedError):
+        return "이 API 키로는 Claude를 쓸 수 없습니다(권한 없음)."
+    if isinstance(error, anthropic.NotFoundError):
+        return "Claude 모델을 찾지 못했습니다."
+    if isinstance(error, anthropic.RateLimitError):
+        return "요청이 많거나 크레딧 한도에 걸렸습니다. 잠시 뒤 다시 시도해 주세요."
+    if isinstance(error, anthropic.BadRequestError):
+        message = str(getattr(error, "message", "") or error)
+        if "credit" in message.lower():
+            return "API 크레딧이 부족합니다. Anthropic Console에서 결제 상태를 확인해 주세요."
+        return f"Claude가 요청을 거부했습니다: {message[:300]}"
+    if isinstance(error, anthropic.APIStatusError):
+        return f"Claude API 오류({error.status_code}). 잠시 뒤 다시 시도해 주세요."
+    if isinstance(error, anthropic.APIConnectionError):
+        return "Claude API에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요."
+    return str(error)
+
+
+def test_key(key: str) -> None:
+    """Free check (no tokens): the key can see the model we will call."""
+    try:
+        _client(key).models.retrieve(MODEL)
+    except anthropic.APIError as error:
+        raise ProofreadError(explain_api_error(error)) from error
+
+
+@dataclass
+class _Job:
+    id: str
+    cancel: threading.Event = field(default_factory=threading.Event)
+    done: threading.Event = field(default_factory=threading.Event)
+    started: float = field(default_factory=time.monotonic)
+    output_chars: int = 0
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    usage: dict[str, int] | None = None
+
+
+_jobs: dict[str, _Job] = {}
+_jobs_lock = threading.Lock()
+
+
+def _run(job: _Job, req: ProofreadRequest, key: str) -> None:
+    try:
+        with _client(key).beta.messages.stream(
+            model=MODEL,
+            max_tokens=64000,
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",
+            output_config={"effort": "medium", "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": build_user_message(req, ai_settings.glossary())}],
+        ) as stream:
+            for event in stream:
+                if job.cancel.is_set():
+                    raise ProofreadError("취소했습니다.")
+                if getattr(event, "type", "") == "text":
+                    job.output_chars += len(getattr(event, "text", "") or "")
+            message = stream.get_final_message()
+        if message.stop_reason == "refusal":
+            raise ProofreadError("Claude가 이 자막의 교정을 거절했습니다.")
+        if message.stop_reason == "max_tokens":
+            raise ProofreadError("자막이 너무 길어 결과가 잘렸습니다. 일부 줄만 선택해 다시 시도해 주세요.")
+        text = "".join(b.text for b in message.content if getattr(b, "type", "") == "text")
+        try:
+            raw = json.loads(text)
+        except ValueError as error:
+            raise ProofreadError("Claude 응답을 해석하지 못했습니다. 다시 시도해 주세요.") from error
+        job.result = validate_answer(raw, req)
+        u = message.usage
+        job.usage = {"input": int(u.input_tokens or 0), "output": int(u.output_tokens or 0),
+                     "cacheRead": int(getattr(u, "cache_read_input_tokens", 0) or 0)}
+    except ProofreadError as error:
+        job.error = str(error)
+    except anthropic.APIError as error:
+        job.error = explain_api_error(error)
+    except Exception as error:  # noqa: BLE001 - reported to the editor
+        job.error = f"AI 교정 실패: {error}"
+    finally:
+        job.done.set()
+
+
+def start(body: dict[str, Any]) -> str:
+    req = parse_request(body)
+    key = ai_settings.api_key()
+    if not key:
+        raise ProofreadError("먼저 AI 연동에서 Claude API 키를 등록해 주세요.")
+    job = _Job(uuid.uuid4().hex)
+    with _jobs_lock:
+        for other in _jobs.values():
+            other.cancel.set()
+        _jobs.clear()
+        _jobs[job.id] = job
+    threading.Thread(target=_run, args=(job, req, key), name="autosub-ai-proofread", daemon=True).start()
+    return job.id
+
+
+def status(job_id: str, wait_sec: float = 0.0) -> dict[str, Any]:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job is None:
+        return {"state": "unknown"}
+    if wait_sec > 0:
+        job.done.wait(wait_sec)
+    elapsed = round(time.monotonic() - job.started, 1)
+    if not job.done.is_set():
+        return {"state": "running", "elapsedSec": elapsed, "outputChars": job.output_chars}
+    with _jobs_lock:
+        _jobs.pop(job_id, None)
+    if job.error is not None:
+        return {"state": "error", "error": job.error, "elapsedSec": elapsed}
+    return {"state": "done", "result": job.result, "usage": job.usage, "elapsedSec": elapsed}
+
+
+def cancel(job_id: str) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job:
+        job.cancel.set()

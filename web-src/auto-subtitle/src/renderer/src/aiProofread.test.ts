@@ -1,0 +1,116 @@
+import { describe, expect, it } from 'vitest'
+import { displayTextFromSubtitleWords, subtitleLineEditDisplayText, type SubtitleLine, type SubtitleWord } from '../../shared/subtitles'
+import { buildExportCueLines } from '../../shared/exportCuePipeline'
+import { applyProofread, proofreadSource } from './aiProofread'
+import type { ProofreadAnswer } from './platform/aiAgent'
+
+let seq = 0
+function row(tokens: Array<[string, number, number]>): SubtitleLine {
+  const words: SubtitleWord[] = tokens.map(([word, start, end]) => ({ word, start, end, id: `w${seq++}` }))
+  return { start: words[0]!.start, end: words[words.length - 1]!.end, text: displayTextFromSubtitleWords(words), words }
+}
+
+const answer = (a: Partial<ProofreadAnswer>): ProofreadAnswer =>
+  ({ corrections: [], lineStarts: [0], uncertain: [], emphasis: [], ...a })
+
+const texts = (lines: SubtitleLine[]) => lines.map(l => subtitleLineEditDisplayText(l))
+const times = (lines: SubtitleLine[]) => lines.flatMap(l => (l.words ?? []).map(w => [w.id, w.start, w.end]))
+
+describe('proofreadSource', () => {
+  it('numbers visible words in order and marks where each line starts', () => {
+    const lines = [row([['크롬', 0, 1], ['1', 1, 1.2], ['.05', 1.2, 1.5]]), row([['버전', 2, 2.5]])]
+    const src = proofreadSource(lines)
+    expect(src.units.map(u => u.text)).toEqual(['크롬', '1', '.05', '버전'])
+    expect(src.lineStarts).toEqual([0, 3])
+  })
+
+  it('uses the edited caption when it lines up with the words, and locks it when it does not', () => {
+    const a = row([['제이펙', 0, 1], ['포맷', 1, 2]])
+    const b = row([['오늘은', 3, 4], ['원본', 4, 5]])
+    const lines = [{ ...a, text: 'JPEG 포맷', captionText: 'JPEG 포맷' }, { ...b, text: '오늘', captionText: '오늘' }]
+    const src = proofreadSource(lines)
+    expect(src.units.map(u => [u.text, u.locked])).toEqual([['JPEG', false], ['포맷', false], ['오늘은', true], ['원본', true]])
+  })
+})
+
+describe('applyProofread', () => {
+  it('fixes words in the caption only and keeps every chip and timing', () => {
+    const lines = [row([['크롬', 0, 1], ['1', 1, 1.2], ['.05', 1.2, 1.5], ['버전부터', 1.5, 2]])]
+    const src = proofreadSource(lines)
+    const out = applyProofread(lines, src, answer({ corrections: [{ id: 1, text: '105' }, { id: 2, text: '' }] }))
+    expect(texts(out.lines)).toEqual(['크롬 105 버전부터'])
+    expect(out.lines[0]!.words!.map(w => w.word)).toEqual(['크롬', '1', '.05', '버전부터'])
+    expect(times(out.lines)).toEqual(times(lines))
+    expect(out.changes.map(c => [c.before, c.after])).toEqual([['1', '105'], ['.05', '']])
+  })
+
+  it('re-splits lines at the new starts and merges where a start was removed', () => {
+    const lines = [
+      row([['여러분', 0, .5], ['매일', .5, 1]]),
+      row([['쓰는', 1, 1.5], ['JPG가', 1.5, 2], ['언제', 2.2, 2.6], ['나왔을까요?', 2.6, 3.2]])
+    ]
+    const src = proofreadSource(lines)
+    const out = applyProofread(lines, src, answer({ lineStarts: [0, 4] }))
+    expect(texts(out.lines)).toEqual(['여러분 매일 쓰는 JPG가', '언제 나왔을까요?'])
+    expect(times(out.lines)).toEqual(times(lines))
+    expect(out.lineCountBefore).toBe(2)
+    expect(out.lineCountAfter).toBe(2)
+  })
+
+  it('keeps corrections on the right words after a split, so word highlight stays aligned', () => {
+    const lines = [row([['제이펙', 0, 1], ['엑셀은', 1, 2], ['좋습니다', 2, 3], ['그래서', 4, 5], ['씁니다', 5, 6]])]
+    const src = proofreadSource(lines)
+    const out = applyProofread(lines, src, answer({
+      lineStarts: [0, 3], corrections: [{ id: 0, text: 'JPEG' }, { id: 1, text: 'XL은' }]
+    }))
+    expect(texts(out.lines)).toEqual(['JPEG XL은 좋습니다', '그래서 씁니다'])
+    const cues = buildExportCueLines(out.lines, { includeWords: true })
+    expect(cues[0]!.words!.map(w => [w.text, w.start])).toEqual([['JPEG', 0], ['XL은', 1], ['좋습니다', 2]])
+  })
+
+  it('adds emphasis on the chosen words in the corrected caption', () => {
+    const lines = [row([['압축률이', 0, 1], ['30%', 1, 2], ['좋아요', 2, 3]])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ emphasis: [1] }), { emphasisColor: '#ff3366' })
+    expect(out.lines[0]!.emphasis).toEqual([{ start: 5, end: 8, text: '30%', color: '#ff3366' }])
+    expect(out.emphasized).toHaveLength(1)
+  })
+
+  it('does not rewrite a line whose caption was edited out of step with its words', () => {
+    const a = row([['오늘은', 0, 1], ['원본', 1, 2]])
+    const lines = [{ ...a, text: '오늘', captionText: '오늘' }]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ corrections: [{ id: 0, text: '오늘도' }] }))
+    expect(texts(out.lines)).toEqual(['오늘'])
+    expect(out.changes).toEqual([])
+  })
+
+  it('ignores ids out of range and reports uncertain words with their time', () => {
+    const lines = [row([['백팔십오', 3, 4], ['버전', 4, 5]])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({
+      corrections: [{ id: 9, text: 'x' }], lineStarts: [0, 7], uncertain: [{ id: 0, reason: '숫자 확인' }, { id: 5, reason: 'x' }]
+    }))
+    expect(texts(out.lines)).toEqual(['백팔십오 버전'])
+    expect(out.uncertain).toEqual([{ id: lines[0]!.words![0]!.id, text: '백팔십오', reason: '숫자 확인', start: 3 }])
+  })
+
+  it('never joins speech across a silent stretch and always breaks after a long one', () => {
+    const lines = [
+      row([['안녕하세요', 0, 1], ['여러분', 1, 1.6]]),
+      // 1.5초 쉼: AI 가 합치라고 해도 합치지 않는다
+      row([['오늘은', 3.1, 3.6], ['JPEG', 3.6, 4]]),
+      // 같은 줄 안이지만 8초 인트로 음악 뒤: AI 가 안 나눠도 나눈다
+      row([['XL', 4, 4.3], ['이야기', 12.3, 13], ['입니다', 13, 13.5]])
+    ]
+    const src = proofreadSource(lines)
+    expect(src.pauses).toEqual([{ id: 2, sec: 1.5 }, { id: 5, sec: 8 }])
+    const out = applyProofread(lines, src, answer({ lineStarts: [0] }))
+    expect(texts(out.lines)).toEqual(['안녕하세요 여러분', '오늘은 JPEG XL', '이야기 입니다'])
+    expect(times(out.lines)).toEqual(times(lines))
+  })
+
+  it('does not merge lines past one screen line even if the answer asks for it', () => {
+    const lines = [row([['가나다라', 0, 1], ['마바사', 1, 2]]), row([['아자차카', 2, 3], ['타파하', 3, 4]])]
+    const src = proofreadSource(lines)
+    expect(texts(applyProofread(lines, src, answer({ lineStarts: [0] }), { maxUnits: 10 }).lines)).toHaveLength(2)
+    expect(texts(applyProofread(lines, src, answer({ lineStarts: [0] }), { maxUnits: 20 }).lines)).toEqual(['가나다라 마바사 아자차카 타파하'])
+  })
+})

@@ -1,0 +1,355 @@
+/**
+ * AI 교정(Claude) — 툴바 버튼, AI 연동 설정(키·용어 사전), 실행·결과 확인 창, 적용 뒤 칩 표시.
+ * 키는 에이전트가 PC 에 암호화해 보관하고 이 화면에는 끝 4자리만 온다.
+ */
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import type { SubtitleLine } from '../../../shared/subtitles'
+import { applyProofread, proofreadSource, type ProofreadResult } from '../aiProofread'
+import {
+  deleteAiKey, getAiSettings, runProofread, saveAiKey, saveGlossary, type AiSettings, type ProofreadUsage
+} from '../platform/aiAgent'
+import './AiProofread.css'
+
+type Props = {
+  subtitles: readonly SubtitleLine[]
+  /** 지금 자막 디자인으로 화면 한 줄에 들어가는 글자 수(한글 1, 영문·숫자 0.5) */
+  measureMaxUnits: () => number
+  emphasisColor: string
+  disabled: boolean
+  onBeforeRun: () => void
+  onApply: (lines: SubtitleLine[]) => void
+  onJump: (startSec: number) => void
+}
+
+type Review = { result: ProofreadResult; usage: ProofreadUsage | null }
+/** 칩 표시는 단어 시작 시각으로 찾는다 — 단어 id 는 줄 순서 기반이라 줄을 나누면 바뀐다. */
+type Marks = { changed: number[]; uncertain: ProofreadResult['uncertain'] }
+
+const EMPHASIZE_KEY = 'autosub.ai.emphasize'
+
+function readEmphasize(): boolean {
+  try { return window.localStorage.getItem(EMPHASIZE_KEY) === '1' } catch { return false }
+}
+
+function cssId(id: string): string {
+  return typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(id) : id.replace(/["\\]/g, '\\$&')
+}
+
+function clock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+export function AiProofread(props: Props): JSX.Element {
+  const { subtitles, measureMaxUnits, emphasisColor, disabled, onBeforeRun, onApply, onJump } = props
+  const [settings, setSettings] = useState<AiSettings | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [runOpen, setRunOpen] = useState(false)
+  const [emphasize, setEmphasize] = useState(readEmphasize)
+  const [maxUnits, setMaxUnits] = useState(20)
+  const [running, setRunning] = useState<{ elapsed: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [review, setReview] = useState<Review | null>(null)
+  const [marks, setMarks] = useState<Marks | null>(null)
+  const [marksOpen, setMarksOpen] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const refresh = useCallback(async () => {
+    try { setSettings(await getAiSettings()) } catch { setSettings(null) }
+  }, [])
+  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    try { window.localStorage.setItem(EMPHASIZE_KEY, emphasize ? '1' : '0') } catch { /* ignore */ }
+  }, [emphasize])
+
+  const openRun = () => {
+    setError(null)
+    setReview(null)
+    if (!settings?.configured) { setSettingsOpen(true); return }
+    setMaxUnits(measureMaxUnits())
+    setRunOpen(true)
+  }
+
+  const start = async () => {
+    const source = proofreadSource(subtitles)
+    if (source.units.length === 0) { setError('교정할 자막이 없습니다.'); return }
+    onBeforeRun()
+    setError(null)
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+    setRunning({ elapsed: 0 })
+    try {
+      const { answer, usage } = await runProofread({
+        words: source.units.map(u => u.text), lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, emphasize
+      }, ctrl.signal, elapsed => setRunning({ elapsed }))
+      // 기다리는 동안 자막을 고쳤을 수 있으니 지금 자막에 맞춰 다시 만든다(바뀐 단어가 있으면 중단).
+      const now = proofreadSource(subtitles)
+      if (now.units.length !== source.units.length || now.units.some((u, i) => u.id !== source.units[i]!.id || u.text !== source.units[i]!.text)) {
+        throw new Error('교정 중에 자막이 바뀌었습니다. 다시 실행해 주세요.')
+      }
+      const result = applyProofread(subtitles, source, answer, { emphasisColor, maxUnits })
+      setReview({ result, usage })
+    } catch (e) {
+      if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      abortRef.current = null
+      setRunning(null)
+    }
+  }
+
+  const apply = () => {
+    if (!review) return
+    onApply(review.result.lines)
+    setMarks({ changed: review.result.changes.map(c => c.start), uncertain: review.result.uncertain })
+    setMarksOpen(review.result.uncertain.length > 0)
+    setReview(null)
+    setRunOpen(false)
+  }
+
+  // 적용 뒤 칩 표시 — 가상 목록이 행을 다시 그려도 유지되도록 단어 id 선택자로 칠한다.
+  const markStyle = useMemo(() => {
+    if (!marks) return ''
+    const rules: string[] = []
+    const sel = (start: number) => `.subtitle-word-chip[data-word-start="${cssId(String(start))}"]`
+    const changed = marks.changed.map(sel)
+    const unsure = marks.uncertain.map(u => sel(u.start))
+    if (changed.length) rules.push(`${changed.join(',')}{box-shadow:inset 0 -3px 0 #3ecf8e !important}`)
+    if (unsure.length) rules.push(`${unsure.join(',')}{outline:2px dashed #f5a524 !important;outline-offset:1px}`)
+    return rules.join('\n')
+  }, [marks])
+
+  const hasMarks = !!marks && (marks.changed.length > 0 || marks.uncertain.length > 0)
+
+  return (
+    <>
+      <button type="button" className="app-topbar-gpu-btn preview-project-btn subtitle-panel-action-btn ai-proofread-btn"
+        disabled={disabled} onClick={openRun}
+        title="Claude가 오타를 고치고, 문장 단위로 한 줄에 들어가게 줄을 나눕니다. 단어 시간은 바뀌지 않습니다.">
+        AI 교정
+      </button>
+      <button type="button" className="ai-proofread-gear" aria-label="AI 연동 설정" title="AI 연동 설정 (Claude API 키 · 용어 사전)"
+        onClick={() => { setError(null); setSettingsOpen(true) }}>
+        ⚙
+      </button>
+      {hasMarks ? (
+        <span className="ai-marks">
+          <button type="button" className="ai-marks-toggle" onClick={() => setMarksOpen(o => !o)}>
+            AI 수정 {marks!.changed.length} · 확인 필요 {marks!.uncertain.length} ▾
+          </button>
+          {marksOpen ? (
+            <div className="ai-marks-pop" role="dialog" aria-label="AI 교정 표시">
+              <p className="ai-marks-legend">
+                <span className="ai-legend-changed" /> AI가 고친 단어 <span className="ai-legend-unsure" /> 확인이 필요한 단어
+              </p>
+              {marks!.uncertain.length ? (
+                <ul className="ai-marks-list">
+                  {marks!.uncertain.map(u => (
+                    <li key={u.id}>
+                      <button type="button" onClick={() => onJump(u.start)}>
+                        <span className="ai-time">{clock(u.start)}</span> <b>{u.text}</b> — {u.reason}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="ai-muted">확인이 필요한 단어가 없습니다.</p>}
+              <div className="ai-row-end">
+                <button type="button" className="ai-btn" onClick={() => { setMarks(null); setMarksOpen(false) }}>표시 지우기</button>
+              </div>
+            </div>
+          ) : null}
+        </span>
+      ) : null}
+      {markStyle ? <style>{markStyle}</style> : null}
+
+      {settingsOpen ? (
+        <AiSettingsDialog settings={settings} onChange={setSettings} onClose={() => { setSettingsOpen(false); void refresh() }} />
+      ) : null}
+
+      {runOpen ? (
+        <div className="extract-modal-backdrop" role="presentation">
+          <div className="extract-modal-card ai-card ai-card--wide" role="dialog" aria-modal="true" aria-labelledby="ai-run-title">
+            <h2 id="ai-run-title" className="extract-modal-title">AI 교정 (Claude)</h2>
+            {review ? (
+              <ReviewBody review={review} onJump={onJump} />
+            ) : (
+              <div className="ai-body">
+                <p className="ai-muted">
+                  자막 글자만 Claude로 보냅니다. 영상과 음성은 PC 밖으로 나가지 않고, 단어 시간도 바뀌지 않습니다.
+                  사용한 만큼 등록한 API 키로 요금이 나갑니다.
+                </p>
+                <ul className="ai-plan">
+                  <li>오타·띄어쓰기·숫자와 영문 표기 수정{settings?.glossary.length ? ` (용어 사전 ${settings.glossary.length}개 반영)` : ''}</li>
+                  <li>문맥에 맞게 줄 나누기 — 화면 한 줄(지금 자막 디자인 기준 약 {maxUnits}자)을 넘지 않게</li>
+                  <li>말소리가 없는 구간(인트로·음악 등) 앞뒤는 다른 줄과 섞지 않음</li>
+                  <li>확신이 없는 단어는 고치지 않고 표시만</li>
+                </ul>
+                <label className="ai-check">
+                  <input type="checkbox" checked={emphasize} disabled={!!running} onChange={e => setEmphasize(e.target.checked)} />
+                  중요 부분 강조 색 칠하기
+                  <span className="ai-swatch" style={{ background: emphasisColor }} />
+                </label>
+                {running ? (
+                  <p className="ai-status" role="status">Claude가 교정하는 중… {clock(running.elapsed)}</p>
+                ) : null}
+              </div>
+            )}
+            {error ? <p className="ai-error" role="alert">{error}</p> : null}
+            <div className="ai-row-end">
+              {review ? (
+                <>
+                  <button type="button" className="ai-btn" onClick={() => setReview(null)}>취소</button>
+                  <button type="button" className="ai-btn ai-btn--primary" onClick={apply}
+                    disabled={review.result.changes.length === 0 && review.result.lineCountAfter === review.result.lineCountBefore
+                      && review.result.emphasized.length === 0 && review.result.uncertain.length === 0}>
+                    적용 (Ctrl+Z로 되돌리기)
+                  </button>
+                </>
+              ) : running ? (
+                <button type="button" className="ai-btn" onClick={() => abortRef.current?.abort()}>취소</button>
+              ) : (
+                <>
+                  <button type="button" className="ai-btn" onClick={() => setRunOpen(false)}>닫기</button>
+                  <button type="button" className="ai-btn ai-btn--primary" onClick={() => void start()} disabled={disabled}>교정 시작</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+function ReviewBody({ review, onJump }: { review: Review; onJump: (sec: number) => void }): JSX.Element {
+  const { result, usage } = review
+  return (
+    <div className="ai-body">
+      <p className="ai-summary">
+        단어 <b>{result.changes.length}</b>개 수정 · 줄 {result.lineCountBefore} → <b>{result.lineCountAfter}</b>
+        {' '}· 확인 필요 <b>{result.uncertain.length}</b>
+        {result.emphasized.length ? <> · 강조 <b>{result.emphasized.length}</b></> : null}
+      </p>
+      {result.changes.length ? (
+        <>
+          <h3 className="ai-sub">고친 단어</h3>
+          <ul className="ai-diff">
+            {result.changes.map(c => (
+              <li key={c.id}>
+                <button type="button" onClick={() => onJump(c.start)}>
+                  <span className="ai-time">{clock(c.start)}</span> <del>{c.before}</del> → <ins>{c.after || '(앞 단어에 합침)'}</ins>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {result.uncertain.length ? (
+        <>
+          <h3 className="ai-sub">확인이 필요한 단어 (고치지 않음)</h3>
+          <ul className="ai-diff">
+            {result.uncertain.map(u => (
+              <li key={u.id}>
+                <button type="button" onClick={() => onJump(u.start)}>
+                  <span className="ai-time">{clock(u.start)}</span> <b>{u.text}</b> — {u.reason}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {usage ? (
+        <p className="ai-muted ai-small">사용량: 입력 {usage.input.toLocaleString()} · 출력 {usage.output.toLocaleString()} 토큰</p>
+      ) : null}
+    </div>
+  )
+}
+
+function AiSettingsDialog({ settings, onChange, onClose }: {
+  settings: AiSettings | null
+  onChange: (s: AiSettings) => void
+  onClose: () => void
+}): JSX.Element {
+  const [key, setKey] = useState('')
+  const [glossary, setGlossary] = useState((settings?.glossary ?? []).join('\n'))
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const run = async (fn: () => Promise<AiSettings>, okText: string) => {
+    setBusy(true)
+    setMsg(null)
+    try {
+      onChange(await fn())
+      setMsg({ ok: true, text: okText })
+      return true
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) })
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="extract-modal-backdrop" role="presentation">
+      <div className="extract-modal-card ai-card" role="dialog" aria-modal="true" aria-labelledby="ai-settings-title">
+        <h2 id="ai-settings-title" className="extract-modal-title">AI 연동 (Claude)</h2>
+        <div className="ai-body">
+          <h3 className="ai-sub">API 키</h3>
+          {settings?.configured ? (
+            <p className="ai-ok">연결됨 · …{settings.keyHint}</p>
+          ) : (
+            <p className="ai-muted">
+              Anthropic Console(console.anthropic.com)에서 발급한 Claude API 키를 넣어 주세요.
+              키는 이 PC의 에이전트에만 암호화해 저장되고, 사이트 서버로는 보내지 않습니다.
+            </p>
+          )}
+          <div className="ai-key-row">
+            <input type="password" className="ai-input" placeholder={settings?.configured ? '새 키로 바꾸기 (sk-ant-…)' : 'sk-ant-…'}
+              value={key} autoComplete="off" spellCheck={false} onChange={e => setKey(e.target.value)} />
+            <button type="button" className="ai-btn ai-btn--primary" disabled={busy || !key.trim()}
+              onClick={async () => { if (await run(() => saveAiKey(key), '키를 확인하고 저장했습니다.')) setKey('') }}>
+              {busy ? '확인 중…' : '연결 확인 후 저장'}
+            </button>
+          </div>
+          {settings?.configured ? (
+            <button type="button" className="ai-link" disabled={busy}
+              onClick={() => void run(deleteAiKey, '키를 지웠습니다.')}>키 삭제</button>
+          ) : null}
+
+          <h3 className="ai-sub">용어 사전</h3>
+          <p className="ai-muted ai-small">채널명·제품명·사람 이름처럼 자주 틀리는 말을 한 줄에 하나씩 적어 두면, AI가 이 표기대로 고칩니다.</p>
+          <textarea className="ai-input ai-glossary" rows={6} value={glossary} spellCheck={false}
+            placeholder={'예)\nJPEG XL\n이지캡처\nItMatZip'} onChange={e => setGlossary(e.target.value)} />
+          <div className="ai-row-end">
+            <button type="button" className="ai-btn" disabled={busy}
+              onClick={() => void run(() => saveGlossary(glossary.split('\n')), '용어 사전을 저장했습니다.')}>용어 사전 저장</button>
+          </div>
+          {msg ? <p className={msg.ok ? 'ai-ok' : 'ai-error'} role="status">{msg.text}</p> : null}
+        </div>
+        <div className="ai-row-end">
+          <button type="button" className="ai-btn" onClick={onClose}>닫기</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 프리뷰 자막 상자 한 줄에 들어가는 글자 수(한글 1, 영문·숫자 0.5). 자막 상자의 최대 폭(여백 제외)을
+ * 지금 글꼴로 잰 한글 한 글자 폭으로 나눈다 — 글꼴·크기·상자 폭을 바꾸면 따라 바뀐다.
+ */
+export function previewLineCapacityUnits(el: HTMLElement | null): number | null {
+  if (!el) return null
+  const cs = getComputedStyle(el)
+  const px = (v: string) => (Number.isFinite(parseFloat(v)) ? parseFloat(v) : 0)
+  const max = px(cs.maxWidth)
+  if (!(max > 0)) return null
+  const inner = max - px(cs.paddingLeft) - px(cs.paddingRight) - px(cs.borderLeftWidth) - px(cs.borderRightWidth)
+  const ctx = document.createElement('canvas').getContext('2d')
+  if (!ctx) return null
+  ctx.font = cs.font
+  const sample = '가나다라마바사아자차카타파하'
+  const unit = ctx.measureText(sample).width / sample.length + (px(cs.letterSpacing) || 0)
+  if (!(unit > 0) || !(inner > 0)) return null
+  return Math.max(4, Math.min(80, Math.floor(inner / unit)))
+}

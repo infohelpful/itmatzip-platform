@@ -73,10 +73,11 @@ export class AgentOutdated extends Error {
   }
 }
 
-export async function api<T>(path: string, body?: unknown, method?: 'GET' | 'POST'): Promise<T> {
-  const res = await agentFetch(toolApiBase + path, body === undefined && method !== 'POST'
-    ? { method: 'GET' }
-    : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+export async function api<T>(path: string, body?: unknown, method?: 'GET' | 'POST' | 'PUT' | 'DELETE'): Promise<T> {
+  const verb = method ?? (body === undefined ? 'GET' : 'POST')
+  const res = await agentFetch(toolApiBase + path, verb === 'GET' || (verb === 'DELETE' && body === undefined)
+    ? { method: verb }
+    : { method: verb, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body ?? {}) })
   if (res.status === 404) {
     const detail = await readError(res)
     throw detail === 'Not Found' ? new AgentOutdated() : new Error(detail)

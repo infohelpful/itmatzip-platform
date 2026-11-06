@@ -13,7 +13,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 
-from engines.autosub import alignment, export, media, paths, service
+from engines.autosub import ai_proofread, ai_settings, alignment, export, media, paths, service
 
 router = APIRouter(prefix="/api/tools/auto-subtitle/v2", tags=["auto-subtitle"])
 
@@ -312,3 +312,81 @@ async def post_export_cancel(job_id: str) -> dict[str, Any]:
 async def post_export_show_in_folder(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     shown = await run_in_threadpool(export.show_in_folder, _str(body, "path"))
     return {"ok": True} if shown else {"ok": False, "reason": "이번에 내보낸 파일만 폴더에서 열 수 있습니다."}
+
+
+# -- AI proofreading (Claude) ------------------------------------------------------------
+# These routes hold the user's API key and spend their API credit. Accept JSON only: a plain
+# form/text POST from another site needs no CORS preflight, so it could otherwise reach them.
+def _require_json(request: Request) -> None:
+    content_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="JSON 요청만 받습니다.")
+
+
+@router.get("/ai/settings")
+async def get_ai_settings() -> dict[str, Any]:
+    return await run_in_threadpool(ai_settings.status)
+
+
+@router.put("/ai/key")
+async def put_ai_key(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _require_json(request)
+    try:
+        key = ai_settings.normalize_key(body.get("apiKey"))
+        await run_in_threadpool(ai_proofread.test_key, key)
+        await run_in_threadpool(ai_settings.set_api_key, key)
+    except (ValueError, ai_proofread.ProofreadError, RuntimeError) as error:
+        raise _bad(error) from error
+    return await run_in_threadpool(ai_settings.status)
+
+
+@router.delete("/ai/key")
+async def delete_ai_key() -> dict[str, Any]:
+    await run_in_threadpool(ai_settings.delete_api_key)
+    return await run_in_threadpool(ai_settings.status)
+
+
+@router.post("/ai/test")
+async def post_ai_test(request: Request) -> dict[str, Any]:
+    _require_json(request)
+    key = await run_in_threadpool(ai_settings.api_key)
+    if not key:
+        raise HTTPException(status_code=400, detail="등록된 API 키가 없습니다.")
+    try:
+        await run_in_threadpool(ai_proofread.test_key, key)
+    except ai_proofread.ProofreadError as error:
+        raise _bad(error) from error
+    return {"ok": True}
+
+
+@router.put("/ai/glossary")
+async def put_ai_glossary(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _require_json(request)
+    try:
+        terms = ai_settings.normalize_glossary(body.get("terms"))
+        await run_in_threadpool(ai_settings.set_glossary, terms)
+    except (ValueError, OSError) as error:
+        raise _bad(error) from error
+    return await run_in_threadpool(ai_settings.status)
+
+
+@router.post("/ai/proofread")
+async def post_ai_proofread(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _require_json(request)
+    try:
+        job_id = await run_in_threadpool(ai_proofread.start, body)
+    except (ValueError, ai_proofread.ProofreadError) as error:
+        raise _bad(error) from error
+    return {"jobId": job_id}
+
+
+@router.get("/ai/proofread")
+async def get_ai_proofread(jobId: str = Query(...), wait: float = Query(0.0, ge=0, le=10)) -> dict[str, Any]:
+    return await run_in_threadpool(ai_proofread.status, jobId, wait)
+
+
+@router.post("/ai/proofread/cancel")
+async def post_ai_proofread_cancel(request: Request, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _require_json(request)
+    ai_proofread.cancel(_str(body, "jobId"))
+    return {"ok": True}
