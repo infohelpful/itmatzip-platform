@@ -251,7 +251,7 @@ def _install_cuda_torch(python: Path, start: float, end: float, index: str = TOR
                         pins: tuple[str, ...] = TORCH_CUDA_PINS, find_links: Path | None = None) -> None:
     """Swap the torch build in place (same versions, packages only; nothing else changes).
 
-    From the PyTorch index, or offline from `find_links` (the library-hub copy of the same wheels).
+    Offline from `find_links` (the library-hub copy of the same wheels), or from the PyTorch index.
     """
     if _is_embeddable(python):
         cmd = [str(_base_python()), "-m", "pip", "install", "--target", str(_site_packages(python)), "--upgrade"]
@@ -354,18 +354,21 @@ def _install_cuda_from_hub(python: Path, start: float, end: float) -> None:
 
 
 def _try_cuda(python: Path, start: float, end: float) -> bool:
-    """CUDA torch on an NVIDIA PC: the official PyTorch index first, then the library-hub copy.
+    """CUDA torch on an NVIDIA PC: the library-hub copy first (like every other engine file), then
+    the official PyTorch index.
 
     If both fail the CPU build is put back and alignment stays on the CPU.
     """
     try:
-        try:
+        installed = False
+        if hub_mirror.wheels_supported():
+            try:
+                _install_cuda_from_hub(python, start, end)
+                installed = True
+            except Exception as error:  # noqa: BLE001 - mirror unavailable: official index
+                _set(stage=f"library-hub 에서 받지 못해 공식 사이트에서 받습니다: {str(error)[:80]}")
+        if not installed:
             _install_cuda_torch(python, start, end)
-        except Exception as error:  # noqa: BLE001 - official source unavailable: library-hub copy
-            if not hub_mirror.wheels_supported():
-                raise
-            _set(stage=f"공식 사이트에서 받지 못해 library-hub 에서 받습니다: {str(error)[:80]}")
-            _install_cuda_from_hub(python, start, end)
         _strip_build_only_files(python)
         _set(pct=end, stage="GPU 동작 확인 중")
         _verify(python, cuda=True)
