@@ -93,7 +93,7 @@ export function AiProofread(props: Props): JSX.Element {
       if (now.units.length !== source.units.length || now.units.some((u, i) => u.id !== source.units[i]!.id || u.text !== source.units[i]!.text)) {
         throw new Error('교정 중에 자막이 바뀌었습니다. 다시 실행해 주세요.')
       }
-      const result = applyProofread(subtitles, source, answer, { emphasisColor, maxUnits })
+      const result = applyProofread(subtitles, source, answer, { emphasisColor, maxUnits, targetUnits: Math.min(TARGET_UNITS, maxUnits) })
       setReview({ result, usage })
     } catch (e) {
       if (!ctrl.signal.aborted) setError(e instanceof Error ? e.message : String(e))

@@ -93,13 +93,20 @@ export function lineWidthUnits(text: string): number {
   return textDisplayUnits(text)
 }
 
-/** 문장부호·연결 어미로 끝나는 조각 뒤가 자연스러운 끊는 자리 */
+/** 끊기 좋은 자리: 문장 끝 > 쉼표·연결 어미 > 목적어·부사어 조사 뒤 */
 const STRONG_END = /[.?!…]["')\]]*$/
-const SOFT_END = /[,;:]$|(?:고|는데|은데|던데|인데|서|면|지만|며|면서|니까|으니|어서|아서|해서|하고|거나|든지|도록|려고|게)$/
+const SOFT_END = new RegExp('[,;:]$|(?:고|는데|은데|던데|인데|서|면|지만|며|면서|니까|으니|어서|아서|해서|하고|거나|든지|'
+  + '도록|려고|게|는지|은지|을지|던지|다가|어도|아도|해도|므로|라서|이라|이고|구요|고요|는데요|어요|아요|죠)$')
+const PHRASE_END = /(?:을|를|에서|에게|에서는|에는|으로|로|와|과|하고|부터|까지|처럼|보다|만|도|은|는|이|가)$/
+/** 목표 길이의 이 배수를 넘는 줄은 읽기 쉽게 나눈다(18자 목표 → 24자 넘으면) */
+const SOFT_LIMIT_RATIO = 4 / 3
+/** 한쪽이 이보다 짧으면(한두 단어) 피한다 */
+const MIN_SIDE_UNITS = 6
 
 /**
- * 화면을 넘는 줄을 나눌 단어 위치(왼쪽 줄 단어 수, 1..n-1). 왼쪽이 화면 안에 들어가는 자리 중
- * 문장 끝 > 쉼표·연결 어미 순으로 고르고, 같으면 양쪽 길이가 고른 쪽.
+ * 줄을 나눌 단어 위치(왼쪽 줄 단어 수, 1..n-1). 왼쪽이 `maxUnits` 안에 들어가는 자리 중
+ * 문장 끝 > 쉼표·연결 어미 > 조사 뒤 순으로 고르고, 너무 짧은 쪽이 생기는 자리는 피하며,
+ * 같으면 양쪽 길이가 고른 쪽.
  */
 export function bestBreak(tokens: readonly string[], maxUnits: number): number {
   const widths = tokens.map(t => lineWidthUnits(t))
@@ -114,6 +121,8 @@ export function bestBreak(tokens: readonly string[], maxUnits: number): number {
     let score = -Math.abs(left - right)
     if (STRONG_END.test(prev)) score += 1000
     else if (SOFT_END.test(prev)) score += 500
+    else if (PHRASE_END.test(prev)) score += 200
+    if (Math.min(left, right) < MIN_SIDE_UNITS) score -= 600
     if (left > maxUnits) score -= 10_000
     if (score > bestScore) { bestScore = score; best = k }
   }
@@ -124,7 +133,7 @@ export function applyProofread(
   lines: readonly SubtitleLine[],
   source: ProofreadSource,
   answer: ProofreadAnswer,
-  options: { emphasisColor?: string; maxUnits?: number } = {}
+  options: { emphasisColor?: string; maxUnits?: number; targetUnits?: number } = {}
 ): ProofreadResult {
   const { units } = source
   const n = units.length
@@ -168,21 +177,33 @@ export function applyProofread(
   }
 
   // 2b) 그래도 화면 한 줄을 넘는 줄은 두 줄로 넘어가지 않게 의미 단위에서 더 나눈다.
-  if (options.maxUnits) {
-    const max = options.maxUnits
+  // 2b') 읽기 쉽게: 목표보다 많이 긴 줄은 AI 답과 상관없이 의미 단위에서 나눈다(작은 모델은 줄 나누기를 잘 안 지킨다).
+  //       한쪽이 한두 단어만 남는 자리밖에 없으면 그대로 둔다.
+  const splitWider = (limit: number, allowShort: boolean): void => {
+    const skip = new Set<string>()
     for (let guard = 0; guard < 10_000; guard++) {
-      const li = next.findIndex((_, i) => {
+      const li = next.findIndex((line, i) => {
         const gs = unitsOfLine(i)
-        return gs.length >= 2 && !gs.some(g => units[g]!.locked) && lineWidthUnits(textOf(gs)) > max
+        return gs.length >= 2 && !skip.has(units[gs[0]!]!.id) && !gs.some(g => units[g]!.locked)
+          && lineWidthUnits(textOf(gs)) > limit
       })
       if (li < 0) break
       const gs = unitsOfLine(li)
-      const k = bestBreak(gs.map(g => corrections.get(g) ?? units[g]!.text), max)
+      const tokens = gs.map(g => corrections.get(g) ?? units[g]!.text)
+      const k = bestBreak(tokens, limit)
+      const leftW = lineWidthUnits(tokens.slice(0, k).filter(Boolean).join(' '))
+      const rightW = lineWidthUnits(tokens.slice(k).filter(Boolean).join(' '))
+      if (!allowShort && Math.min(leftW, rightW) < MIN_SIDE_UNITS) { skip.add(units[gs[0]!]!.id); continue }
       const wi = next[li]!.words!.findIndex(w => w.id === units[gs[k]!]!.id)
       const split = splitSubtitleAtWordBoundary(next, li, wi)
-      if (split.length === next.length) break
+      if (split.length === next.length) { skip.add(units[gs[0]!]!.id); continue }
       next = split
     }
+  }
+  if (options.maxUnits) splitWider(options.maxUnits, true)
+  if (options.targetUnits) {
+    const soft = Math.min(options.maxUnits ?? Infinity, Math.round(options.targetUnits * SOFT_LIMIT_RATIO))
+    splitWider(soft, false)
   }
 
   // 2c) 말소리가 없는 줄(오프닝·음악 등 "--"·"오디오" 칩만 있는 줄)이 연달아 있으면 한 줄로 묶는다.

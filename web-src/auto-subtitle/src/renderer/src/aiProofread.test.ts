@@ -141,4 +141,28 @@ describe('applyProofread', () => {
     expect(out.silentMerged).toBe(2)
     expect(texts([out.lines[0]!, out.lines[2]!])).toEqual(['안녕하세요', '오늘은'])
   })
+
+  it('splits sentences into readable phrase lines even when the AI keeps them whole', () => {
+    const lines = [row([
+      ['여러분', 0, .4], ['예전에', .4, .8], ['공들여', .8, 1.2], ['만들었던', 1.2, 1.7], ['영상을', 1.7, 2.1],
+      ['다시', 2.1, 2.4], ['꺼내서', 2.4, 2.8], ['쓰고', 2.8, 3.1], ['싶은데', 3.1, 3.5],
+      ['원본', 3.6, 3.9], ['프로젝트', 3.9, 4.4], ['파일이', 4.4, 4.8], ['어디로', 4.8, 5.2], ['갔는지', 5.2, 5.6],
+      ['안', 5.6, 5.8], ['보여서', 5.8, 6.2], ['난감했던', 6.2, 6.7], ['적', 6.7, 6.9], ['있으신가요?', 6.9, 7.6]
+    ])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ lineStarts: [0] }), { maxUnits: 34, targetUnits: 18 })
+    expect(texts(out.lines)).toEqual([
+      '여러분 예전에 공들여 만들었던 영상을',
+      '다시 꺼내서 쓰고 싶은데',
+      '원본 프로젝트 파일이 어디로 갔는지',
+      '안 보여서 난감했던 적 있으신가요?'
+    ])
+    expect(times(out.lines)).toEqual(times(lines))
+  })
+
+  it('leaves a short line alone and never leaves a one-word line just to hit the target', () => {
+    const lines = [row([['그래서', 0, .5], ['오늘은', .5, 1], ['원본', 1, 1.4], ['프로젝트', 1.4, 2], ['파일이', 2, 2.5],
+      ['없어도', 2.5, 3]])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ lineStarts: [0] }), { maxUnits: 34, targetUnits: 18 })
+    expect(texts(out.lines)).toEqual(['그래서 오늘은 원본 프로젝트 파일이 없어도'])
+  })
 })
