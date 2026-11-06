@@ -44,18 +44,28 @@ see or change timing. You change only the text of words and where caption lines 
    Return a correction only for a word whose text should change, as {"id", "text"}. Keep one word
    per id: when two recognized words are really one ("1" ".05" -> "1.05"), put the joined text on
    the first id and "" on the second. Never move text between distant ids.
-2. Line starts. Re-split the transcript into caption lines that read naturally, the way a
-   careful human subtitler would: one sentence per line when it fits; otherwise break at clause or
-   phrase boundaries (after a connective ending, before a new clause), never inside a word, between
-   a number and its unit, or between a modifier and the word it modifies. `max_units` is the width
-   of one screen line and only a ceiling: never exceed it, but do not fill lines up to it either -
-   a shorter line that ends at a natural boundary is better than a full line that cuts a phrase.
+2. Line starts. Re-split the transcript into short caption lines that are easy to read at a
+   glance, the way a careful human subtitler would. Each caption is shown as a single screen line,
+   and a full-width line is hard to read, so break every sentence into phrase-sized chunks at
+   natural pauses in meaning: after a connective ending (-고, -는데, -서, -면, -지만, -며, -니까),
+   after a comma, before a new clause, after an adverbial or object phrase that completes a thought.
+   Aim for about `target_units` per line; a line may be shorter when the phrase is, and longer only
+   when there is no natural break, but never longer than `max_units` (one full screen line).
+   Never break inside a word, between a number and its unit, or between a modifier and the word it
+   modifies, and avoid one-word lines unless the sentence is that short.
    Width counts a Hangul or other full-width character as 1 and an ASCII letter, digit, space or
-   punctuation as 0.5. Avoid one- or two-word lines unless the sentence is that short.
-   `pauses` lists the words (`before_id`) that come after a stretch with no speech (an intro, music, a long pause),
-   with its length in seconds: always start a new line at each of them, so speech on either side
-   of a silence never shares a line. Return the full list of starting word ids, beginning with the
-   first id, strictly increasing.
+   punctuation as 0.5.
+   Example - one sentence:
+     여러분 예전에 공들여 만들었던 영상을 다시 꺼내서 쓰고 싶은데 원본 프로젝트 파일이 어디로 갔는지 안 보여서 난감했던 적 있으신가요?
+   becomes four lines:
+     여러분 예전에 공들여 만들었던 영상을
+     다시 꺼내서 쓰고 싶은데
+     원본 프로젝트 파일이 어디로 갔는지
+     안 보여서 난감했던 적 있으신가요?
+   `pauses` lists the words (`before_id`) that come after a stretch with no speech (an intro,
+   music, a long pause), with its length in seconds: always start a new line at each of them, so
+   speech on either side of a silence never shares a line. Return the full list of starting word
+   ids, beginning with the first id, strictly increasing.
 3. Uncertain words. When a word is probably misheard but the context does not show the right text
    (a name, a number, a word that would also make sense), leave its text unchanged and list it in
    `uncertain` with a short Korean reason for the editor (under 60 characters).
@@ -101,6 +111,7 @@ class ProofreadRequest:
     line_starts: list[int]
     max_units: int
     emphasize: bool
+    target_units: int = 18
     pauses: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -121,8 +132,11 @@ def parse_request(body: dict[str, Any]) -> ProofreadRequest:
     max_units = body.get("maxUnits")
     if not isinstance(max_units, int) or isinstance(max_units, bool) or not 4 <= max_units <= 80:
         raise ValueError("줄당 글자 수는 4~80 사이여야 합니다.")
+    target = body.get("targetUnits")
+    valid_target = isinstance(target, int) and not isinstance(target, bool) and 4 <= target <= max_units
+    target_units = target if valid_target else min(18, max_units)
     return ProofreadRequest(texts, _clean_starts(starts, len(texts)), max_units, body.get("emphasize") is True,
-                            _clean_pauses(body.get("pauses"), len(texts)))
+                            target_units, _clean_pauses(body.get("pauses"), len(texts)))
 
 
 def _clean_pauses(raw: Any, n: int) -> list[dict[str, Any]]:
@@ -145,6 +159,7 @@ def _clean_starts(starts: list[Any], n: int) -> list[int]:
 
 def build_user_message(req: ProofreadRequest, terms: list[str]) -> str:
     payload = {
+        "target_units": req.target_units,
         "max_units": req.max_units,
         "emphasize": req.emphasize,
         "glossary": terms,

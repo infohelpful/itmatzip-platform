@@ -11,6 +11,7 @@ import type { SubtitleLine } from '../../shared/subtitles'
 import { sourcePieces, editedCaptionOf, withCaption } from '../../shared/captionSplit'
 import { addCaptionEmphasis, resolveCaptionEmphasis, withUserCaptionEmphasis } from '../../shared/captionEmphasis'
 import { mergeSubtitleIntoPrevious, splitSubtitleAtWordBoundary } from './subtitleEditOps'
+import { textDisplayUnits } from '../../shared/lineBreak'
 import type { ProofreadAnswer } from './platform/aiAgent'
 
 /** 이만큼 말이 끊긴 곳(인트로·음악·긴 쉼)은 앞뒤 줄을 합치지 않고, AI 에 쉼으로 알려 준다. */
@@ -87,9 +88,34 @@ function liveLineCount(lines: readonly SubtitleLine[]): number {
 
 /** 화면 폭 단위 — 한글·전각 1, 영문·숫자·공백·문장부호 0.5 (AI 에 알려 준 규칙과 같다) */
 export function lineWidthUnits(text: string): number {
-  let w = 0
-  for (const ch of text) w += ch.charCodeAt(0) < 0x1100 ? 0.5 : 1
-  return w
+  return textDisplayUnits(text)
+}
+
+/** 문장부호·연결 어미로 끝나는 조각 뒤가 자연스러운 끊는 자리 */
+const STRONG_END = /[.?!…]["')\]]*$/
+const SOFT_END = /[,;:]$|(?:고|는데|은데|던데|인데|서|면|지만|며|면서|니까|으니|어서|아서|해서|하고|거나|든지|도록|려고|게)$/
+
+/**
+ * 화면을 넘는 줄을 나눌 단어 위치(왼쪽 줄 단어 수, 1..n-1). 왼쪽이 화면 안에 들어가는 자리 중
+ * 문장 끝 > 쉼표·연결 어미 순으로 고르고, 같으면 양쪽 길이가 고른 쪽.
+ */
+export function bestBreak(tokens: readonly string[], maxUnits: number): number {
+  const widths = tokens.map(t => lineWidthUnits(t))
+  const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, tokens.length - 1) * 0.5
+  let best = Math.ceil(tokens.length / 2)
+  let bestScore = -Infinity
+  let left = 0
+  for (let k = 1; k < tokens.length; k++) {
+    left += widths[k - 1]! + (k > 1 ? 0.5 : 0)
+    const right = total - left - 0.5
+    const prev = tokens[k - 1]!
+    let score = -Math.abs(left - right)
+    if (STRONG_END.test(prev)) score += 1000
+    else if (SOFT_END.test(prev)) score += 500
+    if (left > maxUnits) score -= 10_000
+    if (score > bestScore) { bestScore = score; best = k }
+  }
+  return best
 }
 
 export function applyProofread(
@@ -137,6 +163,24 @@ export function applyProofread(
     if (li < 0 || li !== lineOf(units[s - 1]!.id)) continue
     const wi = next[li]!.words!.findIndex(w => w.id === id)
     next = splitSubtitleAtWordBoundary(next, li, wi)
+  }
+
+  // 2b) 그래도 화면 한 줄을 넘는 줄은 두 줄로 넘어가지 않게 의미 단위에서 더 나눈다.
+  if (options.maxUnits) {
+    const max = options.maxUnits
+    for (let guard = 0; guard < 10_000; guard++) {
+      const li = next.findIndex((_, i) => {
+        const gs = unitsOfLine(i)
+        return gs.length >= 2 && !gs.some(g => units[g]!.locked) && lineWidthUnits(textOf(gs)) > max
+      })
+      if (li < 0) break
+      const gs = unitsOfLine(li)
+      const k = bestBreak(gs.map(g => corrections.get(g) ?? units[g]!.text), max)
+      const wi = next[li]!.words!.findIndex(w => w.id === units[gs[k]!]!.id)
+      const split = splitSubtitleAtWordBoundary(next, li, wi)
+      if (split.length === next.length) break
+      next = split
+    }
   }
 
   // 3) 줄 문구 · 강조

@@ -37,6 +37,8 @@ export type ProofreadInput = {
   /** 말소리가 끊긴 곳 — 이 번호의 단어 앞에서 `sec` 초 쉼 */
   pauses: { id: number; sec: number }[]
   maxUnits: number
+  /** 읽기 편한 목표 길이 — 넘을 수는 있지만 maxUnits 는 못 넘는다 */
+  targetUnits: number
   emphasize: boolean
 }
 

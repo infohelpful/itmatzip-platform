@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
-import { applyProofread, proofreadSource, type ProofreadResult } from '../aiProofread'
+import { applyProofread, lineWidthUnits, proofreadSource, type ProofreadResult } from '../aiProofread'
 import {
   chooseAi, deleteAiKey, getAiSettings, MODEL_LABEL, PROVIDER_LABEL, runProofread, saveAiKey, saveGlossary,
   type AiProvider, type AiSettings, type ProofreadUsage
@@ -27,6 +27,8 @@ type Review = { result: ProofreadResult; usage: ProofreadUsage | null }
 type Marks = { changed: number[]; uncertain: ProofreadResult['uncertain'] }
 
 const EMPHASIZE_KEY = 'autosub.ai.emphasize'
+/** 읽기 편한 한 줄 목표 길이(한글 약 18자) — 화면 한 줄(`maxUnits`)은 끊을 데가 없을 때만 쓰는 상한 */
+const TARGET_UNITS = 18
 
 function readEmphasize(): boolean {
   try { return window.localStorage.getItem(EMPHASIZE_KEY) === '1' } catch { return false }
@@ -83,7 +85,8 @@ export function AiProofread(props: Props): JSX.Element {
     try {
       const { answer, usage } = await runProofread({
         provider: settings!.provider,
-        words: source.units.map(u => u.text), lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, emphasize
+        words: source.units.map(u => u.text), lineStarts: source.lineStarts, pauses: source.pauses, maxUnits,
+        targetUnits: Math.min(TARGET_UNITS, maxUnits), emphasize
       }, ctrl.signal, elapsed => setRunning({ elapsed }))
       // 기다리는 동안 자막을 고쳤을 수 있으니 지금 자막에 맞춰 다시 만든다(바뀐 단어가 있으면 중단).
       const now = proofreadSource(subtitles)
@@ -199,7 +202,8 @@ export function AiProofread(props: Props): JSX.Element {
                 </p>
                 <ul className="ai-plan">
                   <li>오타·띄어쓰기·숫자와 영문 표기 수정{settings?.glossary.length ? ` (용어 사전 ${settings.glossary.length}개 반영)` : ''}</li>
-                  <li>문맥에 맞게 줄 나누기 — 화면 한 줄(지금 자막 디자인 기준 약 {maxUnits}자)을 넘지 않게</li>
+                  <li>읽기 쉽게 의미 단위로 줄 나누기 — 한 줄 약 {Math.min(TARGET_UNITS, maxUnits)}자 안팎,
+                    끊을 데가 없을 때만 최대 {maxUnits}자(지금 자막 디자인의 화면 한 줄). 두 줄로 넘어가지 않음</li>
                   <li>말소리가 없는 구간(인트로·음악 등) 앞뒤는 다른 줄과 섞지 않음</li>
                   <li>확신이 없는 단어는 고치지 않고 표시만</li>
                 </ul>
@@ -421,8 +425,11 @@ export function previewLineCapacityUnits(el: HTMLElement | null): number | null 
   const ctx = document.createElement('canvas').getContext('2d')
   if (!ctx) return null
   ctx.font = cs.font
-  const sample = '가나다라마바사아자차카타파하'
-  const unit = ctx.measureText(sample).width / sample.length + (px(cs.letterSpacing) || 0)
-  if (!(unit > 0) || !(inner > 0)) return null
-  return Math.max(4, Math.min(80, Math.floor(inner / unit)))
+  // 띄어쓰기·쉼표·영문이 섞인 실제 자막 문장으로 잰다(한글만 재면 공백 폭을 작게 잡아 두 줄로 넘어갔다).
+  const sample = '그 자리에 요즘 쇼츠, 트렌드에 딱 맞는 스타일 자막을 얹어 HitPaw로 1080p 영상을 완성합니다.'
+  const spacing = px(cs.letterSpacing) || 0
+  const pxPerUnit = (ctx.measureText(sample).width + spacing * [...sample].length) / lineWidthUnits(sample)
+  if (!(pxPerUnit > 0) || !(inner > 0)) return null
+  // 글꼴 렌더링 차이·굵은 외곽선 여유 5%
+  return Math.max(4, Math.min(80, Math.floor((inner * 0.95) / pxPerUnit)))
 }

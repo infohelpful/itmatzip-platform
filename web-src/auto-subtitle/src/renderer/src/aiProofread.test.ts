@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { displayTextFromSubtitleWords, subtitleLineEditDisplayText, type SubtitleLine, type SubtitleWord } from '../../shared/subtitles'
 import { buildExportCueLines } from '../../shared/exportCuePipeline'
-import { applyProofread, proofreadSource } from './aiProofread'
+import { applyProofread, lineWidthUnits, proofreadSource } from './aiProofread'
 import type { ProofreadAnswer } from './platform/aiAgent'
 
 let seq = 0
@@ -112,5 +112,20 @@ describe('applyProofread', () => {
     const src = proofreadSource(lines)
     expect(texts(applyProofread(lines, src, answer({ lineStarts: [0] }), { maxUnits: 10 }).lines)).toHaveLength(2)
     expect(texts(applyProofread(lines, src, answer({ lineStarts: [0] }), { maxUnits: 20 }).lines)).toEqual(['가나다라 마바사 아자차카 타파하'])
+  })
+
+  it('splits a line that is still wider than one screen line at a phrase ending', () => {
+    const lines = [row([
+      ['여러분', 0, .4], ['예전에', .4, .8], ['공들여', .8, 1.2], ['만들었던', 1.2, 1.7], ['영상을', 1.7, 2.1],
+      ['다시', 2.1, 2.4], ['꺼내서', 2.4, 2.8], ['쓰고', 2.8, 3.1], ['싶은데', 3.1, 3.5],
+      ['원본', 3.6, 3.9], ['프로젝트', 3.9, 4.4], ['파일이', 4.4, 4.8], ['어디로', 4.8, 5.2], ['갔는지', 5.2, 5.6],
+      ['안', 5.6, 5.8], ['보여서', 5.8, 6.2], ['난감했던', 6.2, 6.7], ['적', 6.7, 6.9], ['있으신가요?', 6.9, 7.6]
+    ])]
+    const src = proofreadSource(lines)
+    const out = applyProofread(lines, src, answer({ lineStarts: [0] }), { maxUnits: 40 })
+    const shown = texts(out.lines)
+    expect(shown.every(t => lineWidthUnits(t) <= 40)).toBe(true)
+    expect(shown[0]!.endsWith('싶은데')).toBe(true)
+    expect(times(out.lines)).toEqual(times(lines))
   })
 })
