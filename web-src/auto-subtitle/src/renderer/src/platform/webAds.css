@@ -10,3 +10,20 @@
   .preview-subtitle-controls > .preview-subtitle-export-actions { flex: 0 0 auto; margin-left: auto; }
 }
 .preview-export-main .preview-export-format { flex: 0 0 auto; width: 124px; }
+
+/* Card highlight follows the editing cursor, not the playhead, while paused.
+   The playhead card (subtitle-card--active, set by the playback tick) is only shown during playback
+   or when no card has focus; the card holding the caret / text cursor (clicked or keyboard) gets the
+   same highlight. */
+.app:not(.is-playing) .subtitle-virtual-list:has(.subtitle-card:focus-within) .subtitle-card--active:not(:focus-within) {
+  border-color: #42494b;
+  background: #171b1c;
+}
+.app:not(.is-playing) .subtitle-virtual-list:has(.subtitle-card:focus-within) .subtitle-card--active:not(:focus-within) .subtitle-row-kind {
+  color: #7f959a;
+}
+.app:not(.is-playing) .subtitle-card:focus-within {
+  border-color: #13b6d4;
+  background: #171d1e;
+}
+.app:not(.is-playing) .subtitle-card:focus-within .subtitle-row-kind { color: #11b8d7; }
