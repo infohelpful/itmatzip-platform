@@ -157,7 +157,8 @@ def discard(path: Path) -> None:
 # key -> (joined file name, joined size, joined sha256, [(part name, part size, part sha256), ...])
 SPLIT_ASSETS: dict[str, tuple[str, int, str, list[tuple[str, int, str]]]] = {
     # torch 2.8.0+cu128, torchaudio 2.8.0+cu128, torchvision 0.23.0+cu128, CPython 3.12 win_amd64
-    # (download.pytorch.org/whl/cu128, byte-identical wheels) - GPU alignment on NVIDIA PCs
+    # (download.pytorch.org/whl/cu128, byte-identical wheels) - GPU alignment on NVIDIA PCs; mirror first,
+    # like every other asset, then the official index
     "align_cuda_wheels": (
         "autosub-align-cuda-wheels-cp312-win64.zip", 3473598565,
         "2b6a6bfbc2190c9b0331db7d7738f64f7135ee7913cbd85e29b0465e8139916c",

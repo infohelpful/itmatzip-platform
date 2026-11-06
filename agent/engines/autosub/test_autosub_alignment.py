@@ -44,6 +44,22 @@ class AlignmentRuntimeTests(unittest.TestCase):
         with mock.patch.object(alignment, "nvidia_present", return_value=False):
             self.assertEqual(alignment.device(), "cpu")  # CUDA build but no GPU (card removed): CPU
 
+    def test_gpu_wheels_come_from_library_hub_first_then_official(self):
+        python = Path("python.exe")
+        calls = []
+        with mock.patch.object(alignment.hub_mirror, "wheels_supported", return_value=True),                 mock.patch.object(alignment, "_install_cuda_from_hub", side_effect=lambda *a: calls.append("hub")),                 mock.patch.object(alignment, "_install_cuda_torch", side_effect=lambda *a, **k: calls.append("official")),                 mock.patch.object(alignment, "_strip_build_only_files", return_value=0),                 mock.patch.object(alignment, "_verify"):
+            self.assertTrue(alignment._try_cuda(python, 0, 1))
+        self.assertEqual(calls, ["hub"])
+
+        calls.clear()
+
+        def hub_fails(*a):
+            calls.append("hub")
+            raise RuntimeError("mirror down")
+        with mock.patch.object(alignment.hub_mirror, "wheels_supported", return_value=True),                 mock.patch.object(alignment, "_install_cuda_from_hub", side_effect=hub_fails),                 mock.patch.object(alignment, "_install_cuda_torch", side_effect=lambda *a, **k: calls.append("official")),                 mock.patch.object(alignment, "_strip_build_only_files", return_value=0),                 mock.patch.object(alignment, "_verify"):
+            self.assertTrue(alignment._try_cuda(python, 0, 1))
+        self.assertEqual(calls, ["hub", "official"])
+
     def test_revision_comes_from_the_sidecar(self):
         self.assertRegex(alignment.model_revision(), r"^[0-9a-f]{40}$")
 
