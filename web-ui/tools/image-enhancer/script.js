@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
+} from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
@@ -446,6 +446,7 @@ function focusBusyOverlay(overlayEl) {
 }
 
 function setSetupLoading(active, { title, message, step, progress } = {}) {
+  if (window.__itzSetupPanel) active = false;
   if (!setupLoading) return;
   if (active) {
     const wasActive = setupLoading.classList.contains("is-active");
@@ -1557,4 +1558,5 @@ async function init() {
   updateActionButtons();
 }
 
+window.addEventListener('itz:ai-setup-ready', () => void checkReadiness(true).catch(() => {}));
 init();

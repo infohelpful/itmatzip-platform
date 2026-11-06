@@ -1230,6 +1230,7 @@ export function startConnectionMonitor(opts = {}) {
       const dialogAfterStreak = isExtensionBlock ? 2 : MONITOR_DISCONNECT_DIALOG_STREAK;
       const shouldAlert =
         opts.autoShowInstallDialog &&
+        !window.__itzSetupPanel &&
         !disconnectDialogShown &&
         failStreak >= dialogAfterStreak &&
         !isAgentLongOperationActive() &&
@@ -1420,6 +1421,8 @@ function renderInstallDialogContent(options) {
 }
 
 export function showInstallAgentDialog(options = {}) {
+  // AI tools show the same agent action inside their persistent setup panel.
+  if (window.__itzSetupPanel) return Promise.resolve();
   if (Date.now() < _installAutoShowSuppressedUntil) {
     return Promise.resolve();
   }

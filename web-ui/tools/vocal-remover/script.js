@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
+} from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp3";
@@ -109,6 +109,7 @@ function applyPrepareStatusToOverlay(data) {
 }
 
 function setSetupLoading(active, { title, message, step, progress } = {}) {
+  if (window.__itzSetupPanel) active = false;
   if (!vocalSetupLoading) return;
   if (active) {
     vocalSetupLoading.hidden = false;
@@ -1116,6 +1117,7 @@ const connectionMonitor = startConnectionMonitor({
 });
 
 window.addEventListener("focus", () => void connectionMonitor.refresh());
+window.addEventListener('itz:ai-setup-ready', () => void checkVocalToolReadiness(true));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void connectionMonitor.refresh();
 });

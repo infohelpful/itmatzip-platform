@@ -9,7 +9,7 @@ import {
   setAgentLongOperationActive,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
+} from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
@@ -3050,6 +3050,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   window.addEventListener("focus", () => void connectionMonitor.refresh());
+  window.addEventListener('itz:ai-setup-ready', () => void checkSilenceToolBinaries(true));
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void connectionMonitor.refresh();
   });
@@ -3096,6 +3097,10 @@ document.addEventListener("DOMContentLoaded", () => {
       let data = await fetchReadiness();
       let b = data && typeof data === "object" ? data.binaries : null;
       if (!b || !b.ffmpeg || !b.ffprobe) {
+        if (window.__itzSetupPanel) {
+          binEl.textContent = itzT("ffmpegWaitDownload", "FFmpeg를 준비하고 있습니다. 설치 현황에서 진행 상태를 확인하세요.");
+          return;
+        }
         binEl.textContent = itzT(
           "ffmpegWaitDownload",
           "에이전트에 FFmpeg 설치·확인 요청 중... (처음엔 다운로드로 1~3분 걸릴 수 있음)",

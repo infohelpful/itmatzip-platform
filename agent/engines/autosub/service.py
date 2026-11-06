@@ -58,7 +58,8 @@ def deps_status() -> dict[str, Any]:
 
 # -- one-time preparation ----------------------------------------------------------------
 _prepare_lock = threading.Lock()
-_prepare_state: dict[str, Any] = {"state": "idle", "percent": 0.0, "step": "", "error": None, "modelReady": False}
+_prepare_state: dict[str, Any] = {"state": "idle", "percent": 0.0, "step": "", "error": None, "modelReady": False,
+                                  "bytesDone": None, "bytesTotal": None}
 
 
 def prepare_state() -> dict[str, Any]:
@@ -101,14 +102,17 @@ def _pip_install() -> None:
     archive = None
     wheel_dir = hub_mirror.downloads_dir() / "base-wheels"
     try:
-        _set_prepare(step="Python 패키지 내려받는 중 (library-hub)")
+        _set_prepare(step="Python 패키지 내려받는 중 (library-hub)", bytesDone=None, bytesTotal=None)
         archive = hub_mirror.fetch("base_wheels", hub_mirror.downloads_dir(),
-                                   lambda f: _set_prepare(percent=12.0 * f, step="Python 패키지 내려받는 중"))
+                                   lambda f: _set_prepare(percent=12.0 * f, step="Python 패키지 내려받는 중",
+                                                          bytesDone=int(hub_mirror.ASSETS["base_wheels"][1] * f),
+                                                          bytesTotal=hub_mirror.ASSETS["base_wheels"][1]))
+        _set_prepare(step="Python 패키지 압축 해제", bytesDone=None, bytesTotal=None)
         hub_mirror.extract(archive, wheel_dir)
         _run_pip(["--no-index", "--find-links", str(wheel_dir), "-r", str(wheel_dir / "requirements.lock.txt")])
         return
     except Exception as error:  # noqa: BLE001 - fall back to PyPI
-        _set_prepare(step=f"library-hub 실패, PyPI 에서 설치: {str(error)[:80]}")
+        _set_prepare(step=f"library-hub 실패, PyPI 에서 설치: {str(error)[:80]}", bytesDone=None, bytesTotal=None)
     finally:
         if archive:
             hub_mirror.discard(archive)
@@ -135,11 +139,14 @@ def _ensure_whisper_model_from_hub() -> None:
     archive = None
     try:
         archive = hub_mirror.fetch("whisper_model", hub_mirror.downloads_dir(),
-                                   lambda f: _set_prepare(percent=30.0 + 60.0 * f, step="Whisper 모델 다운로드"))
-        _set_prepare(step="Whisper 모델 압축 해제")
+                                   lambda f: _set_prepare(percent=30.0 + 60.0 * f, step="Whisper 모델 다운로드",
+                                                          bytesDone=int(hub_mirror.ASSETS["whisper_model"][1] * f),
+                                                          bytesTotal=hub_mirror.ASSETS["whisper_model"][1]))
+        _set_prepare(step="Whisper 모델 압축 해제", bytesDone=None, bytesTotal=None)
         hub_mirror.extract(archive, paths.models_dir() / WHISPER_MODEL_DIRNAME)
     except Exception as error:  # noqa: BLE001 - Hugging Face fallback in the sidecar
-        _set_prepare(step=f"library-hub 실패, Hugging Face 에서 받습니다: {str(error)[:80]}")
+        _set_prepare(step=f"library-hub 실패, Hugging Face 에서 받습니다: {str(error)[:80]}",
+                     bytesDone=None, bytesTotal=None)
     finally:
         if archive:
             hub_mirror.discard(archive)
@@ -153,12 +160,12 @@ def _run_prepare() -> None:
             _pip_install()
             if not _sidecar_packages_ready():
                 raise RuntimeError("자막 엔진 패키지를 불러오지 못했습니다. 다시 시도해 주세요.")
-        _set_prepare(percent=20.0, step="FFmpeg 준비")
+        _set_prepare(percent=20.0, step="FFmpeg 준비", bytesDone=None, bytesTotal=None)
         if paths.ffmpeg_paths() is None:
             _ensure_ffmpeg()
         _set_prepare(percent=29.0, step="파형 도구 준비")
         ensure_audiowaveform(quiet=True)
-        _set_prepare(percent=30.0, step="Whisper 모델 준비")
+        _set_prepare(percent=30.0, step="Whisper 모델 준비", bytesDone=None, bytesTotal=None)
         _ensure_whisper_model_from_hub()
         sc = client()
         sc.stop("restart with FFmpeg/GPU paths")  # pick up new PATH entries
@@ -172,7 +179,7 @@ def _run_prepare() -> None:
             sc.call("prepare_model", {}, PREPARE_MODEL_TIMEOUT_SEC)
         finally:
             sc.on_event = None
-        _set_prepare(percent=100.0, step="완료", state="done", modelReady=True)
+        _set_prepare(percent=100.0, step="완료", state="done", modelReady=True, bytesDone=None, bytesTotal=None)
     except Exception as error:  # noqa: BLE001 - reported to the UI
         _set_prepare(state="error", error=str(error))
 
@@ -180,8 +187,9 @@ def _run_prepare() -> None:
 def start_prepare() -> dict[str, Any]:
     with _prepare_lock:
         if _prepare_state["state"] == "running":
-            raise RuntimeError("이미 필수 엔진을 준비하는 중입니다. 완료될 때까지 기다려 주세요.")
-        _prepare_state.update(state="running", percent=0.0, step="시작", error=None, modelReady=False)
+            return dict(_prepare_state)
+        _prepare_state.update(state="running", percent=0.0, step="시작", error=None, modelReady=False,
+                              bytesDone=None, bytesTotal=None)
     threading.Thread(target=_run_prepare, name="autosub-prepare-engines", daemon=True).start()
     return prepare_state()
 

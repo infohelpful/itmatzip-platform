@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
+} from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_FOLDER, AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
@@ -236,6 +236,7 @@ function focusBusyOverlay(overlay) {
 }
 
 function setBusy(kind, visible, pct = 0, step = "", message = "") {
+  if (kind === "setup" && window.__itzSetupPanel) visible = false;
   const overlay = kind === "setup" ? els.setupOverlay : els.eraseOverlay;
   const bar = kind === "setup" ? els.setupBar : els.eraseBar;
   const track = kind === "setup" ? els.setupTrack : els.eraseTrack;
