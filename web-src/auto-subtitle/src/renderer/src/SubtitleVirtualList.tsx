@@ -2451,25 +2451,14 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
     ]
   )
 
-  /** 고정 행 높이 대신 실제 카드 DOM 높이 측정 — 파형 펼침/접힘에 따라 행마다 빈 슬롯이 생기던 문제 완화 */
-  const tombstoneSig = useMemo(() => {
-    let s = ''
-    for (let i = 0; i < subtitles.length; i++) {
-      if (isRemovedSubtitleRow(subtitles[i])) s += `${i},`
-    }
-    return s
-  }, [subtitles])
-  const dynamicRowHeightKey = useMemo(
-    /**
-     * tombstoneSig 를 key 에 합쳐 isDeleted 변화 시 `useDynamicRowHeight` 캐시가 무효화되도록 한다.
-     * — isDeleted 행이 0-height 로 변했는데 캐시된 152px 이 살아 있어 빈 공간이 남던 문제 차단.
-     */
-    () => `${subtitles.length}-${props.waveformExpandedLineIndex ?? 'x'}-${tombstoneSig}`,
-    [subtitles.length, props.waveformExpandedLineIndex, tombstoneSig]
-  )
+  /**
+   * 실제 카드 DOM 높이 측정(ResizeObserver). 캐시는 지우지 않는다: 줄 분할·병합·파형 펼침 때마다
+   * key 로 캐시를 비우면 화면 밖 위쪽 행들이 기본 추정 높이로 돌아가 보이는 줄 전체가 위아래로
+   * 튀었다(분할 1회에 182px). 높이가 바뀐 행은 화면에 있을 때 다시 측정되고, 분할·병합 아래쪽
+   * 행의 캐시가 한 칸 어긋나도 위쪽 위치에는 영향이 없다. 삭제 행은 아래 getRowHeight 에서 0.
+   */
   const dynamicRowHeight = useDynamicRowHeight({
-    defaultRowHeight: SUBTITLE_LIST_ROW_HEIGHT,
-    key: dynamicRowHeightKey
+    defaultRowHeight: SUBTITLE_LIST_ROW_HEIGHT
   })
   // react-window's ResizeObserver ignores zero blockSize. Override the lookup,
   // so deleted rows occupy exactly zero even when offscreen or previously measured.
