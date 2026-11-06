@@ -117,6 +117,7 @@ function selectionQuery() {
 }
 
 function selectionLabel() {
+  if (legacyAgent) return "Demucs";
   if (selectedModel() !== "ensemble") return MODEL_LABELS[selectedModel()] || selectedModel();
   const names = selectedEnsembleModels().map((m) => MODEL_LABELS[m] || m).join(" + ");
   return `${window.itzT("model.ensemble", "앙상블").split("·")[0].trim()} (${names})`;
@@ -149,6 +150,14 @@ function syncModelPickerUi() {
 function renderModelStatus(selection) {
   if (!modelStatusEl) return;
   modelStatusEl.classList.remove("is-ok", "is-warn");
+  if (legacyAgent) {
+    modelStatusEl.classList.add("is-warn");
+    modelStatusEl.textContent = window.itzT(
+      "legacyAgentModels",
+      "현재 에이전트는 Demucs만 지원합니다. 에이전트를 최신 버전으로 업데이트하면 MDX-Net·RoFormer·앙상블을 쓸 수 있습니다.",
+    );
+    return;
+  }
   if (!selectionIsValid()) {
     modelStatusEl.classList.add("is-warn");
     modelStatusEl.textContent = window.itzT("ensembleNeedTwo", "앙상블은 모델을 2개 이상 선택해야 합니다.");
@@ -181,6 +190,8 @@ function renderModelStatus(selection) {
 
 /** @type {Record<string, any> | null} */
 let lastSelection = null;
+/** 1.7.14 이하 에이전트: 모델 선택을 모르고 항상 Demucs 로 분리 */
+let legacyAgent = false;
 
 const DOWNLOAD_PAGE = "download.html";
 const STORAGE_MR_URL = "vocal-remover:mr-download-url";
@@ -454,8 +465,8 @@ function updateActionButtons() {
     // 모델 미준비여도 분석하기 클릭 시 refreshToolStatus() → prepareModel() 실행
     btnStartSeparation.disabled = separationBusy || !hasAudioPath() || !selectionIsValid();
   }
-  if (modelSelect) modelSelect.disabled = separationBusy;
-  for (const el of ensembleInputs) el.disabled = separationBusy;
+  if (modelSelect) modelSelect.disabled = separationBusy || legacyAgent;
+  for (const el of ensembleInputs) el.disabled = separationBusy || legacyAgent;
   if (exportLink) {
     exportLink.classList.toggle("is-disabled", !isExportEnabled());
   }
@@ -1102,7 +1113,10 @@ async function checkVocalToolReadiness(knownOk) {
     const b = data && typeof data === "object" ? data.binaries : null;
     const w = data && typeof data === "object" ? data.wheels : null;
     const sel = data && typeof data === "object" ? data.selection : null;
+    // selection 이 없으면 모델 선택을 모르는 구버전 에이전트
+    legacyAgent = !!b && !sel;
     lastSelection = sel;
+    syncModelPickerUi();
     renderModelStatus(sel);
     setComputeCapabilityBadge({ agentOk: true, wheels: w, binaries: b, selection: sel });
     if (!b) {
@@ -1111,7 +1125,7 @@ async function checkVocalToolReadiness(knownOk) {
       return;
     }
 
-    const usesTorch = sel?.runtime === "torch";
+    const usesTorch = legacyAgent || sel?.runtime === "torch";
     const parts = [];
     if (b.ffmpeg && b.ffprobe) parts.push("FFmpeg");
     else parts.push("FFmpeg ✗");
@@ -1122,7 +1136,8 @@ async function checkVocalToolReadiness(knownOk) {
       else if (w?.cpu_torch_reinstall_needed) parts.push(window.itzT("cpuWheelNeed", "CPU wheel 교체 필요"));
     }
 
-    const allCore = b.ffmpeg && b.ffprobe && b.runtime;
+    const runtimeReady = typeof b.runtime === "boolean" ? b.runtime : b.demucs && b.diffq;
+    const allCore = b.ffmpeg && b.ffprobe && runtimeReady;
     const torchFixup =
       usesTorch &&
       b.demucs &&

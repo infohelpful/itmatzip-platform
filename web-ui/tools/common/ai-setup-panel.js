@@ -1,7 +1,7 @@
 /** Shared installation status for AI tools. The agent remains the source of truth. */
 import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna26';
 import { getAgentDownloadHref } from './agent-install-ui.js?v=lna22';
-import { TOOLS, running, failed, setupRows, setupGatePhase } from './ai-setup-state.js?v=3';
+import { TOOLS, running, failed, setupRows, setupGatePhase, jobProgress } from './ai-setup-state.js?v=4';
 const number = v => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
 const mb = v => `${(v / 1048576).toFixed(0)} MB`;
 
@@ -37,7 +37,7 @@ export function mountAiSetupPanel(toolId) {
       <div class="itz-agent-gate__step"><span>02</span><strong>에이전트 연결</strong><small>프로그램 실행 후 자동 확인</small></div>
       <div class="itz-agent-gate__step"><span>03</span><strong>AI 환경 준비</strong><small>모델·필수 라이브러리 설치</small></div>
     </div>
-    <div class="itz-agent-gate__progress" data-setup-phase hidden><p class="itz-agent-gate__count"></p><div class="itz-agent-gate__rows"></div></div>
+    <div class="itz-agent-gate__progress" data-setup-phase hidden><p class="itz-agent-gate__count"></p><div class="itz-agent-gate__overall" role="progressbar" aria-label="전체 준비 진행률" aria-valuemin="0" aria-valuemax="100"><div class="itz-agent-gate__overall-fill"></div></div><div class="itz-agent-gate__rows"></div></div>
     <p class="itz-agent-gate__status" role="status" aria-live="polite"></p>
     <div class="itz-agent-gate__actions"><a class="itz-agent-gate__download" href="#">로컬 에이전트 다운로드</a><button type="button" class="itz-agent-gate__retry">연결 다시 확인</button></div>
     <p class="itz-agent-gate__footnote">준비가 완료되면 작업 화면이 자동으로 열립니다.</p>
@@ -49,6 +49,8 @@ export function mountAiSetupPanel(toolId) {
   const gateAgentSteps = gate.querySelector('[data-agent-phase]');
   const gateSetup = gate.querySelector('[data-setup-phase]');
   const gateCount = gate.querySelector('.itz-agent-gate__count');
+  const gateOverall = gate.querySelector('.itz-agent-gate__overall');
+  const gateOverallFill = gate.querySelector('.itz-agent-gate__overall-fill');
   const gateRows = gate.querySelector('.itz-agent-gate__rows');
   const gateStatus = gate.querySelector('.itz-agent-gate__status');
   const gateDownload = gate.querySelector('.itz-agent-gate__download');
@@ -65,12 +67,27 @@ export function mountAiSetupPanel(toolId) {
     const stateEl = document.createElement('span'); stateEl.className = 'itz-setup__state'; stateEl.textContent = state;
     line.append(name, stateEl); row.append(line);
     if (detail) { const p = document.createElement('p'); p.className = `itz-setup__detail${error && detail === error ? ' itz-setup__error' : ''}`; p.textContent = detail; row.append(p); }
-    if (pct !== null) { const track = document.createElement('div'); track.className = 'itz-setup__bar'; track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', label); track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', '100'); track.setAttribute('aria-valuenow', String(Math.round(pct))); const fill = document.createElement('div'); fill.className = 'itz-setup__fill'; fill.style.width = `${pct}%`; track.append(fill); row.append(track); }
+    if (pct !== null) { const track = document.createElement('div'); track.className = 'itz-setup__bar'; track.setAttribute('role', 'progressbar'); track.setAttribute('aria-label', label); track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', '100'); const fill = document.createElement('div'); fill.className = 'itz-setup__fill'; if (pct === 'indeterminate') track.classList.add('is-indeterminate'); else { track.setAttribute('aria-valuenow', String(Math.round(pct))); fill.style.width = `${pct}%`; } track.append(fill); row.append(track); }
     if (action) { const wrap = document.createElement('div'); wrap.className = 'itz-setup__actions'; wrap.append(action); row.append(wrap); }
     container.append(row);
   }
   function button(label, fn) { const el = document.createElement('button'); el.type = 'button'; el.className = 'itz-setup__action'; el.textContent = label; el.addEventListener('click', fn); return el; }
   function downloadLink() { const el = document.createElement('a'); el.className = 'itz-setup__action'; el.textContent = agentHref ? '에이전트 다운로드' : '다운로드 준비 중'; el.href = agentHref || '#'; if (agentHref) { el.target = '_blank'; el.rel = 'noopener noreferrer'; } else { el.setAttribute('aria-disabled', 'true'); el.addEventListener('click', e => e.preventDefault()); } return el; }
+  /** 진행 중인 설치 작업 → 상태 문구 · 상세 · 진행률(0~100 또는 'indeterminate') */
+  function runningInfo(srcJob) {
+    const p = jobProgress(srcJob);
+    const step = srcJob?.step || srcJob?.stage || srcJob?.message || '설치 중';
+    const downloading = /다운로드|download/i.test(String(srcJob?.step || srcJob?.stage || ''));
+    const useBytes = p.hasBytes && downloading;
+    const pct = useBytes ? p.pct : number(srcJob?.percent ?? srcJob?.progress ?? srcJob?.pct);
+    const extra = srcJob?.detail && srcJob.detail !== step ? srcJob.detail : '';
+    // 바이트 정보가 있으면 이 파일의 다운로드 비율, 없으면 설치 작업 전체 비율
+    const pctText = pct === null ? '' : useBytes ? `${Math.round(pct)}%` : `전체 ${Math.round(pct)}%`;
+    const detail = [step, useBytes ? `${mb(p.bytesDone)} / ${mb(p.bytesTotal)}` : extra].filter(Boolean).join(' · ');
+    return { state: pctText ? `진행 중 · ${pctText}` : '진행 중', detail, pct: pct ?? 'indeterminate' };
+  }
+  /** 대기 행: 설치가 돌고 있으면 순서 대기, 설치가 멈춘 채 남아 있으면 미설치 */
+  function waitingLabel() { return running(job) ? '설치 대기' : autoStarted ? '미설치' : '대기'; }
   function renderGate() {
     const phase = setupGatePhase(toolId, { agentOk, apiStarting, readiness, job, optionalJobs: [optional.gpuJob, optional.alignmentJob] });
     const blocked = phase !== 'ready';
@@ -102,24 +119,31 @@ export function mountAiSetupPanel(toolId) {
       gateCount.textContent = `필수 항목 ${rows.filter(row => row.state === 'ready').length} / ${rows.length} 완료`;
       if (error && !readiness) addRow('설치 상태 확인', '확인 필요', error, null, null, gateRows);
       else {
-        const bytesDone = Number(job?.bytesDone ?? job?.bytes_done);
-        const bytesTotal = Number(job?.bytesTotal ?? job?.bytes_total);
-        const overallPct = number(job?.percent ?? job?.progress ?? job?.pct);
         for (const row of rows) {
-          const hasBytes = row.state === 'running' && bytesTotal > 0 && bytesDone >= 0 && /다운로드/.test(String(job?.step || job?.stage || ''));
-          const pct = hasBytes ? number(bytesDone / bytesTotal * 100) : null;
-          const size = hasBytes ? `${mb(bytesDone)} / ${mb(bytesTotal)}` : '';
-          const detail = row.state === 'running' ? [job?.step || job?.stage || job?.message || '설치 중', size, !hasBytes && overallPct !== null ? `전체 준비 ${Math.round(overallPct)}%` : ''].filter(Boolean).join(' · ') : row.state === 'failed' ? error || job?.error || '설치에 실패했습니다.' : '';
-          addRow(row.label, row.state === 'ready' ? '완료' : row.state === 'running' ? '진행 중' : row.state === 'failed' ? '실패' : '대기', detail, null, pct, gateRows);
+          if (row.state === 'running') { const info = runningInfo(job); addRow(row.label, info.state, info.detail, null, info.pct, gateRows); continue; }
+          const detail = row.state === 'failed' ? error || job?.error || '설치에 실패했습니다.' : '';
+          addRow(row.label, row.state === 'ready' ? '완료' : row.state === 'failed' ? '실패' : waitingLabel(), detail, null, null, gateRows);
         }
         // 필수 항목은 끝났지만 사용자가 고른 추가 모델(예: Vocal Remover RoFormer)을 설치 중인 경우
         if (running(job) && rows.length && rows.every(row => row.state === 'ready')) {
-          addRow('추가 구성요소', '진행 중', [job?.step || job?.stage || job?.message || '설치 중', job?.detail].filter(Boolean).join(' · '), null, overallPct, gateRows);
+          const info = runningInfo(job);
+          addRow('추가 구성요소', info.state, info.detail, null, info.pct, gateRows);
         }
       }
       for (const [label, optionalJob] of [['GPU 가속', optional.gpuJob], ['정밀 정렬 AI 모델', optional.alignmentJob]]) {
-        if (running(optionalJob)) addRow(label, '진행 중', optionalJob.stage || optionalJob.step || '설치 중', null, number(optionalJob.pct ?? optionalJob.percent), gateRows);
+        if (running(optionalJob)) { const info = runningInfo(optionalJob); addRow(label, info.state, info.detail, null, info.pct, gateRows); }
       }
+      // 전체 진행률: 설치 중이면 작업 퍼센트, 아니면 완료된 필수 항목 비율
+      const doneCount = rows.filter(row => row.state === 'ready').length;
+      const donePct = rows.length ? doneCount / rows.length * 100 : 0;
+      const jobPct = running(job) ? number(job?.percent ?? job?.progress ?? job?.pct) : null;
+      // 설치 중에는 작업 전체 진행률을, 그 외에는 완료된 필수 항목 비율을 표시
+      const overall = jobPct ?? donePct;
+      gateOverall.hidden = !!(error && !readiness);
+      gateOverall.classList.toggle('is-indeterminate', running(job) && jobPct === null && donePct < 100);
+      gateOverall.setAttribute('aria-valuenow', String(Math.round(overall)));
+      gateOverallFill.style.width = `${overall}%`;
+      gateCount.textContent = `필수 항목 ${doneCount} / ${rows.length} 완료 · 전체 ${Math.round(overall)}%`;
     }
   }
   function render() {
@@ -137,18 +161,17 @@ export function mountAiSetupPanel(toolId) {
       addRow(upgrade ? '에이전트 업데이트 필요' : '준비 상태 확인 실패', '확인 필요', error, action);
       return;
     }
-    const overallPct = number(job?.percent ?? job?.progress ?? job?.pct);
-    const bytesDone = Number(job?.bytesDone ?? job?.bytes_done);
-    const bytesTotal = Number(job?.bytesTotal ?? job?.bytes_total);
-    const size = Number.isFinite(bytesDone) && bytesDone > 0 ? `${mb(bytesDone)}${bytesTotal > 0 ? ` / ${mb(bytesTotal)}` : ''}` : '';
     const firstMissing = rows.find(row => row.state !== 'ready')?.key;
     for (const row of rows) {
-      const hasBytes = row.state === 'running' && bytesTotal > 0 && bytesDone >= 0 && /다운로드/.test(String(job?.step || job?.stage || ''));
-      const pct = hasBytes ? number(bytesDone / bytesTotal * 100) : null;
+      if (row.state === 'running') { const info = runningInfo(job); addRow(row.label, info.state, info.detail, null, info.pct); continue; }
       const retry = row.state === 'failed' || row.state === 'waiting' && row.key === firstMissing && autoStarted && !running(job);
-      const detail = row.state === 'running' ? [job?.step || job?.stage || job?.message || '설치 중', size, !hasBytes && overallPct !== null ? `전체 준비 ${Math.round(overallPct)}%` : ''].filter(Boolean).join(' · ') : row.state === 'failed' ? error || job?.error || '설치에 실패했습니다.' : retry ? '설치 상태를 확인해 주세요.' : '';
+      const detail = row.state === 'failed' ? error || job?.error || '설치에 실패했습니다.' : retry ? '설치 상태를 확인해 주세요.' : '';
       const action = retry ? button('다시 시도', () => void start(true)) : null;
-      addRow(row.label, row.state === 'ready' ? '완료' : row.state === 'running' ? '진행 중' : row.state === 'failed' ? '실패' : '대기', detail, action, row.state === 'running' ? pct : null);
+      addRow(row.label, row.state === 'ready' ? '완료' : row.state === 'failed' ? '실패' : waitingLabel(), detail, action);
+    }
+    if (running(job) && rows.length && rows.every(row => row.state === 'ready')) {
+      const info = runningInfo(job);
+      addRow('추가 구성요소', info.state, info.detail, null, info.pct);
     }
     if (toolId === 'auto-subtitle' && readiness?.engineReady) addOptionalRows();
   }
@@ -158,13 +181,13 @@ export function mountAiSetupPanel(toolId) {
       const active = running(optional.gpuJob);
       const hasFailed = failed(optional.gpuJob);
       const action = !optional.gpu.installed && !active && optional.gpu.canInstall ? button(hasFailed ? '다시 시도' : '설치', () => void startOptional('gpu')) : null;
-      addRow('GPU 가속', optional.gpu.installed ? '완료' : active ? '진행 중' : hasFailed ? '실패' : '선택', active ? optional.gpuJob.stage || '' : hasFailed ? optional.gpuJob.error || '' : '', action, active ? number(optional.gpuJob.pct) : null);
+      addRow('GPU 가속', optional.gpu.installed ? '완료' : active ? '진행 중' : hasFailed ? '실패' : '선택', active ? runningInfo(optional.gpuJob).detail : hasFailed ? optional.gpuJob.error || '' : '', action, active ? runningInfo(optional.gpuJob).pct : null);
     }
     if (optional.alignment) {
       const active = running(optional.alignmentJob);
       const hasFailed = failed(optional.alignmentJob);
       const action = !optional.alignment.ready && !active ? button(hasFailed ? '다시 시도' : '설치', () => void startOptional('alignment')) : null;
-      addRow('정밀 정렬 AI 모델', optional.alignment.ready ? '완료' : active ? '진행 중' : hasFailed ? '실패' : '선택', active ? optional.alignmentJob.stage || '' : hasFailed ? optional.alignmentJob.error || '' : '', action, active ? number(optional.alignmentJob.pct) : null);
+      addRow('정밀 정렬 AI 모델', optional.alignment.ready ? '완료' : active ? '진행 중' : hasFailed ? '실패' : '선택', active ? runningInfo(optional.alignmentJob).detail : hasFailed ? optional.alignmentJob.error || '' : '', action, active ? runningInfo(optional.alignmentJob).pct : null);
     }
   }
   async function startOptional(kind) {

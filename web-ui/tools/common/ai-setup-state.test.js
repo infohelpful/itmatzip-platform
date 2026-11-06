@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { TOOLS, setupRows, setupGatePhase, running, failed } from './ai-setup-state.js';
+import { TOOLS, setupRows, setupGatePhase, running, failed, jobProgress } from './ai-setup-state.js';
 
 test('all nine AI sites have a tool-specific setup definition', () => {
   assert.equal(Object.keys(TOOLS).length, 9);
@@ -66,4 +66,19 @@ test('Vocal Remover opens with only the lightweight ONNX base model (no PyTorch/
   assert.equal(setupGatePhase('vocal-remover', { agentOk: true, readiness: noModel }), 'setup');
   const rows = setupRows('vocal-remover', noModel, { phase: 'downloading_models', step: 'AI 모델 다운로드' });
   assert.deepEqual(rows.map(row => row.state), ['ready', 'ready', 'ready', 'running']);
+});
+
+test('Vocal Remover stays usable with agents that predate the runtime flag (Demucs-only)', () => {
+  const legacy = { binaries: { ffmpeg: true, ffprobe: true, demucs: true, diffq: true, model_ready: true } };
+  assert.equal(setupGatePhase('vocal-remover', { agentOk: true, readiness: legacy, job: { phase: 'ready' } }), 'ready');
+  assert.deepEqual(setupRows('vocal-remover', legacy, null).map(row => row.state), ['ready', 'ready', 'ready', 'ready']);
+  const legacyMissing = { binaries: { ffmpeg: true, ffprobe: true, demucs: false, diffq: false, model_ready: false } };
+  assert.equal(setupGatePhase('vocal-remover', { agentOk: true, readiness: legacyMissing }), 'setup');
+});
+
+test('setup progress uses download bytes when known, otherwise the overall job percent', () => {
+  assert.deepEqual(jobProgress({ bytesDone: 50, bytesTotal: 200, progress: 10 }), { pct: 25, bytesDone: 50, bytesTotal: 200, hasBytes: true });
+  assert.equal(jobProgress({ phase: 'installing_dependencies', progress: 42.4 }).pct, 42.4);
+  assert.equal(jobProgress({ pct: 150 }).pct, 100);
+  assert.equal(jobProgress({ state: 'running' }).pct, null);
 });

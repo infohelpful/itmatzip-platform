@@ -15,7 +15,7 @@
 .itz-agent-gate__step strong{font-size:13px;color:#f4f7fd}
 .itz-agent-gate__step small{color:#aabbd2;font-size:11px;line-height:1.5;word-break:keep-all}
 .itz-agent-gate__progress{margin:24px 0 18px;border:1px solid #37465e;border-radius:12px;background:#202c3e;overflow:hidden}
-.itz-agent-gate__count{margin:0;padding:13px 16px;border-bottom:1px solid #37465e;color:#c8ddf5;font-size:12px;font-weight:700}
+.itz-agent-gate__count{margin:0;padding:13px 16px 10px;color:#c8ddf5;font-size:12px;font-weight:700}
 .itz-agent-gate__rows{max-height:min(42vh,320px);overflow:auto;padding:0 16px}
 .itz-agent-gate__rows .itz-setup__row{padding:12px 0}
 .itz-agent-gate__rows .itz-setup__row:last-child{border-bottom:0}
@@ -34,3 +34,10 @@
 .itz-agent-gate__actions a:focus-visible,.itz-agent-gate__actions button:focus-visible{outline:2px solid #b7d5ff;outline-offset:3px}
 .itz-agent-gate__footnote{margin:16px 0 0;color:#aabbd2;font-size:12px;line-height:1.6;word-break:keep-all}
 @media(max-width:560px){.itz-agent-gate__steps{grid-template-columns:1fr;gap:7px;margin:20px 0 16px}.itz-agent-gate__step{display:grid;grid-template-columns:28px 1fr;gap:0 8px;padding:9px 12px}.itz-agent-gate__step span{grid-row:1/3;margin:0;align-self:center}.itz-agent-gate__actions{flex-direction:column}.itz-agent-gate__actions a,.itz-agent-gate__actions button{width:100%;box-sizing:border-box}}
+.itz-setup__fill{transition:width .4s ease}
+.itz-setup__bar.is-indeterminate .itz-setup__fill,.itz-agent-gate__overall.is-indeterminate .itz-agent-gate__overall-fill{width:35%!important;animation:itz-setup-indeterminate 1.3s ease-in-out infinite}
+.itz-agent-gate__overall{height:6px;margin:0 16px 12px;background:#37465e;border-radius:4px;overflow:hidden}
+.itz-agent-gate__overall-fill{height:100%;width:0;background:linear-gradient(90deg,#22c55e,#4f9cf9);transition:width .4s ease}
+@keyframes itz-setup-indeterminate{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+@media(prefers-reduced-motion:reduce){.itz-setup__bar.is-indeterminate .itz-setup__fill,.itz-agent-gate__overall.is-indeterminate .itz-agent-gate__overall-fill{animation:none;width:100%!important;opacity:.55}.itz-setup__fill,.itz-agent-gate__overall-fill{transition:none}}
+.itz-agent-gate__rows{border-top:1px solid #37465e}
