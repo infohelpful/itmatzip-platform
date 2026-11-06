@@ -1618,6 +1618,9 @@ export default function App(): ReactElement {
   /** 영상 번인에서 현재 발화 단어를 강조 — 줄 단위 자막은 그대로 유지(기본 꺼짐) */
   const [wordHighlightEnabled, setWordHighlightEnabled] = useState(true)
   const [wordHighlightColor, setWordHighlightColor] = useState('#ffd54a')
+  /** 프리뷰 단어 강조 색(끄면 null) — 재생 RAF 가 읽는다. 번인과 같은 단어를 같은 색으로 칠한다. */
+  const previewWordHighlightRef = useRef<string | null>(wordHighlightColor)
+  previewWordHighlightRef.current = wordHighlightEnabled ? wordHighlightColor : null
   /** false면 subtitleLinesToVrewRows 가 단어 간 gap-fill(무음 더미)을 넣지 않음 — 편집 후 타임라인 덮어쓰기 방지 */
   const [gapFillWhenBuildingVrew, setGapFillWhenBuildingVrew] = useState(false)
   const [masterAudioSrcUrl, setMasterAudioSrcUrl] = useState<string | undefined>(undefined)
@@ -1949,7 +1952,8 @@ export default function App(): ReactElement {
 
       const previewTextEl = previewSubtitleTextRef.current
       if (previewTextEl) {
-        renderPreviewSubtitleText(previewTextEl, subsNow, editSec, captionEmphasisColorRef.current, previewEmphasisCacheRef)
+        renderPreviewSubtitleText(previewTextEl, subsNow, editSec, captionEmphasisColorRef.current, previewEmphasisCacheRef,
+          previewWordHighlightRef.current)
       }
 
       const t = editSec
@@ -6700,8 +6704,9 @@ export default function App(): ReactElement {
   useEffect(() => {
     const el = previewSubtitleTextRef.current
     if (!el) return
-    renderPreviewSubtitleText(el, subtitles, playheadEditSecRef.current, captionEmphasisColor, previewEmphasisCacheRef)
-  }, [subtitles, captionEmphasisColor])
+    renderPreviewSubtitleText(el, subtitles, playheadEditSecRef.current, captionEmphasisColor, previewEmphasisCacheRef,
+      wordHighlightEnabled ? wordHighlightColor : null)
+  }, [subtitles, captionEmphasisColor, wordHighlightEnabled, wordHighlightColor])
 
   useEffect(() => {
     const payload = {
