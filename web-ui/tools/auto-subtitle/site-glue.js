@@ -10,7 +10,7 @@ import {
   getAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna25";
+} from "../common/bridge.js?v=lna26";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 
 const MIN_AGENT_VERSION = "1.7.12";

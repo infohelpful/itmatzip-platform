@@ -9,7 +9,7 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna24";
+} from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
@@ -127,6 +127,7 @@ function syncShellBusy() {
 }
 
 function setBusy(kind, active, pct = 0, step = "", message = "") {
+  if (kind === "setup" && window.__itzSetupPanel) active = false;
   const overlay = kind === "setup" ? els.setupOverlay : els.convertOverlay;
   const stepEl = kind === "setup" ? els.setupStep : els.convertStep;
   const msgEl = kind === "setup" ? els.setupMessage : els.convertMessage;
@@ -524,4 +525,5 @@ async function boot() {
   }
 }
 
+window.addEventListener('itz:ai-setup-ready', () => void checkReadiness().catch(() => {}));
 void boot();

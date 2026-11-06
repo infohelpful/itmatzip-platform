@@ -937,6 +937,7 @@ export default function App(): ReactElement {
     }
   }, [videoPath])
   const [modelReady, setModelReady] = useState(false)
+  const setupPanelActive = typeof window !== 'undefined' && Boolean((window as Window & { __itzSetupPanel?: boolean }).__itzSetupPanel)
   /** 초기 IPC로 FFmpeg·모델 존재 여부를 확인한 뒤에만 엔진 게이트 표시(미확인 시 깜빡임 방지) */
   const [depsResolved, setDepsResolved] = useState(false)
   const [downloadPct, setDownloadPct] = useState(0)
@@ -6058,6 +6059,18 @@ export default function App(): ReactElement {
     }
   }, [])
 
+  // The shared web setup panel owns installation. Recheck readiness so the editor
+  // opens as soon as its background job completes, including after a reload.
+  useEffect(() => {
+    if (!setupPanelActive || modelReady) return
+    const timer = window.setInterval(() => {
+      void window.api.getDepsStatus().then((status) => {
+        if (status.engineReady) { setModelReady(true); setDownloadPct(100) }
+      }).catch(() => {})
+    }, 1500)
+    return () => window.clearInterval(timer)
+  }, [setupPanelActive, modelReady])
+
   useEffect(() => {
     const selected = subtitleFontFamily.trim()
     if (!selected) return
@@ -6926,7 +6939,7 @@ export default function App(): ReactElement {
                 저장
               </button>
             </div>
-            {showGpuRuntimeControls ? (
+            {showGpuRuntimeControls && !setupPanelActive ? (
               <button
                 type="button"
                 className="app-topbar-gpu-btn"
@@ -6937,7 +6950,7 @@ export default function App(): ReactElement {
                 GPU 런타임 설치
               </button>
             ) : null}
-            {modelReady ? <AlignmentRuntimeControl disabled={busy || isExtracting || realigning} /> : null}
+            {modelReady && !setupPanelActive ? <AlignmentRuntimeControl disabled={busy || isExtracting || realigning} /> : null}
           </div>
         </header>
 
@@ -7396,7 +7409,7 @@ export default function App(): ReactElement {
         </div>
       </div>
 
-      {depsResolved && !modelReady && !engineOverlayOpen ? (
+      {depsResolved && !modelReady && !engineOverlayOpen && !setupPanelActive ? (
         <div className="engine-gate" role="region" aria-label="필수 엔진 준비">
           <div className="engine-gate-card">
             <p className="engine-gate-title">

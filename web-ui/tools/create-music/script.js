@@ -1,7 +1,7 @@
 /**
  * Create-Music — ACE-Step 1.5 AI 음악 생성 UI
  */
-import * as Bridge from "../common/bridge.js?v=lna24";
+import * as Bridge from "../common/bridge.js?v=lna26";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
@@ -695,6 +695,7 @@ function setPrepareProgress(progress, { indeterminate = false } = {}) {
 
 function showPrepareOverlay() {
   Bridge.setAgentLongOperationActive(true);
+  if (window.__itzSetupPanel) return;
   $prepareOverlay.hidden = false;
   setPrepareProgress(0, { indeterminate: true });
   $prepareStep.textContent = "";
@@ -1175,6 +1176,7 @@ document.addEventListener("itz:lang-change", () => {
   refreshPendingChrome();
 });
 refreshPendingChrome();
+window.addEventListener('itz:ai-setup-ready', () => void checkReadiness({ full: false }));
 if (typeof musicCompose.relabel === "function") musicCompose.relabel();
 
 // ---------------------------------------------------------------------------

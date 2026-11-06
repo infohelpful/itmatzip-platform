@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Annotated, Callable
 
@@ -28,6 +29,49 @@ from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from runtime_paths import pick_file_available
 
 router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"])
+_setup_lock = threading.Lock()
+_setup_state: dict[str, object] = {"state": "idle", "step": "", "percent": None, "error": None}
+
+
+def _setup_snapshot() -> dict[str, object]:
+    with _setup_lock:
+        return dict(_setup_state)
+
+
+def _set_setup(**updates: object) -> None:
+    with _setup_lock:
+        _setup_state.update(updates)
+
+
+def _run_setup() -> None:
+    try:
+        _set_setup(step="실행 환경 설치 중")
+        ensure_silence_remover_runtime(install=True)
+        _set_setup(step="FFmpeg 준비 중")
+        ensure_ffmpeg(download_timeout_sec=900.0,
+                      on_progress=lambda pct, step="", detail="": _set_setup(
+                          step=f"FFmpeg {detail or step}".strip(), percent=pct))
+        if not is_ffmpeg_ready():
+            raise RuntimeError("FFmpeg 설치 후 확인에 실패했습니다.")
+        _set_setup(state="done", step="완료", percent=100)
+    except Exception as error:  # noqa: BLE001 - exposed as setup state
+        _set_setup(state="error", step="실패", error=str(error))
+
+
+@router.post("/prepare/start")
+def start_prepare_background() -> dict[str, object]:
+    """Start or attach to a prepare job without blocking the browser request."""
+    with _setup_lock:
+        if _setup_state["state"] == "running":
+            return dict(_setup_state)
+        _setup_state.update(state="running", step="시작", percent=None, error=None)
+    threading.Thread(target=_run_setup, name="silence-setup", daemon=True).start()
+    return _setup_snapshot()
+
+
+@router.get("/prepare/status")
+def prepare_background_status() -> dict[str, object]:
+    return _setup_snapshot()
 
 
 def _ensure_silence_remover_environment() -> None:
