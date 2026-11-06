@@ -24,6 +24,29 @@ export function mountAiSetupPanel(toolId) {
   const head = root.querySelector('.itz-setup__head');
   const body = root.querySelector('.itz-setup__body');
   root.querySelector('.itz-setup__title').textContent = `${config.name} 준비`;
+  const gate = document.createElement('dialog');
+  gate.className = 'itz-agent-gate';
+  gate.setAttribute('aria-labelledby', 'itz-agent-gate-title');
+  gate.setAttribute('aria-describedby', 'itz-agent-gate-description');
+  gate.innerHTML = `<div class="itz-agent-gate__content">
+    <div class="itz-agent-gate__eyebrow"><span class="itz-agent-gate__pulse" aria-hidden="true"></span> AI 도구 시작 준비</div>
+    <h2 id="itz-agent-gate-title">로컬 에이전트를 연결해 주세요</h2>
+    <p id="itz-agent-gate-description" class="itz-agent-gate__lead">${config.name}은 내 컴퓨터의 로컬 에이전트에서 실행됩니다. 에이전트를 설치하고 연결해야 AI 모델과 필수 라이브러리를 다운로드·설치할 수 있습니다.</p>
+    <div class="itz-agent-gate__steps" aria-label="준비 순서">
+      <div class="itz-agent-gate__step"><span>01</span><strong>에이전트 설치</strong><small>설치 파일을 내려받아 실행</small></div>
+      <div class="itz-agent-gate__step"><span>02</span><strong>에이전트 연결</strong><small>프로그램 실행 후 자동 확인</small></div>
+      <div class="itz-agent-gate__step"><span>03</span><strong>AI 환경 준비</strong><small>모델·필수 라이브러리 설치</small></div>
+    </div>
+    <p class="itz-agent-gate__status" role="status" aria-live="polite"></p>
+    <div class="itz-agent-gate__actions"><a class="itz-agent-gate__download" href="#">로컬 에이전트 다운로드</a><button type="button" class="itz-agent-gate__retry">연결 다시 확인</button></div>
+    <p class="itz-agent-gate__footnote">설치 후 에이전트를 실행해 주세요. 연결이 확인되면 AI 환경 준비가 자동으로 이어집니다.</p>
+  </div>`;
+  document.body.append(gate);
+  gate.addEventListener('cancel', event => event.preventDefault());
+  const gateStatus = gate.querySelector('.itz-agent-gate__status');
+  const gateDownload = gate.querySelector('.itz-agent-gate__download');
+  gateDownload.addEventListener('click', event => { if (!agentHref) event.preventDefault(); });
+  gate.querySelector('.itz-agent-gate__retry').addEventListener('click', () => void tick());
   let expanded = true, readiness = null, job = null, agentOk = false, checkedAgent = false, apiStarting = false, busy = false, stopped = false, autoStarted = false, readyNotified = false, collapsedOnReady = false, legacySilence = false, error = '', optional = {}, lastOptionalAt = 0, agentHref = '';
   void getAgentDownloadHref().then(href => { agentHref = href; render(); }).catch(() => {});
   head.addEventListener('click', () => { expanded = !expanded; body.hidden = !expanded; head.setAttribute('aria-expanded', String(expanded)); });
@@ -40,16 +63,26 @@ export function mountAiSetupPanel(toolId) {
   }
   function button(label, fn) { const el = document.createElement('button'); el.type = 'button'; el.className = 'itz-setup__action'; el.textContent = label; el.addEventListener('click', fn); return el; }
   function downloadLink() { const el = document.createElement('a'); el.className = 'itz-setup__action'; el.textContent = agentHref ? '에이전트 다운로드' : '다운로드 준비 중'; el.href = agentHref || '#'; if (agentHref) { el.target = '_blank'; el.rel = 'noopener noreferrer'; } else { el.setAttribute('aria-disabled', 'true'); el.addEventListener('click', e => e.preventDefault()); } return el; }
+  function renderGate() {
+    const blocked = !agentOk || apiStarting;
+    root.hidden = blocked;
+    if (!blocked) { if (gate.open) gate.close(); return; }
+    if (!gate.open) gate.showModal();
+    gateStatus.textContent = !checkedAgent ? '로컬 에이전트 연결을 확인하고 있습니다…' : apiStarting ? '에이전트가 연결되었습니다. AI 서비스를 시작하고 있습니다…' : error || '에이전트 연결을 기다리고 있습니다. 설치 후 실행하면 자동으로 감지합니다.';
+    gateStatus.classList.toggle('itz-agent-gate__status--error', !!error);
+    gateDownload.hidden = apiStarting;
+    gateDownload.textContent = agentHref ? '로컬 에이전트 다운로드' : '다운로드 링크 확인 중…';
+    gateDownload.href = agentHref || '#';
+    gateDownload.setAttribute('aria-disabled', String(!agentHref));
+    if (agentHref) { gateDownload.target = '_blank'; gateDownload.rel = 'noopener noreferrer'; }
+  }
   function render() {
+    renderGate();
     body.replaceChildren();
     const rows = setupRows(toolId, readiness, job);
     const complete = rows.filter(r => r.state === 'ready').length;
     root.querySelector('.itz-setup__summary').textContent = !agentOk ? error ? '연결 설정 확인' : checkedAgent ? '에이전트 설치·실행 필요' : '에이전트 연결 확인' : apiStarting ? 'API 시작 중' : error && !readiness ? '확인 필요' : readiness && config.ready(readiness) ? '준비 완료' : `${complete}/${rows.length} 완료`;
-    if (!agentOk) {
-      const actions = document.createElement('span'); actions.append(downloadLink(), button('연결 다시 확인', () => void tick()));
-      addRow('로컬 에이전트', error ? '확인 필요' : checkedAgent ? '설치·실행 필요' : '연결 확인 중', error || '설치 파일을 실행하면 연결을 자동으로 확인합니다.', actions);
-      return;
-    }
+    if (!agentOk) return;
     addRow('로컬 에이전트', apiStarting ? 'API 시작 중' : '연결됨');
     if (apiStarting) return;
     if (error && !readiness) {
