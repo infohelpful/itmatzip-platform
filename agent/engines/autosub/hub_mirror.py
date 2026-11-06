@@ -151,3 +151,84 @@ def discard(path: Path) -> None:
         path.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+# -- assets larger than GitHub's 2GB release-asset limit, stored as numbered parts -------------
+# key -> (joined file name, joined size, joined sha256, [(part name, part size, part sha256), ...])
+SPLIT_ASSETS: dict[str, tuple[str, int, str, list[tuple[str, int, str]]]] = {
+    # torch 2.8.0+cu128, torchaudio 2.8.0+cu128, torchvision 0.23.0+cu128, CPython 3.12 win_amd64
+    # (download.pytorch.org/whl/cu128, byte-identical wheels) - GPU alignment on NVIDIA PCs
+    "align_cuda_wheels": (
+        "autosub-align-cuda-wheels-cp312-win64.zip", 3473598565,
+        "2b6a6bfbc2190c9b0331db7d7738f64f7135ee7913cbd85e29b0465e8139916c",
+        [
+            ("autosub-align-cuda-wheels-cp312-win64.zip.001", 1900000000,
+             "f2e146a41b7964167a5cc0600fc102c1d9860dc8d2e15f057602d58ecc2d2132"),
+            ("autosub-align-cuda-wheels-cp312-win64.zip.002", 1573598565,
+             "ef7466414b922ee3d36e3e2f9435022fce61a15f8f54a8f5afa0f955b1ab0992"),
+        ],
+    ),
+}
+
+
+def split_asset_url(part_name: str) -> str:
+    base = os.environ.get("ITMATZIP_AUTOSUB_HUB_BASE_URL", "").strip() or HUB_BASE_URL
+    return base.rstrip("/") + "/" + part_name
+
+
+def _fetch_file(url: str, target: Path, size: int, sha: str, on_progress: Progress | None) -> None:
+    if target.is_file() and target.stat().st_size == size and _sha256(target) == sha:
+        return
+    part = target.with_name(target.name + ".part")
+    last_error: Exception | None = None
+    for attempt in range(_ATTEMPTS):
+        try:
+            _download_once(url, part, size, on_progress)
+            if part.stat().st_size != size:
+                raise RuntimeError(f"크기가 맞지 않습니다 ({part.stat().st_size} != {size})")
+            if _sha256(part) != sha:
+                part.unlink(missing_ok=True)
+                raise RuntimeError("SHA-256이 맞지 않습니다")
+            os.replace(part, target)
+            return
+        except Exception as error:  # noqa: BLE001 - retried, then reported
+            last_error = error
+            if attempt + 1 < _ATTEMPTS:
+                time.sleep(2.0 * (attempt + 1))
+    raise RuntimeError(f"library-hub 에서 {target.name} 을(를) 받지 못했습니다: {last_error}")
+
+
+def fetch_split(key: str, dest_dir: Path, on_progress: Progress | None = None) -> Path:
+    """Download every part (each size + SHA-256 checked), join them and verify the whole file."""
+    name, size, sha, parts = SPLIT_ASSETS[key]
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / name
+    if target.is_file() and target.stat().st_size == size and _sha256(target) == sha:
+        return target
+    done = 0
+    paths: list[Path] = []
+    for part_name, part_size, part_sha in parts:
+        base = done
+
+        def report(f: float, base: int = base, part_size: int = part_size) -> None:
+            if on_progress:
+                on_progress(min(1.0, (base + f * part_size) / size))
+
+        piece = dest_dir / part_name
+        _fetch_file(split_asset_url(part_name), piece, part_size, part_sha, report)
+        paths.append(piece)
+        done += part_size
+    joined = target.with_name(name + ".join")
+    with joined.open("wb") as out:
+        for piece in paths:
+            with piece.open("rb") as src:
+                shutil.copyfileobj(src, out, 8 * _CHUNK)
+    for piece in paths:
+        discard(piece)
+    if joined.stat().st_size != size or _sha256(joined) != sha:
+        discard(joined)
+        raise RuntimeError(f"library-hub 의 {name} 조각을 합친 파일이 맞지 않습니다")
+    os.replace(joined, target)
+    if on_progress:
+        on_progress(1.0)
+    return target

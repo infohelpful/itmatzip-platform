@@ -248,14 +248,18 @@ TORCH_CPU_PINS = ("torch==2.8.0+cpu", "torchaudio==2.8.0+cpu", "torchvision==0.2
 
 
 def _install_cuda_torch(python: Path, start: float, end: float, index: str = TORCH_CUDA_INDEX,
-                        pins: tuple[str, ...] = TORCH_CUDA_PINS) -> None:
-    """Swap the torch build in place (same versions, packages only; nothing else changes)."""
+                        pins: tuple[str, ...] = TORCH_CUDA_PINS, find_links: Path | None = None) -> None:
+    """Swap the torch build in place (same versions, packages only; nothing else changes).
+
+    From the PyTorch index, or offline from `find_links` (the library-hub copy of the same wheels).
+    """
     if _is_embeddable(python):
         cmd = [str(_base_python()), "-m", "pip", "install", "--target", str(_site_packages(python)), "--upgrade"]
     else:
         cmd = [str(python), "-m", "pip", "install"]
     cmd += ["--no-warn-script-location", "--disable-pip-version-check", "--only-binary=:all:", "--no-deps",
-            "--force-reinstall", "--index-url", index, *pins]
+            "--force-reinstall",
+            *(["--no-index", "--find-links", str(find_links)] if find_links else ["--index-url", index]), *pins]
     _set(pct=start, stage=f"GPU(CUDA)용 torch 내려받는 중 (약 {TORCH_CUDA_HINT_MB / 1000:.1f}GB)")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=_NO_WINDOW)
@@ -333,10 +337,35 @@ def _write_marker(root: Path, device_name: str, freed: int) -> None:
                                             "revision": model_revision(), "device": device_name}), encoding="utf-8")
 
 
-def _try_cuda(python: Path, start: float, end: float) -> bool:
-    """CUDA torch on an NVIDIA PC. On failure the CPU build is put back and alignment stays on the CPU."""
+def _install_cuda_from_hub(python: Path, start: float, end: float) -> None:
+    """Same CUDA wheels from library-hub (split into parts under GitHub's 2GB asset limit)."""
+    archive = None
+    wheel_dir = hub_mirror.downloads_dir() / "align-cuda-wheels"
     try:
-        _install_cuda_torch(python, start, end)
+        archive = hub_mirror.fetch_split("align_cuda_wheels", hub_mirror.downloads_dir(), lambda f: _set(
+            pct=start + (end - start) * 0.7 * f, stage="GPU(CUDA)용 torch 내려받는 중 (library-hub)"))
+        _set(pct=start + (end - start) * 0.75, stage="GPU(CUDA)용 torch 압축 해제 중")
+        hub_mirror.extract(archive, wheel_dir)
+        _install_cuda_torch(python, start + (end - start) * 0.8, end, find_links=wheel_dir)
+    finally:
+        if archive:
+            hub_mirror.discard(archive)
+        shutil.rmtree(wheel_dir, ignore_errors=True)
+
+
+def _try_cuda(python: Path, start: float, end: float) -> bool:
+    """CUDA torch on an NVIDIA PC: the official PyTorch index first, then the library-hub copy.
+
+    If both fail the CPU build is put back and alignment stays on the CPU.
+    """
+    try:
+        try:
+            _install_cuda_torch(python, start, end)
+        except Exception as error:  # noqa: BLE001 - official source unavailable: library-hub copy
+            if not hub_mirror.wheels_supported():
+                raise
+            _set(stage=f"공식 사이트에서 받지 못해 library-hub 에서 받습니다: {str(error)[:80]}")
+            _install_cuda_from_hub(python, start, end)
         _strip_build_only_files(python)
         _set(pct=end, stage="GPU 동작 확인 중")
         _verify(python, cuda=True)
