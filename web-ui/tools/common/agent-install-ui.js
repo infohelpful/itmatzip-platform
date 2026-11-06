@@ -19,9 +19,9 @@ const JSDELIVR_MANIFEST_URL =
 
 /** manifest 조회 실패 시 사용 (agent/agent-update-manifest.json 과 동기화) */
 const FALLBACK_RELEASE = {
-  version: "1.7.12",
+  version: "1.7.13",
   download_url:
-    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.12/itmatzip-agent.msi",
+    "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.13/itmatzip-agent.msi",
   package_type: "msi",
 };
 
