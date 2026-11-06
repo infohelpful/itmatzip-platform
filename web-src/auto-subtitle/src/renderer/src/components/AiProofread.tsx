@@ -204,7 +204,7 @@ export function AiProofread(props: Props): JSX.Element {
                   <li>오타·띄어쓰기·숫자와 영문 표기 수정{settings?.glossary.length ? ` (용어 사전 ${settings.glossary.length}개 반영)` : ''}</li>
                   <li>읽기 쉽게 의미 단위로 줄 나누기 — 한 줄 약 {Math.min(TARGET_UNITS, maxUnits)}자 안팎,
                     끊을 데가 없을 때만 최대 {maxUnits}자(지금 자막 디자인의 화면 한 줄). 두 줄로 넘어가지 않음</li>
-                  <li>말소리가 없는 구간(인트로·음악 등) 앞뒤는 다른 줄과 섞지 않음</li>
+                  <li>말소리가 없는 구간(오프닝·음악 등)은 다른 줄과 섞지 않고, 연달아 있으면 한 줄로 묶음</li>
                   <li>확신이 없는 단어는 고치지 않고 표시만</li>
                 </ul>
                 <label className="ai-check">
@@ -224,7 +224,8 @@ export function AiProofread(props: Props): JSX.Element {
                   <button type="button" className="ai-btn" onClick={() => setReview(null)}>취소</button>
                   <button type="button" className="ai-btn ai-btn--primary" onClick={apply}
                     disabled={review.result.changes.length === 0 && review.result.lineCountAfter === review.result.lineCountBefore
-                      && review.result.emphasized.length === 0 && review.result.uncertain.length === 0}>
+                      && review.result.emphasized.length === 0 && review.result.uncertain.length === 0
+                      && review.result.silentMerged === 0}>
                     적용 (Ctrl+Z로 되돌리기)
                   </button>
                 </>
@@ -256,6 +257,7 @@ function ReviewBody({ review, onJump }: { review: Review; onJump: (sec: number) 
         단어 <b>{result.changes.length}</b>개 수정 · 줄 {result.lineCountBefore} → <b>{result.lineCountAfter}</b>
         {' '}· 확인 필요 <b>{result.uncertain.length}</b>
         {result.emphasized.length ? <> · 강조 <b>{result.emphasized.length}</b></> : null}
+        {result.silentMerged ? <> · 말소리 없는 줄 <b>{result.silentMerged}</b>개 묶음</> : null}
       </p>
       {result.changes.length ? (
         <>

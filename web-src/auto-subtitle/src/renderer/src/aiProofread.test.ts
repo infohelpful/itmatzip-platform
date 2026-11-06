@@ -128,4 +128,17 @@ describe('applyProofread', () => {
     expect(shown[0]!.endsWith('싶은데')).toBe(true)
     expect(times(out.lines)).toEqual(times(lines))
   })
+
+  it('folds consecutive rows without speech into one row and keeps them apart from speech', () => {
+    const silent = (start: number, end: number, word: string): SubtitleLine =>
+      ({ start, end, text: '', words: [{ word, start, end, isSilence: true }] })
+    const lines = [row([['안녕하세요', 0, 1]]), silent(1, 4, '--'), silent(4, 9, '오디오'), silent(9, 12, '--'),
+      row([['오늘은', 12, 13]])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ lineStarts: [0, 1] }))
+    expect(out.lines).toHaveLength(3)
+    expect(out.lines[1]!.words!.map(w => w.word)).toEqual(['--', '오디오', '--'])
+    expect([out.lines[1]!.start, out.lines[1]!.end]).toEqual([1, 12])
+    expect(out.silentMerged).toBe(2)
+    expect(texts([out.lines[0]!, out.lines[2]!])).toEqual(['안녕하세요', '오늘은'])
+  })
 })

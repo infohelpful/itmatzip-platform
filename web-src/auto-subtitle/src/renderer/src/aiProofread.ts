@@ -80,6 +80,8 @@ export type ProofreadResult = {
   emphasized: string[]
   lineCountBefore: number
   lineCountAfter: number
+  /** 말소리 없는 줄을 묶어 줄어든 줄 수 */
+  silentMerged: number
 }
 
 function liveLineCount(lines: readonly SubtitleLine[]): number {
@@ -183,6 +185,19 @@ export function applyProofread(
     }
   }
 
+  // 2c) 말소리가 없는 줄(오프닝·음악 등 "--"·"오디오" 칩만 있는 줄)이 연달아 있으면 한 줄로 묶는다.
+  const silentRow = (i: number): boolean => {
+    const line = next[i]!
+    return !line.isDeleted && (line.words?.length ?? 0) > 0 && unitsOfLine(i).length === 0
+  }
+  let silentMerged = 0
+  for (let i = next.length - 1; i > 0; i--) {
+    if (silentRow(i) && silentRow(i - 1) && !!next[i]!.isHidden === !!next[i - 1]!.isHidden) {
+      const merged = mergeSubtitleIntoPrevious(next, i)
+      if (merged) { next = merged; silentMerged++ }
+    }
+  }
+
   // 3) 줄 문구 · 강조
   const emphasisIds = new Set(answer.emphasis.filter(inRange))
   const emphasized: string[] = []
@@ -220,6 +235,7 @@ export function applyProofread(
     })),
     emphasized,
     lineCountBefore: liveLineCount(lines),
-    lineCountAfter: liveLineCount(next)
+    lineCountAfter: liveLineCount(next),
+    silentMerged
   }
 }
