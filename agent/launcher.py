@@ -59,6 +59,12 @@ def _dispatch() -> None:
         pick_audio_main()
         return
 
+    if args and args[0] == "--mcp":
+        from mcp_server import main as mcp_main
+
+        mcp_main()
+        return
+
     if args and args[0] == "--check-update":
         from common.auto_update import check_and_apply_update
         import json

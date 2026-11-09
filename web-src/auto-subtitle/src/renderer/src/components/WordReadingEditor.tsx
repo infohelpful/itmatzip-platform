@@ -4,7 +4,7 @@ import type { SubtitleLine, SubtitleWord } from '../../../shared/subtitles'
 function ReadingInput({ word, onApply }: { word: SubtitleWord; onApply: (id: string, value: string) => void }) {
   const [value, setValue] = useState(word.readingOverride ?? '')
   return <form onSubmit={event => { event.preventDefault(); onApply(word.id!, value) }}>
-    <label>실제 발음 <input aria-label="실제 발음" value={value} maxLength={256}
+    <label>실제 발음 <input name="word-reading" aria-label="실제 발음" value={value} maxLength={256}
       placeholder="예: 3배 → 세배" onChange={event => setValue(event.target.value)} /></label>
     <button type="submit">발음 적용</button>
     <button type="button" disabled={!word.readingOverride} onClick={() => onApply(word.id!, '')}>자동 발음으로 복원</button>
@@ -25,14 +25,14 @@ export function WordReadingEditor({ line, lineIndex, onApply, onClose, onRealign
     <div><strong>{lineIndex + 1}번 줄 발음 입력</strong> <button type="button" onClick={onClose}>닫기</button></div>
     <p>자막 표기는 유지하고 정렬에 사용할 발음을 지정합니다. 선택한 단어만 또는 이 줄 전체의 싱크를 다시 맞출 수 있습니다.</p>
     {word ? <>
-      <label>단어 <select aria-label="발음 입력할 단어" value={word.id} onChange={event => setSelectedId(event.target.value)}>
+      <label>단어 <select name="reading-word" aria-label="발음 입력할 단어" value={word.id} onChange={event => setSelectedId(event.target.value)}>
         {words.map(w => <option key={w.id} value={w.id}>{w.word}{w.reviewReasons?.length ? ' · 검토 필요' : ''}</option>)}
       </select></label>
       <ReadingInput key={`${word.id}:${word.word}:${word.readingOverride ?? ''}`} word={word} onApply={onApply} />
       <fieldset className="word-alignment-selection">
         <legend>싱크를 다시 맞출 단어 · {selectedAlignmentIds.length}개 선택</legend>
         <div>{words.map(w => <label key={w.id}>
-          <input type="checkbox" aria-label={`${w.word} 정렬 선택`} data-alignment-word-id={w.id}
+          <input name={`align-word-${w.id}`} type="checkbox" aria-label={`${w.word} 정렬 선택`} data-alignment-word-id={w.id}
             checked={selectedAlignmentIds.includes(w.id!)} disabled={realignDisabled}
             onChange={event => setAlignmentIds(ids => event.target.checked ? [...ids, w.id!] : ids.filter(id => id !== w.id))} />
           {w.word}

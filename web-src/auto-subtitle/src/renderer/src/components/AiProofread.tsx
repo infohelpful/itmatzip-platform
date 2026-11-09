@@ -68,7 +68,6 @@ export function AiProofread(props: Props): JSX.Element {
   const openRun = () => {
     setError(null)
     setReview(null)
-    if (!settings?.configured) { setSettingsOpen(true); return }
     setMaxUnits(measureMaxUnits())
     setRunOpen(true)
   }
@@ -208,7 +207,7 @@ export function AiProofread(props: Props): JSX.Element {
                   <li>확신이 없는 단어는 고치지 않고 표시만</li>
                 </ul>
                 <label className="ai-check">
-                  <input type="checkbox" checked={emphasize} disabled={!!running} onChange={e => setEmphasize(e.target.checked)} />
+                  <input name="proofread-emphasis" type="checkbox" checked={emphasize} disabled={!!running} onChange={e => setEmphasize(e.target.checked)} />
                   중요 부분 강조 색 칠하기
                   <span className="ai-swatch" style={{ background: emphasisColor }} />
                 </label>
@@ -368,7 +367,7 @@ function AiSettingsDialog({ settings, onChange, onClose }: {
             onChoose={p => { setKey(''); void run(() => chooseAi(p), `${PROVIDER_LABEL[p]}로 교정합니다.`) }} />
 
           <h3 className="ai-sub">{label} 모델</h3>
-          <select className="ai-input" value={state.model} disabled={busy}
+          <select name="proofread-model" className="ai-input" value={state.model} disabled={busy}
             onChange={e => void run(() => chooseAi(provider, e.target.value), '모델을 바꿨습니다.')}>
             {state.models.map(m => <option key={m} value={m}>{MODEL_LABEL[m] ?? m}</option>)}
           </select>
@@ -382,9 +381,9 @@ function AiSettingsDialog({ settings, onChange, onClose }: {
             </p>
           )}
           <div className="ai-key-row">
-            <input type="password" className="ai-input"
+            <input name="proofread-api-key" type="password" className="ai-input" autoComplete="off"
               placeholder={state.configured ? '새 키로 바꾸기' : provider === 'claude' ? 'sk-ant-…' : 'sk-…'}
-              value={key} autoComplete="off" spellCheck={false} onChange={e => setKey(e.target.value)} />
+              value={key} spellCheck={false} onChange={e => setKey(e.target.value)} />
             <button type="button" className="ai-btn ai-btn--primary" disabled={busy || !key.trim()}
               onClick={async () => { if (await run(() => saveAiKey(provider, key), '키를 확인하고 저장했습니다.')) setKey('') }}>
               {busy ? '확인 중…' : '연결 확인 후 저장'}
@@ -397,7 +396,7 @@ function AiSettingsDialog({ settings, onChange, onClose }: {
 
           <h3 className="ai-sub">용어 사전 (두 AI 공통)</h3>
           <p className="ai-muted ai-small">채널명·제품명·사람 이름처럼 자주 틀리는 말을 한 줄에 하나씩 적어 두면, AI가 이 표기대로 고칩니다.</p>
-          <textarea className="ai-input ai-glossary" rows={5} value={glossary} spellCheck={false}
+          <textarea name="proofread-glossary" className="ai-input ai-glossary" rows={5} value={glossary} spellCheck={false}
             placeholder={'예)\nJPEG XL\n이지캡처\nItMatZip'} onChange={e => setGlossary(e.target.value)} />
           <div className="ai-row-end">
             <button type="button" className="ai-btn" disabled={busy}

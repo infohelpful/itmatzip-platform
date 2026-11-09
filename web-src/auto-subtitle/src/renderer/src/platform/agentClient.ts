@@ -6,7 +6,9 @@
  * Both default to http://127.0.0.1:19876. For development the tool API can point at a separately
  * run FastAPI with `?agentApi=http://127.0.0.1:19887` (remembered in localStorage).
  */
-const DEFAULT_AGENT_ORIGIN = 'http://127.0.0.1:19876'
+const DEFAULT_AGENT_ORIGIN = typeof window !== 'undefined' &&
+  /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(window.location.hostname) && window.location.port === '19876'
+  ? window.location.origin : 'http://127.0.0.1:19876'
 const API_PATH = '/api/tools/auto-subtitle/v2'
 const STORAGE_KEY = 'autosub.agentApi'
 
@@ -38,12 +40,13 @@ export class AgentUnavailable extends Error {
 
 /** Chrome Local Network Access: requests from a public page to loopback must declare it. */
 function loopbackInit(init: RequestInit): RequestInit {
-  try {
-    new Request('http://127.0.0.1/', { targetAddressSpace: 'loopback' } as RequestInit)
-    return { ...init, targetAddressSpace: 'loopback' } as RequestInit
-  } catch {
-    return init
+  for (const space of ['loopback', 'local']) {
+    try {
+      new Request('http://127.0.0.1/', { targetAddressSpace: space } as RequestInit)
+      return { ...init, targetAddressSpace: space } as RequestInit
+    } catch { /* Older Chromium calls the loopback address space "local". */ }
   }
+  return init
 }
 
 export async function agentFetch(url: string, init: RequestInit = {}): Promise<Response> {

@@ -13,6 +13,9 @@ export type AiSettings = {
   configured: boolean
   glossary: string[]
 }
+export type McpClient = 'codex' | 'claude' | 'antigravity'
+export type McpStatus = { connected: boolean; activeClients: number; configuredClients: McpClient[] }
+export type McpPendingEdit = { editId: string; revision: number; answer: ProofreadAnswer }
 
 export const PROVIDER_LABEL: Record<AiProvider, string> = { claude: 'Claude', openai: 'ChatGPT' }
 /** 모델 표시 이름 — 첫 번째가 기본(저렴), 두 번째가 고품질 */
@@ -40,11 +43,31 @@ export type ProofreadInput = {
   /** 읽기 편한 목표 길이 — 넘을 수는 있지만 maxUnits 는 못 넘는다 */
   targetUnits: number
   emphasize: boolean
+  instruction?: string
 }
 
 export type ProofreadUsage = { input: number; output: number; cacheRead: number }
 
 export const getAiSettings = (): Promise<AiSettings> => api<AiSettings>('/ai/settings')
+export const getMcpStatus = (): Promise<McpStatus> => api<McpStatus>('/mcp/status')
+export async function runMcpChat(client: McpClient, instruction: string, sessionId: string): Promise<string> {
+  const { jobId } = await api<{ jobId: string }>('/mcp/chat', { client, instruction, sessionId }, 'POST')
+  for (let attempt = 0; attempt < 320; attempt++) {
+    await new Promise(resolve => window.setTimeout(resolve, 1000))
+    const state = await api<{ status: 'running' | 'done' | 'error'; message: string }>(`/mcp/chat?jobId=${encodeURIComponent(jobId)}`)
+    if (state.status === 'done') return state.message
+    if (state.status === 'error') throw new Error(state.message)
+  }
+  throw new Error('CLI 응답 시간이 초과되었습니다. 다시 요청해 주세요.')
+}
+export const publishMcpEditor = (sessionId: string, basis: string, snapshot: unknown): Promise<{ revision: number }> =>
+  api<{ revision: number }>('/mcp/editor', { sessionId, basis, snapshot }, 'POST')
+export const heartbeatMcpEditor = (sessionId: string): Promise<{ ok: boolean }> =>
+  api<{ ok: boolean }>('/mcp/editor/heartbeat', { sessionId }, 'POST')
+export const getMcpPendingEdit = (sessionId: string): Promise<{ pending: McpPendingEdit | null }> =>
+  api<{ pending: McpPendingEdit | null }>(`/mcp/editor/pending?sessionId=${encodeURIComponent(sessionId)}`)
+export const acknowledgeMcpEdit = (sessionId: string, editId: string): Promise<{ ok: boolean }> =>
+  api<{ ok: boolean }>('/mcp/editor/ack', { sessionId, editId }, 'POST')
 export const saveAiKey = (provider: AiProvider, apiKey: string): Promise<AiSettings> =>
   api<AiSettings>('/ai/key', { provider, apiKey }, 'PUT')
 export const deleteAiKey = (provider: AiProvider): Promise<AiSettings> =>

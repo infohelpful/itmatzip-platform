@@ -457,6 +457,7 @@ export function setAgentOrigin(origin) {
 
 /** @type {boolean | null} */
 let _targetAddressSpaceSupported = null;
+let _loopbackAddressSpace = "loopback";
 
 function supportsTargetAddressSpace() {
   if (_targetAddressSpaceSupported != null) return _targetAddressSpaceSupported;
@@ -468,7 +469,11 @@ function supportsTargetAddressSpace() {
     new Request("http://127.0.0.1/", { targetAddressSpace: "loopback" });
     _targetAddressSpaceSupported = true;
   } catch {
-    _targetAddressSpaceSupported = false;
+    try {
+      new Request("http://127.0.0.1/", { targetAddressSpace: "local" });
+      _loopbackAddressSpace = "local";
+      _targetAddressSpaceSupported = true;
+    } catch { _targetAddressSpaceSupported = false; }
   }
   return _targetAddressSpaceSupported;
 }
@@ -481,12 +486,12 @@ function supportsTargetAddressSpace() {
  */
 function targetAddressSpaceForUrl(url) {
   if (!supportsTargetAddressSpace()) return undefined;
-  if (!url) return "loopback";
+  if (!url) return _loopbackAddressSpace;
   try {
     const { hostname } = new URL(url);
     const h = hostname.replace(/^\[|\]$/g, "").toLowerCase();
     if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h.endsWith(".localhost")) {
-      return "loopback";
+      return _loopbackAddressSpace;
     }
     if (
       /^10\./.test(h) ||
@@ -499,7 +504,7 @@ function targetAddressSpaceForUrl(url) {
   } catch {
     /* ignore */
   }
-  return "loopback";
+  return _loopbackAddressSpace;
 }
 
 /**

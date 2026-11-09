@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -455,13 +456,21 @@ def run_embedded_installer() -> int:
         import zipfile
 
         dest_dir.mkdir(parents=True, exist_ok=True)
-        for child in list(dest_dir.iterdir()):
-            if child.is_dir():
-                shutil.rmtree(child, ignore_errors=True)
-            else:
-                child.unlink(missing_ok=True)
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(dest_dir)
+        with tempfile.TemporaryDirectory(prefix="itmatzip-agent-stage-") as staging:
+            stage_dir = Path(staging)
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(stage_dir)
+            expected = ("itmatzip-agent.exe", "itmatzip-agent-mcp.exe", "_internal")
+            if any(not (stage_dir / name).exists() for name in expected):
+                raise FileNotFoundError("설치 번들에 필요한 에이전트 파일이 없습니다.")
+            # Keep user data (caches, models and media runtimes) in AppData intact.
+            # Overlay only the three known application bundle entries.
+            for name in expected:
+                source, target = stage_dir / name, dest_dir / name
+                if source.is_dir():
+                    shutil.copytree(source, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(source, target)
         _install_log(f"embedded extract ok ({time.monotonic() - t0:.1f}s)")
 
         if not dest_exe.is_file():

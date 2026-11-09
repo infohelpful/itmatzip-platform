@@ -2,13 +2,14 @@
 # 배포용 단일 itmatzip-agent.exe — 내부에 agent-bundle.zip (onedir) 포함
 
 from pathlib import Path
+import os
 
 block_cipher = None
 
 _SPEC_DIR = Path(SPECPATH)
 _ICON_FILE = _SPEC_DIR / "assets" / "itmatzip-agent.ico"
 _APP_ICON = str(_ICON_FILE.resolve()) if _ICON_FILE.is_file() else None
-_BUNDLE_ZIP = _SPEC_DIR / "build" / "agent-bundle.zip"
+_BUNDLE_ZIP = Path(os.environ.get("ITMATZIP_AGENT_BUNDLE_ZIP", str(_SPEC_DIR / "build" / "agent-bundle.zip")))
 
 if not _BUNDLE_ZIP.is_file():
     raise SystemExit(f"먼저 onedir 번들을 zip 으로 만드세요: {_BUNDLE_ZIP}")

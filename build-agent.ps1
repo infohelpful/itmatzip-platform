@@ -4,7 +4,8 @@
 # 내부: onedir 번들 zip → AppData 설치 후 빠른 기동
 
 param(
-    [string]$IconPath = ""
+    [string]$IconPath = "",
+    [string]$Python312Path = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,30 +36,38 @@ if ($IconPath -ne "") {
     Write-Host "아이콘: $DefaultIcon" -ForegroundColor Green
 }
 
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "Python이 PATH에 없습니다."
-}
-
-$venv = Join-Path $AgentRoot ".venv-build"
+$venv = Join-Path $AgentRoot ".venv-build-312"
 if (-not (Test-Path $venv)) {
-    Write-Host "가상환경 생성: $venv"
-    python -m venv $venv
+    if (-not $Python312Path) {
+        $launcher = Get-Command py -ErrorAction SilentlyContinue
+        if ($launcher) {
+            $Python312Path = (& $launcher.Source -3.12 -c "import sys; print(sys.executable)" 2>$null | Select-Object -Last 1)
+        }
+    }
+    if (-not $Python312Path -or -not (Test-Path $Python312Path)) {
+        throw "Python 3.12을 찾을 수 없습니다. -Python312Path로 python.exe 경로를 지정하세요."
+    }
+    Write-Host "Python 3.12 가상환경 생성: $venv"
+    & $Python312Path -m venv $venv
 }
 
 $py = Join-Path $venv "Scripts\python.exe"
+if (-not (Test-Path $py)) { throw "Python 3.12 가상환경이 불완전합니다: $venv" }
+$pythonVersion = (& $py -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
+if ($pythonVersion -ne "3.12") { throw "에이전트 빌드에는 Python 3.12이 필요합니다. 현재: $pythonVersion" }
 
 Write-Host "의존성 설치..."
 & $py -m pip install -q --upgrade pip
 & $py -m pip install -q -r requirements.txt
 
-$buildDir = Join-Path $AgentRoot "build"
-$distDir = Join-Path $AgentRoot "dist"
-# onedir 번들은 dist 가 아닌 build 에만 생성 (배포 폴더에 폴더가 남지 않게)
+$buildDir = Join-Path $AgentRoot "build-312"
+$distDir = Join-Path $AgentRoot "dist-312"
 $bundleDir = Join-Path $buildDir "itmatzip-agent"
 $bundleZip = Join-Path $buildDir "agent-bundle.zip"
 $outExe = Join-Path $distDir "itmatzip-agent.exe"
 
-Remove-Item -Recurse -Force (Join-Path $AgentRoot "build"), $distDir -ErrorAction SilentlyContinue
+if (Test-Path $buildDir) { Remove-Item -LiteralPath $buildDir -Recurse -Force }
+if (Test-Path $distDir) { Remove-Item -LiteralPath $distDir -Recurse -Force }
 New-Item -ItemType Directory -Path $buildDir, $distDir -Force | Out-Null
 
 Write-Host "[1/3] onedir 에이전트 번들 (내부용, build\ 에만 생성)..."
@@ -77,7 +86,9 @@ Compress-ArchiveCompat -Path $zipStaging -DestinationPath $bundleZip -Compressio
 Remove-Item $zipStaging -Recurse -Force
 
 Write-Host "[3/3] 단일 itmatzip-agent.exe (설치 프로그램)..."
+$env:ITMATZIP_AGENT_BUNDLE_ZIP = $bundleZip
 & $py -m PyInstaller itmatzip-agent-setup.spec --noconfirm --clean --distpath $distDir --workpath (Join-Path $buildDir "pyi-setup")
+Remove-Item Env:ITMATZIP_AGENT_BUNDLE_ZIP -ErrorAction SilentlyContinue
 if (-not (Test-Path $outExe)) {
     throw "setup exe 빌드 실패: $outExe"
 }

@@ -3,6 +3,7 @@ param(
     [switch]$SkipEngine,
     [switch]$SkipAgent,
     [switch]$UseEmbeddable,
+    [string]$ReuseEngineFrom = "",
     [string]$Python = "python",
     [string]$EmbeddableVersion = "3.12.10"
 )
@@ -188,7 +189,7 @@ function Copy-AgentSource {
     New-Item -ItemType Directory -Force -Path $TargetDir | Out-Null
 
     $excludeDirs = @(
-        "__pycache__", ".venv", ".venv-build", "build", "dist", ".git",
+        "__pycache__", ".venv", ".venv-build", ".venv-build-312", "build", "build-312", "dist", "dist-312", ".git",
         "wheel-cache", "wheels", "wheels_gpu"
     )
     $excludeFiles = @("*.pyc", "*.pyo", "*.spec")
@@ -245,6 +246,16 @@ if ($SkipEngine) {
     Write-Warning "Skipping engine (--SkipEngine). MSI will ship without bundled Python."
     New-Item -ItemType Directory -Force -Path $EngineDir | Out-Null
     Set-Content -Path (Join-Path $EngineDir ".keep") -Value "engine not staged"
+} elseif ($ReuseEngineFrom) {
+    $engineSource = [IO.Path]::GetFullPath($ReuseEngineFrom)
+    if (-not (Test-Path -LiteralPath (Join-Path $engineSource 'python.exe'))) {
+        throw "Reusable Python 3.12 engine missing: $engineSource"
+    }
+    $engineVersion = (& (Join-Path $engineSource 'python.exe') -c 'import sys; print(sys.version_info.major, sys.version_info.minor)').Trim()
+    if ($engineVersion -ne '3 12') { throw "Expected Python 3.12 engine, got $engineVersion" }
+    Write-Step "Copying installed Python 3.12 engine from $engineSource"
+    robocopy $engineSource $EngineDir /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "Copying reusable engine failed: $LASTEXITCODE" }
 } elseif ($UseEmbeddable) {
     Install-EmbeddableEngine -TargetDir $EngineDir -Version $EmbeddableVersion -RequirementsFile $WorkerReq
     Build-DiffqVendorWheel -EngineDir $EngineDir -EmbeddableVersion $EmbeddableVersion
@@ -369,9 +380,17 @@ if (-not (Select-String -Path $previewScript -Pattern "loadImageInto" -Quiet)) {
 }
 
 $FfmpegVendorDir = Join-Path $Staging "vendor\ffmpeg\gpl-shared"
-# Always run: the script keeps the pinned build and replaces any other (e.g. an older "latest" staging copy).
-Write-Step "Staging bundled FFmpeg (gpl-shared, pinned) for MSI"
-& (Join-Path $Root "scripts\install-ffmpeg-vendor.ps1") -TargetDir $FfmpegVendorDir
+$existingFfmpeg = if ($ReuseEngineFrom) { Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($ReuseEngineFrom))) 'vendor\ffmpeg\gpl-shared' } else { '' }
+if ($existingFfmpeg -and (Test-Path -LiteralPath (Join-Path $existingFfmpeg 'ffmpeg.exe'))) {
+    $ffmpegVersion = & (Join-Path $existingFfmpeg 'ffmpeg.exe') -version | Select-Object -First 1
+    if ($ffmpegVersion -notmatch 'n7\.1\.5-12-g1fdbca85aa') { throw "Installed FFmpeg is not the pinned build: $ffmpegVersion" }
+    Write-Step "Copying pinned FFmpeg from $existingFfmpeg"
+    robocopy $existingFfmpeg $FfmpegVendorDir /E /NFL /NDL /NJH /NJS /NC /NS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "Copying FFmpeg failed: $LASTEXITCODE" }
+} else {
+    Write-Step "Staging bundled FFmpeg (gpl-shared, pinned) for MSI"
+    & (Join-Path $Root "scripts\install-ffmpeg-vendor.ps1") -TargetDir $FfmpegVendorDir
+}
 
 Write-Step "Staging complete: $Staging"
 Get-ChildItem $Staging | Format-Table Name, Length -AutoSize

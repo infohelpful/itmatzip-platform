@@ -79,6 +79,7 @@ import { CAPSULE_PRESET, capsuleBoxOverrides, parseSubtitleBoxStyle, type Subtit
 import { ensurePretendardLoaded, usesPretendard } from './subtitleFonts'
 import { renderPreviewSubtitleText, type PreviewEmphasisCache } from './previewSubtitleText'
 import { AiProofread, previewLineCapacityUnits } from './components/AiProofread'
+import { SubtitleMcpChat } from './components/SubtitleMcpChat'
 import type { CaptionEmphasisEdit } from './SubtitleVirtualList'
 
 import { applyProgramTimeRangeTombstoneCutToSubtitleLines } from '../../shared/subtitleTombstoneCut'
@@ -6971,10 +6972,10 @@ export default function App(): ReactElement {
               <div className="subtitle-visibility-tools" role="group" aria-label="단어 강조">
                 <div className="preview-export-word-highlight"
                   title="영상으로 내보낼 때 지금 말하는 단어를 선택한 색으로 강조합니다.">
-                  <label><input type="checkbox" checked={wordHighlightEnabled}
+                  <label><input name="word-highlight" type="checkbox" checked={wordHighlightEnabled}
                     onChange={(e) => setWordHighlightEnabled(e.target.checked)} disabled={isExporting || isExtracting} />
                     <span>단어 강조</span></label>
-                  <input type="color" value={wordHighlightColor} onChange={(e) => setWordHighlightColor(e.target.value)}
+                  <input name="word-highlight-color" type="color" value={wordHighlightColor} onChange={(e) => setWordHighlightColor(e.target.value)}
                     disabled={!wordHighlightEnabled || isExporting || isExtracting} aria-label="단어 강조 색" />
                 </div>
               </div>
@@ -7013,7 +7014,7 @@ export default function App(): ReactElement {
             {/* Web build: export sits at the right end of the editor toolbar (where the toolbar ad used to be). */}
             <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
               <div className="preview-export-main">
-                <select className="preview-export-format" value={exportFormat}
+                <select name="export-format" className="preview-export-format" value={exportFormat}
                   onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
                   aria-label="내보내기 형식"
                   disabled={!videoPath || subtitles.length === 0 || isExporting || isExtracting}>
@@ -7195,6 +7196,7 @@ export default function App(): ReactElement {
                   <span ref={previewCurrentTimeRef} className="preview-time preview-time--current" />
                   <input
                     ref={previewSeekInputRef}
+                    name="preview-position"
                     type="range"
                     className="preview-seek"
                     aria-label="재생 위치"
@@ -7267,6 +7269,7 @@ export default function App(): ReactElement {
                     <div className="subtitle-panel-actions" role="group" aria-label="자막 일괄 편집">
                       <span className="subtitle-linebreak-ctl">
                         <input
+                          name="subtitle-line-width"
                           type="number"
                           min={4}
                           max={80}
@@ -7336,8 +7339,26 @@ export default function App(): ReactElement {
                   </p>
                 ) : null}
               </header>
+              <SubtitleMcpChat
+                  subtitles={subtitles}
+                  preparedAudioPath={preparedMedia?.audioPath ?? null}
+                  mediaDuration={preparedMedia?.duration ?? null}
+                  measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
+                  emphasisColor={captionEmphasisColor}
+                  disabled={isExtracting || projectIoBusy || realigning}
+                  onBeforeRun={() => {
+                    pausePlayback('ai-proofread-chat')
+                    setWaveformLineIndex(null)
+                    setWaveformWordId(null)
+                  }}
+                  onApply={lines => {
+                    setGapFillWhenBuildingVrew(false)
+                    applySubtitleChange(() => lines)
+                    setAlignmentNotice('채팅 수정안을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.')
+                  }}
+              />
               <div className="subtitle-selection-toolbar" role="group" aria-label="자막 줄 선택 및 표시">
-                <label><input type="checkbox" aria-label="모든 자막 줄 선택"
+                <label><input name="select-all-subtitles" type="checkbox" aria-label="모든 자막 줄 선택"
                   checked={visibleRowIndices.length > 0 && visibleRowIndices.every(i => selectedSubtitleRows.has(i))}
                   ref={el => { if (el) el.indeterminate = selectedSubtitleRows.size > 0 && !visibleRowIndices.every(i => selectedSubtitleRows.has(i)) }}
                   disabled={visibleRowIndices.length === 0}

@@ -6,6 +6,10 @@ each Electron IPC call to one of these routes. Long work runs in threads and is 
 from __future__ import annotations
 
 import base64
+import json
+import re
+import io
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +18,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 
 from engines.autosub import ai_proofread, ai_settings, alignment, export, media, paths, service
+from engines import mcp_chat, mcp_registry
 
 router = APIRouter(prefix="/api/tools/auto-subtitle/v2", tags=["auto-subtitle"])
 
@@ -27,6 +32,170 @@ def _str(body: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise HTTPException(status_code=400, detail=f"'{key}' 값이 필요합니다.")
     return value
+
+
+@router.get("/mcp/status")
+async def get_mcp_status() -> dict[str, Any]:
+    state = mcp_registry.status()
+    configured = await run_in_threadpool(mcp_chat.configured_clients)
+    return {**state, "connected": state["connected"] or bool(configured), "configuredClients": configured}
+
+
+@router.post("/mcp/chat")
+async def post_mcp_chat(body: dict[str, Any] = Body(...)) -> dict[str, str]:
+    client = body.get("client")
+    instruction = body.get("instruction")
+    session_id = _valid_mcp_session(body.get("sessionId"))
+    if not isinstance(client, str) or not isinstance(instruction, str):
+        raise HTTPException(status_code=400, detail="AI CLI와 요청 문장을 확인해 주세요.")
+    try:
+        job_id = await run_in_threadpool(mcp_chat.start, client, instruction.strip(), session_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"jobId": job_id}
+
+
+@router.get("/mcp/chat")
+async def get_mcp_chat(jobId: str = Query(...)) -> dict[str, str]:
+    try:
+        return mcp_chat.get(jobId)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.post("/mcp/session")
+async def post_mcp_session(body: dict[str, Any] = Body(...)) -> dict[str, bool]:
+    session_id = _str(body, "sessionId")
+    if len(session_id) > 80 or not session_id.replace("-", "").isalnum():
+        raise HTTPException(status_code=400, detail="MCP 세션 값이 올바르지 않습니다.")
+    mcp_registry.heartbeat(session_id)
+    return {"ok": True}
+
+
+@router.delete("/mcp/session/{session_id}")
+async def delete_mcp_session(session_id: str) -> dict[str, bool]:
+    mcp_registry.disconnect(session_id)
+    return {"ok": True}
+
+
+def _valid_mcp_session(value: Any) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9-]{1,80}", value):
+        raise HTTPException(status_code=400, detail="MCP 세션 값이 올바르지 않습니다.")
+    return value
+
+
+@router.post("/mcp/editor")
+async def post_mcp_editor(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    session_id = _valid_mcp_session(body.get("sessionId"))
+    basis, snapshot = body.get("basis"), body.get("snapshot")
+    if not isinstance(basis, str) or not re.fullmatch(r"[a-f0-9]{16}", basis):
+        raise HTTPException(status_code=400, detail="자막 기준값이 올바르지 않습니다.")
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("words"), list):
+        raise HTTPException(status_code=400, detail="현재 자막 정보가 올바르지 않습니다.")
+    words = snapshot["words"]
+    if not 1 <= len(words) <= 40_000 or len(json.dumps(snapshot, ensure_ascii=False)) > 8_000_000:
+        raise HTTPException(status_code=413, detail="전달할 자막이 너무 큽니다.")
+    for index, word in enumerate(words):
+        if (not isinstance(word, dict) or word.get("index") != index
+                or not isinstance(word.get("id"), str) or not isinstance(word.get("text"), str)
+                or len(word["text"]) > ai_proofread.MAX_WORD_LENGTH):
+            raise HTTPException(status_code=400, detail="자막 단어 정보가 올바르지 않습니다.")
+    audio_path, duration = snapshot.get("audioPath"), snapshot.get("duration")
+    if audio_path is not None and (not isinstance(audio_path, str) or len(audio_path) > 4096):
+        raise HTTPException(status_code=400, detail="준비된 오디오 경로가 올바르지 않습니다.")
+    if duration is not None and (not isinstance(duration, (int, float)) or isinstance(duration, bool) or duration <= 0):
+        raise HTTPException(status_code=400, detail="미디어 길이가 올바르지 않습니다.")
+    return mcp_registry.publish_editor(session_id, basis, snapshot)
+
+
+@router.post("/mcp/editor/heartbeat")
+async def post_mcp_editor_heartbeat(body: dict[str, Any] = Body(...)) -> dict[str, bool]:
+    session_id = _valid_mcp_session(body.get("sessionId"))
+    if not mcp_registry.heartbeat_editor(session_id):
+        raise HTTPException(status_code=404, detail="AutoSubtitle 페이지 세션이 만료되었습니다.")
+    return {"ok": True}
+
+
+@router.get("/mcp/editor")
+async def get_mcp_editor() -> dict[str, Any]:
+    try:
+        return mcp_registry.active_editor()
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@router.get("/mcp/editor/audio")
+async def get_mcp_editor_audio(startSec: float = Query(...), endSec: float = Query(...)) -> Response:
+    try:
+        active = mcp_registry.active_editor_audio()
+        duration = active.get("duration")
+        if (not isinstance(duration, (int, float)) or startSec < 0 or endSec <= startSec
+                or endSec - startSec > 6 or endSec > duration + 0.01):
+            raise ValueError("오디오 구간은 영상 길이 안의 최대 6초로 지정해 주세요.")
+        start_frame = round(startSec * media.PCM_SAMPLE_RATE)
+        frame_count = max(1, round((endSec - startSec) * media.PCM_SAMPLE_RATE))
+        _, pcm = media.read_prepared_pcm(active["audioPath"], [{"startFrame": start_frame, "frameCount": frame_count}])
+        wav = io.BytesIO()
+        with wave.open(wav, "wb") as output:
+            output.setnchannels(2)
+            output.setsampwidth(2)
+            output.setframerate(media.PCM_SAMPLE_RATE)
+            output.writeframes(pcm)
+        return Response(content=wav.getvalue(), media_type="audio/wav",
+                        headers={"X-Audio-Start-Sec": str(startSec), "X-Audio-End-Sec": str(endSec)})
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="준비된 오디오를 찾지 못했습니다. 영상을 다시 열어 주세요.") from error
+
+
+@router.post("/mcp/editor/submit")
+async def post_mcp_editor_submit(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    revision, corrections, starts = body.get("revision"), body.get("corrections"), body.get("lineStarts")
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+        raise HTTPException(status_code=400, detail="자막 revision 값이 올바르지 않습니다.")
+    if not isinstance(corrections, list) or len(corrections) > 40_000:
+        raise HTTPException(status_code=400, detail="수정 단어 목록이 올바르지 않습니다.")
+    if not isinstance(starts, list) or not all(isinstance(x, int) and not isinstance(x, bool) for x in starts):
+        raise HTTPException(status_code=400, detail="새 줄 정보가 올바르지 않습니다.")
+    try:
+        active = mcp_registry.active_editor()
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    if active["revision"] != revision:
+        raise HTTPException(status_code=409, detail="자막이 MCP로 전달된 뒤 변경됐습니다. 최신 자막을 다시 가져와 수정해 주세요.")
+    word_count = len(active["snapshot"].get("words", []))
+    clean_corrections: dict[int, str] = {}
+    for item in corrections:
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=400, detail="수정 단어 형식이 올바르지 않습니다.")
+        index, text = item.get("index"), item.get("text")
+        if (not isinstance(index, int) or isinstance(index, bool) or index < 0 or index >= word_count
+                or not isinstance(text, str) or len(text) > ai_proofread.MAX_WORD_LENGTH):
+            raise HTTPException(status_code=400, detail="수정 단어 형식이 올바르지 않습니다.")
+        clean_corrections[index] = text
+    answer = {
+        "corrections": [{"id": index, "text": text} for index, text in sorted(clean_corrections.items())],
+        "lineStarts": sorted(set(starts)), "uncertain": [], "emphasis": [],
+    }
+    try:
+        return mcp_registry.stage_edit(revision, answer)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@router.get("/mcp/editor/pending")
+async def get_mcp_editor_pending(sessionId: str = Query(...)) -> dict[str, Any]:
+    return {"pending": mcp_registry.pending_edit(_valid_mcp_session(sessionId))}
+
+
+@router.post("/mcp/editor/ack")
+async def post_mcp_editor_ack(body: dict[str, Any] = Body(...)) -> dict[str, bool]:
+    session_id = _valid_mcp_session(body.get("sessionId"))
+    edit_id = body.get("editId")
+    if not isinstance(edit_id, str):
+        raise HTTPException(status_code=400, detail="수정 요청 ID가 올바르지 않습니다.")
+    return {"ok": mcp_registry.acknowledge_edit(session_id, edit_id)}
 
 
 # -- engine ------------------------------------------------------------------------------

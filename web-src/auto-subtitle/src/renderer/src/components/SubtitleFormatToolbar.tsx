@@ -66,7 +66,7 @@ function NumberField({ label, value, min, max, unit, onChange }: {
   return <label className="format-number-field">
     <span>{label}</span>
     <span className="format-number-input">
-      <input type="number" aria-label={label} min={min} max={max} step={1} value={draft}
+      <input name={label} type="number" aria-label={label} min={min} max={max} step={1} value={draft}
         onChange={(event) => {
           const raw = event.target.value
           setDraft(raw)
@@ -95,8 +95,8 @@ function ColorPalette({ label, value, onChange }: { label: string; value: string
         onClick={() => onChange(color)} />)}
     </div>
     <label className="format-custom-color"><span>직접 지정</span>
-      <input type="color" aria-label={`${label} 색상 선택`} value={value} onChange={(event) => onChange(event.target.value)} />
-      <input type="text" aria-label={`${label} HEX`} spellCheck={false} value={hex} maxLength={7}
+      <input name={`${label}-color`} type="color" aria-label={`${label} 색상 선택`} value={value} onChange={(event) => onChange(event.target.value)} />
+      <input name={`${label}-hex`} type="text" aria-label={`${label} HEX`} spellCheck={false} value={hex} maxLength={7}
         onChange={(event) => setHex(event.target.value)} onBlur={commit}
         onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commit() } }} />
     </label>
@@ -147,7 +147,7 @@ export function SubtitleFormatToolbar(props: Props) {
   return <div className="subtitle-format-toolbar" role="group" aria-label="전체 자막 서식"
     onKeyDown={(event) => { if (event.code === 'Space') event.stopPropagation() }}>
     {/* Web build: bold toggle and weight select removed (weight keeps its current value). */}
-    <select className="format-font" aria-label="글꼴" value={props.fontFamily} onChange={(event) => props.onFontFamily(event.target.value)}>
+    <select name="subtitle-font" className="format-font" aria-label="글꼴" value={props.fontFamily} onChange={(event) => props.onFontFamily(event.target.value)}>
       {props.recentFonts.length > 0 && <optgroup label="최근 사용">{props.recentFonts.map((font) => <option key={font} value={font}>{font}</option>)}</optgroup>}
       <optgroup label="전체 글꼴">{Array.from(new Set([props.fontFamily, ...props.fonts])).map((font) => <option key={font} value={font}>{font}</option>)}</optgroup>
     </select>

@@ -80,6 +80,7 @@ const VrewLineTextarea = memo(function VrewLineTextarea({
 
   return (
     <textarea
+      name="subtitle-caption"
       ref={taRef}
       value={value}
       spellCheck={false}

@@ -202,6 +202,7 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 		}
 		_ = json.NewEncoder(w).Encode(status)
 	})
+	mountAIMCPSettings(mux)
 	mux.Handle("/api/agent/update", updateHTTPHandler(globalUpdateManager))
 	mux.HandleFunc("/models", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -391,10 +392,12 @@ func main() {
 		if err := createLaunchShortcuts(); err != nil {
 			log.Printf("warning: create shortcuts failed: %v", err)
 		}
-		// The MSI runs --install as SYSTEM; a tray started from here would run as SYSTEM and miss the
-		// user's engine packages. The MSI's StartTrayIcon / the updater start the tray instead.
+		// The MSI runs --install as SYSTEM. Start the tray in the signed-in user's
+		// session now; the Run key also starts it at the next sign-in.
 		if runningAsLocalSystem() {
-			log.Print("install: running as SYSTEM, tray start left to the user session")
+			if err := relaunchTrayAsSessionUser(); err != nil {
+				log.Printf("warning: start tray as session user after install: %v", err)
+			}
 		} else if err := launchTrayProcess(); err != nil {
 			log.Printf("warning: start tray after install: %v (reboot or run: itmatzip-agent.exe --tray)", err)
 		}

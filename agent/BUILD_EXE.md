@@ -8,14 +8,16 @@
 .\build-agent.ps1
 ```
 
-생성 파일: `agent\dist\itmatzip-agent.exe`
+생성 파일: `agent\dist-312\itmatzip-agent.exe`
+
+MCP stdio 실행 파일: 번들 폴더의 `itmatzip-agent-mcp.exe`
 
 ---
 
 ## 사전 준비
 
 1. **Windows 10/11**
-2. **Python 3.10 이상** 설치  
+2. **Python 3.12** 설치
    - 설치 시 **“Add python.exe to PATH”** 체크
 3. 인터넷 연결 (최초 빌드 시 pip·PyInstaller 다운로드)
 
@@ -46,7 +48,7 @@ Windows exe 아이콘은 **`.ico`** 형식이어야 합니다.
 3. 다른 경로에 있으면 빌드 시 복사:
 
    ```powershell
-   .\build-agent.ps1 -IconPath "D:\내아이콘.ico"
+   .\build-agent.ps1 -IconPath "D:\내아이콘.ico" -Python312Path "C:\Path\To\Python312\python.exe"
    ```
 
 `.ico`가 없으면 Python 기본 아이콘으로 빌드됩니다.
@@ -54,28 +56,28 @@ Windows exe 아이콘은 **`.ico`** 형식이어야 합니다.
 ### 3단계: 빌드 스크립트 실행
 
 ```powershell
-.\build-agent.ps1
+.\build-agent.ps1 -Python312Path "C:\Path\To\Python312\python.exe"
 ```
 
 스크립트가 자동으로:
 
-- `agent\.venv-build` 가상환경 생성 (없을 때만)
+- `agent\.venv-build-312` 가상환경 생성 (없을 때만)
 - `requirements.txt` 설치 (FastAPI, uvicorn, PyInstaller 등)
 - PyInstaller로 `itmatzip-agent.exe` 생성
 
 ### 4단계: 결과 확인
 
 ```powershell
-dir agent\dist\itmatzip-agent.exe
+dir agent\dist-312\itmatzip-agent.exe
 ```
 
 ### 5단계: exe 실행
 
 ```powershell
-.\agent\dist\itmatzip-agent.exe
+.\agent\dist-312\itmatzip-agent.exe
 ```
 
-또는 탐색기에서 `agent\dist\itmatzip-agent.exe` 더블클릭.
+또는 탐색기에서 `agent\dist-312\itmatzip-agent.exe` 더블클릭.
 
 콘솔에 예시:
 
@@ -98,10 +100,10 @@ ItMatZip Agent (exe) — http://127.0.0.1:19876
 
 ```powershell
 cd agent
-python -m venv .venv-build
-.\.venv-build\Scripts\Activate.ps1
+py -3.12 -m venv .venv-build-312
+.\.venv-build-312\Scripts\Activate.ps1
 pip install -r requirements.txt
-pyinstaller itmatzip-agent.spec --noconfirm --clean
+pyinstaller itmatzip-agent-bundle.spec --noconfirm --clean
 ```
 
 ---

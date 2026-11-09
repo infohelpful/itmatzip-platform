@@ -58,7 +58,7 @@ export function SubtitleActionsToolbar(props: Props) {
         <div className="editor-split-options" role="group" aria-label="대본 분할 기준 옵션">
           <p>대본을 나눌 위치</p>
           {([['atLinebreak', '줄바꿈'], ['atPunctuation', '문장부호'], ['atSlash', '슬래시(/)']] as const).map(([key, label]) =>
-            <label key={key}><input type="checkbox" checked={props.split[key]}
+            <label key={key}><input name={`split-${key}`} type="checkbox" checked={props.split[key]}
               onChange={event => props.onSplit({ ...props.split, [key]: event.target.checked })} />{label}</label>)}
         </div>
       </details>

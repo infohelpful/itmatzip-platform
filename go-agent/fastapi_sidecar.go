@@ -94,6 +94,12 @@ func (s *fastapiSidecar) ProcessRunning() bool {
 	return s.processRunningLocked()
 }
 
+func (s *fastapiSidecar) Starting() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.starting
+}
+
 func (s *fastapiSidecar) HealthFailStreak() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -425,6 +431,10 @@ func (s *fastapiSidecar) TryRestart(ctx context.Context, wm *workerManager) erro
 	if s.IsReady() {
 		return nil
 	}
+	return s.ForceRestart(ctx, wm)
+}
+
+func (s *fastapiSidecar) ForceRestart(ctx context.Context, wm *workerManager) error {
 	s.Stop()
 	time.Sleep(400 * time.Millisecond)
 	return s.Start(ctx, wm)
@@ -441,6 +451,10 @@ func startFastAPISidecarWatchdog(ctx context.Context, sidecar *fastapiSidecar, w
 				return
 			default:
 			}
+			if sidecar.Starting() {
+				time.Sleep(watchdogFastTickInterval)
+				continue
+			}
 			interval := watchdogTickInterval
 			if !sidecar.IsReady() {
 				interval = watchdogFastTickInterval
@@ -450,6 +464,10 @@ func startFastAPISidecarWatchdog(ctx context.Context, sidecar *fastapiSidecar, w
 				continue
 			}
 			if sidecar.ProcessRunning() {
+				if sidecar.Starting() {
+					time.Sleep(interval)
+					continue
+				}
 				if sidecar.IsReady() {
 					time.Sleep(interval)
 					continue
@@ -585,7 +603,7 @@ func handleFastAPIRestart(w http.ResponseWriter, r *http.Request, sidecar *fasta
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), sidecarStartupDeadline)
 		defer cancel()
-		if err := sidecar.TryRestart(ctx, wm); err != nil {
+		if err := sidecar.ForceRestart(ctx, wm); err != nil {
 			log.Printf("fastapi manual restart failed: %v", err)
 		}
 	}()

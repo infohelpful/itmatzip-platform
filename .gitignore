@@ -155,3 +155,7 @@ agent/run_test_separate.py
 
 # ——— Cursor 첨부·스크린샷 (저장소 루트) ———
 /assets/
+
+# Codex local Go caches
+go-agent/.codex-go-cache/
+go-agent/.codex-go-modcache/

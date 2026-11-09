@@ -34,7 +34,11 @@ func toolsWebBase() string {
 
 func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicEraser, voiceChanger, watermarkRemover string) {
 	base := toolsWebBase()
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/fixed-area-remover/"
+	autosubURL := base + "/auto-subtitle/"
+	if resolveBundledToolsWebDir() != "" {
+		autosubURL = fmt.Sprintf("http://127.0.0.1:%d/tools/auto-subtitle/", defaultPort)
+	}
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", autosubURL, base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/fixed-area-remover/"
 }
 
 func resolveTrayIconPath() string {
@@ -143,6 +147,13 @@ func runTrayWithOptions(port int) error {
 	go func() {
 		time.Sleep(2 * time.Second)
 		startFastAPISidecarWithRetry(ctx, sidecar, mgr)
+		for !sidecar.IsReady() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
 		startFastAPISidecarWatchdog(ctx, sidecar, mgr)
 	}()
 
@@ -228,6 +239,9 @@ func onTrayReady(port int, iconData []byte) {
 	mVoiceChanger := systray.AddMenuItem("Voice Changer", voiceChangerURL)
 	mWatermarkRemover := systray.AddMenuItem("Fixed Area Remover", watermarkRemoverURL)
 	systray.AddSeparator()
+	mSettings := systray.AddMenuItem("설정", "에이전트 설정을 엽니다")
+	mAIMCP := mSettings.AddSubMenuItem("AI MCP", "Codex, Claude, Antigravity MCP 설정")
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("종료", "에이전트를 종료합니다")
 
 	updateTrayTooltip(port, "실행 중 · v"+readAgentVersion())
@@ -255,6 +269,8 @@ func onTrayReady(port int, iconData []byte) {
 				openURL(voiceChangerURL)
 			case <-mWatermarkRemover.ClickedCh:
 				openURL(watermarkRemoverURL)
+			case <-mAIMCP.ClickedCh:
+				openURL(fmt.Sprintf("http://%s:%d/settings/ai-mcp", defaultHost, port))
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return

@@ -13,6 +13,7 @@ _APP_ICON = str(_ICON_FILE.resolve()) if _ICON_FILE.is_file() else None
 
 hiddenimports = [
     "launcher",
+    "mcp_server",
     "main",
     "agent_config",
     "runtime_paths",
@@ -97,8 +98,30 @@ exe = EXE(
     icon=_APP_ICON,
 )
 
+# MCP clients need inherited stdin/stdout pipes. Keep the normal tray/server
+# executable windowless and ship a dedicated console entry point for stdio MCP.
+mcp_exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name="itmatzip-agent-mcp",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=_APP_ICON,
+)
+
 coll = COLLECT(
     exe,
+    mcp_exe,
     a.binaries,
     a.zipfiles,
     a.datas,

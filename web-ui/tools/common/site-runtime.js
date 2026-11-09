@@ -9,6 +9,11 @@
   var URL_PREFIX_TO_LANG = { kr: "ko", ko: "ko", en: "en", ja: "ja", zh: "zh" };
   var LANG_TO_URL_PREFIX = { ko: "kr", en: "en", ja: "ja", zh: "zh" };
 
+  function isBundledToolsPage() {
+    return /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname || "") &&
+      /^\/(?:kr\/|ko\/|en\/|ja\/|zh\/)?tools\//.test(location.pathname || "");
+  }
+
   function isAdminPath(pathname) {
     return /\/admin(?:\/|$)/i.test(String(pathname || location.pathname || ""));
   }
@@ -43,6 +48,7 @@
   function pathWithLang(lang, pathname) {
     var prefix = langUrlPrefix(lang);
     var rest = contentPathname(pathname);
+    if (isBundledToolsPage()) return rest;
     if (!rest || rest === "/") return "/" + prefix + "/";
     return "/" + prefix + rest;
   }
@@ -1663,6 +1669,7 @@
   }
 
   function loadPublicSeoConfig() {
+    if (isBundledToolsPage()) return;
     fetch("/admin/api.php?action=public", { cache: "no-store", credentials: "same-origin" })
       .then(function (res) {
         return res.ok ? res.json() : Promise.reject();
@@ -2026,6 +2033,7 @@
   try {
     var path = String(location.pathname || "");
     if (isAdminPath(path)) return;
+    if (isBundledToolsPage()) return;
 
     var parts = path.split("/").filter(Boolean);
     if (parts.length && URL_PREFIX_TO_LANG[parts[0].toLowerCase()]) parts.shift();

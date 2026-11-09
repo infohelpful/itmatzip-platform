@@ -93,18 +93,18 @@ export function SubtitleSearchPanel(props: Props) {
         <button type="button" className="subtitle-search-close" aria-label="닫기" onClick={onClose}>✕</button>
       </div>
       <div className="subtitle-search-row">
-        <input ref={findRef} type="text" data-search-field="find" aria-label="찾을 텍스트" placeholder="찾을 텍스트"
+        <input name="subtitle-find" ref={findRef} type="text" data-search-field="find" aria-label="찾을 텍스트" placeholder="찾을 텍스트"
           value={query} onChange={e => setQuery(e.target.value)} spellCheck={false} />
         <span className="subtitle-search-count" aria-live="polite">
           {query ? (matches.length ? `${index + 1} / ${matches.length}` : '0건') : ''}
         </span>
       </div>
       <div className="subtitle-search-row">
-        <input type="text" data-search-field="replace" aria-label="바꿀 텍스트" placeholder="바꿀 텍스트"
+        <input name="subtitle-replace" type="text" data-search-field="replace" aria-label="바꿀 텍스트" placeholder="바꿀 텍스트"
           value={replacement} onChange={e => setReplacement(e.target.value)} spellCheck={false} />
       </div>
       <div className="subtitle-search-actions">
-        <label><input type="checkbox" checked={caseSensitive} onChange={e => setCaseSensitive(e.target.checked)} />대소문자 구분</label>
+        <label><input name="subtitle-case-sensitive" type="checkbox" checked={caseSensitive} onChange={e => setCaseSensitive(e.target.checked)} />대소문자 구분</label>
         <span className="subtitle-search-spacer" />
         <button type="button" disabled={!matches.length} onClick={() => step(-1)} aria-label="이전 결과">↑</button>
         <button type="button" disabled={!matches.length} onClick={() => step(1)} aria-label="다음 결과">↓</button>

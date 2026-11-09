@@ -41,6 +41,12 @@ func mountBundledToolsWeb(mux *http.ServeMux) {
 	}
 	fs := http.FileServer(http.Dir(root))
 	mux.Handle("/tools/", http.StripPrefix("/tools/", fs))
+	// Older site-runtime bundles added a language prefix even on localhost.
+	// Keep those bookmarked URLs and their relative assets usable.
+	for _, language := range []string{"kr", "ko", "en", "ja", "zh"} {
+		prefix := "/" + language + "/tools/"
+		mux.Handle(prefix, http.StripPrefix(prefix, fs))
+	}
 	log.Printf("serving bundled tools web UI from %s at http://127.0.0.1:%d/tools/", root, defaultPort)
 }
 

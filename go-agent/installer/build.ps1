@@ -2,15 +2,17 @@
 param(
     [switch]$SkipEngine,
     [switch]$UseEmbeddable,
+    [string]$ReuseEngineFrom = "",
+    [string]$ArtifactDir = "",
     [string]$Python = "python"
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $RepoRoot = Split-Path -Parent $Root
-$OutDir = Join-Path $Root "dist"
+$OutDir = if ($ArtifactDir) { [IO.Path]::GetFullPath($ArtifactDir) } else { Join-Path $Root "dist" }
 $InstallerDir = Join-Path $Root "installer"
-$Staging = Join-Path $OutDir "staging"
+$Staging = Join-Path $Root "dist\staging"
 $VersionPy = Join-Path $RepoRoot "agent\version.py"
 $ProductWxs = Join-Path $InstallerDir "product.wxs"
 
@@ -81,6 +83,7 @@ try {
 
     Write-Host "Building itmatzip-agent.exe..." -ForegroundColor Cyan
     go build -ldflags "-H windowsgui" -o itmatzip-agent.exe .
+    if ($LASTEXITCODE -ne 0) { throw "go build failed with exit code $LASTEXITCODE" }
 
     Write-Host "Building tray icon (16x16)..." -ForegroundColor Cyan
     & (Join-Path $Root "scripts\build-tray-icon.ps1") -Python $Python
@@ -89,6 +92,7 @@ try {
         SkipEngine = $SkipEngine
         Python = $Python
     }
+    if ($ReuseEngineFrom) { $stageArgs.ReuseEngineFrom = $ReuseEngineFrom }
     if ($UseEmbeddable -or (-not $SkipEngine)) { $stageArgs.UseEmbeddable = $true }
     & (Join-Path $InstallerDir "stage-payload.ps1") @stageArgs
 

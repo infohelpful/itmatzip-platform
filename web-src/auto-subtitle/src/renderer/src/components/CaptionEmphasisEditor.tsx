@@ -164,7 +164,7 @@ export function CaptionEmphasisToolbar({ selection, canAdd, canRemove, defaultCo
       </div>
       <label className="caption-emphasis-menu-custom">
         <span>직접 지정</span>
-        <input type="color" value={custom} aria-label="강조 색 직접 지정" onChange={(event) => setCustom(event.target.value)} />
+        <input name="caption-emphasis-color" type="color" value={custom} aria-label="강조 색 직접 지정" onChange={(event) => setCustom(event.target.value)} />
         <button type="button" onClick={() => pick(custom)}>적용</button>
       </label>
     </div>, document.body)}
