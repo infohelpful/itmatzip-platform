@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
 import { applyProofread, proofreadSource } from '../aiProofread'
 import {
@@ -23,6 +23,46 @@ type ChatMessage = { role: 'user' | 'assistant'; text: string; proposed?: Subtit
 type ApplyMode = 'review' | 'automatic'
 const APPLY_MODE_KEY = 'autosub.mcpChat.applyMode'
 const CLIENT_LABEL: Record<McpClient, string> = { codex: 'Codex', claude: 'Claude', antigravity: 'Antigravity' }
+
+type Preset = { id: string; label: string; text: string }
+const PRESETS_KEY = 'autosub.mcpChat.presets'
+const SIZE_KEY = 'autosub.mcpChat.size'
+const MAX_PRESETS = 3
+const MAX_PRESET_TEXT = 1000
+const DEFAULT_PRESET: Preset = {
+  id: 'default',
+  label: '읽기 좋게 줄바꿈·오타 수정',
+  text: [
+    '한 줄로 읽히면 절대 나누지 말고 1줄로 둬(공백 포함 30자 이하면 그대로 유지).',
+    "30자를 넘는 문장만 문맥 단위(쉼표·절 끝·'~는데요/~했고' 뒤)로 나누고, 나눌 때도 조각이 너무 짧거나 한 단어만 따로 남지 않게 해줘.",
+    "의미가 붙는 말은 중간에서 끊지 마. (예: 'PS5 게임', '윈도우에서 직접')",
+    '오타·맞춤법·띄어쓰기·고유명사 표기를 고치되 말한 단어와 순서는 바꾸지 마. 확실하지 않으면 그대로 둬.',
+  ].join('\n'),
+}
+const MIN_W = 300
+const MIN_H = 300
+
+function readPresets(): Preset[] {
+  try {
+    const raw = window.localStorage.getItem(PRESETS_KEY)
+    if (raw === null) return [DEFAULT_PRESET]
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [DEFAULT_PRESET]
+    return parsed.filter((item): item is Preset => !!item && typeof item.id === 'string' &&
+      typeof item.label === 'string' && typeof item.text === 'string' && item.text.length <= MAX_PRESET_TEXT)
+      .slice(0, MAX_PRESETS)
+  } catch { return [DEFAULT_PRESET] }
+}
+
+function readSize(): { w: number; h: number } {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SIZE_KEY) ?? 'null') as { w?: unknown; h?: unknown } | null
+    if (parsed && typeof parsed.w === 'number' && typeof parsed.h === 'number') {
+      return { w: Math.max(MIN_W, parsed.w), h: Math.max(MIN_H, parsed.h) }
+    }
+  } catch { /* storage is optional */ }
+  return { w: 370, h: 520 }
+}
 
 function readApplyMode(): ApplyMode {
   try { return window.localStorage.getItem(APPLY_MODE_KEY) === 'automatic' ? 'automatic' : 'review' }
@@ -50,6 +90,11 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [applyMode, setApplyMode] = useState<ApplyMode>(readApplyMode)
+  const [presets, setPresets] = useState<Preset[]>(readPresets)
+  const [editing, setEditing] = useState<{ label: string; text: string } | null>(null)
+  const [size, setSize] = useState(readSize)
+  const sizeRef = useRef(size)
+  sizeRef.current = size
   const listRef = useRef<HTMLDivElement>(null)
   const subtitlesRef = useRef(subtitles)
   subtitlesRef.current = subtitles
@@ -160,13 +205,50 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
 
   if (!connected) return null
 
-  const submit = async (event: FormEvent) => {
+  const savePresets = (next: Preset[]) => {
+    setPresets(next)
+    try { window.localStorage.setItem(PRESETS_KEY, JSON.stringify(next)) } catch { /* storage is optional */ }
+  }
+  const hasDefault = presets.some(item => item.id === DEFAULT_PRESET.id)
+  const canAddPreset = presets.length < MAX_PRESETS
+
+  const startResize = (edge: 'right' | 'top' | 'corner') => (event: ReactPointerEvent) => {
+    event.preventDefault()
+    const startX = event.clientX
+    const startY = event.clientY
+    const start = sizeRef.current
+    let latest = start
+    const move = (e: PointerEvent) => {
+      const w = edge === 'top' ? start.w : start.w + (e.clientX - startX)
+      const h = edge === 'right' ? start.h : start.h - (e.clientY - startY)
+      latest = {
+        w: Math.max(MIN_W, Math.min(w, window.innerWidth - 28)),
+        h: Math.max(MIN_H, Math.min(h, window.innerHeight - 40)),
+      }
+      setSize(latest)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      try { window.localStorage.setItem(SIZE_KEY, JSON.stringify(latest)) } catch { /* storage is optional */ }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const submit = (event: FormEvent) => {
     event.preventDefault()
     const instruction = prompt.trim()
     if (!instruction || busy) return
     setPrompt('')
+    void send(instruction, instruction)
+  }
+
+  /** Sends `instruction` to the CLI; `shown` is what the chat log displays (a preset shows its name). */
+  const send = async (instruction: string, shown: string) => {
+    if (busy) return
     setError('')
-    setMessages(current => [...current, { role: 'user', text: instruction }])
+    setMessages(current => [...current, { role: 'user', text: shown }])
     if (disabled) { setError('현재 편집 작업이 끝난 뒤 요청해 주세요.'); return }
     if (!subtitles.length) { setError('먼저 영상에서 자막을 추출하거나 자막 파일을 열어 주세요.'); return }
     if (!clients.includes(client)) { setError('트레이의 AI MCP 설정에서 사용할 CLI를 연결해 주세요.'); return }
@@ -187,7 +269,11 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
           <span aria-hidden="true">✦</span> AI 자막 채팅
         </button>
       ) : (
-        <section className="subtitle-mcp-chat" aria-label="AutoSubtitle AI 채팅">
+        <section className="subtitle-mcp-chat" aria-label="AutoSubtitle AI 채팅"
+          style={{ width: `min(${size.w}px, calc(100vw - 28px))`, height: `min(${size.h}px, calc(100vh - 40px))` }}>
+          <div className="subtitle-mcp-chat-resize is-top" onPointerDown={startResize('top')} role="separator" aria-orientation="horizontal" aria-label="채팅창 높이 조절" />
+          <div className="subtitle-mcp-chat-resize is-right" onPointerDown={startResize('right')} role="separator" aria-orientation="vertical" aria-label="채팅창 너비 조절" />
+          <div className="subtitle-mcp-chat-resize is-corner" onPointerDown={startResize('corner')} role="separator" aria-label="채팅창 크기 조절" />
           <header className="subtitle-mcp-chat-head">
             <div><b>AI 자막 채팅</b><small>MCP 설정됨 · {CLIENT_LABEL[client]}</small></div>
             <button type="button" onClick={() => setOpen(false)} aria-label="채팅 닫기">×</button>
@@ -232,7 +318,44 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
             {busy ? <p className="subtitle-mcp-chat-thinking" role="status">AI가 수정안을 만드는 중…</p> : null}
           </div>
           {error ? <p className="subtitle-mcp-chat-error" role="alert">{error}</p> : null}
-          <form className="subtitle-mcp-chat-form" onSubmit={event => void submit(event)}>
+          <div className="subtitle-mcp-chat-presets" aria-label="프리셋">
+            {presets.map(preset => (
+              <span className="subtitle-mcp-chat-preset" key={preset.id}>
+                <button type="button" className="subtitle-mcp-chat-preset-run" disabled={busy} title={preset.text}
+                  onClick={() => void send(preset.text, `프리셋: ${preset.label}`)}>{preset.label}</button>
+                <button type="button" className="subtitle-mcp-chat-preset-del" aria-label={`${preset.label} 프리셋 삭제`}
+                  onClick={() => savePresets(presets.filter(item => item.id !== preset.id))}>×</button>
+              </span>
+            ))}
+            {canAddPreset && !editing ? (
+              <button type="button" className="subtitle-mcp-chat-preset-add"
+                onClick={() => setEditing({ label: '', text: prompt.trim() })}>+ 프리셋 추가 ({presets.length}/{MAX_PRESETS})</button>
+            ) : null}
+            {!hasDefault && canAddPreset && !editing ? (
+              <button type="button" className="subtitle-mcp-chat-preset-add"
+                onClick={() => savePresets([DEFAULT_PRESET, ...presets])}>기본 프리셋 복원</button>
+            ) : null}
+          </div>
+          {editing ? (
+            <form className="subtitle-mcp-chat-preset-edit" onSubmit={event => {
+              event.preventDefault()
+              const label = editing.label.trim()
+              const text = editing.text.trim()
+              if (!label || !text || !canAddPreset) return
+              savePresets([...presets, { id: `p-${Date.now().toString(36)}`, label: label.slice(0, 24), text }])
+              setEditing(null)
+            }}>
+              <input name="mcp-preset-label" value={editing.label} maxLength={24} placeholder="프리셋 이름"
+                aria-label="프리셋 이름" onChange={event => setEditing({ ...editing, label: event.target.value })} />
+              <textarea name="mcp-preset-text" value={editing.text} maxLength={MAX_PRESET_TEXT} rows={4} placeholder="이 프리셋을 누르면 바로 전달할 요청"
+                aria-label="프리셋 내용" onChange={event => setEditing({ ...editing, text: event.target.value })} />
+              <div>
+                <button type="submit" disabled={!editing.label.trim() || !editing.text.trim()}>저장</button>
+                <button type="button" onClick={() => setEditing(null)}>취소</button>
+              </div>
+            </form>
+          ) : null}
+          <form className="subtitle-mcp-chat-form" onSubmit={submit}>
             <textarea name="mcp-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} maxLength={1000}
               placeholder="자막에 원하는 수정을 입력하세요" aria-label="AI 자막 수정 요청" rows={2} />
             <button type="submit" disabled={busy || !prompt.trim()}>{busy ? '처리 중' : '보내기'}</button>

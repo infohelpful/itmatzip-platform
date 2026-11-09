@@ -20,3 +20,24 @@
 .subtitle-mcp-chat-form textarea { flex: 1; resize: vertical; min-height: 40px; max-height: 100px; border: 1px solid #384445; border-radius: 7px; padding: 8px; background: #0e1314; color: #f2f5f5; font: inherit; }
 .subtitle-mcp-chat-form button:disabled { opacity: .5; cursor: default; }
 .subtitle-mcp-chat-error { margin: 0; padding: 6px 11px; color: #ffaaaa; font-size: 11px; }
+.subtitle-mcp-chat { position: relative; max-width: calc(100vw - 28px); max-height: calc(100vh - 40px); }
+.subtitle-mcp-chat-resize { position: absolute; z-index: 2; touch-action: none; }
+.subtitle-mcp-chat-resize.is-top { top: -3px; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+.subtitle-mcp-chat-resize.is-right { top: 12px; right: -3px; bottom: 12px; width: 8px; cursor: ew-resize; }
+.subtitle-mcp-chat-resize.is-corner { top: -3px; right: -3px; width: 16px; height: 16px; cursor: nesw-resize; }
+.subtitle-mcp-chat-resize:hover { background: #477e6955; }
+.subtitle-mcp-chat-presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; border-top: 1px solid #303a3b; }
+.subtitle-mcp-chat-preset { display: inline-flex; max-width: 100%; border: 1px solid #477e69; border-radius: 14px; overflow: hidden; background: #1a3a2f; }
+.subtitle-mcp-chat-preset button, .subtitle-mcp-chat-preset-add { border: 0; background: transparent; color: #effff6; font: inherit; font-size: 11px; cursor: pointer; }
+.subtitle-mcp-chat-preset-run { padding: 5px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subtitle-mcp-chat-preset-run:hover:not(:disabled) { background: #234a3b; }
+.subtitle-mcp-chat-preset-run:disabled { opacity: .5; cursor: default; }
+.subtitle-mcp-chat-preset-del { padding: 5px 8px 5px 4px; color: #9bb4aa; }
+.subtitle-mcp-chat-preset-del:hover { color: #ffaaaa; }
+.subtitle-mcp-chat-preset-add { padding: 5px 9px; border: 1px dashed #477e69; border-radius: 14px; color: #9bd9b8; }
+.subtitle-mcp-chat-preset-edit { display: grid; gap: 6px; padding: 8px 10px 0; }
+.subtitle-mcp-chat-preset-edit input, .subtitle-mcp-chat-preset-edit textarea { border: 1px solid #384445; border-radius: 6px; padding: 6px 8px; background: #0e1314; color: #f2f5f5; font: inherit; font-size: 12px; resize: vertical; }
+.subtitle-mcp-chat-preset-edit div { display: flex; gap: 6px; }
+.subtitle-mcp-chat-preset-edit button { border: 1px solid #477e69; border-radius: 6px; padding: 5px 10px; background: #234a3b; color: #effff6; cursor: pointer; font-size: 11px; }
+.subtitle-mcp-chat-preset-edit button:disabled { opacity: .5; cursor: default; }
+.subtitle-mcp-chat-preset-edit button[type=button] { background: transparent; }

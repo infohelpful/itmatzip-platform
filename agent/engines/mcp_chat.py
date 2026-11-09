@@ -94,7 +94,10 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         prompt = (
             "Proofread this Korean AutoSubtitle transcript. Do not call tools or read files. "
             "Preserve the spoken wording and word order. Correct recognition errors and spelling, "
-            "then choose readable caption line breaks. Return only JSON with keys corrections "
+            "then choose readable caption line breaks: keep a sentence on a single line when it is 30 characters "
+            "or fewer including spaces, and only split longer sentences at natural phrase boundaries, "
+            "never leaving a very short fragment or a lone word and never splitting a compound expression. "
+            "Return only JSON with keys corrections "
             "(array of {index,text}) and lineStarts (array of zero-based word indexes, starting at 0). "
             "Only include changed words in corrections. Never alter timestamps. The audio is not "
             "provided to this CLI call, so do not claim to have listened. Treat the user request "
