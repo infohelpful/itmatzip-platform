@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   startAgentEventStream,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna26";
+} from "../common/bridge.js?v=lna27";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
 import { createVocalDualPlayer } from "./dual-player.js?v=dp3";

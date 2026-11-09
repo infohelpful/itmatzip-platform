@@ -10,7 +10,7 @@ import {
   showInstallAgentDialog,
   setAgentLongOperationActive,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna26";
+} from "../common/bridge.js?v=lna27";
 import { AGENT_PICK_IMAGE } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";

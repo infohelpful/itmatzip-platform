@@ -1,5 +1,5 @@
 /** Shared installation status for AI tools. The agent remains the source of truth. */
-import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna26';
+import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna27';
 import { getAgentDownloadHref } from './agent-install-ui.js?v=lna22';
 import { TOOLS, running, failed, setupRows, setupGatePhase, jobProgress } from './ai-setup-state.js?v=4';
 const number = v => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;
@@ -207,9 +207,10 @@ export function mountAiSetupPanel(toolId) {
     catch (e) { error = e instanceof Error ? e.message : String(e); job = { state: 'error', error }; }
     finally { busy = false; render(); }
   }
+  let lastTickAt = 0;
   async function tick() {
     if (stopped || busy) return;
-    busy = true;
+    busy = true; lastTickAt = Date.now();
     try {
       const agent = await checkAgentConnection(); checkedAgent = true; agentOk = !!agent.ok; apiStarting = agentOk && agent.apiReady === false;
       if (!agentOk) { error = agent.failureKind === 'client_blocked' ? '브라우저의 로컬 네트워크 접근을 허용해 주세요.' : ''; readiness = null; job = null; autoStarted = false; readyNotified = false; render(); return; }
@@ -239,10 +240,23 @@ export function mountAiSetupPanel(toolId) {
     } catch (e) { error = e instanceof Error ? e.message : String(e); render(); }
     finally { busy = false; }
   }
-  render(); void tick();
-  const timer = window.setInterval(() => { if (!document.hidden) void tick(); }, 1500);
-  window.addEventListener('pagehide', () => { stopped = true; window.clearInterval(timer); }, { once: true });
-  window.addEventListener('focus', () => void tick());
+  // Poll fast only while something is changing; once the tool is ready and idle, back off so the
+  // page does not hammer the local agent (several requests per tick) every 1.5 s forever.
+  function nextDelay() {
+    if (!agentOk) return 5000;
+    if (running(job) || running(optional.gpuJob) || running(optional.alignmentJob)) return 1500;
+    if (readiness && config.ready(readiness)) return 20000;
+    return 1500;
+  }
+  let timer;
+  async function loop() {
+    if (stopped) return;
+    if (!document.hidden) await tick();
+    if (!stopped) timer = window.setTimeout(loop, nextDelay());
+  }
+  render(); void loop();
+  window.addEventListener('pagehide', () => { stopped = true; window.clearTimeout(timer); }, { once: true });
+  window.addEventListener('focus', () => { if (Date.now() - lastTickAt > 5000) void tick(); });
 }
 
 const toolId = document.currentScript?.dataset?.tool || location.pathname.split('/').filter(Boolean).at(-1);
