@@ -63,7 +63,8 @@ def _command(client: str, executable: str) -> list[str]:
     if client == "codex":
         return [executable, "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"]
     if client == "claude":
-        return [executable, "-p", "--tools", "", "--output-format", "text"]
+        # --strict-mcp-config: do not start the user's other MCP servers (slow, and this call needs none).
+        return [executable, "-p", "--tools", "", "--strict-mcp-config", "--output-format", "text"]
     return [executable, "--mode", "plan", "--sandbox", "--input-format", "stream-json",
             "--output-format", "stream-json"]
 

@@ -1,4 +1,5 @@
 import { AlignmentRuntimeControl } from './platform/AlignmentRuntimeControl'
+import { useBrowserMediaUrl } from './platform/browserMediaUrl'
 import {
   startTransition,
   useCallback,
@@ -1800,6 +1801,12 @@ export default function App(): ReactElement {
     () => (preparedMedia ? window.api.getMediaFileUrl(preparedMedia.audioPath) : undefined),
     [preparedMedia]
   )
+  const masterAudioSrc = useBrowserMediaUrl(waveformMediaUrl)
+  const previewVideoUrl = useMemo(
+    () => (preparedMedia ? window.api.getMediaFileUrl(preparedMedia.previewPath) : undefined),
+    [preparedMedia]
+  )
+  const previewVideoSrc = useBrowserMediaUrl(previewVideoUrl)
   const playbackSnapshot = useMemo(
     () => ({
       pendingRevision: playbackPendingRevision,
@@ -7049,7 +7056,7 @@ export default function App(): ReactElement {
                     <audio
                       ref={masterAudioRef}
                       preload="metadata"
-                      src={waveformMediaUrl}
+                      src={masterAudioSrc}
                       className="hidden"
                       muted
                       onTimeUpdate={syncFromVideo}
@@ -7104,7 +7111,7 @@ export default function App(): ReactElement {
                       preload="metadata"
                       playsInline
                       muted
-                      src={preparedMedia ? window.api.getMediaFileUrl(preparedMedia.previewPath) : undefined}
+                      src={previewVideoSrc}
                       title={videoPath}
                       onTimeUpdate={syncFromVideo}
                       onLoadedMetadata={() => {
