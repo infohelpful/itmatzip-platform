@@ -93,11 +93,13 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             raise ValueError("현재 자막이 한 번에 처리할 수 있는 길이를 넘습니다. 구간을 나눠 요청해 주세요.")
         prompt = (
             "Proofread this Korean AutoSubtitle transcript. Do not call tools or read files. "
-            "Preserve the spoken wording and word order. Correct recognition errors and spelling, "
-            "and fix misrecognized proper nouns (games, films, people, products, places) to their official "
-            "spelling whenever the surrounding context makes the intended name clear; leave a name alone if "
-            "you are not confident. To fix a name, put the replacement text on the affected word indexes "
-            "and keep the number of words unchanged (e.g. replace the three words 갓 오브 워 with God, of, War:), "
+            "Preserve the meaning and word order of what was said; do not paraphrase or polish. Correct "
+            "spelling, spacing and every speech-recognition error: fix any misrecognized word whenever the "
+            "surrounding context makes the intended word clear (proper nouns such as games, films, people, "
+            "products and places in their official spelling; English or technical terms; numbers; homophones; "
+            "wrong particles or endings). Leave a word alone only if you are not confident. To fix a word, "
+            "put the replacement text on the affected word indexes and keep the number of words unchanged "
+            "(e.g. replace the words 갓 오브 워 with God, of, War:), "
             "then choose readable caption line breaks: keep a sentence on a single line when it is 30 characters "
             "or fewer including spaces, and only split longer sentences at natural phrase boundaries, "
             "never leaving a very short fragment or a lone word and never splitting a compound expression. "
