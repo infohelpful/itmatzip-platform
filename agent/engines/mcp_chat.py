@@ -94,6 +94,10 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         prompt = (
             "Proofread this Korean AutoSubtitle transcript. Do not call tools or read files. "
             "Preserve the spoken wording and word order. Correct recognition errors and spelling, "
+            "and fix misrecognized proper nouns (games, films, people, products, places) to their official "
+            "spelling whenever the surrounding context makes the intended name clear; leave a name alone if "
+            "you are not confident. To fix a name, put the replacement text on the affected word indexes "
+            "and keep the number of words unchanged (e.g. replace the three words 갓 오브 워 with God, of, War:), "
             "then choose readable caption line breaks: keep a sentence on a single line when it is 30 characters "
             "or fewer including spaces, and only split longer sentences at natural phrase boundaries, "
             "never leaving a very short fragment or a lone word and never splitting a compound expression. "

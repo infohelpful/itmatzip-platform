@@ -36,7 +36,8 @@ const DEFAULT_PRESET: Preset = {
     '한 줄로 읽히면 절대 나누지 말고 1줄로 둬(공백 포함 30자 이하면 그대로 유지).',
     "30자를 넘는 문장만 문맥 단위(쉼표·절 끝·'~는데요/~했고' 뒤)로 나누고, 나눌 때도 조각이 너무 짧거나 한 단어만 따로 남지 않게 해줘.",
     "의미가 붙는 말은 중간에서 끊지 마. (예: 'PS5 게임', '윈도우에서 직접')",
-    '오타·맞춤법·띄어쓰기·고유명사 표기를 고치되 말한 단어와 순서는 바꾸지 마. 확실하지 않으면 그대로 둬.',
+    '오타·맞춤법·띄어쓰기를 고치되 말한 단어와 순서는 바꾸지 마. 확실하지 않으면 그대로 둬.',
+    "게임·영화·인물·제품 같은 고유명사는 앞뒤 문맥으로 무엇인지 명백하면 공식 표기로 고쳐줘. (예: '갓 오브 워 선지 오브 스파르타' → 'God of War: Sons of Sparta')",
   ].join('\n'),
 }
 const MIN_W = 300
@@ -50,6 +51,7 @@ function readPresets(): Preset[] {
     if (!Array.isArray(parsed)) return [DEFAULT_PRESET]
     return parsed.filter((item): item is Preset => !!item && typeof item.id === 'string' &&
       typeof item.label === 'string' && typeof item.text === 'string' && item.text.length <= MAX_PRESET_TEXT)
+      .map(item => item.id === DEFAULT_PRESET.id ? DEFAULT_PRESET : item)
       .slice(0, MAX_PRESETS)
   } catch { return [DEFAULT_PRESET] }
 }
