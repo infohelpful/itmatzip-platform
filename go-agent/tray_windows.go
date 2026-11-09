@@ -34,11 +34,7 @@ func toolsWebBase() string {
 
 func trayToolURLs() (dashboard, silence, vocal, autosub, createMusic, imageEnhancer, backgroundRemover, magicEraser, voiceChanger, watermarkRemover string) {
 	base := toolsWebBase()
-	autosubURL := base + "/auto-subtitle/"
-	if resolveBundledToolsWebDir() != "" {
-		autosubURL = fmt.Sprintf("http://127.0.0.1:%d/tools/auto-subtitle/", defaultPort)
-	}
-	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", autosubURL, base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/fixed-area-remover/"
+	return base + "/", base + "/silence-remover/", base + "/vocal-remover/", base + "/auto-subtitle/", base + "/create-music/", base + "/image-enhancer/", base + "/background-remover/", base + "/magic-eraser/", base + "/voice-changer/", base + "/fixed-area-remover/"
 }
 
 func resolveTrayIconPath() string {
