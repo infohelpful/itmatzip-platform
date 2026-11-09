@@ -278,7 +278,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
             <div><b>AI 자막 채팅</b><small>MCP 설정됨 · {CLIENT_LABEL[client]}</small></div>
             <button type="button" onClick={() => setOpen(false)} aria-label="채팅 닫기">×</button>
           </header>
-          <div className="subtitle-mcp-chat-notice">이 채팅은 CLI에 자막 텍스트를 전달합니다. 실제 음성 대조는 CLI에서 AutoSubtitle MCP 오디오 도구를 직접 사용할 때 가능합니다.</div>
+          <div className="subtitle-mcp-chat-notice">이 채팅은 CLI에 자막 텍스트만 전달합니다. AI는 음성을 듣지 못하고 문맥으로만 오타를 고칩니다.</div>
           <label className="subtitle-mcp-chat-mode">
             사용할 AI
             <select name="mcp-client" value={client} onChange={event => setClient(event.target.value as McpClient)}>
