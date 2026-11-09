@@ -216,13 +216,7 @@ func onTrayReady(port int, iconData []byte) {
 	applyTrayIcon(iconData)
 	systray.SetTitle("ItMatZip Agent")
 
-	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, remoteImageEnhancer, backgroundRemoverURL, magicEraserURL, voiceChangerURL, watermarkRemoverURL := trayToolURLs()
-	imageEnhancerURL := bundledImageEnhancerURL(port)
-	if imageEnhancerURL == "" {
-		imageEnhancerURL = remoteImageEnhancer
-	} else {
-		log.Printf("Image Enhancer: using bundled UI at %s", imageEnhancerURL)
-	}
+	dashboardURL, silenceURL, vocalURL, autosubURL, createMusicURL, imageEnhancerURL, backgroundRemoverURL, magicEraserURL, voiceChangerURL, watermarkRemoverURL := trayToolURLs()
 
 	mDashboard := systray.AddMenuItem("대시보드", dashboardURL)
 	mSilence := systray.AddMenuItem("Silence Detector", silenceURL)
