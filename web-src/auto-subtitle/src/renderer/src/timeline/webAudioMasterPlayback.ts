@@ -1,6 +1,7 @@
 import type { ScheduledMediaSegment } from './playbackSchedule'
 import type { PcmAudioBlock, PcmReader } from '../../../shared/pcmAudio'
 import { PcmStreamPlayback } from './pcmStreamPlayback'
+import { localAwareFetch } from '../platform/agentClient'
 import { audioOutputTime, waitForAudioOutput } from './audioOutputClock'
 
 const EPS = 1e-4
@@ -103,7 +104,7 @@ export class WebAudioMasterPlayback {
         this.loadedFromUrl=url
         return
       }
-      const res = await fetch(url, {signal: controller.signal})
+      const res = await localAwareFetch(url, {signal: controller.signal})
       if (!current()) return
       if (!res.ok) throw new Error(`WebAudio load failed: ${res.status}`)
       const arr = await res.arrayBuffer()

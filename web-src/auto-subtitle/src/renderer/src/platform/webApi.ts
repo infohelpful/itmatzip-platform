@@ -22,7 +22,7 @@ import { buildRenderSchedule } from '../../../shared/exportRenderSchedule'
 import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
 import { SubtitleFrameRenderer } from './subtitleFrameRenderer'
 import {
-  AgentUnavailable, agentFetch, api, apiBinary, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
+  AgentUnavailable, agentFetch, api, apiBinary, localAwareFetch, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
 } from './agentClient'
 import { downloadTextFile, openFile, saveTextAs, saveTextInPlace } from './localFiles'
 import {
@@ -283,7 +283,7 @@ export function createWebApi(): SidecarApi {
     getMediaFileUrl: (absoluteFilePath: string) => mediaFileUrl(absoluteFilePath),
     readLocalMediaFileBuffer: async (absoluteFilePath: string) => {
       try {
-        const res = await fetch(mediaFileUrl(absoluteFilePath), { cache: 'no-store' })
+        const res = await localAwareFetch(mediaFileUrl(absoluteFilePath), { cache: 'no-store' })
         if (!res.ok) return { ok: false as const, reason: await readError(res) }
         return { ok: true as const, arrayBuffer: await res.arrayBuffer() }
       } catch (error) {

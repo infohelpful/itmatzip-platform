@@ -39,6 +39,21 @@ export class AgentUnavailable extends Error {
 }
 
 /** Chrome Local Network Access: requests from a public page to loopback must declare it. */
+/** True for http(s) URLs that point at this PC (the local agent). */
+export function isLoopbackUrl(url: string): boolean {
+  try {
+    const h = new URL(url, window.location.href).hostname.replace(/^\[|\]$/g, '').toLowerCase()
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.localhost')
+  } catch {
+    return false
+  }
+}
+
+/** fetch() that declares the loopback address space only when the target really is loopback. */
+export function localAwareFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, isLoopbackUrl(url) ? loopbackInit(init) : init)
+}
+
 function loopbackInit(init: RequestInit): RequestInit {
   for (const space of ['loopback', 'local']) {
     try {
