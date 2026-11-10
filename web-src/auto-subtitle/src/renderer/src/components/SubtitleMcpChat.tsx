@@ -41,6 +41,10 @@ const DEFAULT_PRESET: Preset = {
     '말한 내용의 뜻과 순서는 바꾸지 말고(윤문·의역 금지), 문맥으로도 확신이 안 서는 부분만 그대로 둬.',
   ].join('\n'),
 }
+// The preset keeps a line of up to 30 characters (spaces included) as it is. aiProofread splits a line only
+// when it is wider than round(target * 4/3) display units, so 23 -> 31 leaves every line the CLI kept under
+// 30 characters alone (Hangul = 1 unit, space = 0.5) and only breaks the ones the CLI left too long.
+const CLI_LINE_TARGET_UNITS = 23
 const MIN_W = 300
 const MIN_H = 300
 
@@ -184,7 +188,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
         const result = applyProofread(current, currentSource, pending.answer, {
           emphasisColor: settingsRef.current.emphasisColor,
           maxUnits,
-          targetUnits: Math.min(18, maxUnits),
+          targetUnits: CLI_LINE_TARGET_UNITS,
         })
         if (applyModeRef.current === 'automatic') {
           onBeforeRunRef.current()

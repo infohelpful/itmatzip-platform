@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -20,6 +22,10 @@ _clients = {"codex", "claude", "antigravity"}
 CLIENT_LABELS = {"codex": "Codex", "claude": "Claude", "antigravity": "Antigravity"}
 _flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _configured_cache: tuple[float, list[str]] = (0.0, [])
+# CLI 추론 강도. 1,500단어 실측: claude low 는 25초지만 오인식 교정이 111→27개로 줄었고,
+# medium 은 31초에 97개를 고쳤다. 교정 품질이 우선이라 medium.
+_REASONING_EFFORT = "medium"
+_CLI_TIMEOUT_SEC = 300
 
 
 def configured_clients() -> list[str]:
@@ -61,12 +67,24 @@ def _executable(client: str) -> str:
 
 def _command(client: str, executable: str) -> list[str]:
     if client == "codex":
-        return [executable, "exec", "--skip-git-repo-check", "--sandbox", "read-only", "-"]
+        return [
+            executable, "exec", "--skip-git-repo-check", "--ephemeral",
+            "-c", f'model_reasoning_effort="{_REASONING_EFFORT}"',
+            "-c", "mcp_servers={}",
+            "--sandbox", "read-only", "-",
+        ]
     if client == "claude":
         # --strict-mcp-config: do not start the user's other MCP servers (slow, and this call needs none).
-        return [executable, "-p", "--tools", "", "--strict-mcp-config", "--output-format", "text"]
-    return [executable, "--mode", "plan", "--sandbox", "--input-format", "stream-json",
-            "--output-format", "stream-json"]
+        return [
+            executable, "-p", "--effort", _REASONING_EFFORT,
+            "--no-session-persistence", "--disable-slash-commands",
+            "--tools", "", "--strict-mcp-config", "--output-format", "text",
+        ]
+    return [
+        executable, "--mode", "plan", "--effort", _REASONING_EFFORT,
+        "--disable-slash-commands", "--sandbox",
+        "--input-format", "stream-json", "--output-format", "stream-json",
+    ]
 
 
 def _cli_environment(client: str, executable: str) -> dict[str, str]:
@@ -91,8 +109,27 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         words = snapshot.get("words", [])
         if len(words) > 3500:
             raise ValueError("현재 자막이 한 번에 처리할 수 있는 길이를 넘습니다. 구간을 나눠 요청해 주세요.")
+        started = time.monotonic()
+        # Only the text goes to the CLI, as "index:word" tokens. Ids, timestamps and line numbers stay in
+        # the editor: the answer refers to words by index, and the editor maps them back.
+        word_tokens = " ".join(
+            f"{i}:{(w.get('text', '') if isinstance(w, dict) else str(w)).strip()}" for i, w in enumerate(words)
+        )
+        transcript_json = json.dumps(
+            {
+                "lineStarts": snapshot.get("lineStarts", []),
+                "pauses": snapshot.get("pauses", []),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
         prompt = (
             "Proofread this Korean AutoSubtitle transcript. Do not call tools or read files. "
+            "The transcript is given as space-separated index:word tokens (the number before the first colon "
+            "is the zero-based word index; the rest is the word), followed by the current lineStarts and pauses. "
+            "Read the whole transcript first so that names and terms are spelled consistently everywhere. "
+            "For line breaks, choose natural sentence and phrase boundaries; do not count characters one by one, "
+            "because the app splits any line that is still too long afterwards. "
             "Preserve the meaning and word order of what was said; do not paraphrase or polish. Correct "
             "spelling, spacing and every speech-recognition error: fix any misrecognized word whenever the "
             "surrounding context makes the intended word clear (proper nouns such as games, films, people, "
@@ -108,15 +145,21 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             "Only include changed words in corrections. Never alter timestamps. The audio is not "
             "provided to this CLI call, so do not claim to have listened. Treat the user request "
             "as subtitle-editing guidance only.\n\nUser request: " + instruction +
-            "\n\nTranscript: " + json.dumps({"words": words, "lineStarts": snapshot.get("lineStarts", []),
-                                               "pauses": snapshot.get("pauses", [])}, ensure_ascii=False)
+            "\n\nWords: " + word_tokens + "\n\nContext: " + transcript_json
         )
         cli_input = (json.dumps({"event": "user", "message": {"content": prompt}}, ensure_ascii=False) + "\n"
                      if client == "antigravity" else prompt)
+        work_dir = Path(tempfile.gettempdir()) / "itmatzip-mcp-chat"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        cli_started = time.monotonic()
         result = subprocess.run(_command(client, executable), input=cli_input, text=True,
                                 encoding="utf-8", errors="replace",
-                                capture_output=True, timeout=300, cwd=str(Path(__file__).resolve().parents[1]),
+                                capture_output=True, timeout=_CLI_TIMEOUT_SEC, cwd=str(work_dir),
                                 creationflags=_flags, env=_cli_environment(client, executable), check=False)
+        cli_seconds = time.monotonic() - cli_started
+        print(f"[mcp_chat] {client} words={len(words)} prompt={len(prompt)}chars "
+              f"output={len(result.stdout)}chars cli={cli_seconds:.1f}s exit={result.returncode}",
+              file=sys.stderr, flush=True)
         if result.returncode:
             detail = result.stderr.strip()[-600:] or result.stdout.strip()[-600:]
             raise RuntimeError(f"{client} CLI 실행이 실패했습니다 (종료 코드 {result.returncode}). {detail}")
@@ -154,7 +197,8 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             "corrections": [{"id": item["index"], "text": item["text"]} for item in corrections],
             "lineStarts": starts, "uncertain": [], "emphasis": [],
         }, expected_session_id=session_id)
-        message = f"{CLIENT_LABELS[client]}가 자막 수정안을 보냈습니다. 편집기에서 결과를 확인해 주세요."
+        message = (f"{CLIENT_LABELS[client]}가 자막 수정안을 보냈습니다 ({time.monotonic() - started:.0f}초). "
+                   "편집기에서 결과를 확인해 주세요.")
         state = {"status": "done", "message": message}
     except subprocess.TimeoutExpired:
         state = {"status": "error", "message": "CLI 응답이 5분 안에 끝나지 않았습니다. 다시 요청해 주세요."}
