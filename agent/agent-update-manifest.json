@@ -1,11 +1,11 @@
 {
-  "version": "1.7.31",
+  "version": "1.7.32",
   "published_at": "2026-11-10",
   "package_type": "msi",
-  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.31/itmatzip-agent.msi",
-  "sha256": "246bee8067dbaf7d8c4645a2c6b5579fe4adeaf3378c1af8f47e33d49174a16f",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.32/itmatzip-agent.msi",
+  "sha256": "6e7cc0dccfd6308f7b5e809f1a132dabe8ded8dcc8d8d257f112055bbea719fc",
   "mandatory": false,
-  "release_notes": "AI 자막 채팅 속도·교정 품질 개선(1,500단어 약 30초), CLI 대기 시간 10분으로 연장",
-  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.31/itmatzip-agent.msi",
-  "msi_sha256": "246bee8067dbaf7d8c4645a2c6b5579fe4adeaf3378c1af8f47e33d49174a16f"
+  "release_notes": "AI 자막 채팅: 오타 수정·줄바꿈 기본 프리셋 분리, 한 줄에 들어가는 문장은 한 줄로, 어색한 줄바꿈 방지",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.32/itmatzip-agent.msi",
+  "msi_sha256": "6e7cc0dccfd6308f7b5e809f1a132dabe8ded8dcc8d8d257f112055bbea719fc"
 }
