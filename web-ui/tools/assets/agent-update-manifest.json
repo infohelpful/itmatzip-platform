@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.15",
-    "published_at":  "2026-11-07",
-    "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.15/itmatzip-agent.msi",
-    "sha256":  "0159697a8268d5be319c38d08c483064f89008dd2802960e4449a83f5c322daa",
-    "mandatory":  false,
-    "release_notes":  "Vocal Remover AI 모델 선택(MDX-Net·RoFormer·Demucs·앙상블) 추가, 기본 설치 약 100MB로 축소",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.15/itmatzip-agent.msi",
-    "msi_sha256":  "0159697a8268d5be319c38d08c483064f89008dd2802960e4449a83f5c322daa"
+  "version": "1.7.31",
+  "published_at": "2026-11-10",
+  "package_type": "msi",
+  "download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.31/itmatzip-agent.msi",
+  "sha256": "246bee8067dbaf7d8c4645a2c6b5579fe4adeaf3378c1af8f47e33d49174a16f",
+  "mandatory": false,
+  "release_notes": "AI 자막 채팅 속도·교정 품질 개선(1,500단어 약 30초), CLI 대기 시간 10분으로 연장",
+  "msi_download_url": "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.31/itmatzip-agent.msi",
+  "msi_sha256": "246bee8067dbaf7d8c4645a2c6b5579fe4adeaf3378c1af8f47e33d49174a16f"
 }
