@@ -136,6 +136,8 @@ export type ExportRequest = ExportVideoRequest & {
    * 에이전트가 지원하지 않으면 영상은 폴더 선택, 자막 파일은 브라우저 다운로드로 대신한다.
    */
   saveTo?: 'downloads'
+  /** 자막 입힌 영상: 모든 프레임에 찍을 워터마크 (`watermark.ts`) */
+  watermark?: import('./watermark').ExportWatermark
 }
 
 export type ExportVideoResult =

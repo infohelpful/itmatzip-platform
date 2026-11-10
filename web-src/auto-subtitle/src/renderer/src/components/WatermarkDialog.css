@@ -1,0 +1,40 @@
+.wm-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 16px; background: #000a; }
+.wm-card { width: min(460px, 100%); max-height: calc(100vh - 32px); overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; border: 1px solid #435053; border-radius: 10px; background: #1b2021; color: #dfe6e7; box-shadow: 0 18px 48px #000b; box-sizing: border-box; font-size: 12px; }
+.wm-head { display: flex; align-items: center; justify-content: space-between; }
+.wm-title { margin: 0; font-size: 15px; font-weight: 750; color: #f1f5f6; }
+.wm-close { border: 0; background: transparent; color: #9aabae; font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.wm-close:hover { color: #fff; }
+.wm-preview { position: relative; width: 100%; max-height: 240px; overflow: hidden; border: 1px solid #3b4547; border-radius: 6px; background: linear-gradient(135deg, #2b3538, #11171a); }
+.wm-preview-img { position: absolute; object-fit: contain; pointer-events: none; }
+.wm-preview-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #7f9094; font-size: 12px; text-align: center; padding: 0 12px; }
+.wm-row { display: flex; align-items: center; gap: 12px; }
+.wm-label { flex: 0 0 48px; color: #b8c6c9; font-weight: 650; }
+.wm-row input[type='range'] { flex: 1; min-width: 0; accent-color: #10aecf; }
+.wm-value { flex: 0 0 38px; text-align: right; font-variant-numeric: tabular-nums; color: #e5ecee; }
+.wm-image-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.wm-btn { padding: 7px 12px; border: 1px solid #4a5558; border-radius: 5px; background: #232a2c; color: #e1e6e7; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.wm-btn:hover:not(:disabled) { background: #2c3436; border-color: #718285; }
+.wm-btn:disabled { opacity: .5; cursor: default; }
+.wm-btn--primary { background: #10aecf; border-color: #10aecf; color: #072b33; font-weight: 750; }
+.wm-btn--primary:hover:not(:disabled) { background: #32c4e1; border-color: #32c4e1; }
+.wm-corners { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.wm-corner { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid #41494b; border-radius: 5px; background: #141819; color: #cfd8da; font-size: 12px; cursor: pointer; }
+.wm-corner:hover { border-color: #718285; }
+.wm-corner.is-active { border-color: #10aecf; background: #10aecf22; color: #eafaff; }
+.wm-corner-dot { position: relative; width: 18px; height: 12px; border: 1px solid #6c7b7f; border-radius: 2px; flex: 0 0 auto; }
+.wm-corner-dot::after { content: ''; position: absolute; width: 5px; height: 4px; border-radius: 1px; background: currentColor; }
+.wm-corner--top-left .wm-corner-dot::after { left: 1px; top: 1px; }
+.wm-corner--top-right .wm-corner-dot::after { right: 1px; top: 1px; }
+.wm-corner--bottom-left .wm-corner-dot::after { left: 1px; bottom: 1px; }
+.wm-corner--bottom-right .wm-corner-dot::after { right: 1px; bottom: 1px; }
+.wm-hint { margin: -4px 0 0; color: #879598; font-size: 11px; }
+.wm-error { margin: -4px 0 0; color: #ff8f8f; font-size: 12px; }
+.wm-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 10px; border-top: 1px solid #353e40; }
+.wm-toggle { display: flex; align-items: center; gap: 7px; color: #dfe6e7; cursor: pointer; }
+.wm-toggle input { width: 14px; height: 14px; margin: 0; }
+/* 툴바의 워터마크 버튼 */
+.preview-watermark-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: 36px; padding: 0 10px; border: 1px solid #41494b; border-radius: 5px; background: #141819; color: #dfe6e7; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.preview-watermark-btn:hover:not(:disabled) { background: #2c3436; border-color: #718285; }
+.preview-watermark-btn:disabled { opacity: .45; cursor: default; }
+.preview-watermark-btn.is-on { border-color: #10aecf; color: #8fe6f7; }
+.preview-watermark-btn .editor-tool-icon { width: 16px; height: 16px; }

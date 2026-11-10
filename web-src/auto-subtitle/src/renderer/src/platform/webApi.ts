@@ -17,8 +17,9 @@ import type { MediaFingerprintResult } from '../../../shared/projectMedia'
 import type { PcmRange, PcmReadResult } from '../../../shared/pcmAudio'
 import { parseAutosubProjectFile } from '../../../shared/autosubProject'
 import { decodeTextBuffer } from '../../../shared/scriptImport'
-import { clipPlanFromCuts, mapSourceIntervalToProgram, validateClipPlan } from '../../../shared/clipPlan'
+import { clipPlanFromCuts, mapSourceIntervalToProgram, programDuration, validateClipPlan } from '../../../shared/clipPlan'
 import { buildRenderSchedule } from '../../../shared/exportRenderSchedule'
+import { fillScheduleGaps } from '../../../shared/watermark'
 import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
 import { SubtitleFrameRenderer } from './subtitleFrameRenderer'
 import {
@@ -204,7 +205,12 @@ export function createWebApi(): SidecarApi {
       const cuts = Array.isArray(req.cutRanges) ? req.cutRanges : []
       const clips = validateClipPlan(req.clipPlan ?? clipPlanFromCuts(job.duration, cuts), job.duration)
       const highlightColor = sanitizeHexColor(req.subtitleStyle?.wordHighlightColor)
-      const schedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
+      const subtitleSchedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
+      // 워터마크는 자막이 없는 구간에도 보여야 하므로 빈 구간을 텍스트 없는 상태로 채운다(에이전트와 같은 총 프레임 수).
+      const watermark = req.watermark
+      const schedule = watermark
+        ? fillScheduleGaps(subtitleSchedule, Math.max(1, Math.ceil(programDuration(clips) * job.fps - 1e-9)))
+        : subtitleSchedule
       const st = req.subtitleStyle
       const base: Omit<ExportSubtitleUpdatePayload, 'text' | 'words' | 'activeIndex' | 'emphasis'> = {
         width: job.renderWidth, height: job.renderHeight, layoutWidth: job.width, layoutHeight: job.height,
@@ -214,7 +220,7 @@ export function createWebApi(): SidecarApi {
         x: st?.x ?? 50, y: st?.y ?? 10, wordHighlightColor: highlightColor,
         emphasisColor: sanitizeHexColor(st?.emphasisColor), boxStyle: st?.boxStyle === 'capsule' ? 'capsule' : undefined
       }
-      const renderer = new SubtitleFrameRenderer(job.renderWidth, job.renderHeight)
+      const renderer = new SubtitleFrameRenderer(job.renderWidth, job.renderHeight, watermark)
       try {
         for (const [i, state] of schedule.entries()) {
           exportProgress.emit({ percent: 4 + Math.round((i / Math.max(1, schedule.length)) * 8),

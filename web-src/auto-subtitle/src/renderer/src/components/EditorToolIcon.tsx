@@ -10,7 +10,8 @@ const paths = {
   show: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12m13 0a3 3 0 1 0-6 0 3 3 0 0 0 6 0',
   hide: 'm3 3 18 18M10 5h2c6 0 10 7 10 7a20 20 0 0 1-3 4M6 6a20 20 0 0 0-4 6s4 7 10 7h2m-5-9a3 3 0 0 0 4 4',
   cancel: 'm6 6 12 12M6 18 18 6',
-  chevron: 'm8 10 4 4 4-4'
+  chevron: 'm8 10 4 4 4-4',
+  watermark: 'M3 5h18v14H3zM13 15h5v2h-5'
 }
 
 export function EditorToolIcon({ name }: { name: keyof typeof paths }) {

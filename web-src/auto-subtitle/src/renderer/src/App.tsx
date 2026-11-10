@@ -26,6 +26,8 @@ import { SubtitleFormatToolbar } from './components/SubtitleFormatToolbar'
 import { SiteTopbarLinks } from './components/SiteTopbarLinks'
 import { SubtitleActionsToolbar } from './components/SubtitleActionsToolbar'
 import { EditorToolIcon } from './components/EditorToolIcon'
+import { WatermarkDialog, loadWatermarkSettings, saveWatermarkSettings } from './components/WatermarkDialog'
+import { exportWatermarkOf, type WatermarkSettings } from '../../shared/watermark'
 import { sameMedia, type MediaFingerprint, type MediaFingerprintResult } from '../../shared/projectMedia'
 import type { PreparedMedia } from '../../shared/preparedMedia'
 import { seekVideoElementTo } from './timeline/seekVideo'
@@ -1619,6 +1621,14 @@ export default function App(): ReactElement {
   const [showBurnEncoderUi, setShowBurnEncoderUi] = useState(false)
   const videoBurnExportRef = useRef(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('video')
+  /** 자막 입힌 영상 워터마크 — 브라우저에 저장해 다음에도 그대로 쓴다 */
+  const [watermark, setWatermark] = useState<WatermarkSettings>(loadWatermarkSettings)
+  const [watermarkDialogOpen, setWatermarkDialogOpen] = useState(false)
+  const [watermarkSaveError, setWatermarkSaveError] = useState(false)
+  const updateWatermark = useCallback((next: WatermarkSettings) => {
+    setWatermark(next)
+    setWatermarkSaveError(!saveWatermarkSettings(next))
+  }, [])
   /** 영상 번인에서 현재 발화 단어를 강조 — 줄 단위 자막은 그대로 유지(기본 꺼짐) */
   const [wordHighlightEnabled, setWordHighlightEnabled] = useState(true)
   const [wordHighlightColor, setWordHighlightColor] = useState('#ffd54a')
@@ -6240,7 +6250,10 @@ export default function App(): ReactElement {
         ...(exportFormat === 'video'
           ? { emphasisColor: captionEmphasisColor, boxStyle: subtitleBoxStyle }
           : {})
-      }
+      },
+      ...(exportFormat === 'video' && exportWatermarkOf(watermark)
+        ? { watermark: exportWatermarkOf(watermark) }
+        : {})
     }
     // 웹: 현재 창에서 내보내기(다운로드) 페이지로 이동해 작업하고 「다운로드」 폴더에 저장한다.
     // 새 탭으로 열면 페이지 이동 시 뜨는 전면 광고가 나오지 않으므로 같은 창에서 이동한다.
@@ -6320,6 +6333,7 @@ export default function App(): ReactElement {
     videoNaturalSize.height,
     videoNaturalSize.width,
     videoPath,
+    watermark,
     wordHighlightColor,
     wordHighlightEnabled
   ])
@@ -7021,6 +7035,14 @@ export default function App(): ReactElement {
             {/* Web build: export sits at the right end of the editor toolbar (where the toolbar ad used to be). */}
             <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
               <div className="preview-export-main">
+                <button type="button"
+                  className={`preview-watermark-btn${exportWatermarkOf(watermark) ? ' is-on' : ''}`}
+                  onClick={() => setWatermarkDialogOpen(true)}
+                  disabled={isExporting}
+                  aria-haspopup="dialog"
+                  title={exportWatermarkOf(watermark) ? '워터마크 켜짐 — 「자막 입힌 영상」 내보내기에 들어갑니다' : '워터마크 추가'}>
+                  <EditorToolIcon name="watermark" /><span>워터마크</span>
+                </button>
                 <select name="export-format" className="preview-export-format" value={exportFormat}
                   onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
                   aria-label="내보내기 형식"
@@ -7035,6 +7057,7 @@ export default function App(): ReactElement {
                 </button>
               </div>
               {exportNotice && <p role="status" className="preview-export-notice">{exportNotice}</p>}
+              {watermarkSaveError && <p role="alert" className="preview-export-notice">워터마크 설정을 저장하지 못했습니다(브라우저 저장 공간 부족). 이번 작업에는 적용됩니다.</p>}
             </div>
           </div>
         </div>
@@ -7500,6 +7523,16 @@ export default function App(): ReactElement {
             }}>추출 취소</button>
           </div>
         </div>
+      ) : null}
+
+      {watermarkDialogOpen ? (
+        <WatermarkDialog
+          settings={watermark}
+          onChange={updateWatermark}
+          onClose={() => setWatermarkDialogOpen(false)}
+          videoWidth={videoNaturalSize.width}
+          videoHeight={videoNaturalSize.height}
+        />
       ) : null}
 
       {isExporting ? (
