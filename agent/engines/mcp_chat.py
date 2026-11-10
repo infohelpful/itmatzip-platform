@@ -25,7 +25,7 @@ _configured_cache: tuple[float, list[str]] = (0.0, [])
 # CLI 추론 강도. 1,500단어 실측: claude low 는 25초지만 오인식 교정이 111→27개로 줄었고,
 # medium 은 31초에 97개를 고쳤다. 교정 품질이 우선이라 medium.
 _REASONING_EFFORT = "medium"
-_CLI_TIMEOUT_SEC = 300
+_CLI_TIMEOUT_SEC = 600
 
 
 def configured_clients() -> list[str]:
@@ -201,7 +201,7 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
                    "편집기에서 결과를 확인해 주세요.")
         state = {"status": "done", "message": message}
     except subprocess.TimeoutExpired:
-        state = {"status": "error", "message": "CLI 응답이 5분 안에 끝나지 않았습니다. 다시 요청해 주세요."}
+        state = {"status": "error", "message": "CLI 응답이 10분 안에 끝나지 않았습니다. 다시 요청해 주세요."}
     except (OSError, ValueError, RuntimeError) as error:
         state = {"status": "error", "message": str(error)}
     with _lock:

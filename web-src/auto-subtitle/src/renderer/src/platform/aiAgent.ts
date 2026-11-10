@@ -52,7 +52,7 @@ export const getAiSettings = (): Promise<AiSettings> => api<AiSettings>('/ai/set
 export const getMcpStatus = (): Promise<McpStatus> => api<McpStatus>('/mcp/status')
 export async function runMcpChat(client: McpClient, instruction: string, sessionId: string): Promise<string> {
   const { jobId } = await api<{ jobId: string }>('/mcp/chat', { client, instruction, sessionId }, 'POST')
-  for (let attempt = 0; attempt < 320; attempt++) {
+  for (let attempt = 0; attempt < 620; attempt++) {
     await new Promise(resolve => window.setTimeout(resolve, 1000))
     const state = await api<{ status: 'running' | 'done' | 'error'; message: string }>(`/mcp/chat?jobId=${encodeURIComponent(jobId)}`)
     if (state.status === 'done') return state.message
