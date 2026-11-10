@@ -311,7 +311,10 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
     onBeforeRun()
     setBusy(true)
     try {
-      const message = await runMcpChat(client, instruction, editorSessionIdRef.current)
+      // 에이전트를 다시 시작했거나 하트비트가 늦으면 이 탭이 등록돼 있지 않을 수 있다 — 보내기 직전에 다시 올린다.
+      const current = currentEditorRef.current
+      await publishMcpEditor(current.sessionId, current.basis, current.snapshot)
+      const message = await runMcpChat(client, instruction, current.sessionId)
       setMessages(current => [...current, { role: 'assistant', text: message }])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))

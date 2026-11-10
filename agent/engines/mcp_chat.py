@@ -101,9 +101,7 @@ def _cli_environment(client: str, executable: str) -> dict[str, str]:
 def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
     try:
         executable = _executable(client)
-        active = mcp_registry.active_editor()
-        if active["sessionId"] != session_id:
-            raise ValueError("요청한 편집 화면이 현재 열린 자막 화면이 아닙니다. 페이지를 새로고침해 주세요.")
+        active = mcp_registry.focus_editor(session_id)
         revision = active["revision"]
         snapshot = active["snapshot"]
         words = snapshot.get("words", [])
@@ -239,9 +237,7 @@ def start(client: str, instruction: str, session_id: str) -> str:
         raise ValueError("채팅 요청은 1~1,000자로 입력해 주세요.")
     if client not in configured_clients():
         raise ValueError("선택한 AI의 MCP 설정이 완료되지 않았습니다. 트레이의 AI MCP 설정을 확인해 주세요.")
-    active = mcp_registry.active_editor()
-    if active["sessionId"] != session_id:
-        raise ValueError("현재 편집 화면의 자막을 찾지 못했습니다. 페이지를 새로고침해 주세요.")
+    mcp_registry.focus_editor(session_id)
     job_id = str(uuid.uuid4())
     with _lock:
         _jobs[job_id] = {"status": "running", "message": "", "created": time.monotonic()}

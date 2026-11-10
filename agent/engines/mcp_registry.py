@@ -10,6 +10,9 @@ _lock = threading.Lock()
 _sessions: dict[str, float] = {}
 _TTL_SECONDS = 35
 _EDITORS: dict[str, dict[str, Any]] = {}
+# The editor tab that last started an AI chat. Several AutoSubtitle tabs can be open at once and each
+# heartbeats every 10 s, so "most recently updated" alone flips between tabs; the focused one wins.
+_focus: str | None = None
 
 
 def heartbeat(session_id: str) -> None:
@@ -58,28 +61,57 @@ def heartbeat_editor(session_id: str) -> bool:
         return True
 
 
+def _pick_active(now: float) -> tuple[str, dict[str, Any]] | None:
+    """Caller holds `_lock`. The focused editor if it is still alive, else the most recently updated one."""
+    active = [(key, value) for key, value in _EDITORS.items() if now - value["updated"] <= _TTL_SECONDS]
+    if not active:
+        return None
+    for key, value in active:
+        if key == _focus:
+            return key, value
+    return max(active, key=lambda item: item[1]["updated"])
+
+
+def _editor_view(session_id: str, editor: dict[str, Any]) -> dict[str, Any]:
+    return {"sessionId": session_id, "revision": editor["revision"],
+            "snapshot": editor["snapshot"], "basis": editor["basis"]}
+
+
 def active_editor() -> dict[str, Any]:
+    with _lock:
+        picked = _pick_active(time.monotonic())
+        if not picked:
+            raise ValueError("AutoSubtitle 편집 페이지가 열려 있지 않거나 자막이 준비되지 않았습니다.")
+        return _editor_view(*picked)
+
+
+def focus_editor(session_id: str) -> dict[str, Any]:
+    """Makes this tab the active editor (an AI chat started from it) and returns its snapshot."""
+    global _focus
     now = time.monotonic()
     with _lock:
-        active = [(key, value) for key, value in _EDITORS.items()
-                  if now - value["updated"] <= _TTL_SECONDS]
-        if not active:
-            raise ValueError("AutoSubtitle 편집 페이지가 열려 있지 않거나 자막이 준비되지 않았습니다.")
-        session_id, editor = max(active, key=lambda item: item[1]["updated"])
-        return {"sessionId": session_id, "revision": editor["revision"],
-                "snapshot": editor["snapshot"], "basis": editor["basis"]}
+        editor = _EDITORS.get(session_id)
+        if not editor or now - editor["updated"] > _TTL_SECONDS:
+            raise ValueError("현재 편집 화면의 자막을 에이전트에 보내지 못했습니다. 잠시 뒤 다시 시도하고, 계속되면 페이지를 새로고침해 주세요.")
+        editor["updated"] = now
+        _focus = session_id
+        return _editor_view(session_id, editor)
 
 
 def stage_edit(revision: int, answer: dict[str, Any], expected_session_id: str | None = None) -> dict[str, Any]:
     now = time.monotonic()
     with _lock:
-        active = [(key, value) for key, value in _EDITORS.items()
-                  if now - value["updated"] <= _TTL_SECONDS]
-        if not active:
+        if expected_session_id is not None:
+            # The chat job edits the tab it was started from, whichever tab heartbeated last.
+            target = _EDITORS.get(expected_session_id)
+            if not target or now - target["updated"] > _TTL_SECONDS:
+                raise ValueError("요청한 자막 편집 화면이 닫혔거나 연결이 끊겼습니다. 페이지를 새로고침한 뒤 다시 요청해 주세요.")
+            picked: tuple[str, dict[str, Any]] | None = (expected_session_id, target)
+        else:
+            picked = _pick_active(now)
+        if not picked:
             raise ValueError("연결된 AutoSubtitle 편집 페이지가 없습니다.")
-        session_id, editor = max(active, key=lambda item: item[1]["updated"])
-        if expected_session_id is not None and session_id != expected_session_id:
-            raise ValueError("요청한 자막 편집 화면이 현재 활성 화면이 아닙니다.")
+        session_id, editor = picked
         if editor["revision"] != revision:
             raise ValueError("자막이 MCP로 전달된 뒤 변경됐습니다. 최신 자막을 다시 가져와 수정해 주세요.")
         if editor.get("pending"):
