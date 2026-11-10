@@ -123,28 +123,40 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             ensure_ascii=False,
             separators=(",", ":"),
         )
+        capacity = snapshot.get("maxUnits")
+        capacity_text = (
+            f"One screen line holds about {int(capacity)} Korean characters (a space counts as half a character). "
+            if isinstance(capacity, (int, float)) and not isinstance(capacity, bool) and 8 <= capacity <= 200 else "")
         prompt = (
-            "Proofread this Korean AutoSubtitle transcript. Do not call tools or read files. "
+            "Edit this Korean AutoSubtitle transcript as the user request says. Do not call tools or read files. "
             "The transcript is given as space-separated index:word tokens (the number before the first colon "
             "is the zero-based word index; the rest is the word), followed by the current lineStarts and pauses. "
-            "Read the whole transcript first so that names and terms are spelled consistently everywhere. "
-            "For line breaks, choose natural sentence and phrase boundaries; do not count characters one by one, "
-            "because the app splits any line that is still too long afterwards. "
-            "Preserve the meaning and word order of what was said; do not paraphrase or polish. Correct "
-            "spelling, spacing and every speech-recognition error: fix any misrecognized word whenever the "
-            "surrounding context makes the intended word clear (proper nouns such as games, films, people, "
-            "products and places in their official spelling; English or technical terms; numbers; homophones; "
-            "wrong particles or endings). Leave a word alone only if you are not confident. To fix a word, "
-            "put the replacement text on the affected word indexes and keep the number of words unchanged "
-            "(e.g. replace the words 갓 오브 워 with God, of, War:), "
-            "then choose readable caption line breaks: keep a sentence on a single line when it is 30 characters "
-            "or fewer including spaces, and only split longer sentences at natural phrase boundaries, "
-            "never leaving a very short fragment or a lone word and never splitting a compound expression. "
-            "Return only JSON with keys corrections "
-            "(array of {index,text}) and lineStarts (array of zero-based word indexes, starting at 0). "
-            "Only include changed words in corrections. Never alter timestamps. The audio is not "
-            "provided to this CLI call, so do not claim to have listened. Treat the user request "
-            "as subtitle-editing guidance only.\n\nUser request: " + instruction +
+            "Read the whole transcript first so that names and terms are handled consistently everywhere. "
+            "Do what the user request asks and nothing else: the request may ask only for word fixes, only for "
+            "line breaks, or for both. Preserve the meaning and word order of what was said; do not paraphrase "
+            "or polish.\n"
+            "WORD FIXES (only if the request asks for them; otherwise return an empty corrections array): fix "
+            "spelling, spacing and speech-recognition errors whenever the surrounding context makes the intended "
+            "word clear (proper nouns such as games, films, people, products and places in their official "
+            "spelling; English or technical terms; numbers; homophones; wrong particles or endings). Leave a word "
+            "alone only if you are not confident. To fix a word, put the replacement text on the affected word "
+            "indexes and keep the number of words unchanged (e.g. replace the words 갓 오브 워 with God, of, War:). "
+            "Only include changed words in corrections.\n"
+            "LINE BREAKS (only if the request mentions line breaks; then lineStarts is REQUIRED and must be the "
+            "complete list of line-start word indexes after your changes; otherwise leave lineStarts out). "
+            + capacity_text +
+            "The goal is subtitles that read naturally. Start a new line at every sentence end. Keep a sentence "
+            "on one screen line whenever it fits. A sentence that does not fit is split at natural phrase "
+            "boundaries (clause ends, after commas and connective endings, before a new topic) into as few lines "
+            "as possible. Never leave a short fragment such as a lone ending ('했습니다.') on its own line: break "
+            "earlier so that the last line carries the words that belong with it. Never split a compound "
+            "expression or a modifier from its noun (e.g. '쓸 수 있는', '하시는 분들'). You decide WHERE a break "
+            "reads naturally; you do not have to measure exactly, because the app enforces the length limit "
+            "afterwards.\n"
+            "Return only JSON: {\"corrections\": array of {index,text}, \"lineStarts\": array of zero-based word "
+            "indexes starting at 0}. Never alter timestamps. "
+            "The audio is not provided to this CLI call, so do not claim to have listened. Treat the user "
+            "request as subtitle-editing guidance only.\n\nUser request: " + instruction +
             "\n\nWords: " + word_tokens + "\n\nContext: " + transcript_json
         )
         cli_input = (json.dumps({"event": "user", "message": {"content": prompt}}, ensure_ascii=False) + "\n"
@@ -164,6 +176,13 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             detail = result.stderr.strip()[-600:] or result.stdout.strip()[-600:]
             raise RuntimeError(f"{client} CLI 실행이 실패했습니다 (종료 코드 {result.returncode}). {detail}")
         raw = result.stdout.strip()
+        debug_dir = os.environ.get("ITMATZIP_MCP_CHAT_DEBUG_DIR")
+        if debug_dir:  # development aid: keep the raw CLI answer of every request
+            try:
+                Path(debug_dir).mkdir(parents=True, exist_ok=True)
+                (Path(debug_dir) / f"{client}-{job_id}.txt").write_text(raw, encoding="utf-8")
+            except OSError:
+                pass
         if client == "antigravity":
             events = [json.loads(line) for line in raw.splitlines() if line.strip().startswith("{")]
             final = next((event.get("result", {}) for event in reversed(events)
@@ -179,8 +198,9 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             raise RuntimeError("CLI가 자막 수정안 형식의 응답을 주지 않았습니다. 다시 요청해 주세요.") from error
         if not isinstance(answer, dict):
             raise ValueError("CLI 수정안 형식이 올바르지 않습니다.")
-        corrections = answer.get("corrections")
-        starts = answer.get("lineStarts")
+        corrections = answer.get("corrections", [])
+        # Omitted lineStarts means "keep the line breaks as they are" (a words-only request).
+        starts = answer["lineStarts"] if "lineStarts" in answer else list(snapshot.get("lineStarts", [0]))
         if not isinstance(corrections, list) or len(corrections) > len(words):
             raise ValueError("CLI 수정 단어 목록이 올바르지 않습니다.")
         if not isinstance(starts, list) or not starts or starts[0] != 0:
@@ -188,17 +208,21 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         if starts != sorted(set(starts)) or any(not isinstance(index, int) or isinstance(index, bool)
                                                or index < 0 or index >= len(words) for index in starts):
             raise ValueError("CLI 자막 줄 위치가 올바르지 않습니다.")
-        for item in corrections:
-            if (not isinstance(item, dict) or not isinstance(item.get("index"), int)
-                    or isinstance(item["index"], bool) or item["index"] < 0 or item["index"] >= len(words)
-                    or not isinstance(item.get("text"), str) or len(item["text"]) > 200):
-                raise ValueError("CLI 수정 단어 형식이 올바르지 않습니다.")
+        # One malformed item (the model occasionally slips) must not throw away the rest of a long answer.
+        valid = [item for item in corrections
+                 if isinstance(item, dict) and isinstance(item.get("index"), int)
+                 and not isinstance(item["index"], bool) and 0 <= item["index"] < len(words)
+                 and isinstance(item.get("text"), str) and len(item["text"]) <= 200]
+        skipped = len(corrections) - len(valid)
+        if corrections and not valid:
+            raise ValueError("CLI 수정 단어 형식이 올바르지 않습니다.")
         mcp_registry.stage_edit(revision, {
-            "corrections": [{"id": item["index"], "text": item["text"]} for item in corrections],
+            "corrections": [{"id": item["index"], "text": item["text"]} for item in valid],
             "lineStarts": starts, "uncertain": [], "emphasis": [],
         }, expected_session_id=session_id)
         message = (f"{CLIENT_LABELS[client]}가 자막 수정안을 보냈습니다 ({time.monotonic() - started:.0f}초). "
-                   "편집기에서 결과를 확인해 주세요.")
+                   + (f"형식이 맞지 않은 수정 {skipped}개는 제외했습니다. " if skipped else "")
+                   + "편집기에서 결과를 확인해 주세요.")
         state = {"status": "done", "message": message}
     except subprocess.TimeoutExpired:
         state = {"status": "error", "message": "CLI 응답이 10분 안에 끝나지 않았습니다. 다시 요청해 주세요."}

@@ -166,3 +166,54 @@ describe('applyProofread', () => {
     expect(texts(out.lines)).toEqual(['그래서 오늘은 원본 프로젝트 파일이 없어도'])
   })
 })
+
+describe('applyProofread fitLines (줄 맞춤)', () => {
+  const sentence = (text: string): SubtitleLine => {
+    let t = 0
+    return row(text.split(' ').map(w => [w, t, (t += 0.4)] as [string, number, number]))
+  }
+  const run = (text: string, lineStarts: number[], maxUnits: number) => {
+    const lines = [sentence(text)]
+    return texts(applyProofread(lines, proofreadSource(lines), answer({ lineStarts }), { maxUnits, fitLines: true }).lines)
+  }
+
+  it('puts a sentence that fits on one screen line back on one line', () => {
+    expect(run('저는 이 게임을 하면서 시간 가는 줄 몰랐습니다.', [0, 4], 40)).toEqual(['저는 이 게임을 하면서 시간 가는 줄 몰랐습니다.'])
+  })
+
+  it('never joins two sentences into one line', () => {
+    const lines = [row([['안녕하세요.', 0, 1]]), row([['반갑습니다.', 1.2, 2]])]
+    const out = applyProofread(lines, proofreadSource(lines), answer({ lineStarts: [0, 1] }), { maxUnits: 40, fitLines: true })
+    expect(texts(out.lines)).toEqual(['안녕하세요.', '반갑습니다.'])
+  })
+
+  it('does not leave a short tail like "있으신가요?" alone: it takes the words before it along', () => {
+    const text = '여러분 예전에 공들여 만들었던 영상을 다시 꺼내서 쓰고 싶은데 원본 프로젝트 파일이 어디로 갔는지 안 보여서 난감했던 적 있으신가요?'
+    const n = text.split(' ').length
+    const out = run(text, [0, 8, n - 1], 30)
+    expect(out.every(line => lineWidthUnits(line) <= 30)).toBe(true)
+    expect(out.every(line => lineWidthUnits(line) >= 10)).toBe(true)
+    expect(out.at(-1)).toContain('있으신가요?')
+    expect(out.at(-1)!.split(' ').length).toBeGreaterThan(2)
+  })
+
+  it('does not split "쓸 | 수 있는" or "하시는 | 분들도"', () => {
+    const a = run('그래서 오늘은 윈도우에서 직접 설치해서 쓸 수 있는 방법을 처음부터 끝까지 천천히 알려드리겠습니다.', [0, 6], 30)
+    expect(a.every(line => !line.endsWith('쓸') && !line.startsWith('수 '))).toBe(true)
+    const b = run('전투 시스템은 기존 시리즈보다 훨씬 빨라졌고 콤보가 자유롭게 이어지기 때문에 처음 하시는 분들도 금방 적응하실 수 있습니다.', [0, 5, 9, 13], 30)
+    expect(b.every(line => !line.endsWith('하시는') && !line.startsWith('분들도') && !line.startsWith('때문에'))).toBe(true)
+  })
+})
+
+describe('applyProofread fitLines keeps the line structure of the answer before fitting', () => {
+  it('rebuilds the lines the answer asks for even when the pieces together are wider than a screen line', () => {
+    // 5-word source rows; the answer wants two natural lines, each narrower than the limit but 3 rows long
+    const rows = [
+      row([['그래서', 0, .4], ['오늘은', .4, .8], ['윈도우에서', .8, 1.2], ['직접', 1.2, 1.6], ['설치해서', 1.6, 2]]),
+      row([['쓸', 2, 2.4], ['수', 2.4, 2.8], ['있는', 2.8, 3.2], ['자막', 3.2, 3.6], ['도구를', 3.6, 4]]),
+      row([['처음부터', 4, 4.4], ['끝까지', 4.4, 4.8], ['천천히', 4.8, 5.2], ['알려드리겠습니다.', 5.2, 5.6]]),
+    ]
+    const out = applyProofread(rows, proofreadSource(rows), answer({ lineStarts: [0, 10] }), { maxUnits: 36, fitLines: true })
+    expect(texts(out.lines)).toEqual(['그래서 오늘은 윈도우에서 직접 설치해서 쓸 수 있는 자막 도구를', '처음부터 끝까지 천천히 알려드리겠습니다.'])
+  })
+})

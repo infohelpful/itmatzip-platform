@@ -102,13 +102,34 @@ const PHRASE_END = /(?:을|를|에서|에게|에서는|에는|으로|로|와|과
 const SOFT_LIMIT_RATIO = 4 / 3
 /** 한쪽이 이보다 짧으면(한두 단어) 피한다 */
 const MIN_SIDE_UNITS = 6
+/** 문장 끝 — 이 뒤는 새 줄(문장끼리 한 줄에 섞지 않는다). 구두점이 없는 자막은 다/요/죠/까/네 로 끝나는 말도 문장 끝으로 본다. */
+const SENTENCE_END = /(?:[.?!…]|[다요죠까네])["')\]]*$/
+/** 이어지는 말인데 이보다 짧게 혼자 남은 줄(예: "했습니다.")은 앞 말과 다시 맞춘다 */
+const ORPHAN_UNITS = 10
+
+// 사이를 끊으면 어색한 짝: "쓸 | 수 있는", "하시는 | 분들도", "이어지기 | 때문에", "하지 | 않는"
+const BOUND_NOUN = /^(?:수|것|거|때|줄|번|적|데|뿐|듯|분|바|리)(?:들)?(?:[은는이가을를도만의에])?$|^(?:뒤|후|동안|사이|만큼|대로)(?:[에는도은이가])?$/
+const ATTACH_AFTER = /^(?:때문|위해|위한|통해|대해|대한|따라|같은|같이)/
+function endsAdnominal(token: string): boolean {
+  const ch = token.replace(/["')\]]+$/, '').slice(-1)
+  if (!ch) return false
+  if ('는은을던'.includes(ch)) return true
+  const code = ch.charCodeAt(0) - 0xac00
+  return code >= 0 && code <= 11171 && (code % 28 === 4 || code % 28 === 8) // 받침 ㄴ·ㄹ
+}
+/** `prev` 와 `next` 사이에서 줄을 끊으면 읽을 때 어색한가 */
+export function tightPair(prev: string, next: string): boolean {
+  if (ATTACH_AFTER.test(next)) return true
+  if (BOUND_NOUN.test(next) && endsAdnominal(prev)) return true
+  return /^(?:않|못|말)/.test(next) && /지$/.test(prev)
+}
 
 /**
  * 줄을 나눌 단어 위치(왼쪽 줄 단어 수, 1..n-1). 왼쪽이 `maxUnits` 안에 들어가는 자리 중
  * 문장 끝 > 쉼표·연결 어미 > 조사 뒤 순으로 고르고, 너무 짧은 쪽이 생기는 자리는 피하며,
  * 같으면 양쪽 길이가 고른 쪽.
  */
-export function bestBreak(tokens: readonly string[], maxUnits: number): number {
+export function bestBreak(tokens: readonly string[], maxUnits: number, minSide: number = MIN_SIDE_UNITS): number {
   const widths = tokens.map(t => lineWidthUnits(t))
   const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, tokens.length - 1) * 0.5
   let best = Math.ceil(tokens.length / 2)
@@ -122,7 +143,8 @@ export function bestBreak(tokens: readonly string[], maxUnits: number): number {
     if (STRONG_END.test(prev)) score += 1000
     else if (SOFT_END.test(prev)) score += 500
     else if (PHRASE_END.test(prev)) score += 200
-    if (Math.min(left, right) < MIN_SIDE_UNITS) score -= 600
+    if (Math.min(left, right) < minSide) score -= 600
+    if (tightPair(prev, tokens[k]!)) score -= 800
     if (left > maxUnits) score -= 10_000
     if (score > bestScore) { bestScore = score; best = k }
   }
@@ -133,7 +155,7 @@ export function applyProofread(
   lines: readonly SubtitleLine[],
   source: ProofreadSource,
   answer: ProofreadAnswer,
-  options: { emphasisColor?: string; maxUnits?: number; targetUnits?: number } = {}
+  options: { emphasisColor?: string; maxUnits?: number; targetUnits?: number; fitLines?: boolean } = {}
 ): ProofreadResult {
   const { units } = source
   const n = units.length
@@ -163,7 +185,9 @@ export function applyProofread(
     const pli = lineOf(units[s - 1]!.id)
     if (li <= 0 || pli !== li - 1 || !!next[li]!.isHidden !== !!next[pli]!.isHidden) continue
     // AI 가 이상하게 답해도 화면 한 줄을 넘는 줄은 만들지 않는다.
-    if (options.maxUnits && lineWidthUnits(textOf([...unitsOfLine(pli), ...unitsOfLine(li)])) > options.maxUnits) continue
+    // (fitLines 는 AI 가 정한 줄 구조를 먼저 그대로 만든 뒤 아래 2a 에서 길이를 맞춘다)
+    if (options.maxUnits && !options.fitLines
+      && lineWidthUnits(textOf([...unitsOfLine(pli), ...unitsOfLine(li)])) > options.maxUnits) continue
     next = mergeSubtitleIntoPrevious(next, li) ?? next
   }
   // 2) 답에서 새로 생긴 줄 시작 → 그 단어 앞에서 나눈다.
@@ -174,6 +198,51 @@ export function applyProofread(
     if (li < 0 || li !== lineOf(units[s - 1]!.id)) continue
     const wi = next[li]!.words!.findIndex(w => w.id === id)
     next = splitSubtitleAtWordBoundary(next, li, wi)
+  }
+
+  // 2a) 읽기 좋은 줄 맞춤(fitLines): AI 는 끊을 자리(문맥)만 정하고, 길이 규칙은 여기서 지킨다.
+  //     - 한 문장이 화면 한 줄에 들어가면 한 줄로 합친다.
+  //     - 한 줄에 안 들어가는 문장은 AI 가 정한 자리에서 나누되, 끝에 "했습니다." 같은 짧은 토막만 남으면
+  //       앞에서 다시 끊어 이어지는 말을 같이 넘긴다.
+  //     - 문장 끝·쉬는 구간(1초 이상)·숨김 상태가 다른 줄 사이는 건드리지 않는다.
+  if (options.fitLines && options.maxUnits) {
+    const limit = options.maxUnits
+    const tokenOf = (g: number) => corrections.get(g) ?? units[g]!.text
+    const widthOf = (gs: number[]) => lineWidthUnits(gs.map(tokenOf).filter(Boolean).join(' '))
+    const continues = (i: number): boolean => {
+      if (i <= 0) return false
+      const prev = unitsOfLine(i - 1)
+      const cur = unitsOfLine(i)
+      if (prev.length === 0 || cur.length === 0) return false
+      if (!!next[i]!.isHidden !== !!next[i - 1]!.isHidden) return false
+      if (units[cur[0]!]!.gapBefore >= PAUSE_HINT_SEC) return false
+      if ([...prev, ...cur].some(g => units[g]!.locked)) return false
+      return !SENTENCE_END.test(tokenOf(prev[prev.length - 1]!))
+    }
+    for (let pass = 0; pass < 6; pass++) {
+      let changed = false
+      for (let i = next.length - 1; i > 0; i--) {
+        if (!continues(i)) continue
+        const prev = unitsOfLine(i - 1)
+        const cur = unitsOfLine(i)
+        const merged = [...prev, ...cur]
+        if (widthOf(merged) <= limit) {
+          const m = mergeSubtitleIntoPrevious(next, i)
+          if (m) { next = m; changed = true }
+          continue
+        }
+        const tight = tightPair(tokenOf(prev[prev.length - 1]!), tokenOf(cur[0]!))
+        if (widthOf(cur) >= ORPHAN_UNITS && !tight) continue
+        const k = bestBreak(merged.map(tokenOf), limit, ORPHAN_UNITS)
+        if (k === prev.length) continue
+        const m = mergeSubtitleIntoPrevious(next, i)
+        if (!m) continue
+        const li = i - 1
+        const split = splitSubtitleAtWordBoundary(m, li, m[li]!.words!.findIndex(w => w.id === units[merged[k]!]!.id))
+        if (split.length === m.length + 1) { next = split; changed = true }
+      }
+      if (!changed) break
+    }
   }
 
   // 2b) 그래도 화면 한 줄을 넘는 줄은 두 줄로 넘어가지 않게 의미 단위에서 더 나눈다.

@@ -41,38 +41,58 @@ type Preset = { id: string; label: string; text: string; edited?: boolean }
 type PresetDraft = { id: string | null; label: string; text: string }
 const PRESETS_KEY = 'autosub.mcpChat.presets'
 const SIZE_KEY = 'autosub.mcpChat.size'
-const MAX_PRESETS = 3
+const PRESETS_VERSION_KEY = 'autosub.mcpChat.presetsVersion'
+const PRESETS_VERSION = '2'
+/** 기본 프리셋 2개 + 사용자 프리셋 3개 */
+const MAX_PRESETS = 5
 const MAX_PRESET_TEXT = 1000
-const DEFAULT_PRESET: Preset = {
-  id: 'default',
-  label: '읽기 좋게 줄바꿈·오타 수정',
-  text: [
-    '한 줄로 읽히면 절대 나누지 말고 1줄로 둬(공백 포함 30자 이하면 그대로 유지).',
-    "30자를 넘는 문장만 문맥 단위(쉼표·절 끝·'~는데요/~했고' 뒤)로 나누고, 나눌 때도 조각이 너무 짧거나 한 단어만 따로 남지 않게 해줘.",
-    "의미가 붙는 말은 중간에서 끊지 마. (예: 'PS5 게임', '윈도우에서 직접')",
-    '오타·맞춤법·띄어쓰기를 고치고, 음성이 잘못 인식된 단어는 종류와 상관없이 앞뒤 문맥상 확실하면 올바른 말로 고쳐줘.',
-    "(고유명사·영어/전문용어·숫자·동음이의어·조사/어미 오류 모두 해당. 예: '갓 오브 워 선지 오브 스파르타' → 'God of War: Sons of Sparta')",
-    '말한 내용의 뜻과 순서는 바꾸지 말고(윤문·의역 금지), 문맥으로도 확신이 안 서는 부분만 그대로 둬.',
-  ].join('\n'),
-}
-// The preset keeps a line of up to 30 characters (spaces included) as it is. aiProofread splits a line only
-// when it is wider than round(target * 4/3) display units, so 23 -> 31 leaves every line the CLI kept under
-// 30 characters alone (Hangul = 1 unit, space = 0.5) and only breaks the ones the CLI left too long.
-const CLI_LINE_TARGET_UNITS = 23
+// 오타 수정과 줄바꿈을 따로 돌린다 — 한 번에 하나만 시키면 AI가 해야 할 일이 줄어 빠르고 덜 틀린다.
+const DEFAULT_PRESETS: Preset[] = [
+  {
+    id: 'default-typo',
+    label: '오타 수정',
+    text: [
+      '오타·맞춤법·띄어쓰기를 고쳐줘. 줄바꿈은 건드리지 마.',
+      '음성이 잘못 인식된 단어는 종류와 상관없이 앞뒤 문맥상 확실하면 올바른 말로 고쳐줘.',
+      "(고유명사·영어/전문용어·숫자·동음이의어·조사/어미 오류 모두 해당. 예: '갓 오브 워 선지 오브 스파르타' → 'God of War: Sons of Sparta')",
+      '말한 내용의 뜻과 순서는 바꾸지 말고(윤문·의역 금지), 문맥으로도 확신이 안 서는 부분만 그대로 둬.',
+    ].join('\n'),
+  },
+  {
+    id: 'default-linebreak',
+    label: '문맥에 맞게 줄바꿈',
+    text: [
+      '단어는 고치지 말고 줄바꿈만 문맥에 맞게 해줘.',
+      '화면 한 줄에 들어가는 문장은 한 줄에 다 넣어줘. 한 줄에 안 들어가는 문장만 문맥에 맞게 끊어서 두 줄(더 길면 세 줄)로 나눠줘.',
+      "끊는 위치가 읽을 때 어색하면 안 돼. 문장이 끝나는 곳, 쉼표나 '~는데/~고/~서' 같은 연결 어미 뒤처럼 자연스럽게 쉬는 곳에서 끊어줘.",
+      "'했습니다.'처럼 너무 짧은 토막이 혼자 한 줄에 남으면 안 돼. 그럴 땐 더 앞에서 끊어서 이어지는 말을 같이 다음 줄로 넘겨줘.",
+      "의미가 붙는 말은 중간에서 끊지 마. (예: 'PS5 게임', '쓸 수 있는', '하시는 분들')",
+    ].join('\n'),
+  },
+]
+const defaultPresetOf = (id: string): Preset | undefined => DEFAULT_PRESETS.find(item => item.id === id)
 const MIN_W = 300
 const MIN_H = 300
 
 function readPresets(): Preset[] {
   try {
     const raw = window.localStorage.getItem(PRESETS_KEY)
-    if (raw === null) return [DEFAULT_PRESET]
+    if (raw === null) return DEFAULT_PRESETS
     const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return [DEFAULT_PRESET]
-    return parsed.filter((item): item is Preset => !!item && typeof item.id === 'string' &&
+    if (!Array.isArray(parsed)) return DEFAULT_PRESETS
+    let saved = parsed.filter((item): item is Preset => !!item && typeof item.id === 'string' &&
       typeof item.label === 'string' && typeof item.text === 'string' && item.text.length <= MAX_PRESET_TEXT)
-      .map(item => item.id === DEFAULT_PRESET.id && !item.edited ? DEFAULT_PRESET : item)
+    if (window.localStorage.getItem(PRESETS_VERSION_KEY) !== PRESETS_VERSION) {
+      // 예전 기본 프리셋(오타+줄바꿈 한 번에)은 새 기본 프리셋 2개로 바꾼다. 사용자가 만든 프리셋은 그대로 둔다.
+      const kept = saved.filter(item => item.id !== 'default')
+      saved = [...DEFAULT_PRESETS.filter(item => !kept.some(entry => entry.id === item.id)), ...kept]
+      window.localStorage.setItem(PRESETS_KEY, JSON.stringify(saved.slice(0, MAX_PRESETS)))
+      window.localStorage.setItem(PRESETS_VERSION_KEY, PRESETS_VERSION)
+    }
+    return saved
+      .map(item => !item.edited ? defaultPresetOf(item.id) ?? item : item)
       .slice(0, MAX_PRESETS)
-  } catch { return [DEFAULT_PRESET] }
+  } catch { return DEFAULT_PRESETS }
 }
 
 function readSize(): { w: number; h: number } {
@@ -142,7 +162,9 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
       const end = source.lineStarts[index + 1] ?? words.length
       return { lineIndex: index, text: words.slice(start, end).map(word => word.text).join(' ') }
     })
-    return { lines, words, lineStarts: source.lineStarts, pauses: source.pauses, audioPath: preparedAudioPath, duration: mediaDuration }
+    // 화면 한 줄에 들어가는 글자 수(한글 기준) — AI 가 "한 줄에 들어가는지" 판단하는 기준
+    const maxUnits = Math.max(4, Math.min(80, Math.round(settingsRef.current.measureMaxUnits())))
+    return { lines, words, lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, audioPath: preparedAudioPath, duration: mediaDuration }
   }, [source, preparedAudioPath, mediaDuration])
   const currentEditorRef = useRef({ sessionId: editorSessionIdRef.current, basis, snapshot: editorSnapshot })
   currentEditorRef.current = { sessionId: editorSessionIdRef.current, basis, snapshot: editorSnapshot }
@@ -199,10 +221,15 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
         }
         const currentSource = proofreadSource(current)
         const maxUnits = Math.max(4, Math.min(80, Math.round(settingsRef.current.measureMaxUnits())))
+        // 줄바꿈이 그대로인 응답(오타만 고치는 요청)은 줄을 다시 나누지 않는다 — 화면 한 줄을 넘는 줄만 나눈다.
+        const breaksUnchanged = pending.answer.lineStarts.length === currentSource.lineStarts.length
+          && pending.answer.lineStarts.every((start, i) => start === currentSource.lineStarts[i])
         const result = applyProofread(current, currentSource, pending.answer, {
           emphasisColor: settingsRef.current.emphasisColor,
           maxUnits,
-          targetUnits: CLI_LINE_TARGET_UNITS,
+          // fitLines: 화면 한 줄에 들어가는 문장은 한 줄로, 안 들어가는 문장은 AI 가 정한 자리에서 나누되
+          // 짧은 꼬리 토막·어색한 자리는 코드가 다시 맞춘다(aiProofread 2a).
+          ...(breaksUnchanged ? {} : { fitLines: true }),
         })
         if (applyModeRef.current === 'automatic') {
           onBeforeRunRef.current()
@@ -233,9 +260,12 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
 
   const savePresets = (next: Preset[]) => {
     setPresets(next)
-    try { window.localStorage.setItem(PRESETS_KEY, JSON.stringify(next)) } catch { /* storage is optional */ }
+    try {
+      window.localStorage.setItem(PRESETS_KEY, JSON.stringify(next))
+      window.localStorage.setItem(PRESETS_VERSION_KEY, PRESETS_VERSION)
+    } catch { /* storage is optional */ }
   }
-  const hasDefault = presets.some(item => item.id === DEFAULT_PRESET.id)
+  const missingDefaults = DEFAULT_PRESETS.filter(item => !presets.some(entry => entry.id === item.id))
   const canAddPreset = presets.length < MAX_PRESETS
 
   const startResize = (edge: 'right' | 'top' | 'corner') => (event: ReactPointerEvent) => {
@@ -385,9 +415,9 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
               <button type="button" className="subtitle-mcp-chat-preset-add"
                 onClick={() => setEditing({ id: null, label: '', text: prompt.trim() })}>+ 프리셋 추가 ({presets.length}/{MAX_PRESETS})</button>
             ) : null}
-            {!hasDefault && canAddPreset && !editing ? (
+            {missingDefaults.length > 0 && canAddPreset && !editing ? (
               <button type="button" className="subtitle-mcp-chat-preset-add"
-                onClick={() => savePresets([DEFAULT_PRESET, ...presets])}>기본 프리셋 복원</button>
+                onClick={() => savePresets([...missingDefaults, ...presets].slice(0, MAX_PRESETS))}>기본 프리셋 복원</button>
             ) : null}
           </div>
           {editing ? (
@@ -404,8 +434,8 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
                 savePresets(presets.map(item => item.id === editing.id
                   ? {
                     ...item, label: label.slice(0, 24), text,
-                    ...(item.id === DEFAULT_PRESET.id
-                      ? { edited: text !== DEFAULT_PRESET.text || label !== DEFAULT_PRESET.label } : {}),
+                    ...(defaultPresetOf(item.id)
+                      ? { edited: text !== defaultPresetOf(item.id)!.text || label !== defaultPresetOf(item.id)!.label } : {}),
                   }
                   : item))
               }
@@ -419,8 +449,11 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
               <div>
                 <button type="submit" disabled={!editing.label.trim() || !editing.text.trim()}>저장</button>
                 <button type="button" onClick={() => setEditing(null)}>취소</button>
-                {editing.id === DEFAULT_PRESET.id ? (
-                  <button type="button" onClick={() => setEditing({ id: DEFAULT_PRESET.id, label: DEFAULT_PRESET.label, text: DEFAULT_PRESET.text })}>
+                {editing.id !== null && defaultPresetOf(editing.id) ? (
+                  <button type="button" onClick={() => {
+                    const base = defaultPresetOf(editing.id!)!
+                    setEditing({ id: base.id, label: base.label, text: base.text })
+                  }}>
                     기본 문구로 되돌리기
                   </button>
                 ) : null}
