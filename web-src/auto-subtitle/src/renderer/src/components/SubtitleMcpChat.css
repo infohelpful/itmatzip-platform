@@ -41,3 +41,5 @@
 .subtitle-mcp-chat-preset-edit button { border: 1px solid #477e69; border-radius: 6px; padding: 5px 10px; background: #234a3b; color: #effff6; cursor: pointer; font-size: 11px; }
 .subtitle-mcp-chat-preset-edit button:disabled { opacity: .5; cursor: default; }
 .subtitle-mcp-chat-preset-edit button[type=button] { background: transparent; }
+.subtitle-mcp-chat-message .subtitle-mcp-chat-summary { margin: 0 0 4px; color: #dae3e5; font-size: 12px; }
+.subtitle-mcp-chat-message .ai-diff { max-height: 180px; overflow: auto; margin: 0 0 6px; border: 1px solid #2c3436; border-radius: 6px; padding: 3px; }

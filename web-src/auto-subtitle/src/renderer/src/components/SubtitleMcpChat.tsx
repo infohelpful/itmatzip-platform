@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
-import { applyProofread, proofreadSource } from '../aiProofread'
+import { applyProofread, proofreadSource, type ProofreadChange } from '../aiProofread'
+import { setAiMarks } from '../aiMarks'
 import {
   acknowledgeMcpEdit, getMcpPendingEdit, getMcpStatus, heartbeatMcpEditor,
   publishMcpEditor, runMcpChat, type McpClient,
 } from '../platform/aiAgent'
+import './AiProofread.css'
 import './SubtitleMcpChat.css'
 import { startPolling } from '../platform/polling'
 
@@ -17,9 +19,19 @@ type Props = {
   disabled: boolean
   onBeforeRun: () => void
   onApply: (lines: SubtitleLine[]) => void
+  onJump: (startSec: number) => void
 }
 
-type ChatMessage = { role: 'user' | 'assistant'; text: string; proposed?: SubtitleLine[]; basis?: string }
+/** `changes`: 고친 단어 목록(API 교정과 같은 표시). `lineBefore/After`: 줄 수 변화. */
+type ChatMessage = {
+  role: 'user' | 'assistant'; text: string; proposed?: SubtitleLine[]; basis?: string
+  changes?: ProofreadChange[]; lineBefore?: number; lineAfter?: number
+}
+
+function clock(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
 type ApplyMode = 'review' | 'automatic'
 const APPLY_MODE_KEY = 'autosub.mcpChat.applyMode'
 const CLIENT_LABEL: Record<McpClient, string> = { codex: 'Codex', claude: 'Claude', antigravity: 'Antigravity' }
@@ -87,7 +99,7 @@ function subtitleFingerprint(lines: readonly SubtitleLine[]): string {
   return hash.toString(16).padStart(16, '0')
 }
 
-export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, measureMaxUnits, emphasisColor, disabled, onBeforeRun, onApply }: Props): JSX.Element | null {
+export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, measureMaxUnits, emphasisColor, disabled, onBeforeRun, onApply, onJump }: Props): JSX.Element | null {
   const [connected, setConnected] = useState(false)
   const [open, setOpen] = useState(false)
   const [clients, setClients] = useState<McpClient[]>([])
@@ -193,11 +205,16 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
         if (applyModeRef.current === 'automatic') {
           onBeforeRunRef.current()
           onApplyRef.current(result.lines)
-          setMessages(items => [...items, { role: 'assistant', text: 'CLI가 만든 수정안을 자동 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.' }])
+          setAiMarks({ changes: result.changes, uncertain: [] })
+          setMessages(items => [...items, {
+            role: 'assistant', text: 'CLI가 만든 수정안을 자동 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.',
+            changes: result.changes, lineBefore: result.lineCountBefore, lineAfter: result.lineCountAfter,
+          }])
         } else {
           setMessages(items => [...items, {
             role: 'assistant', text: 'CLI가 현재 열린 자막에 대한 수정안을 보냈습니다. 확인한 뒤 적용하세요.',
             proposed: result.lines, basis: currentBasis,
+            changes: result.changes, lineBefore: result.lineCountBefore, lineAfter: result.lineCountAfter,
           }])
           setOpen(true)
         }
@@ -308,6 +325,26 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
             {messages.map((message, index) => (
               <article className={`subtitle-mcp-chat-message is-${message.role}`} key={index}>
                 <p>{message.text}</p>
+                {message.changes ? (
+                  <>
+                    <p className="subtitle-mcp-chat-summary">
+                      단어 <b>{message.changes.length}</b>개 수정
+                      {message.lineBefore !== undefined && message.lineAfter !== undefined
+                        ? <> · 줄 {message.lineBefore} → <b>{message.lineAfter}</b></> : null}
+                    </p>
+                    {message.changes.length ? (
+                      <ul className="ai-diff">
+                        {message.changes.map(c => (
+                          <li key={c.id}>
+                            <button type="button" onClick={() => onJump(c.start)}>
+                              <span className="ai-time">{clock(c.start)}</span> <del>{c.before}</del> → <ins>{c.after || '(앞 단어에 합침)'}</ins>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                ) : null}
                 {message.proposed ? (
                   <>
                     <pre>{message.proposed.filter(line => !line.isDeleted).map(line => line.captionText ?? line.text).join('\n')}</pre>
@@ -316,7 +353,11 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
                       if (currentBasis !== message.basis) { setError('수정안을 만든 뒤 자막이 바뀌었습니다. 최신 자막으로 다시 요청해 주세요.'); return }
                       onBeforeRun()
                       onApply(message.proposed!)
-                      setMessages(current => current.map((entry, i) => i === index ? { role: 'assistant', text: '수정안을 자막 편집기에 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.' } : entry))
+                      setAiMarks({ changes: message.changes ?? [], uncertain: [] })
+                      setMessages(current => current.map((entry, i) => i === index ? {
+                        role: 'assistant', text: '수정안을 자막 편집기에 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.',
+                        changes: entry.changes, lineBefore: entry.lineBefore, lineAfter: entry.lineAfter,
+                      } : entry))
                     }}>수정안 적용</button>
                   </>
                 ) : null}

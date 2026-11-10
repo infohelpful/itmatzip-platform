@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
 import { applyProofread, lineWidthUnits, proofreadSource, type ProofreadResult } from '../aiProofread'
+import { setAiMarks, useAiMarks } from '../aiMarks'
 import {
   chooseAi, deleteAiKey, getAiSettings, MODEL_LABEL, PROVIDER_LABEL, runProofread, saveAiKey, saveGlossary,
   type AiProvider, type AiSettings, type ProofreadUsage
@@ -23,9 +24,6 @@ type Props = {
 }
 
 type Review = { result: ProofreadResult; usage: ProofreadUsage | null }
-/** 칩 표시는 단어 시작 시각으로 찾는다 — 단어 id 는 줄 순서 기반이라 줄을 나누면 바뀐다. */
-type Marks = { changed: number[]; uncertain: ProofreadResult['uncertain'] }
-
 const EMPHASIZE_KEY = 'autosub.ai.emphasize'
 /** 읽기 편한 한 줄 목표 길이(한글 약 18자) — 화면 한 줄(`maxUnits`)은 끊을 데가 없을 때만 쓰는 상한 */
 const TARGET_UNITS = 18
@@ -53,7 +51,7 @@ export function AiProofread(props: Props): JSX.Element {
   const [running, setRunning] = useState<{ elapsed: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [review, setReview] = useState<Review | null>(null)
-  const [marks, setMarks] = useState<Marks | null>(null)
+  const marks = useAiMarks()
   const [marksOpen, setMarksOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -105,7 +103,7 @@ export function AiProofread(props: Props): JSX.Element {
   const apply = () => {
     if (!review) return
     onApply(review.result.lines)
-    setMarks({ changed: review.result.changes.map(c => c.start), uncertain: review.result.uncertain })
+    setAiMarks({ changes: review.result.changes, uncertain: review.result.uncertain })
     setMarksOpen(review.result.uncertain.length > 0)
     setReview(null)
     setRunOpen(false)
@@ -116,14 +114,14 @@ export function AiProofread(props: Props): JSX.Element {
     if (!marks) return ''
     const rules: string[] = []
     const sel = (start: number) => `.subtitle-word-chip[data-word-start="${cssId(String(start))}"]`
-    const changed = marks.changed.map(sel)
+    const changed = marks.changes.map(c => sel(c.start))
     const unsure = marks.uncertain.map(u => sel(u.start))
     if (changed.length) rules.push(`${changed.join(',')}{box-shadow:inset 0 -3px 0 #3ecf8e !important}`)
     if (unsure.length) rules.push(`${unsure.join(',')}{outline:2px dashed #f5a524 !important;outline-offset:1px}`)
     return rules.join('\n')
   }, [marks])
 
-  const hasMarks = !!marks && (marks.changed.length > 0 || marks.uncertain.length > 0)
+  const hasMarks = !!marks && (marks.changes.length > 0 || marks.uncertain.length > 0)
 
   return (
     <>
@@ -139,13 +137,27 @@ export function AiProofread(props: Props): JSX.Element {
       {hasMarks ? (
         <span className="ai-marks">
           <button type="button" className="ai-marks-toggle" onClick={() => setMarksOpen(o => !o)}>
-            AI 수정 {marks!.changed.length} · 확인 필요 {marks!.uncertain.length} ▾
+            AI 수정 {marks!.changes.length} · 확인 필요 {marks!.uncertain.length} ▾
           </button>
           {marksOpen ? (
             <div className="ai-marks-pop" role="dialog" aria-label="AI 교정 표시">
               <p className="ai-marks-legend">
                 <span className="ai-legend-changed" /> AI가 고친 단어 <span className="ai-legend-unsure" /> 확인이 필요한 단어
               </p>
+              {marks!.changes.length ? (
+                <>
+                  <h3 className="ai-sub">고친 단어</h3>
+                  <ul className="ai-diff">
+                    {marks!.changes.map(c => (
+                      <li key={c.id}>
+                        <button type="button" onClick={() => onJump(c.start)}>
+                          <span className="ai-time">{clock(c.start)}</span> <del>{c.before}</del> → <ins>{c.after || '(앞 단어에 합침)'}</ins>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
               {marks!.uncertain.length ? (
                 <ul className="ai-marks-list">
                   {marks!.uncertain.map(u => (
@@ -158,7 +170,7 @@ export function AiProofread(props: Props): JSX.Element {
                 </ul>
               ) : <p className="ai-muted">확인이 필요한 단어가 없습니다.</p>}
               <div className="ai-row-end">
-                <button type="button" className="ai-btn" onClick={() => { setMarks(null); setMarksOpen(false) }}>표시 지우기</button>
+                <button type="button" className="ai-btn" onClick={() => { setAiMarks(null); setMarksOpen(false) }}>표시 지우기</button>
               </div>
             </div>
           ) : null}

@@ -7363,6 +7363,7 @@ export default function App(): ReactElement {
                     applySubtitleChange(() => lines)
                     setAlignmentNotice('채팅 수정안을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.')
                   }}
+                  onJump={seekToSubtitleStartFromNavigate}
               />
               <div className="subtitle-selection-toolbar" role="group" aria-label="자막 줄 선택 및 표시">
                 <label><input name="select-all-subtitles" type="checkbox" aria-label="모든 자막 줄 선택"
