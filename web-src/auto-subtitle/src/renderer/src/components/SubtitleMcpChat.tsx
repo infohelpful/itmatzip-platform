@@ -36,7 +36,9 @@ type ApplyMode = 'review' | 'automatic'
 const APPLY_MODE_KEY = 'autosub.mcpChat.applyMode'
 const CLIENT_LABEL: Record<McpClient, string> = { codex: 'Codex', claude: 'Claude', antigravity: 'Antigravity' }
 
-type Preset = { id: string; label: string; text: string }
+/** `edited`: 기본 프리셋을 사용자가 고친 경우 — 고친 내용을 유지한다(고치지 않았으면 새 버전의 기본 문구로 갱신). */
+type Preset = { id: string; label: string; text: string; edited?: boolean }
+type PresetDraft = { id: string | null; label: string; text: string }
 const PRESETS_KEY = 'autosub.mcpChat.presets'
 const SIZE_KEY = 'autosub.mcpChat.size'
 const MAX_PRESETS = 3
@@ -68,7 +70,7 @@ function readPresets(): Preset[] {
     if (!Array.isArray(parsed)) return [DEFAULT_PRESET]
     return parsed.filter((item): item is Preset => !!item && typeof item.id === 'string' &&
       typeof item.label === 'string' && typeof item.text === 'string' && item.text.length <= MAX_PRESET_TEXT)
-      .map(item => item.id === DEFAULT_PRESET.id ? DEFAULT_PRESET : item)
+      .map(item => item.id === DEFAULT_PRESET.id && !item.edited ? DEFAULT_PRESET : item)
       .slice(0, MAX_PRESETS)
   } catch { return [DEFAULT_PRESET] }
 }
@@ -110,7 +112,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
   const [error, setError] = useState('')
   const [applyMode, setApplyMode] = useState<ApplyMode>(readApplyMode)
   const [presets, setPresets] = useState<Preset[]>(readPresets)
-  const [editing, setEditing] = useState<{ label: string; text: string } | null>(null)
+  const [editing, setEditing] = useState<PresetDraft | null>(null)
   const [size, setSize] = useState(readSize)
   const sizeRef = useRef(size)
   sizeRef.current = size
@@ -369,15 +371,19 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
           <div className="subtitle-mcp-chat-presets" aria-label="프리셋">
             {presets.map(preset => (
               <span className="subtitle-mcp-chat-preset" key={preset.id}>
-                <button type="button" className="subtitle-mcp-chat-preset-run" disabled={busy} title={preset.text}
-                  onClick={() => void send(preset.text, `프리셋: ${preset.label}`)}>{preset.label}</button>
+                <span className="subtitle-mcp-chat-preset-name" title={preset.text}>{preset.label}</span>
+                <button type="button" className="subtitle-mcp-chat-preset-run" disabled={busy} title="이 프리셋을 바로 채팅으로 보냅니다"
+                  onClick={() => void send(preset.text, `프리셋: ${preset.label}`)}>입력</button>
+                <button type="button" className="subtitle-mcp-chat-preset-edit-btn" disabled={busy}
+                  title="프롬프트를 열어서 고칩니다"
+                  onClick={() => setEditing({ id: preset.id, label: preset.label, text: preset.text })}>수정</button>
                 <button type="button" className="subtitle-mcp-chat-preset-del" aria-label={`${preset.label} 프리셋 삭제`}
                   onClick={() => savePresets(presets.filter(item => item.id !== preset.id))}>×</button>
               </span>
             ))}
             {canAddPreset && !editing ? (
               <button type="button" className="subtitle-mcp-chat-preset-add"
-                onClick={() => setEditing({ label: '', text: prompt.trim() })}>+ 프리셋 추가 ({presets.length}/{MAX_PRESETS})</button>
+                onClick={() => setEditing({ id: null, label: '', text: prompt.trim() })}>+ 프리셋 추가 ({presets.length}/{MAX_PRESETS})</button>
             ) : null}
             {!hasDefault && canAddPreset && !editing ? (
               <button type="button" className="subtitle-mcp-chat-preset-add"
@@ -389,17 +395,35 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
               event.preventDefault()
               const label = editing.label.trim()
               const text = editing.text.trim()
-              if (!label || !text || !canAddPreset) return
-              savePresets([...presets, { id: `p-${Date.now().toString(36)}`, label: label.slice(0, 24), text }])
+              if (!label || !text) return
+              if (editing.id === null) {
+                if (!canAddPreset) return
+                savePresets([...presets, { id: `p-${Date.now().toString(36)}`, label: label.slice(0, 24), text }])
+              } else {
+                // 기본 프리셋을 고치면 edited 로 표시해서, 앱이 업데이트돼도 사용자가 고친 문구를 유지한다.
+                savePresets(presets.map(item => item.id === editing.id
+                  ? {
+                    ...item, label: label.slice(0, 24), text,
+                    ...(item.id === DEFAULT_PRESET.id
+                      ? { edited: text !== DEFAULT_PRESET.text || label !== DEFAULT_PRESET.label } : {}),
+                  }
+                  : item))
+              }
               setEditing(null)
             }}>
+              <strong className="subtitle-mcp-chat-preset-edit-title">{editing.id === null ? '새 프리셋' : '프리셋 수정'}</strong>
               <input name="mcp-preset-label" value={editing.label} maxLength={24} placeholder="프리셋 이름"
                 aria-label="프리셋 이름" onChange={event => setEditing({ ...editing, label: event.target.value })} />
-              <textarea name="mcp-preset-text" value={editing.text} maxLength={MAX_PRESET_TEXT} rows={4} placeholder="이 프리셋을 누르면 바로 전달할 요청"
+              <textarea name="mcp-preset-text" value={editing.text} maxLength={MAX_PRESET_TEXT} rows={8} placeholder="입력 버튼을 누르면 바로 전달할 요청"
                 aria-label="프리셋 내용" onChange={event => setEditing({ ...editing, text: event.target.value })} />
               <div>
                 <button type="submit" disabled={!editing.label.trim() || !editing.text.trim()}>저장</button>
                 <button type="button" onClick={() => setEditing(null)}>취소</button>
+                {editing.id === DEFAULT_PRESET.id ? (
+                  <button type="button" onClick={() => setEditing({ id: DEFAULT_PRESET.id, label: DEFAULT_PRESET.label, text: DEFAULT_PRESET.text })}>
+                    기본 문구로 되돌리기
+                  </button>
+                ) : null}
               </div>
             </form>
           ) : null}

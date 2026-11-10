@@ -29,7 +29,11 @@
 .subtitle-mcp-chat-presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px 0; border-top: 1px solid #303a3b; }
 .subtitle-mcp-chat-preset { display: inline-flex; max-width: 100%; border: 1px solid #477e69; border-radius: 14px; overflow: hidden; background: #1a3a2f; }
 .subtitle-mcp-chat-preset button, .subtitle-mcp-chat-preset-add { border: 0; background: transparent; color: #effff6; font: inherit; font-size: 11px; cursor: pointer; }
-.subtitle-mcp-chat-preset-run { padding: 5px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subtitle-mcp-chat-preset-name { padding: 5px 8px 5px 10px; color: #effff6; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; align-self: center; }
+.subtitle-mcp-chat-preset-run, .subtitle-mcp-chat-preset-edit-btn { padding: 5px 9px; white-space: nowrap; border-left: 1px solid #477e69 !important; }
+.subtitle-mcp-chat-preset-edit-btn:hover:not(:disabled) { background: #234a3b; }
+.subtitle-mcp-chat-preset-edit-btn:disabled { opacity: .5; cursor: default; }
+.subtitle-mcp-chat-preset-edit-title { font-size: 12px; color: #dae3e5; }
 .subtitle-mcp-chat-preset-run:hover:not(:disabled) { background: #234a3b; }
 .subtitle-mcp-chat-preset-run:disabled { opacity: .5; cursor: default; }
 .subtitle-mcp-chat-preset-del { padding: 5px 8px 5px 4px; color: #9bb4aa; }
