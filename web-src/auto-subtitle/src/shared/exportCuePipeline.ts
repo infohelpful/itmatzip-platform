@@ -5,7 +5,7 @@
 import type { SubtitleLine } from './subtitles'
 import { subtitleCueLinesForExport, subtitleLineEditDisplayText, subtitleWordPiecesForExport } from './subtitles'
 import { resolveCaptionEmphasis, type CaptionEmphasis } from './captionEmphasis'
-import { subtitlePresentationSpans } from './subtitlePresentation'
+import { hasDisplayTimingAdjust, subtitleDisplaySpans } from './subtitleDisplayTiming'
 
 export type ExportCueWord = {
   start: number
@@ -70,7 +70,7 @@ export function buildExportCueLines(
   if (!options?.includeWords && !withEmphasis) return cues
   // subtitleCueLinesForExport 는 tombstone·빈 텍스트 줄을 건너뛰므로 같은 규칙으로 줄을 다시 고른다.
   const kept: SubtitleLine[] = []
-  for (const span of subtitlePresentationSpans(lines)) {
+  for (const span of subtitleDisplaySpans(lines)) {
     const line = lines[span.index]
     if (subtitleCueLinesForExport([line]).length > 0) kept.push(line)
   }
@@ -85,7 +85,10 @@ export function buildExportCueLines(
     const pieces = subtitleWordPiecesForExport(kept[i]?.words)
     const lastWord = kept[i]?.words?.filter(word => !word.isDeleted).at(-1)
     if (pieces.length > 0 && lastWord?.isSilence && lastWord.gapKind === 'unclassified') {
-      pieces[pieces.length - 1] = { ...pieces[pieces.length - 1], end: cue.end }
+      const last = pieces[pieces.length - 1]
+      // 수동으로 표시 끝을 당긴 줄은 단어 강조를 소리 끝보다 짧게 자르지 않는다.
+      const end = hasDisplayTimingAdjust(kept[i]) ? Math.max(last.end, cue.end) : cue.end
+      pieces[pieces.length - 1] = { ...last, end }
     }
     const captionPieces = captionWordPieces(cue.text, pieces)
     const out: ExportCueLine = captionPieces.length > 0 ? { ...cue, words: captionPieces } : cue

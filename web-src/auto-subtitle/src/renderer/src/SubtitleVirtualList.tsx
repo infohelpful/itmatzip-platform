@@ -18,6 +18,8 @@ import type { MouseEvent } from 'react'
 
 import { subtitleLineEditDisplayText, type SubtitleLine } from '../../shared/subtitles'
 import { subtitlePresentationEnd, subtitlePresentationStart } from '../../shared/subtitlePresentation'
+import type { SubtitleDisplayTimingEdit } from '../../shared/subtitleDisplayTiming'
+import { SubtitleDisplayTimingControl } from './components/SubtitleDisplayTimingControl'
 import {
   DISPLAY_CROSS_CARD_GAP_ABSORB_MS,
   DISPLAY_GAP_ABSORB_MS,
@@ -139,6 +141,8 @@ export type SubtitleVirtualListProps = {
   emphasisColor?: string
   /** 편집 칸 강조 막대·Ctrl+B 의 강조 변경 */
   onCaptionEmphasis?: (index: number, edit: CaptionEmphasisEdit) => void
+  /** 카드 「자막 표시」 시간 조절(표시 타이밍만 — 단어·소리 시간은 그대로) */
+  onDisplayTiming?: (index: number, edit: SubtitleDisplayTimingEdit) => void
 }
 
 /** `List` 의 `rowProps` — `index` / `style` / `ariaAttributes` 는 List가 주입 */
@@ -198,6 +202,7 @@ export type SubtitleListRowProps = {
   setGlobalHoveredRow: (idx: number | null) => void
   emphasisColor: string
   onCaptionEmphasis?: SubtitleVirtualListProps['onCaptionEmphasis']
+  onDisplayTiming?: SubtitleVirtualListProps['onDisplayTiming']
 }
 
 /**
@@ -255,7 +260,8 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     globalHoveredRowIndex,
     setGlobalHoveredRow,
     emphasisColor,
-    onCaptionEmphasis
+    onCaptionEmphasis,
+    onDisplayTiming
   } = props
   const requestFocusCaret = requestFocusWord
   const row = subtitles[index]
@@ -1800,6 +1806,11 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             <span className="subtitle-time-sep">→</span>
             <span className="subtitle-time">{formatTimecode(effectiveCardEndSec)}</span>
           </div>
+          {onDisplayTiming ? (
+            <SubtitleDisplayTimingControl lines={subtitles} index={index} rowNumber={props.rowNumbers[index]}
+              formatTimecode={formatTimecode} playheadSecRef={playheadSecRef}
+              onEdit={onDisplayTiming} onTogglePlayback={onTogglePlayback} />
+          ) : null}
           {row.isHidden ? <span className="subtitle-hidden-badge">자막 숨김</span> : null}
         </div>
         {wordRail.length > 0 ? (
@@ -2400,7 +2411,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       globalHoveredRowIndex,
       setGlobalHoveredRow: setGlobalHoveredRowIndex,
       emphasisColor: props.emphasisColor ?? DEFAULT_EMPHASIS_COLOR,
-      onCaptionEmphasis: props.onCaptionEmphasis
+      onCaptionEmphasis: props.onCaptionEmphasis,
+      onDisplayTiming: props.onDisplayTiming
     }),
     [
       subtitles,
@@ -2447,7 +2459,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       globalHoveredRowIndex,
       rowNumbers,
       props.emphasisColor,
-      props.onCaptionEmphasis
+      props.onCaptionEmphasis,
+      props.onDisplayTiming
     ]
   )
 

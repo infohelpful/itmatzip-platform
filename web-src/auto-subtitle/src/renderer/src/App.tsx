@@ -139,6 +139,9 @@ import {
 } from './timeline/playbackSchedule'
 import { pickActiveEditorRow, resolveEditorHighlight, sourceTimelineDuration } from '../../shared/editorPlayback'
 import { setSubtitleVisibility } from '../../shared/subtitleVisibility'
+import {
+  applySubtitleDisplayTimingEdit, mergedDisplayTiming, splitDisplayTiming, type SubtitleDisplayTimingEdit
+} from '../../shared/subtitleDisplayTiming'
 import { replaceAllSubtitleMatches, replaceSubtitleMatch, type SubtitleSearchMatch } from '../../shared/subtitleSearch'
 import { SubtitleSearchPanel } from './components/SubtitleSearchPanel'
 import { WebAudioMasterPlayback } from './timeline/webAudioMasterPlayback'
@@ -4078,6 +4081,11 @@ export default function App(): ReactElement {
     })
   }, [applySubtitleChange])
 
+  /** 카드 「자막 표시」 팝오버 — 줄의 표시 보정값만 바꾼다(단어·소리·컷 그대로). 실행 취소 가능. */
+  const editDisplayTimingAt = useCallback((index: number, edit: SubtitleDisplayTimingEdit) => {
+    applySubtitleChange((prev) => applySubtitleDisplayTimingEdit(prev, index, edit))
+  }, [applySubtitleChange])
+
   const updateSubtitleRangeAt = useCallback((index: number, nextStart: number, nextEnd: number) => {
     const snap = (v: number) => Math.round(Math.max(0, v) * 10) / 10
     applySubtitleChange(
@@ -4112,7 +4120,7 @@ export default function App(): ReactElement {
 
       const first: SubtitleLine = { ...cur, end: splitTime, text: leftText, captionText: undefined, words: leftWords }
       const second: SubtitleLine = { ...cur, start: splitTime, end: cur.end, text: rightText, captionText: undefined, words: rightWords }
-      return [...prev.slice(0, index), first, second, ...prev.slice(index + 1)]
+      return splitDisplayTiming(prev, [...prev.slice(0, index), first, second, ...prev.slice(index + 1)], index)
     })
   }, [applySubtitleChange])
 
@@ -4128,7 +4136,7 @@ export default function App(): ReactElement {
         text: textFromWords(mergedWords, `${cur.text} ${next.text}`.trim()),
         words: mergedWords
       }
-      return [...prev.slice(0, index), merged, ...prev.slice(index + 2)]
+      return [...prev.slice(0, index), mergedDisplayTiming(merged, cur, next), ...prev.slice(index + 2)]
     })
   }, [applySubtitleChange])
 
@@ -7450,6 +7458,7 @@ export default function App(): ReactElement {
                           waveformMediaDurationHintSec={durationSec > 0 ? durationSec : undefined}
                           emphasisColor={captionEmphasisColor}
                           onCaptionEmphasis={editCaptionEmphasisAt}
+                          onDisplayTiming={editDisplayTimingAt}
                         />
                       </SubtitleDataProvider>
                     </div>

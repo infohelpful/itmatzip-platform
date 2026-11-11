@@ -148,3 +148,28 @@
   height: calc(100cqw * 9 / 16 + 120px);
 }
 .split-preview-top > .preview-drop { flex: 0 0 auto; aspect-ratio: 16 / 9; width: 100%; }
+
+/* 자막 카드 「자막 표시」 시간 — 카드 오른쪽 위 영상(소리) 시간과 별도로, 자막이 화면에 보이는 구간 */
+.subtitle-display-timing-btn { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border: 1px solid #3c4649; border-radius: 4px; background: #161c1d; color: #9fb0b4; font: inherit; font-size: 10px; font-variant-numeric: tabular-nums; cursor: pointer; white-space: nowrap; }
+.subtitle-display-timing-btn:hover, .subtitle-display-timing-btn.is-open { border-color: #73949d; background: #263338; color: #dce5e7; }
+.subtitle-display-timing-btn:focus-visible { outline: 2px solid #20bad8; outline-offset: 1px; }
+.subtitle-display-timing-btn-label { color: #7f959a; }
+.subtitle-display-timing-btn.is-adjusted { border-color: #c79a2c; color: #ffd98a; background: #2a2412; }
+.subtitle-display-timing-btn.is-adjusted .subtitle-display-timing-btn-label { color: #f0c25a; }
+.subtitle-display-timing-popup { position: fixed; z-index: 10000; box-sizing: border-box; max-width: calc(100vw - 16px); padding: 12px; border: 1px solid #465154; border-radius: 8px; background: #141819; color: #dce5e7; box-shadow: 0 8px 30px #0008; font: 12px system-ui, sans-serif; }
+.subtitle-display-timing-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.subtitle-display-timing-head strong { font-size: 12px; }
+.subtitle-display-timing-popup button { font: inherit; font-size: 11px; color: #e0e7e8; border: 1px solid #424a4c; background: #1b2122; border-radius: 4px; height: 24px; padding: 0 6px; cursor: pointer; }
+.subtitle-display-timing-popup button:hover:not(:disabled) { border-color: #819296; background: #2c3335; }
+.subtitle-display-timing-popup button:disabled { opacity: .45; cursor: default; }
+.subtitle-display-timing-popup button:focus-visible { outline: 2px solid #20bad8; outline-offset: 1px; }
+.subtitle-display-timing-popup .subtitle-display-timing-close { border: 0; background: transparent; font-size: 16px; line-height: 1; padding: 0 4px; color: #9fb0b4; }
+.subtitle-display-timing-auto { margin: 0 0 8px; color: #8a9b9f; font-size: 10px; font-variant-numeric: tabular-nums; }
+.subtitle-display-timing-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.subtitle-display-timing-label { width: 26px; color: #b1bec1; font-size: 11px; }
+.subtitle-display-timing-value { min-width: 76px; text-align: center; font-variant-numeric: tabular-nums; font-size: 12px; color: #fff; }
+.subtitle-display-timing-popup .subtitle-display-timing-here { border-color: #20bad8; color: #9fe9f7; }
+.subtitle-display-timing-adj { flex-basis: 100%; padding-left: 30px; color: #72878d; font-size: 10px; font-variant-numeric: tabular-nums; }
+.subtitle-display-timing-adj.is-on { color: #f0c25a; }
+.subtitle-display-timing-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+.subtitle-display-timing-note { margin: 8px 0 0; color: #72878d; font-size: 10px; line-height: 1.4; }

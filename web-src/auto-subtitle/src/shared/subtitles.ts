@@ -5,7 +5,7 @@ import {
   SILENCE_PLACEHOLDER_TEXT
 } from './wordContract'
 import { parseManualBoundaryLocks, parseWordAlignmentMeta, type WordAlignmentMeta } from './wordAlignmentMeta'
-import { subtitlePresentationSpans } from './subtitlePresentation'
+import { hasDisplayTimingAdjust, subtitleDisplaySpans } from './subtitleDisplayTiming'
 import type { CaptionEmphasis } from './captionEmphasis'
 
 /** Python 사이드카(Faster-Whisper) 및 UI 공통 자막 줄 형식 */
@@ -52,6 +52,13 @@ export type SubtitleLine = {
   captionText?: string
   /** 강조 글자 범위 — `subtitleLineEditDisplayText(line)` 기준 오프셋 (`captionEmphasis.ts`) */
   emphasis?: CaptionEmphasis[]
+  /**
+   * 자막 표시 시작 보정(초) — 자동 표시 구간 시작에 더한다(`subtitleDisplayTiming.ts`).
+   * 화면·내보내기의 자막이 뜨는 시점만 바뀌고, 단어·소리·컷 시간은 그대로다.
+   */
+  displayStartAdj?: number
+  /** 자막 표시 끝 보정(초) — 자동 표시 구간 끝에 더한다. */
+  displayEndAdj?: number
   words?: SubtitleWord[]
   /**
    * true: 줄 자체가 tombstone — 줄 안의 모든 단어가 `isDeleted` 가 되었을 때 함께 표시.
@@ -302,7 +309,7 @@ export function subtitleCueLinesForExport(
   lines: readonly SubtitleLine[]
 ): SubtitleCueLineForExport[] {
   const out: SubtitleCueLineForExport[] = []
-  for (const span of subtitlePresentationSpans(lines)) {
+  for (const span of subtitleDisplaySpans(lines)) {
     const line = lines[span.index]
     if (line.isHidden) continue
     const hasWords = Array.isArray(line.words) && line.words.length > 0
@@ -316,7 +323,8 @@ export function subtitleCueLinesForExport(
     } else {
       const text = (line.text ?? '').trim()
       if (text.length === 0) continue
-      out.push({ start: line.start, end: span.end, text })
+      // 수동 표시 보정이 있는 줄만 보정된 시작을 쓴다(없으면 예전 그대로 줄 시작).
+      out.push({ start: hasDisplayTimingAdjust(line) ? span.start : line.start, end: span.end, text })
     }
   }
   return out

@@ -4,6 +4,7 @@ import { scrubTimelineNoiseFromWordPiece } from '../../shared/wordContract'
 import {
   editedCaptionOf, mergedCaption, sourceBoundaryForCaptionOffset, sourcePieces, splitCaptionAtSourceBoundary, withCaption
 } from '../../shared/captionSplit'
+import { mergedDisplayTiming, splitDisplayTiming } from '../../shared/subtitleDisplayTiming'
 
 const MIN_SEGMENT_SEC = 0.05
 
@@ -49,7 +50,7 @@ function splitRowAtWord(
 export function splitSubtitleAtWordBoundary(
   lines: readonly SubtitleLine[], index: number, wordIndex: number
 ): SubtitleLine[] {
-  return splitRowAtWord(lines, index, wordIndex) ?? [...lines]
+  return splitDisplayTiming(lines, splitRowAtWord(lines, index, wordIndex) ?? [...lines], index)
 }
 
 /** Index of the word holding the `count`-th visible label, or -1 past the end. */
@@ -79,7 +80,7 @@ export function mergeSubtitleIntoPrevious(lines: readonly SubtitleLine[], index:
   }
   const merged = withCaption(base, caption)
   if (caption === undefined && !merged.text) merged.text = `${up.text} ${cur.text}`.trim()
-  return [...lines.slice(0, index - 1), merged, ...lines.slice(index + 1)]
+  return [...lines.slice(0, index - 1), mergedDisplayTiming(merged, up, cur), ...lines.slice(index + 1)]
 }
 
 /**
@@ -137,6 +138,14 @@ export function splitSubtitleLine(
   index: number,
   cursorPos: number
 ): SubtitleLine[] {
+  return splitDisplayTiming(lines, splitSubtitleLineCore(lines, index, cursorPos), index)
+}
+
+function splitSubtitleLineCore(
+  lines: readonly SubtitleLine[],
+  index: number,
+  cursorPos: number
+): SubtitleLine[] {
   if (index < 0 || index >= lines.length) return [...lines]
   const line = lines[index]
   const { start, end, text } = line
@@ -151,7 +160,7 @@ export function splitSubtitleLine(
     const wordIndex = wordIndexForPieceBoundary(line.words, sourceBoundaryForCaptionOffset(caption, pieces, cursor))
     const byWord = splitRowAtWord(lines, index, wordIndex, pair)
     if (byWord) return byWord
-    const byRatio = splitSubtitleLine(lines.map((l, i) => i === index ? withCaption(l, undefined) : l), index,
+    const byRatio = splitSubtitleLineCore(lines.map((l, i) => i === index ? withCaption(l, undefined) : l), index,
       Math.round(cursor / Math.max(1, caption.length) * displayTextFromSubtitleWords(line.words).length))
     return byRatio.map((l, i) => i === index ? withCaption(l, pair[0]) : i === index + 1 ? withCaption(l, pair[1]) : l)
   }
@@ -227,5 +236,5 @@ export function mergeEmptySubtitleWithPrevious(
   }
   const caption = mergedCaption(prevLine, cur)
   if (caption !== undefined) merged = withCaption(merged, caption)
-  return [...lines.slice(0, index - 1), merged, ...lines.slice(index + 1)]
+  return [...lines.slice(0, index - 1), mergedDisplayTiming(merged, prevLine, cur), ...lines.slice(index + 1)]
 }

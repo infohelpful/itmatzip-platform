@@ -32,6 +32,15 @@ function tokenIdFor(li: number, wi: number): string {
   return `tok-${li}-${wi}`
 }
 
+/** 자막 표시 타이밍 보정값(`subtitleDisplayTiming.ts`)을 줄 ↔ 문장 사이에서 그대로 옮긴다. */
+function copyDisplayTiming(
+  from: { displayStartAdj?: number; displayEndAdj?: number },
+  to: { displayStartAdj?: number; displayEndAdj?: number }
+): void {
+  if (typeof from.displayStartAdj === 'number' && Number.isFinite(from.displayStartAdj)) to.displayStartAdj = from.displayStartAdj
+  if (typeof from.displayEndAdj === 'number' && Number.isFinite(from.displayEndAdj)) to.displayEndAdj = from.displayEndAdj
+}
+
 const lineToSentence: WeakMap<SubtitleLine, TimelineSentence> = new WeakMap()
 const sentenceToLine: WeakMap<TimelineSentence, SubtitleLine> = new WeakMap()
 
@@ -63,6 +72,7 @@ function buildSentenceFromLine(line: SubtitleLine, li: number): TimelineSentence
       is_deleted: line.isDeleted === true ? true : false
     }
     if (line.emphasis?.length) sentence.emphasis = line.emphasis
+    copyDisplayTiming(line, sentence)
     return sentence
   }
   const plain: TimelineSentence = {
@@ -80,6 +90,7 @@ function buildSentenceFromLine(line: SubtitleLine, li: number): TimelineSentence
     is_deleted: line.isDeleted === true ? true : false
   }
   if (line.emphasis?.length) plain.emphasis = line.emphasis
+  copyDisplayTiming(line, plain)
   return plain
 }
 
@@ -128,6 +139,7 @@ function buildLineFromSentence(sentence: TimelineSentence): SubtitleLine | null 
   if (sentence.is_deleted === true) line.isDeleted = true
   if (sentence.isHidden === true) line.isHidden = true
   if (sentence.emphasis?.length) line.emphasis = sentence.emphasis
+  copyDisplayTiming(sentence, line)
   return line
 }
 

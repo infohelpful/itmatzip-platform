@@ -1,5 +1,5 @@
 import type { SubtitleLine } from './subtitles'
-import { pickActiveSubtitleIndex } from './subtitlePresentation'
+import { pickDisplayedSubtitleIndex } from './subtitleDisplayTiming'
 
 export function setSubtitleVisibility(lines: readonly SubtitleLine[], selected: ReadonlySet<number>, hidden: boolean): SubtitleLine[] {
   return lines.map((line, i) => {
@@ -11,14 +11,14 @@ export function setSubtitleVisibility(lines: readonly SubtitleLine[], selected: 
   })
 }
 export function subtitlePreviewText(lines: readonly SubtitleLine[], time: number): string {
-  const index = pickActiveSubtitleIndex(lines, time)
+  const index = pickDisplayedSubtitleIndex(lines, time)
   const line = index === null ? undefined : lines[index]
   return line && !line.isHidden ? line.text : ''
 }
 
 /** 프리뷰에 보일 줄(숨김이면 null) — `subtitlePreviewText` 와 같은 규칙. 강조 칩 렌더용. */
 export function subtitlePreviewLine(lines: readonly SubtitleLine[], time: number): SubtitleLine | null {
-  const index = pickActiveSubtitleIndex(lines, time)
+  const index = pickDisplayedSubtitleIndex(lines, time)
   const line = index === null ? undefined : lines[index]
   return line && !line.isHidden ? line : null
 }

@@ -6,6 +6,7 @@ import { parseMediaFingerprint, type MediaFingerprint } from './projectMedia'
 import { parseVirtualTimeline, type VirtualTimelineBlock } from './virtualTimeline'
 import { isEmphasisHexColor, parseCaptionEmphasis } from './captionEmphasis'
 import type { SubtitleBoxStyle } from './subtitleCapsule'
+import { MAX_DISPLAY_ADJ_SEC } from './subtitleDisplayTiming'
 
 export type { VirtualTimelineBlock }
 
@@ -114,6 +115,10 @@ function parseProjectSubtitles(raw: unknown, legacy: boolean): SubtitleLine[] | 
     if (typeof item.captionText === 'string') line.captionText = item.captionText
     if (item.isDeleted === true) line.isDeleted = true
     if (item.isHidden === true) line.isHidden = true
+    for (const key of ['displayStartAdj', 'displayEndAdj'] as const) {
+      const v = item[key]
+      if (typeof v === 'number' && Number.isFinite(v) && v !== 0 && Math.abs(v) <= MAX_DISPLAY_ADJ_SEC) line[key] = v
+    }
     const emphasis = parseCaptionEmphasis(item.emphasis)
     if (emphasis) line.emphasis = emphasis
     if (item.words !== undefined) {

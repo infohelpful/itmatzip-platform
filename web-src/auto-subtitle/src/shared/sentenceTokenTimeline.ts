@@ -28,6 +28,9 @@ export interface TimelineSentence {
   captionText?: string
   /** `SubtitleLine.emphasis` 라운드트립 보존용 */
   emphasis?: import('./captionEmphasis').CaptionEmphasis[]
+  /** `SubtitleLine.displayStartAdj` / `displayEndAdj` 라운드트립 보존용(자막 표시 타이밍 보정) */
+  displayStartAdj?: number
+  displayEndAdj?: number
   id: string
   tokens: TimelineToken[]
   is_deleted?: boolean

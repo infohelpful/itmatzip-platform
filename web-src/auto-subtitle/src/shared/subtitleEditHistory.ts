@@ -8,6 +8,7 @@ export function subtitleLinesMeaningfullyChanged(next: SubtitleLine[], prev: Sub
     const n = next[i], p = prev[i]
     if (n === p) continue
     if (!!n.isHidden !== !!p.isHidden) return true
+    if ((n.displayStartAdj ?? 0) !== (p.displayStartAdj ?? 0) || (n.displayEndAdj ?? 0) !== (p.displayEndAdj ?? 0)) return true
     if (!sameCaptionEmphasis(n.emphasis, p.emphasis)) return true
     if (n.start !== p.start || n.end !== p.end || n.text !== p.text || !!n.isDeleted !== !!p.isDeleted) return true
     const nw = n.words ?? [], pw = p.words ?? []
