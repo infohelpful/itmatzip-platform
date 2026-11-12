@@ -455,6 +455,15 @@ def fingerprint_media(path: str) -> dict[str, Any]:
     return {"algorithm": "sha256", "size": before.st_size, "digest": digest.hexdigest()}
 
 
+def probe_duration(path: str) -> dict[str, Any]:
+    """Duration in seconds, measured the same way as prepared media (what the editor timeline uses)."""
+    media = existing_media_file(path)
+    ff = paths.ffmpeg_paths()
+    if not ff:
+        raise RuntimeError("FFmpeg 준비가 필요합니다. 먼저 엔진 다운로드를 실행해 주세요.")
+    return {"duration": probe_media_timing(ff[1], media).duration}
+
+
 def waveform_cache_json_path(path: str) -> dict[str, Any]:
     media = existing_media_file(path)
     st = media.stat()

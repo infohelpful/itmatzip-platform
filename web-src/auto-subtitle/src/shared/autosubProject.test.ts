@@ -102,3 +102,14 @@ it('keeps IDs through edits/reorder and repairs only duplicate/new speech identi
   const reordered = [{ ...identified[0], words: [...identified[0].words!].reverse() }]
   expect(ensureWordIdentities(reordered)).toBe(reordered)
 })
+
+describe('project mediaDuration', () => {
+  it('저장된 원본 길이를 읽고, 없거나 잘못된 값은 버린다', () => {
+    const ok = parseAutosubProjectFile({ ...projectFixture(), mediaDuration: 612.5 })
+    expect(ok.ok && ok.data.mediaDuration).toBe(612.5)
+    const old = parseAutosubProjectFile(projectFixture())
+    expect(old.ok && old.data.mediaDuration).toBeUndefined()
+    const bad = parseAutosubProjectFile({ ...projectFixture(), mediaDuration: -3 })
+    expect(bad.ok && bad.data.mediaDuration).toBeUndefined()
+  })
+})

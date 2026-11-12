@@ -28,7 +28,7 @@ import { SubtitleActionsToolbar } from './components/SubtitleActionsToolbar'
 import { EditorToolIcon } from './components/EditorToolIcon'
 import { WatermarkDialog, loadWatermarkSettings, saveWatermarkSettings } from './components/WatermarkDialog'
 import { exportWatermarkOf, type WatermarkSettings } from '../../shared/watermark'
-import { sameMedia, type MediaFingerprint, type MediaFingerprintResult } from '../../shared/projectMedia'
+import { checkReplacementDuration, sameMedia, type MediaFingerprint, type MediaFingerprintResult } from '../../shared/projectMedia'
 import type { PreparedMedia } from '../../shared/preparedMedia'
 import { seekVideoElementTo } from './timeline/seekVideo'
 
@@ -1589,7 +1589,7 @@ export default function App(): ReactElement {
   /** 마지막으로 저장/연 `.autosub` 경로 — 「저장」 덮어쓰기용 */
   const projectFilePathRef = useRef<string | null>(null)
   const projectGenerationRef = useRef(0)
-  const projectMediaRef = useRef<{ path: string | null; fingerprint: MediaFingerprint | null }>({ path: null, fingerprint: null })
+  const projectMediaRef = useRef<{ path: string | null; fingerprint: MediaFingerprint | null; duration?: number | null }>({ path: null, fingerprint: null })
   const mediaFingerprintPromiseRef = useRef<Promise<MediaFingerprintResult> | null>(null)
   const [projectMediaNotice, setProjectMediaNotice] = useState('')
   const [projectIoBusy, setProjectIoBusy] = useState(false)
@@ -6349,6 +6349,7 @@ export default function App(): ReactElement {
   const buildAutosubProjectJson = useCallback(async (): Promise<string> => {
     const generation = projectGenerationRef.current
     const binding = projectMediaRef.current
+    const mediaDurationForSave = binding.duration ?? (preparedMedia?.duration ?? 0)
     const mergedCuts = mergeCutRanges([...cutRanges])
     const activeSnap = buildActiveBlocksSnapshotFromSubtitles(subtitles, mergedCuts)
     const mergedDeleted = mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts)
@@ -6359,6 +6360,7 @@ export default function App(): ReactElement {
       savedAt: new Date().toISOString(),
       videoPath: binding.path ?? videoPath,
       mediaFingerprint: binding.fingerprint,
+      ...(mediaDurationForSave > 0 ? { mediaDuration: mediaDurationForSave } : {}),
       cutRanges,
       subtitleStyle: {
         fontFamily: subtitleFontFamily,
@@ -6409,7 +6411,8 @@ export default function App(): ReactElement {
     videoPath,
     virtualTimelineDeleted,
     wordHighlightEnabled,
-    wordHighlightColor
+    wordHighlightColor,
+    preparedMedia
   ])
 
   const saveProjectAs = useCallback(async () => {
@@ -6493,7 +6496,7 @@ export default function App(): ReactElement {
     } finally { setProjectIoBusy(false) }
     if (generation !== projectGenerationRef.current) return false
     pausePlayback()
-    projectMediaRef.current = { path: d.videoPath, fingerprint }
+    projectMediaRef.current = { path: d.videoPath, fingerprint, duration: d.mediaDuration ?? null }
     mediaFingerprintPromiseRef.current = null
     setProjectMediaNotice(notice)
     projectFilePathRef.current = projectPath
@@ -6596,6 +6599,37 @@ export default function App(): ReactElement {
     } catch (e) { setProjectMediaNotice(e instanceof Error ? e.message : String(e)) }
     finally { setProjectIoBusy(false) }
   }, [])
+
+  /**
+   * 저장한 프로젝트의 자막·타임스탬프·컷은 그대로 두고 원본 영상만 다른 파일(예: 효과를 입힌 영상)로 바꾼다.
+   * 길이가 다르면 시간축이 어긋나므로 불러오지 않는다.
+   */
+  const replaceProjectMedia = useCallback(async () => {
+    const generation = projectGenerationRef.current
+    setProjectIoBusy(true)
+    try {
+      const picked = await window.api.openVideoFileDialog()
+      if (picked.canceled || !picked.filePaths[0]) return
+      const path = picked.filePaths[0]
+      const probe = await window.api.probeMediaDuration(path)
+      if (generation !== projectGenerationRef.current) return
+      if (!probe.ok) { setProjectMediaNotice(`영상을 읽을 수 없습니다: ${probe.reason}`); return }
+      const expected = projectMediaRef.current.duration ?? (preparedMedia && preparedMedia.duration > 0 ? preparedMedia.duration : null)
+      const lastEnd = subtitles.reduce((end, line) => Math.max(end, line.end), 0)
+      const check = checkReplacementDuration(expected, probe.duration, lastEnd)
+      if (!check.ok) { setProjectMediaNotice(check.reason); return }
+      const result = await window.api.fingerprintMedia(path)
+      if (generation !== projectGenerationRef.current) return
+      if (!result.ok) { setProjectMediaNotice(`영상을 읽을 수 없습니다: ${result.reason}`); return }
+      pausePlayback()
+      projectMediaRef.current = { path, fingerprint: result.fingerprint, duration: probe.duration }
+      mediaFingerprintPromiseRef.current = null
+      pendingProjectCoverageRef.current = path
+      setVideoPath(path)
+      setProjectMediaNotice('원본 영상을 교체했습니다. 자막과 타임스탬프는 그대로입니다. 프로젝트를 저장해 주세요.')
+    } catch (e) { setProjectMediaNotice(e instanceof Error ? e.message : String(e)) }
+    finally { setProjectIoBusy(false) }
+  }, [pausePlayback, preparedMedia, subtitles])
 
   const openProjectFile = useCallback(async () => {
     try {
@@ -6958,6 +6992,15 @@ export default function App(): ReactElement {
                 title="새 파일 이름으로 .autosub 저장"
               >
                 다른 이름으로 저장
+              </button>
+              <button
+                type="button"
+                className="app-topbar-gpu-btn preview-project-btn"
+                disabled={projectFileUiDisabled || projectIoBusy || subtitles.length === 0}
+                onClick={replaceProjectMedia}
+                title="자막·타임스탬프는 그대로 두고 원본 영상만 다른 영상(효과를 넣은 영상 등)으로 바꿉니다. 영상 길이가 같아야 합니다."
+              >
+                영상 교체
               </button>
               <button
                 type="button"

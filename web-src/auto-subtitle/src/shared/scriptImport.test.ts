@@ -3,6 +3,7 @@ import {
   alignScriptToTimedLines,
   decodeTextBuffer,
   parseSubtitleCues,
+  scriptReferenceText,
   splitScriptText,
   srtCuesToSubtitleLines
 } from './scriptImport'
@@ -226,5 +227,18 @@ describe('alignScriptToTimedLines', () => {
     if (!result.ok) return
     expect(result.stats.asrTokens).toBe(2)
     expect(result.stats.matched).toBe(2)
+  })
+})
+
+describe('scriptReferenceText', () => {
+  it('SRT 는 번호·시간을 빼고 문장만 남긴다', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:02,000\n갓 오브 워 라그나로크\n\n2\n00:00:02,500 --> 00:00:04,000\n<i>PS5</i> 버전입니다\n'
+    expect(scriptReferenceText(srt)).toBe('갓 오브 워 라그나로크\nPS5 버전입니다')
+  })
+  it('일반 대본은 빈 줄·중복 공백만 정리한다', () => {
+    expect(scriptReferenceText('\uFEFF첫 줄   입니다\r\n\r\n\r\n  둘째 줄  \n')).toBe('첫 줄 입니다\n둘째 줄')
+  })
+  it('빈 입력은 빈 문자열', () => {
+    expect(scriptReferenceText('  \n ')).toBe('')
   })
 })

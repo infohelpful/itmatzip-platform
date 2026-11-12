@@ -200,6 +200,8 @@ export type SidecarApi = {
   cancelMediaPreparation: (requestId: string) => Promise<void>
   readPreparedPcm: (url: string, ranges: import('./pcmAudio').PcmRange[]) => Promise<import('./pcmAudio').PcmReadResult>
   fingerprintMedia: (path: string) => Promise<import('./projectMedia').MediaFingerprintResult>
+  /** 영상 길이(초) — 편집 타임라인과 같은 방식으로 잰다 */
+  probeMediaDuration: (path: string) => Promise<{ ok: true; duration: number } | { ok: false; reason: string }>
   realignWords: (request: RealignRequest) => Promise<RealignResult>
   cancelRealignment: (requestId: string) => Promise<void>
   openVideoFileDialog: () => Promise<OpenVideoDialogResult>

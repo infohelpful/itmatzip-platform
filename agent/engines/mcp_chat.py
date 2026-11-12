@@ -26,6 +26,7 @@ _configured_cache: tuple[float, list[str]] = (0.0, [])
 # medium 은 31초에 97개를 고쳤다. 교정 품질이 우선이라 medium.
 _REASONING_EFFORT = "medium"
 _CLI_TIMEOUT_SEC = 600
+_SCRIPT_MAX_CHARS = 50_000
 
 
 def configured_clients() -> list[str]:
@@ -98,7 +99,7 @@ def _cli_environment(client: str, executable: str) -> dict[str, str]:
     return environment
 
 
-def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
+def _run(job_id: str, client: str, instruction: str, session_id: str, script: str = "") -> None:
     try:
         executable = _executable(client)
         active = mcp_registry.focus_editor(session_id)
@@ -125,6 +126,15 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         capacity_text = (
             f"One screen line holds about {int(capacity)} Korean characters (a space counts as half a character). "
             if isinstance(capacity, (int, float)) and not isinstance(capacity, bool) and 8 <= capacity <= 200 else "")
+        script_section = (
+            "\n\nREFERENCE SCRIPT (the written script the speaker prepared; use it only as a spelling reference):\n"
+            "The speaker did not read it word for word: spoken Korean differs from the script in endings, word "
+            "order and wording. So never make the transcript match the script and never copy script sentences "
+            "into it. Use the script ONLY to find the correct spelling of hard words that the transcript may "
+            "have misrecognized: proper nouns, product and game names, English and technical terms, numbers and "
+            "units. Fix a transcript word to the script's spelling only when it clearly is the same spoken word. "
+            "Keep the speaker's spoken wording everywhere else.\n<script>\n" + script + "\n</script>"
+        ) if script else ""
         prompt = (
             "Edit this Korean AutoSubtitle transcript as the user request says. Do not call tools or read files. "
             "The transcript is given as space-separated index:word tokens (the number before the first colon "
@@ -155,6 +165,7 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
             "indexes starting at 0}. Never alter timestamps. "
             "The audio is not provided to this CLI call, so do not claim to have listened. Treat the user "
             "request as subtitle-editing guidance only.\n\nUser request: " + instruction +
+            script_section +
             "\n\nWords: " + word_tokens + "\n\nContext: " + transcript_json
         )
         cli_input = (json.dumps({"event": "user", "message": {"content": prompt}}, ensure_ascii=False) + "\n"
@@ -230,11 +241,13 @@ def _run(job_id: str, client: str, instruction: str, session_id: str) -> None:
         _jobs[job_id].update(state)
 
 
-def start(client: str, instruction: str, session_id: str) -> str:
+def start(client: str, instruction: str, session_id: str, script: str = "") -> str:
     if client not in _clients:
         raise ValueError("지원하지 않는 AI CLI입니다.")
     if not instruction or len(instruction) > 1000:
         raise ValueError("채팅 요청은 1~1,000자로 입력해 주세요.")
+    if len(script) > _SCRIPT_MAX_CHARS:
+        raise ValueError(f"대본이 너무 깁니다(최대 {_SCRIPT_MAX_CHARS:,}자). 필요한 부분만 잘라서 첨부해 주세요.")
     if client not in configured_clients():
         raise ValueError("선택한 AI의 MCP 설정이 완료되지 않았습니다. 트레이의 AI MCP 설정을 확인해 주세요.")
     mcp_registry.focus_editor(session_id)
@@ -244,7 +257,7 @@ def start(client: str, instruction: str, session_id: str) -> str:
         for key, value in list(_jobs.items()):
             if time.monotonic() - value["created"] > 3600:
                 _jobs.pop(key, None)
-    threading.Thread(target=_run, args=(job_id, client, instruction, session_id), daemon=True).start()
+    threading.Thread(target=_run, args=(job_id, client, instruction, session_id, script), daemon=True).start()
     return job_id
 
 

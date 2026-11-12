@@ -279,6 +279,13 @@ export function createWebApi(): SidecarApi {
         return { ok: false, reason: errorText(error) }
       }
     },
+    probeMediaDuration: async (path: string) => {
+      try {
+        return await api<{ ok: true; duration: number } | { ok: false; reason: string }>('/media/probe', { path })
+      } catch (error) {
+        return { ok: false as const, reason: errorText(error) }
+      }
+    },
     openVideoFileDialog: async (): Promise<OpenVideoDialogResult> => {
       const picked = await controller<{ video_path?: string; cancelled?: boolean }>('/api/agent/pick-local-subtitle-media')
       if (!picked.video_path) return { canceled: true, filePaths: [] }

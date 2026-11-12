@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type Po
 import type { SubtitleLine } from '../../../shared/subtitles'
 import { applyProofread, proofreadSource, type ProofreadChange } from '../aiProofread'
 import { setAiMarks } from '../aiMarks'
+import { scriptReferenceText } from '../../../shared/scriptImport'
 import {
   acknowledgeMcpEdit, getMcpPendingEdit, getMcpStatus, heartbeatMcpEditor,
   publishMcpEditor, runMcpChat, type McpClient,
@@ -33,6 +34,8 @@ function clock(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 type ApplyMode = 'review' | 'automatic'
+/** 에이전트(mcp_chat.py)의 _SCRIPT_MAX_CHARS 와 같은 값 */
+const SCRIPT_MAX_CHARS = 50_000
 const APPLY_MODE_KEY = 'autosub.mcpChat.applyMode'
 const CLIENT_LABEL: Record<McpClient, string> = { codex: 'Codex', claude: 'Claude', antigravity: 'Antigravity' }
 
@@ -130,6 +133,8 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  /** 참고용 대본(첨부하면 이후 모든 요청에 함께 보낸다). 브라우저를 새로고침하면 다시 첨부한다. */
+  const [script, setScript] = useState<{ name: string; text: string } | null>(null)
   const [applyMode, setApplyMode] = useState<ApplyMode>(readApplyMode)
   const [presets, setPresets] = useState<Preset[]>(readPresets)
   const [editing, setEditing] = useState<PresetDraft | null>(null)
@@ -300,6 +305,22 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
     void send(instruction, instruction)
   }
 
+  const attachScript = async () => {
+    setError('')
+    try {
+      const picked = await window.api.openScriptFile()
+      if (picked.canceled) return
+      if (!picked.ok) { setError(picked.reason); return }
+      const text = scriptReferenceText(picked.text)
+      if (!text) { setError('대본 파일에서 읽을 내용이 없습니다.'); return }
+      if (text.length > SCRIPT_MAX_CHARS) {
+        setError(`대본이 너무 깁니다(${text.length.toLocaleString()}자, 최대 ${SCRIPT_MAX_CHARS.toLocaleString()}자). 필요한 부분만 잘라서 첨부해 주세요.`)
+        return
+      }
+      setScript({ name: picked.name, text })
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+  }
+
   /** Sends `instruction` to the CLI; `shown` is what the chat log displays (a preset shows its name). */
   const send = async (instruction: string, shown: string) => {
     if (busy) return
@@ -314,7 +335,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
       // 에이전트를 다시 시작했거나 하트비트가 늦으면 이 탭이 등록돼 있지 않을 수 있다 — 보내기 직전에 다시 올린다.
       const current = currentEditorRef.current
       await publishMcpEditor(current.sessionId, current.basis, current.snapshot)
-      const message = await runMcpChat(client, instruction, current.sessionId)
+      const message = await runMcpChat(client, instruction, current.sessionId, script?.text ?? '')
       setMessages(current => [...current, { role: 'assistant', text: message }])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -337,7 +358,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
             <div><b>AI 자막 채팅</b><small>MCP 설정됨 · {CLIENT_LABEL[client]}</small></div>
             <button type="button" onClick={() => setOpen(false)} aria-label="채팅 닫기">×</button>
           </header>
-          <div className="subtitle-mcp-chat-notice">이 채팅은 CLI에 자막 텍스트만 전달합니다. AI는 음성을 듣지 못하고 문맥으로만 오타를 고칩니다.</div>
+          <div className="subtitle-mcp-chat-notice">이 채팅은 CLI에 자막 텍스트(와 첨부한 대본)만 전달합니다. AI는 음성을 듣지 못하고 문맥으로만 오타를 고칩니다.</div>
           <label className="subtitle-mcp-chat-mode">
             사용할 AI
             <select name="mcp-client" value={client} onChange={event => setClient(event.target.value as McpClient)}>
@@ -463,6 +484,17 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
               </div>
             </form>
           ) : null}
+          <div className="subtitle-mcp-chat-script">
+            {script ? (
+              <>
+                <span className="subtitle-mcp-chat-script-name" title={script.name}>대본: {script.name} ({script.text.length.toLocaleString()}자)</span>
+                <button type="button" disabled={busy} onClick={() => setScript(null)} aria-label="첨부한 대본 제거">×</button>
+              </>
+            ) : (
+              <button type="button" disabled={busy} onClick={() => void attachScript()}
+                title="대본 파일을 고르면 AI가 어려운 단어의 정확한 표기를 참고합니다. 말한 그대로가 아니어도 됩니다.">대본 첨부</button>
+            )}
+          </div>
           <form className="subtitle-mcp-chat-form" onSubmit={submit}>
             <textarea name="mcp-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} maxLength={1000}
               placeholder="자막에 원하는 수정을 입력하세요" aria-label="AI 자막 수정 요청" rows={2} />

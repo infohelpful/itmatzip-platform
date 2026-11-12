@@ -40,6 +40,8 @@ export type AutosubProjectFile = {
   savedAt: string
   videoPath: string | null
   mediaFingerprint: MediaFingerprint | null
+  /** 저장 당시 원본 영상 길이(초) — 영상 교체 때 같은 길이인지 확인한다. 구버전 프로젝트에는 없다. */
+  mediaDuration?: number
   cutRanges: CutRange[]
   subtitleStyle: AutosubProjectStyleV1
   subtitles: SubtitleLine[]
@@ -186,6 +188,9 @@ export function parseAutosubProjectFile(raw: unknown):
     cutRanges,
     subtitleStyle,
     subtitles
+  }
+  if (typeof raw.mediaDuration === 'number' && Number.isFinite(raw.mediaDuration) && raw.mediaDuration > 0) {
+    data.mediaDuration = raw.mediaDuration
   }
   if (virtualTimelineParsed && virtualTimelineParsed.length > 0) {
     data.virtualTimeline = virtualTimelineParsed

@@ -19,6 +19,10 @@
 .subtitle-mcp-chat-form { display: flex; gap: 7px; padding: 10px; border-top: 1px solid #303a3b; }
 .subtitle-mcp-chat-form textarea { flex: 1; resize: vertical; min-height: 40px; max-height: 100px; border: 1px solid #384445; border-radius: 7px; padding: 8px; background: #0e1314; color: #f2f5f5; font: inherit; }
 .subtitle-mcp-chat-form button:disabled { opacity: .5; cursor: default; }
+.subtitle-mcp-chat-script { display: flex; align-items: center; gap: 6px; padding: 8px 10px 0; border-top: 1px solid #303a3b; font-size: 11px; color: #b8c6c8; }
+.subtitle-mcp-chat-script button { border: 1px solid #477e69; border-radius: 12px; padding: 4px 10px; background: #1a3a2f; color: #effff6; font: inherit; font-size: 11px; cursor: pointer; }
+.subtitle-mcp-chat-script button:disabled { opacity: .5; cursor: default; }
+.subtitle-mcp-chat-script-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #bfe8d2; }
 .subtitle-mcp-chat-error { margin: 0; padding: 6px 11px; color: #ffaaaa; font-size: 11px; }
 .subtitle-mcp-chat { position: relative; max-width: calc(100vw - 28px); max-height: calc(100vh - 40px); }
 .subtitle-mcp-chat-resize { position: absolute; z-index: 2; touch-action: none; }

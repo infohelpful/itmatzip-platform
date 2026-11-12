@@ -87,6 +87,22 @@ export function parseSubtitleCues(raw: string): { cues: ScriptCue[]; skippedBloc
   return { cues, skippedBlocks }
 }
 
+/**
+ * AI 채팅에 참고 자료로 보낼 대본 텍스트. SRT/VTT 이면 시간·번호를 빼고 자막 문장만, 일반 대본이면 빈 줄과
+ * 줄 끝 공백을 정리해 돌려준다. 어려운 단어의 정확한 표기를 참고하는 용도라 문장 구분은 줄바꿈 정도면 충분하다.
+ */
+export function scriptReferenceText(raw: string): string {
+  const { cues } = parseSubtitleCues(raw)
+  const body = cues.length > 0
+    ? cues.map((cue) => cue.text).join('\n')
+    : raw.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n')
+  return body
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .filter((line) => line.length > 0)
+    .join('\n')
+}
+
 const MIN_WORD_SEC = 0.01
 
 function wordsFromTokens(tokens: readonly string[], start: number, end: number, engine: string): SubtitleWord[] {

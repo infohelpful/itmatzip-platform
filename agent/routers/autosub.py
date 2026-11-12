@@ -48,8 +48,11 @@ async def post_mcp_chat(body: dict[str, Any] = Body(...)) -> dict[str, str]:
     session_id = _valid_mcp_session(body.get("sessionId"))
     if not isinstance(client, str) or not isinstance(instruction, str):
         raise HTTPException(status_code=400, detail="AI CLI와 요청 문장을 확인해 주세요.")
+    script = body.get("script") or ""
+    if not isinstance(script, str):
+        raise HTTPException(status_code=400, detail="대본 형식이 올바르지 않습니다.")
     try:
-        job_id = await run_in_threadpool(mcp_chat.start, client, instruction.strip(), session_id)
+        job_id = await run_in_threadpool(mcp_chat.start, client, instruction.strip(), session_id, script.strip())
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"jobId": job_id}
@@ -288,6 +291,14 @@ async def post_media_pcm(body: dict[str, Any] = Body(...)) -> Response:
 async def post_media_fingerprint(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     try:
         return {"ok": True, "fingerprint": await run_in_threadpool(media.fingerprint_media, _str(body, "path"))}
+    except (OSError, ValueError, RuntimeError) as error:
+        return {"ok": False, "reason": str(error)}
+
+
+@router.post("/media/probe")
+async def post_media_probe(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        return {"ok": True, **await run_in_threadpool(media.probe_duration, _str(body, "path"))}
     except (OSError, ValueError, RuntimeError) as error:
         return {"ok": False, "reason": str(error)}
 
