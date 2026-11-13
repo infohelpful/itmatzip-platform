@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.37",
-    "published_at":  "2026-11-13",
+    "version":  "1.7.38",
+    "published_at":  "2026-11-14",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.37/itmatzip-agent.msi",
-    "sha256":  "6b8b970f14ea29d208635e9dfa9fb6226bf1dd5f56d0f5e4e335f413ebe9e918",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.38/itmatzip-agent.msi",
+    "sha256":  "84a409fd7045e12c4bf01d27b8baf2348ba222c985a6664952048fe515f132b9",
     "mandatory":  false,
-    "release_notes":  "AI 자막 채팅 버튼이 사라지던 문제 수정(AI CLI 설정 확인이 느릴 때)",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.37/itmatzip-agent.msi",
-    "msi_sha256":  "6b8b970f14ea29d208635e9dfa9fb6226bf1dd5f56d0f5e4e335f413ebe9e918"
+    "release_notes":  "Create Music 설치 약 2분·곡 생성 약 21초로 개선 (필요한 파일만 병렬로 받기, 쓰지 않는 LM 제거)",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.38/itmatzip-agent.msi",
+    "msi_sha256":  "84a409fd7045e12c4bf01d27b8baf2348ba222c985a6664952048fe515f132b9"
 }
