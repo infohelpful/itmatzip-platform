@@ -263,6 +263,22 @@ def get_history(limit: int = 50) -> dict:
     return {"ok": True, "items": items}
 
 
+@router.delete("/history/{job_id}")
+def delete_history_item(job_id: str) -> dict:
+    """만든 곡 삭제 — 기록과 파일(WAV·MP3)을 PC에서 지운다."""
+    try:
+        found = create_music.delete_history(job_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except RuntimeError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=500, detail=f"파일을 지우지 못했습니다: {error}") from error
+    if not found:
+        raise HTTPException(status_code=404, detail="곡을 찾을 수 없습니다.")
+    return {"ok": True, "deleted": job_id}
+
+
 # ---------------------------------------------------------------------------
 # Audio upload (for remix/repaint)
 # ---------------------------------------------------------------------------

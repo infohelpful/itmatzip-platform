@@ -441,3 +441,9 @@ html body.cm-app .cm-ai-clients button.is-active { color: #fff !important; backg
 .cm-chat-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .cm-chat-head-row b { min-width: 0; white-space: nowrap; }
 .cm-ai-clients { margin-left: auto; }
+
+/* 곡 삭제 버튼 */
+.cm-del-btn:hover { color: #FCA5A5; border-color: rgba(239, 68, 68, 0.5); }
+.cm-del-btn.is-armed { background: rgba(239, 68, 68, 0.18); border-color: rgba(239, 68, 68, 0.65); color: #FCA5A5; }
+html body.cm-app .cm-del-btn.is-armed { color: #FCA5A5 !important; }
+.cm-del-btn:disabled { opacity: 0.5; cursor: default; }

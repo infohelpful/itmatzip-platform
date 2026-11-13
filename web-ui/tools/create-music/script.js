@@ -883,11 +883,58 @@ function renderTracks() {
     reuse.title = t("cm.reuse", "이 곡 설정 다시 쓰기");
     reuse.addEventListener("click", () => applyDisplay(item));
     actions.appendChild(reuse);
+    actions.appendChild(deleteButton(item));
 
     card.append(cover, info, wave, el("div", "cm-dur", fmtTime(itemDuration(item))), actions);
     box.appendChild(card);
   });
   paintProgress();
+}
+
+/** 삭제 버튼: 한 번 누르면 「정말?」로 바뀌고, 3초 안에 한 번 더 눌러야 PC의 파일까지 지워짐 */
+function deleteButton(item) {
+  const btn = el("button", "cm-small-btn cm-del-btn", t("cm.delete", "삭제"));
+  btn.type = "button";
+  btn.title = t("cm.deleteTitle", "이 곡을 PC에서 지워요 (파일도 함께 삭제)");
+  let armed = 0;
+  const disarm = () => {
+    clearTimeout(armed);
+    armed = 0;
+    btn.classList.remove("is-armed");
+    btn.textContent = t("cm.delete", "삭제");
+  };
+  btn.addEventListener("click", async () => {
+    if (!armed) {
+      btn.classList.add("is-armed");
+      btn.textContent = t("cm.deleteSure", "정말 삭제?");
+      armed = window.setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
+    btn.disabled = true;
+    await removeItem(item);
+    btn.disabled = false;
+  });
+  return btn;
+}
+
+async function removeItem(item) {
+  try {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/history/${encodeURIComponent(item.id)}`, {
+      method: "DELETE",
+    });
+    // 이미 없는 곡(404)도 목록에서는 지움
+    if (!res.ok && res.status !== 404) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(typeof data.detail === "string" ? data.detail : res.statusText);
+    }
+    if (player.item?.id === item.id) stopPlayer();
+    state.history = state.history.filter((h) => h.id !== item.id);
+    renderTracks();
+    toast(t("cm.deleted", "곡을 삭제했어요."));
+  } catch (e) {
+    toast(tf("cm.deleteFail", "삭제하지 못했어요: {msg}", { msg: e instanceof Error ? e.message : String(e) }), { error: true });
+  }
 }
 
 /** MP3·WAV → 다운로드 페이지로 같은 탭 이동 (페이지 이동 때 전면 광고가 뜰 수 있게) */
@@ -990,6 +1037,22 @@ function playItem(item, { at = null } = {}) {
   renderTracks();
 }
 
+function stopPlayer() {
+  player.audio.pause();
+  player.audio.removeAttribute("src");
+  player.audio.load();
+  player.item = null;
+  ui.pThumb.style.background = "";
+  ui.pTitle.textContent = t("cm.pIdle", "곡을 선택해 재생하세요");
+  ui.pSub.textContent = t("cm.pIdleSub", "만든 곡이 여기서 재생돼요");
+  ui.pCur.textContent = "0:00";
+  ui.pTot.textContent = "0:00";
+  ui.pSeek.value = "0";
+  ui.pSeek.disabled = true;
+  ui.pPlay.disabled = true;
+  ui.pPlay.textContent = "▶";
+}
+
 function paintProgress() {
   const a = player.audio;
   const dur = Number.isFinite(a.duration) ? a.duration : itemDuration(player.item || {});
@@ -1016,7 +1079,7 @@ player.audio.addEventListener("ended", () => {
   paintProgress();
 });
 player.audio.addEventListener("error", () => {
-  if (player.item) toast(t("cm.playErr", "곡 파일을 불러오지 못했어요. 에이전트가 켜져 있는지 확인해 주세요."), { error: true });
+  if (player.item && player.audio.getAttribute("src")) toast(t("cm.playErr", "곡 파일을 불러오지 못했어요. 에이전트가 켜져 있는지 확인해 주세요."), { error: true });
 });
 ui.pPlay.addEventListener("click", () => {
   if (!player.item) return;

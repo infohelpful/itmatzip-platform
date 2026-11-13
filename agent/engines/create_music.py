@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import shutil
 import threading
 import time
 import uuid
@@ -593,6 +595,29 @@ def sanitize_display(raw: Any) -> dict:
         if isinstance(val, list):
             out[key] = [str(v)[:60] for v in val if isinstance(v, (str, int, float))][:30]
     return out
+
+
+_JOB_ID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def delete_history(job_id: str) -> bool:
+    """만든 곡 한 개(기록 폴더 통째로: WAV·변환한 MP3·meta.json)를 지운다. 없으면 False.
+
+    폴더 이름 검사 + history 폴더 밖이면 거부 + 지금 만드는 중인 곡은 거부.
+    """
+    if not isinstance(job_id, str) or not _JOB_ID_OK.match(job_id):
+        raise ValueError("잘못된 곡 번호입니다.")
+    job = _current_job
+    if job and job.id == job_id and job.status in ("pending", "running"):
+        raise RuntimeError("지금 만드는 중인 곡은 지울 수 없습니다.")
+    root = history_root().resolve()
+    target = (root / job_id).resolve()
+    if target.parent != root:
+        raise ValueError("잘못된 경로입니다.")
+    if not target.is_dir():
+        return False
+    shutil.rmtree(target)
+    return True
 
 
 def list_history(limit: int = 50) -> list[dict]:

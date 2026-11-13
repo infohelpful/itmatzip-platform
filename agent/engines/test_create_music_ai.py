@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 
 from engines import create_music_ai as ai
 from engines.create_music import sanitize_display
@@ -102,6 +103,56 @@ class SanitizeDisplayTests(unittest.TestCase):
     def test_non_dict_is_empty(self) -> None:
         self.assertEqual(sanitize_display(None), {})
         self.assertEqual(sanitize_display(["x"]), {})
+
+
+class DeleteHistoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        import tempfile
+        from unittest import mock
+
+        from engines import create_music
+
+        self.cm = create_music
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "history"
+        self.root.mkdir()
+        patcher = mock.patch.object(create_music, "history_root", lambda: self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(lambda: setattr(create_music, "_current_job", None))
+
+    def _make(self, name: str) -> Path:
+        d = self.root / name
+        d.mkdir()
+        (d / "a.wav").write_bytes(b"w")
+        (d / "a.mp3").write_bytes(b"m")
+        (d / "meta.json").write_text("{}", encoding="utf-8")
+        return d
+
+    def test_deletes_whole_song_folder_only(self) -> None:
+        keep, gone = self._make("keep1"), self._make("gone1")
+        self.assertTrue(self.cm.delete_history("gone1"))
+        self.assertFalse(gone.exists())
+        self.assertTrue((keep / "a.wav").is_file())
+
+    def test_missing_returns_false(self) -> None:
+        self.assertFalse(self.cm.delete_history("nothere"))
+
+    def test_rejects_path_tricks(self) -> None:
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        for bad in ("..", "../outside", "a/b", "a\b", "", "x" * 80, ".", "..%2f"):
+            with self.assertRaises(ValueError):
+                self.cm.delete_history(bad)
+        self.assertTrue(outside.is_dir())
+
+    def test_refuses_running_job(self) -> None:
+        self._make("busy1")
+        self.cm._current_job = self.cm.GenerationJob(id="busy1", status="running")
+        with self.assertRaises(RuntimeError):
+            self.cm.delete_history("busy1")
+        self.assertTrue((self.root / "busy1").is_dir())
 
 
 if __name__ == "__main__":

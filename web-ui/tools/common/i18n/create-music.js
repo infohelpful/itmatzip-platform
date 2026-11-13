@@ -2,6 +2,11 @@
   if (!window.ITZ_I18N) return;
   window.ITZ_I18N.register("create-music", {
   "ko": {
+    "cm.delete": "삭제",
+    "cm.deleteSure": "정말 삭제?",
+    "cm.deleteTitle": "이 곡을 PC에서 지워요 (파일도 함께 삭제)",
+    "cm.deleted": "곡을 삭제했어요.",
+    "cm.deleteFail": "삭제하지 못했어요: {msg}",
     "cm.aiPickAria": "사용할 AI",
     "cm.aiClientOff": "연결되지 않았어요",
     "cm.agentChecking": "에이전트 확인 중…",
@@ -444,6 +449,11 @@
     "agent.waiting": "대기 중"
   },
   "en": {
+    "cm.delete": "Delete",
+    "cm.deleteSure": "Really delete?",
+    "cm.deleteTitle": "Deletes this song from your PC (including the files)",
+    "cm.deleted": "Song deleted.",
+    "cm.deleteFail": "Could not delete: {msg}",
     "cm.aiPickAria": "AI to use",
     "cm.aiClientOff": "Not connected",
     "cm.agentChecking": "Checking agent…",
@@ -886,6 +896,11 @@
     "agent.waiting": "Idle"
   },
   "ja": {
+    "cm.delete": "削除",
+    "cm.deleteSure": "本当に削除?",
+    "cm.deleteTitle": "この曲をPCから削除します（ファイルも削除）",
+    "cm.deleted": "曲を削除しました。",
+    "cm.deleteFail": "削除できませんでした: {msg}",
     "cm.aiPickAria": "使用するAI",
     "cm.aiClientOff": "接続されていません",
     "cm.agentChecking": "エージェント確認中…",
@@ -1328,6 +1343,11 @@
     "agent.waiting": "待機中"
   },
   "zh": {
+    "cm.delete": "删除",
+    "cm.deleteSure": "确定删除？",
+    "cm.deleteTitle": "从电脑中删除这首歌（包括文件）",
+    "cm.deleted": "已删除歌曲。",
+    "cm.deleteFail": "删除失败：{msg}",
     "cm.aiPickAria": "使用的 AI",
     "cm.aiClientOff": "未连接",
     "cm.agentChecking": "正在检查代理…",
