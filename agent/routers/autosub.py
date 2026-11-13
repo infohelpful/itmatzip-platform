@@ -177,10 +177,16 @@ async def post_mcp_editor_submit(body: dict[str, Any] = Body(...)) -> dict[str, 
                 or not isinstance(text, str) or len(text) > ai_proofread.MAX_WORD_LENGTH):
             raise HTTPException(status_code=400, detail="수정 단어 형식이 올바르지 않습니다.")
         clean_corrections[index] = text
+    raw_emphasis = body.get("emphasis", [])
+    if not isinstance(raw_emphasis, list) or len(raw_emphasis) > word_count:
+        raise HTTPException(status_code=400, detail="강조 단어 목록이 올바르지 않습니다.")
+    emphasis = sorted({i for i in raw_emphasis if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < word_count})
     answer = {
         "corrections": [{"id": index, "text": text} for index, text in sorted(clean_corrections.items())],
-        "lineStarts": sorted(set(starts)), "uncertain": [], "emphasis": [],
+        "lineStarts": sorted(set(starts)), "uncertain": [], "emphasis": emphasis,
     }
+    # 숨김·표시 시간·단어 삭제·서식 등 나머지 편집기 작업(채팅과 같은 형식)
+    answer.update(mcp_chat._editor_ops(body, word_count))
     try:
         return mcp_registry.stage_edit(revision, answer)
     except ValueError as error:

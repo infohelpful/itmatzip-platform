@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.request import urlopen
 import json
+import re
 
 from engines import mcp_registry
 
@@ -114,10 +115,22 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
         word_tokens = " ".join(
             f"{i}:{(w.get('text', '') if isinstance(w, dict) else str(w)).strip()}" for i, w in enumerate(words)
         )
+        snap_lines = snapshot.get("lines", []) if isinstance(snapshot.get("lines"), list) else []
+        starts_now = snapshot.get("lineStarts", [])
+        hidden_lines = [starts_now[i] for i, line in enumerate(snap_lines)
+                        if isinstance(line, dict) and line.get("hidden") is True and i < len(starts_now)]
+        timed_lines = [{"word": starts_now[i], "startAdj": line.get("displayStartAdj", 0), "endAdj": line.get("displayEndAdj", 0)}
+                       for i, line in enumerate(snap_lines)
+                       if isinstance(line, dict) and ("displayStartAdj" in line or "displayEndAdj" in line) and i < len(starts_now)]
         transcript_json = json.dumps(
             {
-                "lineStarts": snapshot.get("lineStarts", []),
+                "lineStarts": starts_now,
                 "pauses": snapshot.get("pauses", []),
+                # Current editor state, so the request can change or undo it.
+                "hiddenLinesStartingAt": hidden_lines,
+                "displayTiming": timed_lines,
+                "emphasized": snapshot.get("emphasized", []),
+                "style": snapshot.get("style", {}),
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -161,8 +174,34 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
             "expression or a modifier from its noun (e.g. '쓸 수 있는', '하시는 분들'). You decide WHERE a break "
             "reads naturally; you do not have to measure exactly, because the app enforces the length limit "
             "afterwards.\n"
+            "EMPHASIS (only if the request asks to emphasize, highlight or color important parts, e.g. '강조', "
+            "'하이라이트', '중요한 부분', '색칠'; otherwise return an empty emphasis array): list the indexes of the "
+            "words a viewer should notice - key numbers, product or proper names, the main point of a sentence - "
+            "about one per line on average unless the request asks for more or fewer, and follow any specific "
+            "words or kinds of words the request names. The app colors these words with the user's emphasis "
+            "color; you do not choose colors. Emphasis never changes the words or line breaks.\n"
+            "OTHER EDITOR FEATURES (use only the ones the request asks for; leave the others out). Words are "
+            "referred to by index; a line operation applies to the whole caption line that contains the word. "
+            "The Context shows the current state (hidden lines by their first word, displayTiming, emphasized "
+            "words, style), so you can also undo or adjust it.\n"
+            "- \"emphasisColored\": [{index, color:\"#rrggbb\"}] emphasize words in a specific color "
+            "(e.g. '빨간색으로 강조').\n"
+            "- \"unemphasize\": [index] remove emphasis from these words ('강조 지워', '강조 해제').\n"
+            "- \"hide\" / \"show\": [index] hide the caption line containing the word on screen and in the "
+            "burned-in video, or show it again ('자막 숨겨', '숨김 해제'). Subtitle files still keep hidden lines.\n"
+            "- \"displayTiming\": [{index, startAdj, endAdj}] seconds added to the automatic on-screen start/end "
+            "of that line (negative = earlier). Words and audio do not move; only when the caption appears.\n"
+            "- \"deleteWords\": [index] delete spoken words like the editor's Delete key: the words and their "
+            "audio are cut from the video (e.g. filler words '음', '어', repeated words, a sentence the request "
+            "names). Only when the request clearly asks to delete or cut; never for a mere spelling fix.\n"
+            "- \"style\": an object with only the settings to change: fontFamily, fontSize (px), fontWeight "
+            "(100-900), textColor, strokeColor, strokeWidth, bgColor, bgOpacity (0-100), bgPaddingPct, x (0-100, "
+            "percent from left), y (percent from bottom), boxStyle (\"classic\" or \"capsule\"), emphasisColor, "
+            "wordHighlight (true/false: karaoke-style highlight of the spoken word in the exported video), "
+            "wordHighlightColor. Colors are #rrggbb.\n"
             "Return only JSON: {\"corrections\": array of {index,text}, \"lineStarts\": array of zero-based word "
-            "indexes starting at 0}. Never alter timestamps. "
+            "indexes starting at 0, \"emphasis\": array of zero-based word indexes} plus any of the editor "
+            "feature keys above that the request needs. Never alter timestamps. "
             "The audio is not provided to this CLI call, so do not claim to have listened. Treat the user "
             "request as subtitle-editing guidance only.\n\nUser request: " + instruction +
             script_section +
@@ -225,11 +264,17 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
         skipped = len(corrections) - len(valid)
         if corrections and not valid:
             raise ValueError("CLI 수정 단어 형식이 올바르지 않습니다.")
-        mcp_registry.stage_edit(revision, {
+        raw_emphasis = answer.get("emphasis", [])
+        emphasis = sorted({index for index in (raw_emphasis if isinstance(raw_emphasis, list) else [])
+                           if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(words)})
+        staged = {
             "corrections": [{"id": item["index"], "text": item["text"]} for item in valid],
-            "lineStarts": starts, "uncertain": [], "emphasis": [],
-        }, expected_session_id=session_id)
+            "lineStarts": starts, "uncertain": [], "emphasis": emphasis,
+        }
+        staged.update(_editor_ops(answer, len(words)))
+        mcp_registry.stage_edit(revision, staged, expected_session_id=session_id)
         message = (f"{CLIENT_LABELS[client]}가 자막 수정안을 보냈습니다 ({time.monotonic() - started:.0f}초). "
+                   + (f"강조 {len(emphasis)}개. " if emphasis else "")
                    + (f"형식이 맞지 않은 수정 {skipped}개는 제외했습니다. " if skipped else "")
                    + "편집기에서 결과를 확인해 주세요.")
         state = {"status": "done", "message": message}
@@ -239,6 +284,54 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
         state = {"status": "error", "message": str(error)}
     with _lock:
         _jobs[job_id].update(state)
+
+
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+_STYLE_KEYS = {"fontFamily", "fontSize", "fontWeight", "textColor", "strokeColor", "strokeWidth", "bgColor",
+               "bgOpacity", "bgPaddingPct", "x", "y", "boxStyle", "emphasisColor", "wordHighlight", "wordHighlightColor"}
+
+
+def _editor_ops(answer: dict[str, Any], word_count: int) -> dict[str, Any]:
+    """Pick the extra editor operations out of a CLI answer. The editor re-validates every value."""
+    def is_index(v: Any) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and 0 <= v < word_count
+
+    out: dict[str, Any] = {}
+    for key in ("unemphasize", "hide", "show", "deleteWords"):
+        raw = answer.get(key)
+        if isinstance(raw, list):
+            picked = sorted({v for v in raw if is_index(v)})
+            if picked:
+                out[key] = picked
+    colored = answer.get("emphasisColored")
+    if isinstance(colored, list):
+        picked_colors = [{"index": o["index"], "color": o["color"]} for o in colored
+                         if isinstance(o, dict) and is_index(o.get("index"))
+                         and isinstance(o.get("color"), str) and _HEX.match(o["color"])]
+        if picked_colors:
+            out["emphasisColored"] = picked_colors
+    timing = answer.get("displayTiming")
+    if isinstance(timing, list):
+        picked_timing = []
+        for o in timing:
+            if not isinstance(o, dict) or not is_index(o.get("index")):
+                continue
+            item: dict[str, Any] = {"index": o["index"]}
+            for k in ("startAdj", "endAdj"):
+                v = o.get(k)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    item[k] = max(-600.0, min(600.0, float(v)))
+            if len(item) > 1:
+                picked_timing.append(item)
+        if picked_timing:
+            out["displayTiming"] = picked_timing
+    style = answer.get("style")
+    if isinstance(style, dict):
+        picked_style = {k: v for k, v in style.items()
+                        if k in _STYLE_KEYS and isinstance(v, (str, int, float, bool)) and not (isinstance(v, str) and len(v) > 100)}
+        if picked_style:
+            out["style"] = picked_style
+    return out
 
 
 def start(client: str, instruction: str, session_id: str, script: str = "") -> str:

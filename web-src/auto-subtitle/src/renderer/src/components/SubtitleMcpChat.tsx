@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import type { SubtitleLine } from '../../../shared/subtitles'
 import { applyProofread, proofreadSource, type ProofreadChange } from '../aiProofread'
+import { applyAiEditorOps, describeAiOps, parseAiEditorOps, type AiStylePatch } from '../aiEditorOps'
+import { emphasisRangesByWordIndex } from '../../../shared/captionEmphasis'
+import { lineDisplayAdjust } from '../../../shared/subtitleDisplayTiming'
 import { setAiMarks } from '../aiMarks'
 import { scriptReferenceText } from '../../../shared/scriptImport'
 import {
@@ -17,9 +20,13 @@ type Props = {
   mediaDuration: number | null
   measureMaxUnits: () => number
   emphasisColor: string
+  /** 지금 편집기 서식 — AI 가 현재 값을 알고 바꾸게 스냅샷에 싣는다 */
+  subtitleStyle: AiStylePatch
   disabled: boolean
   onBeforeRun: () => void
   onApply: (lines: SubtitleLine[]) => void
+  /** AI 가 바꾼 서식 적용 */
+  onApplyStyle: (patch: AiStylePatch) => void
   onJump: (startSec: number) => void
 }
 
@@ -27,6 +34,12 @@ type Props = {
 type ChatMessage = {
   role: 'user' | 'assistant'; text: string; proposed?: SubtitleLine[]; basis?: string
   changes?: ProofreadChange[]; lineBefore?: number; lineAfter?: number
+  /** 강조 색을 칠한 단어 수 */
+  emphasized?: number
+  /** 그 밖의 편집기 작업 요약(숨김·표시 시간·삭제·서식 등) */
+  opsText?: string
+  /** 적용할 서식(확인 후 적용 모드에서 「수정안 적용」 때 반영) */
+  style?: AiStylePatch
 }
 
 function clock(sec: number): string {
@@ -124,7 +137,7 @@ function subtitleFingerprint(lines: readonly SubtitleLine[]): string {
   return hash.toString(16).padStart(16, '0')
 }
 
-export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, measureMaxUnits, emphasisColor, disabled, onBeforeRun, onApply, onJump }: Props): JSX.Element | null {
+export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, measureMaxUnits, emphasisColor, subtitleStyle, disabled, onBeforeRun, onApply, onApplyStyle, onJump }: Props): JSX.Element | null {
   const [connected, setConnected] = useState(false)
   const [open, setOpen] = useState(false)
   const [clients, setClients] = useState<McpClient[]>([])
@@ -148,6 +161,8 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
   applyModeRef.current = applyMode
   const onApplyRef = useRef(onApply)
   onApplyRef.current = onApply
+  const onApplyStyleRef = useRef(onApplyStyle)
+  onApplyStyleRef.current = onApplyStyle
   const onBeforeRunRef = useRef(onBeforeRun)
   onBeforeRunRef.current = onBeforeRun
   const settingsRef = useRef({ measureMaxUnits, emphasisColor })
@@ -165,12 +180,31 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
     }))
     const lines = source.lineStarts.map((start, index) => {
       const end = source.lineStarts[index + 1] ?? words.length
-      return { lineIndex: index, text: words.slice(start, end).map(word => word.text).join(' ') }
+      const line = subtitles[source.units[start]!.line]
+      const adj = lineDisplayAdjust(line)
+      return {
+        lineIndex: index, text: words.slice(start, end).map(word => word.text).join(' '),
+        ...(line?.isHidden ? { hidden: true } : {}),
+        ...(adj.start || adj.end ? { displayStartAdj: adj.start, displayEndAdj: adj.end } : {}),
+      }
     })
+    // 지금 강조된 단어 index — AI 가 강조를 해제·유지할 수 있게
+    const emphasizedIds = new Set<string>()
+    for (const line of subtitles) {
+      if (!line.emphasis?.length || !line.words) continue
+      for (const wi of emphasisRangesByWordIndex(line).keys()) {
+        const id = line.words[wi]?.id
+        if (id) emphasizedIds.add(id)
+      }
+    }
+    const emphasized = words.flatMap(word => emphasizedIds.has(word.id) ? [word.index] : [])
     // 화면 한 줄에 들어가는 글자 수(한글 기준) — AI 가 "한 줄에 들어가는지" 판단하는 기준
     const maxUnits = Math.max(4, Math.min(80, Math.round(settingsRef.current.measureMaxUnits())))
-    return { lines, words, lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, audioPath: preparedAudioPath, duration: mediaDuration }
-  }, [source, preparedAudioPath, mediaDuration])
+    return {
+      lines, words, lineStarts: source.lineStarts, pauses: source.pauses, maxUnits, emphasized,
+      style: subtitleStyle, audioPath: preparedAudioPath, duration: mediaDuration,
+    }
+  }, [source, subtitles, subtitleStyle, preparedAudioPath, mediaDuration])
   const currentEditorRef = useRef({ sessionId: editorSessionIdRef.current, basis, snapshot: editorSnapshot })
   currentEditorRef.current = { sessionId: editorSessionIdRef.current, basis, snapshot: editorSnapshot }
   const seenEditIdsRef = useRef(new Set<string>())
@@ -229,26 +263,35 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
         // 줄바꿈이 그대로인 응답(오타만 고치는 요청)은 줄을 다시 나누지 않는다 — 화면 한 줄을 넘는 줄만 나눈다.
         const breaksUnchanged = pending.answer.lineStarts.length === currentSource.lineStarts.length
           && pending.answer.lineStarts.every((start, i) => start === currentSource.lineStarts[i])
-        const result = applyProofread(current, currentSource, pending.answer, {
+        const proofread = applyProofread(current, currentSource, pending.answer, {
           emphasisColor: settingsRef.current.emphasisColor,
           maxUnits,
           // fitLines: 화면 한 줄에 들어가는 문장은 한 줄로, 안 들어가는 문장은 AI 가 정한 자리에서 나누되
           // 짧은 꼬리 토막·어색한 자리는 코드가 다시 맞춘다(aiProofread 2a).
           ...(breaksUnchanged ? {} : { fitLines: true }),
         })
+        // 강조 해제·색 강조·숨김·표시 시간·단어 삭제·서식 — 글자·줄 수정 뒤의 줄에 단어 id 로 적용
+        const ops = parseAiEditorOps(pending.answer as unknown as Record<string, unknown>)
+        const applied = applyAiEditorOps(proofread.lines, currentSource.units.map(unit => unit.id), ops)
+        const result = { ...proofread, lines: applied.lines }
+        const opsText = describeAiOps(applied.summary)
+        const style = ops?.style
         if (applyModeRef.current === 'automatic') {
           onBeforeRunRef.current()
           onApplyRef.current(result.lines)
+          if (style) onApplyStyleRef.current(style)
           setAiMarks({ changes: result.changes, uncertain: [] })
           setMessages(items => [...items, {
             role: 'assistant', text: 'CLI가 만든 수정안을 자동 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.',
             changes: result.changes, lineBefore: result.lineCountBefore, lineAfter: result.lineCountAfter,
+            emphasized: result.emphasized.length, opsText,
           }])
         } else {
           setMessages(items => [...items, {
             role: 'assistant', text: 'CLI가 현재 열린 자막에 대한 수정안을 보냈습니다. 확인한 뒤 적용하세요.',
             proposed: result.lines, basis: currentBasis,
             changes: result.changes, lineBefore: result.lineCountBefore, lineAfter: result.lineCountAfter,
+            emphasized: result.emphasized.length, opsText, ...(style ? { style } : {}),
           }])
           setOpen(true)
         }
@@ -387,6 +430,8 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
                       단어 <b>{message.changes.length}</b>개 수정
                       {message.lineBefore !== undefined && message.lineAfter !== undefined
                         ? <> · 줄 {message.lineBefore} → <b>{message.lineAfter}</b></> : null}
+                      {message.emphasized ? <> · 강조 <b>{message.emphasized}</b>개</> : null}
+                      {message.opsText ? <> · {message.opsText}</> : null}
                     </p>
                     {message.changes.length ? (
                       <ul className="ai-diff">
@@ -409,10 +454,12 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
                       if (currentBasis !== message.basis) { setError('수정안을 만든 뒤 자막이 바뀌었습니다. 최신 자막으로 다시 요청해 주세요.'); return }
                       onBeforeRun()
                       onApply(message.proposed!)
+                      if (message.style) onApplyStyle(message.style)
                       setAiMarks({ changes: message.changes ?? [], uncertain: [] })
                       setMessages(current => current.map((entry, i) => i === index ? {
                         role: 'assistant', text: '수정안을 자막 편집기에 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.',
                         changes: entry.changes, lineBefore: entry.lineBefore, lineAfter: entry.lineAfter,
+                        emphasized: entry.emphasized, opsText: entry.opsText,
                       } : entry))
                     }}>수정안 적용</button>
                   </>

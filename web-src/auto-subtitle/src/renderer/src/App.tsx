@@ -82,6 +82,7 @@ import { CAPSULE_PRESET, capsuleBoxOverrides, parseSubtitleBoxStyle, type Subtit
 import { ensurePretendardLoaded, usesPretendard } from './subtitleFonts'
 import { renderPreviewSubtitleText, type PreviewEmphasisCache } from './previewSubtitleText'
 import { AiProofread, previewLineCapacityUnits } from './components/AiProofread'
+import type { AiStylePatch } from './aiEditorOps'
 import { SubtitleMcpChat } from './components/SubtitleMcpChat'
 import type { CaptionEmphasisEdit } from './SubtitleVirtualList'
 
@@ -1635,6 +1636,34 @@ export default function App(): ReactElement {
   /** 영상 번인에서 현재 발화 단어를 강조 — 줄 단위 자막은 그대로 유지(기본 꺼짐) */
   const [wordHighlightEnabled, setWordHighlightEnabled] = useState(true)
   const [wordHighlightColor, setWordHighlightColor] = useState('#ffd54a')
+  /** AI 자막 채팅에 보내는 지금 서식(AI 가 현재 값을 알고 바꾼다) */
+  const aiSubtitleStyle = useMemo<AiStylePatch>(() => ({
+    fontFamily: subtitleFontFamily, fontSize: subtitleFontSize, fontWeight: subtitleFontWeight,
+    textColor: subtitleTextColor, strokeColor: subtitleStrokeColor, strokeWidth: subtitleStrokeWidth,
+    bgColor: subtitleBgColor, bgOpacity: subtitleBgOpacity, bgPaddingPct: subtitleBgPaddingPct,
+    x: subtitleX, y: subtitleY, boxStyle: subtitleBoxStyle, emphasisColor: captionEmphasisColor,
+    wordHighlight: wordHighlightEnabled, wordHighlightColor,
+  }), [subtitleFontFamily, subtitleFontSize, subtitleFontWeight, subtitleTextColor, subtitleStrokeColor,
+    subtitleStrokeWidth, subtitleBgColor, subtitleBgOpacity, subtitleBgPaddingPct, subtitleX, subtitleY,
+    subtitleBoxStyle, captionEmphasisColor, wordHighlightEnabled, wordHighlightColor])
+  /** AI 가 바꾼 서식 반영 — 범위는 편집기 서식 도구와 같은 규칙으로 맞춘다 */
+  const applyAiSubtitleStyle = useCallback((patch: AiStylePatch) => {
+    if (patch.fontFamily !== undefined) setSubtitleFontFamily(patch.fontFamily)
+    if (patch.fontSize !== undefined) setSubtitleFontSize(clampSubtitleFontSize(patch.fontSize))
+    if (patch.fontWeight !== undefined) setSubtitleFontWeight(patch.fontWeight)
+    if (patch.textColor !== undefined) setSubtitleTextColor(patch.textColor)
+    if (patch.strokeColor !== undefined) setSubtitleStrokeColor(patch.strokeColor)
+    if (patch.strokeWidth !== undefined) setSubtitleStrokeWidth(patch.strokeWidth)
+    if (patch.bgColor !== undefined) setSubtitleBgColor(patch.bgColor)
+    if (patch.bgOpacity !== undefined) setSubtitleBgOpacity(patch.bgOpacity)
+    if (patch.bgPaddingPct !== undefined) setSubtitleBgPaddingPct(clampSubtitleBgPaddingPct(patch.bgPaddingPct))
+    if (patch.x !== undefined) setSubtitleX(patch.x)
+    if (patch.y !== undefined) setSubtitleY(clampSubtitleY(patch.y))
+    if (patch.boxStyle !== undefined) setSubtitleBoxStyle(patch.boxStyle)
+    if (patch.emphasisColor !== undefined) setCaptionEmphasisColor(patch.emphasisColor)
+    if (patch.wordHighlight !== undefined) setWordHighlightEnabled(patch.wordHighlight)
+    if (patch.wordHighlightColor !== undefined) setWordHighlightColor(patch.wordHighlightColor)
+  }, [])
   /** 프리뷰 단어 강조 색(끄면 null) — 재생 RAF 가 읽는다. 번인과 같은 단어를 같은 색으로 칠한다. */
   const previewWordHighlightRef = useRef<string | null>(wordHighlightColor)
   previewWordHighlightRef.current = wordHighlightEnabled ? wordHighlightColor : null
@@ -7435,6 +7464,8 @@ export default function App(): ReactElement {
                   mediaDuration={preparedMedia?.duration ?? null}
                   measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
                   emphasisColor={captionEmphasisColor}
+                  subtitleStyle={aiSubtitleStyle}
+                  onApplyStyle={applyAiSubtitleStyle}
                   disabled={isExtracting || projectIoBusy || realigning}
                   onBeforeRun={() => {
                     pausePlayback('ai-proofread-chat')

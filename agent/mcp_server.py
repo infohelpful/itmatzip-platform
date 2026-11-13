@@ -35,6 +35,8 @@ AUTOSUB_PROMPT_TEXT = (
     "음성이 제공되고 직접 들을 수 있다면 autosub_listen_active_audio 도구로 필요한 구간을 듣고 "
     "실제 발화와 자막을 대조하세요. 들을 수 없는 경우에는 들었다고 주장하지 마세요. "
     "수정 결과는 autosub_submit_active_edits 도구에 revision, corrections, lineStarts를 전달해 "
+    "(요청에 따라 강조 emphasis/emphasisColored/unemphasize, 자막 숨김 hide/show, 자막 표시 시간 displayTiming, "
+    "단어 삭제 deleteWords, 전체 서식 style도 함께 전달할 수 있습니다) "
     "현재 편집기에 적용하세요. 편집기의 확인 후 적용/자동 수정 설정을 따르세요. "
     "현재 편집기가 없거나 도구 호출이 실패하면 수정했다고 말하지 말고 원인을 알려 주세요."
 )
@@ -124,6 +126,9 @@ def _autosub_get_active(_: dict[str, Any]) -> dict[str, Any]:
         "words": active["snapshot"].get("words", []),
         "lineStarts": active["snapshot"].get("lineStarts", []),
         "pauses": active["snapshot"].get("pauses", []),
+        # 지금 강조된 단어 index와 전체 서식 — 숨김·표시 시간은 lines[].hidden / displayStartAdj·displayEndAdj
+        "emphasized": active["snapshot"].get("emphasized", []),
+        "style": active["snapshot"].get("style", {}),
         "audioAvailable": bool(active["snapshot"].get("audioPath")),
         "note": "현재 열린 AutoSubtitle 편집기의 자막입니다. words.index 값으로 수정 위치를 지정하세요.",
     }
@@ -149,9 +154,14 @@ def _autosub_submit_active(args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("autosub_get_active_subtitles에서 받은 revision이 필요합니다.")
     if not isinstance(corrections, list) or not isinstance(line_starts, list):
         raise ValueError("corrections와 lineStarts 목록이 필요합니다.")
-    result = _request("/api/tools/auto-subtitle/v2/mcp/editor/submit", "POST", {
-        "revision": revision, "corrections": corrections, "lineStarts": line_starts,
-    })
+    emphasis = args.get("emphasis", [])
+    if not isinstance(emphasis, list):
+        raise ValueError("emphasis는 강조할 단어 index 목록이어야 합니다.")
+    payload = {"revision": revision, "corrections": corrections, "lineStarts": line_starts, "emphasis": emphasis}
+    for key in ("emphasisColored", "unemphasize", "hide", "show", "displayTiming", "deleteWords", "style"):
+        if key in args:
+            payload[key] = args[key]
+    result = _request("/api/tools/auto-subtitle/v2/mcp/editor/submit", "POST", payload)
     result["message"] = "수정안을 열린 편집기에 전달했습니다. 페이지의 선택 모드에 따라 미리보기 또는 자동 적용됩니다."
     return result
 
@@ -236,7 +246,7 @@ TOOLS = {
         "run": _autosub_get_active,
     },
     "autosub_submit_active_edits": {
-        "description": "현재 열린 AutoSubtitle 편집기에 수정안을 전달합니다. 적용 여부는 편집기에서 선택한 확인 후 적용/자동 수정 설정을 따릅니다.",
+        "description": "현재 열린 AutoSubtitle 편집기에 수정안(오타·줄바꿈·강조·숨김·표시 시간·단어 삭제·서식)을 전달합니다. 적용 여부는 편집기에서 선택한 확인 후 적용/자동 수정 설정을 따릅니다.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -248,6 +258,29 @@ TOOLS = {
                     }, "required": ["index", "text"], "additionalProperties": False,
                 }},
                 "lineStarts": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+                "emphasis": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                             "description": "강조 색을 칠할 단어 index 목록(사용자가 강조를 요청했을 때만). 글자·줄은 바꾸지 않습니다."},
+                "emphasisColored": {"type": "array", "description": "지정한 색으로 강조할 단어",
+                                    "items": {"type": "object", "properties": {
+                                        "index": {"type": "integer", "minimum": 0},
+                                        "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+                                    }, "required": ["index", "color"], "additionalProperties": False}},
+                "unemphasize": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                                "description": "강조를 지울 단어 index"},
+                "hide": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                         "description": "이 단어가 든 자막 줄을 화면·자막 입힌 영상에서 숨김(SRT 등 파일에는 남음)"},
+                "show": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                         "description": "이 단어가 든 숨긴 자막 줄을 다시 표시"},
+                "displayTiming": {"type": "array", "description": "이 단어가 든 줄의 자막 표시 시작·끝 보정(초, 음수=앞당김). 단어·소리는 그대로",
+                                  "items": {"type": "object", "properties": {
+                                      "index": {"type": "integer", "minimum": 0},
+                                      "startAdj": {"type": "number"}, "endAdj": {"type": "number"},
+                                  }, "required": ["index"], "additionalProperties": False}},
+                "deleteWords": {"type": "array", "items": {"type": "integer", "minimum": 0},
+                                "description": "편집기 Delete와 같이 지울 단어(그 소리 구간이 영상에서 빠짐). 사용자가 삭제를 요청했을 때만"},
+                "style": {"type": "object", "description": "바꿀 전체 자막 서식만: fontFamily, fontSize, fontWeight, textColor, "
+                          "strokeColor, strokeWidth, bgColor, bgOpacity(0-100), bgPaddingPct, x(0-100 왼쪽부터 %), "
+                          "y(아래부터 %), boxStyle(classic|capsule), emphasisColor, wordHighlight(bool), wordHighlightColor. 색은 #rrggbb"},
             },
             "required": ["revision", "corrections", "lineStarts"], "additionalProperties": False,
         },
