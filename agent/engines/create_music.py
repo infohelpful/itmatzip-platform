@@ -498,6 +498,7 @@ def _run_generation(job: GenerationJob) -> None:
         "compile_model": runtime["compile_model"] if quant else False,
         "lm_checkpoint": lm_checkpoint,
         "lm_backend": ace_rt.resolve_lm_backend(),
+        "select_best": batch_size > 1,  # 여러 곡을 만들면 가사 정렬 점수가 가장 높은 한 곡만 남김
         "thinking": False,
         "params": {
             "task_type": params.task_type,
@@ -568,6 +569,9 @@ def _run_generation(job: GenerationJob) -> None:
         "created_at": job.created_at,
         "display": sanitize_display(params.display),
         "peaks": [float(x) for x in (result.get("peaks") or [])][:200],
+        "candidate_scores": result.get("candidate_scores"),
+        "score_error": result.get("score_error"),
+        "candidates": batch_size,
         "audio_duration": result.get("audio_duration"),
     }
     (output_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")

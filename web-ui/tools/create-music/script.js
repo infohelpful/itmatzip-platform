@@ -25,10 +25,15 @@ const STORAGE = {
   wavUrl: "create-music:wav-download-url",
   format: "create-music:format",
 };
-/** 품질: 빠르게 = turbo(8스텝), 고품질 = sft(25스텝) — 예전 「스피드 초안」·「고품질 마스터링」 프리셋 값 */
+/**
+ * 품질 설정. 같은 가사로 Whisper 받아쓰기 실측(가사 오류율, 낮을수록 좋음):
+ *   turbo 8스텝 ≈ 1.1 (가사를 건너뛰거나 「우우우」만 부름) / SFT 25스텝 ≈ 0.16 / SFT 50스텝 ≈ 0.09
+ * 그래서 가사가 있는 곡은 「빠르게」도 SFT로 만들고, 가사 없는 연주곡만 turbo(8스텝)를 쓴다.
+ */
 const QUALITY = {
-  speed: { dit_model: "turbo", inference_steps: 8, guidance_scale: 3.5, shift: 3.0 },
-  quality: { dit_model: "sft", inference_steps: 25, guidance_scale: 6.5, shift: 4.0 },
+  speedInstrumental: { dit_model: "turbo", inference_steps: 8, guidance_scale: 3.5, shift: 3.0 },
+  speedVocal: { dit_model: "sft", inference_steps: 25, guidance_scale: 6.5, shift: 4.0 },
+  quality: { dit_model: "sft", inference_steps: 50, guidance_scale: 7.0, shift: 3.0 },
 };
 const GENRES_VISIBLE = 10;
 const COVERS = [
@@ -376,7 +381,7 @@ function updateGenerateState() {
       ? tf("cm.hintPreparing", "음악 엔진 준비 중 {p}%", { p: Math.round(state.preparing.progress || 0) })
       : t("cm.hintNeedPrep", "위쪽 상태 표시를 눌러 환경 준비를 마쳐 주세요");
   } else if (busy) hint = t("cm.hintBusy", "곡을 만드는 중이에요");
-  else hint = formProblem() || t("cm.hintReady", "60초 곡 기준 약 20초 걸려요");
+  else hint = formProblem() || t("cm.hintReady", "60초 곡 기준 약 30초 걸려요");
   ui.generate.disabled = !state.connected || !state.ready || busy || Boolean(formProblem());
   ui.generate.textContent = busy ? t("cm.generating", "만드는 중…") : t("cm.generate", "✦ 음악 만들기");
   updateDurationWarning();
@@ -640,7 +645,8 @@ function buildPayload(form) {
     instrumentalNotes: [],
   };
   const bpm = { slow: 70, medium: 110, fast: 140 }[form.tempo] || null;
-  const quality = QUALITY[form.quality] || QUALITY.speed;
+  const quality =
+    form.quality === "quality" ? QUALITY.quality : form.instrumental ? QUALITY.speedInstrumental : QUALITY.speedVocal;
   const useRef = Boolean(state.refPath) && !form.instrumental;
   return {
     task_type: "text2music",

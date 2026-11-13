@@ -64,6 +64,69 @@ def _audio_summary(path: str, bars: int = 48) -> tuple[float | None, list[float]
         return None, []
 
 
+_SCORE_ERRORS: list[str] = []
+
+
+def _ensure_numba() -> None:
+    """가사 점수의 DTW 계산이 numba를 쓰는데, 설치된 NumPy(2.5)와 numba(0.66)가 맞지 않아 불러오기가 실패한다.
+    그때는 numba 없이 일반 파이썬으로 계산하도록 jit 데코레이터만 흉내 낸 모듈로 대신한다 (속도만 느려짐)."""
+    try:
+        import numba  # noqa: F401
+
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    import types
+
+    for name in [m for m in sys.modules if m == "numba" or m.startswith("numba.")]:
+        sys.modules.pop(name, None)
+    stub = types.ModuleType("numba")
+
+    def _jit(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        return lambda fn: fn
+
+    stub.jit = _jit  # type: ignore[attr-defined]
+    stub.njit = _jit  # type: ignore[attr-defined]
+    sys.modules["numba"] = stub
+
+
+def _score_candidates(dit, result, vocal_language: str, steps: int) -> list[float | None] | None:
+    """곡마다 ACE-Step 「DiT 가사 정렬 점수」(가사가 소리 구간에 제자리로 놓인 정도, 높을수록 좋음).
+
+    ACE-Step이 가사 정확도를 높이려고 공식으로 권하는 방법: 여러 곡을 한꺼번에 만들어 이 점수가 높은 곡을 고른다.
+    중간 데이터가 없거나(메모리 절약 모드) 계산이 실패하면 None.
+    """
+    extra = getattr(result, "extra_outputs", None) or {}
+    keys = ("pred_latents", "encoder_hidden_states", "encoder_attention_mask", "context_latents", "lyric_token_idss")
+    missing = [k for k in keys if extra.get(k) is None]
+    if missing:
+        _SCORE_ERRORS.append("missing tensors: " + ",".join(missing) + f" (have {sorted(extra)})")
+        return None
+    _ensure_numba()
+    scores: list[float | None] = []
+    for i in range(len(result.audios or [])):
+        try:
+            r = dit.get_lyric_score(
+                pred_latent=extra["pred_latents"][i : i + 1],
+                encoder_hidden_states=extra["encoder_hidden_states"][i : i + 1],
+                encoder_attention_mask=extra["encoder_attention_mask"][i : i + 1],
+                context_latents=extra["context_latents"][i : i + 1],
+                lyric_token_ids=extra["lyric_token_idss"][i : i + 1],
+                vocal_language=vocal_language or "en",
+                inference_steps=int(steps),
+                seed=42,
+            )
+            if not r.get("success"):
+                _SCORE_ERRORS.append(f"sample {i}: {r.get('error')}")
+            scores.append(float(r.get("dit_score", 0.0)) if r.get("success") else None)
+        except Exception as exc:  # noqa: BLE001
+            _SCORE_ERRORS.append(f"sample {i}: {type(exc).__name__}: {exc}")
+            scores.append(None)
+    return scores
+
+
 def _collect_output_files(result, save_dir: Path) -> list[str]:
     """저장된 파일 경로 수집. MP3 등 실패 시 텐서에서 WAV로 재저장."""
     output_files: list[str] = []
@@ -203,8 +266,24 @@ def main() -> int:
         if not result.success:
             raise RuntimeError(result.error or result.status_message or "생성 실패")
 
+        _write_progress(progress_path, 88, "가사가 가장 잘 들어간 곡 고르는 중…")
+        scores = None
+        if p.get("lyrics") and not p.get("instrumental") and len(result.audios or []) > 1:
+            scores = _score_candidates(dit, result, p.get("vocal_language", "ko"), int(p.get("inference_steps", 8)))
+
         _write_progress(progress_path, 90, "결과 정리 중…")
         output_files = _collect_output_files(result, save_dir)
+        best_index = 0
+        if scores and any(s is not None for s in scores) and len(scores) == len(output_files):
+            best_index = max(range(len(scores)), key=lambda i: scores[i] if scores[i] is not None else float("-inf"))
+            if req.get("select_best") and not os.environ.get("ITMATZIP_KEEP_ALL_CANDIDATES"):
+                for i, f in enumerate(output_files):
+                    if i != best_index:
+                        try:
+                            Path(f).unlink()
+                        except OSError:
+                            pass
+                output_files = [output_files[best_index]]
         if not output_files:
             raise RuntimeError(
                 "오디오 파일을 저장하지 못했습니다. "
@@ -218,6 +297,9 @@ def main() -> int:
             "output_files": output_files,
             "audio_duration": audio_duration,
             "peaks": peaks,
+            "candidate_scores": scores,
+            "score_error": _SCORE_ERRORS[0] if _SCORE_ERRORS else None,
+            "best_index": best_index,
             "seed": result.audios[0].get("params", {}).get("seed") if result.audios else seed,
             "status_message": result.status_message,
         }
