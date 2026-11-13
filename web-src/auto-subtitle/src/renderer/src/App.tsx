@@ -6233,7 +6233,7 @@ export default function App(): ReactElement {
     // 보이는 자막 텍스트가 하나도 없으면(무음 칩만 있거나 전부 삭제·숨김) 빈 파일 대신 이유를 알려 준다.
     if (exportFormat !== 'video' && exportFormat !== 'mp3' && exportFormat !== 'wav'
       && buildExportCueLines(subtitles).length === 0) {
-      setExportNotice('내보낼 자막 텍스트가 없습니다. 자막 추출을 먼저 하셨는지, 모든 줄이 삭제·숨김 상태는 아닌지 확인해 주세요.')
+      setExportNotice('내보낼 자막 글자가 없습니다. 자막 추출 여부를 확인해 주세요.')
       return
     }
     const request: ExportRequest = {
