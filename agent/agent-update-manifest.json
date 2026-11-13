@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.34",
-    "published_at":  "2026-11-12",
+    "version":  "1.7.35",
+    "published_at":  "2026-11-13",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.34/itmatzip-agent.msi",
-    "sha256":  "b1639ad96d7762d698cb98077702b35e680c2b194e90944f1f6cb9881a135054",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.35/itmatzip-agent.msi",
+    "sha256":  "4b281859066893535652011af1e6f62ccfee35296d049052119369651111fbfc",
     "mandatory":  false,
-    "release_notes":  "AI 자막 채팅: 대본 첨부(어려운 단어 표기 참고) 추가, AutoSubtitle: 프로젝트 원본 영상 교체(길이가 같을 때만)",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.34/itmatzip-agent.msi",
-    "msi_sha256":  "b1639ad96d7762d698cb98077702b35e680c2b194e90944f1f6cb9881a135054"
+    "release_notes":  "AI 자막 채팅: 강조·색 강조·강조 해제·자막 숨김/표시·표시 시간·단어 삭제·전체 서식까지 편집기 기능 사용",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.35/itmatzip-agent.msi",
+    "msi_sha256":  "4b281859066893535652011af1e6f62ccfee35296d049052119369651111fbfc"
 }
