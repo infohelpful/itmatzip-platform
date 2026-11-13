@@ -30,21 +30,58 @@ _CLI_TIMEOUT_SEC = 600
 _SCRIPT_MAX_CHARS = 50_000
 
 
-def configured_clients() -> list[str]:
-    global _configured_cache
-    with _lock:
-        if time.monotonic() - _configured_cache[0] < 30:
-            return list(_configured_cache[1])
+_CONFIGURED_FRESH_SEC = 120
+# The Go check runs `claude mcp list`, which probes every registered MCP server and can take 20s+.
+_CONFIGURED_FETCH_TIMEOUT_SEC = 90
+_configured_known = False
+_configured_refreshing = False
+
+
+def _fetch_configured() -> list[str] | None:
     try:
-        with urlopen("http://127.0.0.1:19876/api/agent/ai-mcp", timeout=12) as response:
+        with urlopen("http://127.0.0.1:19876/api/agent/ai-mcp", timeout=_CONFIGURED_FETCH_TIMEOUT_SEC) as response:
             data = json.load(response)
-        configured = [item["id"] for item in data.get("clients", [])
-                      if item.get("id") in _clients and item.get("installed") and item.get("configured")]
+        return [item["id"] for item in data.get("clients", [])
+                if item.get("id") in _clients and item.get("installed") and item.get("configured")]
     except (OSError, ValueError, KeyError, TypeError):
-        configured = []
+        return None
+
+
+def _refresh_configured() -> None:
+    global _configured_cache, _configured_known, _configured_refreshing
+    try:
+        configured = _fetch_configured()
+        with _lock:
+            # A slow or failed check keeps the last good answer: the chat must not vanish because
+            # one CLI status call timed out.
+            if configured is not None:
+                _configured_cache = (time.monotonic(), configured)
+                _configured_known = True
+            else:  # retry in 30 s instead of on every status poll
+                _configured_cache = (time.monotonic() - _CONFIGURED_FRESH_SEC + 30, _configured_cache[1])
+    finally:
+        with _lock:
+            _configured_refreshing = False
+
+
+def configured_clients() -> list[str]:
+    """Configured AI CLIs. Answers from the last good check and refreshes it in the background."""
+    global _configured_refreshing
     with _lock:
-        _configured_cache = (time.monotonic(), configured)
-    return list(configured)
+        stale = time.monotonic() - _configured_cache[0] >= _CONFIGURED_FRESH_SEC
+        known = _configured_known
+        start = stale and not _configured_refreshing
+        if start:
+            _configured_refreshing = True
+        cached = list(_configured_cache[1])
+    if not start:
+        return cached
+    if known:
+        threading.Thread(target=_refresh_configured, daemon=True).start()
+        return cached
+    _refresh_configured()  # first check after start: nothing to show yet, so wait for it
+    with _lock:
+        return list(_configured_cache[1])
 
 
 def _executable(client: str) -> str:
