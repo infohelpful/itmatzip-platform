@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from engines import mcp_chat
+from engines.create_music import sanitize_lyrics
 
 _lock = threading.Lock()
 _jobs: dict[str, dict[str, Any]] = {}
@@ -105,7 +106,7 @@ def parse_patch(answer: dict[str, Any], max_duration: int = 600) -> dict[str, An
     if answer.get("tempo") in TEMPOS:
         patch["tempo"] = answer["tempo"]
     if isinstance(answer.get("lyrics"), str):
-        patch["lyrics"] = answer["lyrics"].strip()[:_MAX_LYRICS]
+        patch["lyrics"] = sanitize_lyrics(answer["lyrics"])[:_MAX_LYRICS]
     if answer.get("vocal_language") in LANGS:
         patch["vocal_language"] = answer["vocal_language"]
     duration = answer.get("duration")
@@ -145,7 +146,9 @@ def _prompt(instruction: str, form: dict[str, Any], history: list[dict[str, str]
         "these tags: [Verse], [Pre-Chorus], [Chorus], [Bridge], [Instrumental], [Outro]. Keep lines short "
         "(about 6-14 Korean syllables), make the chorus memorable and repeat it, and fit the length to the "
         "duration (about 2 verses + 2 choruses for 2-3 minutes). Never put stage directions or "
-        "descriptions inside the lyrics; put the feel into \"mood\" instead. Write original lyrics; do not "
+        "descriptions inside the lyrics; put the feel into \"mood\" instead. Use only plain words of the "
+        "vocal language: no English words mixed into Korean lyrics, no parentheses, no symbols such as "
+        "~ ... ? ! * and no emoji; end lines without punctuation. Write original lyrics; do not "
         "copy existing songs. When the user asks to change only part of the lyrics, return the complete "
         "new lyrics with that part changed. For an instrumental (vocal \"none\") return no lyrics.\n"
         "MOOD: a short phrase in the user's language describing atmosphere, scene and sound (max ~60 chars).\n"

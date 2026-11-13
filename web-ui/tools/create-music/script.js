@@ -93,6 +93,7 @@ const ui = {
   instNotice: $("cm-inst-notice"),
   duration: $("cm-duration"),
   durHint: $("cm-dur-hint"),
+  durWarn: $("cm-dur-warn"),
   adv: $("cm-adv"),
   quality: $("cm-quality"),
   instruments: $("cm-instruments"),
@@ -227,6 +228,37 @@ function renderAllChips() {
   renderChips(ui.vstyles, VOCAL_STYLE_OPTIONS);
 }
 
+/** 가사 분량으로 어림한 노래 길이(초). 서버의 길이 추정과 같은 방식(한 줄 3.5초, 구간 표시·간주 가산) */
+function estimateLyricsSeconds(text) {
+  let sec = 0;
+  String(text || "")
+    .split(/\r?\n/)
+    .forEach((raw) => {
+      const line = raw.trim();
+      if (!line) return;
+      const tag = line.match(/^\[([^\]]*)\]$/);
+      if (tag) sec += /instrumental|inst|solo|interlude|break/i.test(tag[1]) ? 16 : 7;
+      else sec += 3.5;
+    });
+  return Math.max(30, sec);
+}
+
+/** 고른 길이가 가사 분량보다 많이 길면 안내 (남는 구간을 어색하게 채울 수 있음) */
+function updateDurationWarning() {
+  const sec = Number(segValue(ui.duration) || -1);
+  const instrumental = segValue(ui.vocal) === "none";
+  const est = estimateLyricsSeconds(ui.lyrics.value);
+  const tooLong = !instrumental && sec > 0 && hasLyricText(ui.lyrics.value) && sec > est * 1.5 + 20;
+  ui.durWarn.hidden = !tooLong;
+  if (tooLong) {
+    ui.durWarn.textContent = tf(
+      "cm.durLong",
+      "가사 분량은 약 {est}예요. 이보다 길게 고르면 남는 구간이 어색해질 수 있어요. 「자동」을 권장해요.",
+      { est: fmtTime(Math.round(est / 5) * 5) },
+    );
+  }
+}
+
 function syncVocalUi() {
   const instrumental = segValue(ui.vocal) === "none";
   ui.lyricsGroup.hidden = instrumental;
@@ -241,7 +273,7 @@ function syncVocalUi() {
 
 bindSeg(ui.vocal, syncVocalUi);
 bindSeg(ui.tempo);
-bindSeg(ui.duration);
+bindSeg(ui.duration, updateGenerateState);
 bindSeg(ui.quality);
 ui.lyrics.addEventListener("input", updateGenerateState);
 ui.mood.addEventListener("input", updateGenerateState);
@@ -347,6 +379,7 @@ function updateGenerateState() {
   else hint = formProblem() || t("cm.hintReady", "60초 곡 기준 약 20초 걸려요");
   ui.generate.disabled = !state.connected || !state.ready || busy || Boolean(formProblem());
   ui.generate.textContent = busy ? t("cm.generating", "만드는 중…") : t("cm.generate", "✦ 음악 만들기");
+  updateDurationWarning();
   ui.genHint.textContent = hint;
 }
 

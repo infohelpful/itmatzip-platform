@@ -502,7 +502,7 @@ def _run_generation(job: GenerationJob) -> None:
         "params": {
             "task_type": params.task_type,
             "caption": params.caption,
-            "lyrics": params.lyrics,
+            "lyrics": sanitize_lyrics(params.lyrics),
             "vocal_language": params.vocal_language,
             "vocal_type": params.vocal_type,
             "instrumental": params.instrumental,
@@ -595,6 +595,28 @@ def sanitize_display(raw: Any) -> dict:
         if isinstance(val, list):
             out[key] = [str(v)[:60] for v in val if isinstance(v, (str, int, float))][:30]
     return out
+
+
+_TAG_LINE = re.compile(r"^\s*\[[^\]\n]{1,40}\]\s*$")
+_PAREN = re.compile(r"\([^)\n]*\)|（[^）\n]*）")
+_SYMBOLS = re.compile(r"[~～…?？!！*＊#♪♬♩♫\"“”‘’—–]|\.{2,}")
+
+
+def sanitize_lyrics(text: str) -> str:
+    """보내기 직전 가사 정리: 구간 태그([Verse] 등)는 그대로 두고, 나머지 줄에서
+    괄호 문구((Yeah) 등)와 ~ … ... ? ! 같은 기호를 제거한다. 모델이 기호를 소리 내려 해서 발음이 뭉개지는 것을 막는다."""
+    if not isinstance(text, str):
+        return ""
+    out: list[str] = []
+    for raw in text.replace("\r\n", "\n").split("\n"):
+        if _TAG_LINE.match(raw):
+            out.append(raw.strip())
+            continue
+        line = _SYMBOLS.sub(" ", _PAREN.sub(" ", raw))
+        line = re.sub(r"[ \t]{2,}", " ", line).strip()
+        if line or not raw.strip():
+            out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
 _JOB_ID_OK = re.compile(r"^[A-Za-z0-9_-]{1,64}$")

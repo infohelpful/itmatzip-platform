@@ -155,5 +155,32 @@ class DeleteHistoryTests(unittest.TestCase):
         self.assertTrue((self.root / "busy1").is_dir())
 
 
+class SanitizeLyricsTests(unittest.TestCase):
+    def test_keeps_tags_and_removes_symbols(self) -> None:
+        from engines.create_music import sanitize_lyrics
+
+        raw = "[Verse 1]\n밤하늘 아래서~ (Yeah)\n우리 둘이... 걷던 길?!\n\n\n\n[Chorus]\n  사랑해   너를 *  "
+        self.assertEqual(
+            sanitize_lyrics(raw),
+            "[Verse 1]\n밤하늘 아래서\n우리 둘이 걷던 길\n\n[Chorus]\n사랑해 너를",
+        )
+
+    def test_keeps_plain_text_and_commas(self) -> None:
+        from engines.create_music import sanitize_lyrics
+
+        self.assertEqual(sanitize_lyrics("[Verse]\n그날, 그 거리에서"), "[Verse]\n그날, 그 거리에서")
+        self.assertEqual(sanitize_lyrics(""), "")
+        self.assertEqual(sanitize_lyrics(None), "")  # type: ignore[arg-type]
+
+    def test_drops_lines_that_become_empty(self) -> None:
+        from engines.create_music import sanitize_lyrics
+
+        self.assertEqual(sanitize_lyrics("[Verse]\n(Yeah)\n~~~\n가사"), "[Verse]\n가사")
+
+    def test_ai_patch_lyrics_are_cleaned(self) -> None:
+        patch = ai.parse_patch({"vocal": "female", "lyrics": "[Verse]\n안녕~ (hey)\n잘 가요..."})
+        self.assertEqual(patch["lyrics"], "[Verse]\n안녕\n잘 가요")
+
+
 if __name__ == "__main__":
     unittest.main()

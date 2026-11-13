@@ -2,6 +2,7 @@
   if (!window.ITZ_I18N) return;
   window.ITZ_I18N.register("create-music", {
   "ko": {
+    "cm.durLong": "가사 분량은 약 {est}예요. 이보다 길게 고르면 남는 구간이 어색해질 수 있어요. 「자동」을 권장해요.",
     "cm.delete": "삭제",
     "cm.deleteSure": "정말 삭제?",
     "cm.deleteTitle": "이 곡을 PC에서 지워요 (파일도 함께 삭제)",
@@ -449,6 +450,7 @@
     "agent.waiting": "대기 중"
   },
   "en": {
+    "cm.durLong": "The lyrics are about {est} long. A longer length can make the extra part sound odd. “Auto” is recommended.",
     "cm.delete": "Delete",
     "cm.deleteSure": "Really delete?",
     "cm.deleteTitle": "Deletes this song from your PC (including the files)",
@@ -896,6 +898,7 @@
     "agent.waiting": "Idle"
   },
   "ja": {
+    "cm.durLong": "歌詞の分量は約{est}です。これより長くすると余った部分が不自然になることがあります。「自動」をおすすめします。",
     "cm.delete": "削除",
     "cm.deleteSure": "本当に削除?",
     "cm.deleteTitle": "この曲をPCから削除します（ファイルも削除）",
@@ -1343,6 +1346,7 @@
     "agent.waiting": "待機中"
   },
   "zh": {
+    "cm.durLong": "歌词大约 {est}。选择更长的时长可能让多出的部分听起来奇怪，建议选“自动”。",
     "cm.delete": "删除",
     "cm.deleteSure": "确定删除？",
     "cm.deleteTitle": "从电脑中删除这首歌（包括文件）",
