@@ -31,6 +31,12 @@ it('keeps hidden captions hidden after splitting and permits a completely captio
   const split = partitionLineAtSpeechBoundaries({...hidden[0], end: 5, words: lines.flatMap(line=>line.words!)}, [1])
   expect(split?.map(line=>line.isHidden)).toEqual([true,true])
 })
+it('still writes hidden captions to subtitle files (SRT/VTT/ASS/TXT)', () => {
+  const hidden = setSubtitleVisibility(lines, new Set([0,1,2]), true)
+  expect(buildExportCueLines(hidden, {includeHidden: true}).map(c=>c.text)).toEqual(['자막0','자막1','자막2'])
+  const someHidden = setSubtitleVisibility(lines, new Set([1]), true)
+  expect(buildExportCueLines(someHidden, {includeHidden: true}).map(c=>c.text)).toEqual(['자막0','자막1','자막2'])
+})
 it('preserves hidden rows through storage and uncached timeline conversion', () => {
   const hidden = setSubtitleVisibility(lines, new Set([0,2]), true)
   const timeline = JSON.parse(JSON.stringify(subtitleLinesToSentenceTokenTimeline(hidden)))

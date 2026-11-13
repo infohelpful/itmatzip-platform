@@ -306,12 +306,14 @@ export function insertMissingTemporalSilenceGapsInLine(
 export type SubtitleCueLineForExport = { start: number; end: number; text: string }
 
 export function subtitleCueLinesForExport(
-  lines: readonly SubtitleLine[]
+  lines: readonly SubtitleLine[],
+  /** true 면 「자막 숨김」 줄도 싣는다 — 숨김은 화면·영상 표시용이고 SRT/VTT/ASS/TXT 파일에는 들어가야 한다. */
+  options?: { includeHidden?: boolean }
 ): SubtitleCueLineForExport[] {
   const out: SubtitleCueLineForExport[] = []
   for (const span of subtitleDisplaySpans(lines)) {
     const line = lines[span.index]
-    if (line.isHidden) continue
+    if (line.isHidden && !options?.includeHidden) continue
     const hasWords = Array.isArray(line.words) && line.words.length > 0
     if (hasWords) {
       const vis = visibleSubtitleWords(line.words)

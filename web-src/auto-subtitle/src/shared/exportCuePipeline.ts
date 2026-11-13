@@ -28,6 +28,8 @@ export type BuildExportCueLinesOptions = {
   includeWords?: boolean
   /** true 이면 영상 버닝용으로 줄의 강조 글자 범위를 큐 텍스트 기준으로 옮겨 싣는다. 기본 false. */
   includeEmphasis?: boolean
+  /** true 이면 「자막 숨김」 줄도 싣는다(SRT·VTT·ASS·TXT 파일 내보내기). 기본 false(화면·영상 버닝). */
+  includeHidden?: boolean
 }
 
 /** 줄 강조(편집 텍스트 기준)를 내보내기 큐 텍스트 기준으로 옮긴다. */
@@ -65,14 +67,15 @@ export function buildExportCueLines(
   lines: readonly SubtitleLine[],
   options?: BuildExportCueLinesOptions
 ): ExportCueLine[] {
-  const cues = subtitleCueLinesForExport(lines)
+  const cueOptions = { includeHidden: options?.includeHidden === true }
+  const cues = subtitleCueLinesForExport(lines, cueOptions)
   const withEmphasis = options?.includeEmphasis === true && lines.some(line => line.emphasis?.length)
   if (!options?.includeWords && !withEmphasis) return cues
   // subtitleCueLinesForExport 는 tombstone·빈 텍스트 줄을 건너뛰므로 같은 규칙으로 줄을 다시 고른다.
   const kept: SubtitleLine[] = []
   for (const span of subtitleDisplaySpans(lines)) {
     const line = lines[span.index]
-    if (subtitleCueLinesForExport([line]).length > 0) kept.push(line)
+    if (subtitleCueLinesForExport([line], cueOptions).length > 0) kept.push(line)
   }
   if (!options?.includeWords) {
     return cues.map((cue, i) => {

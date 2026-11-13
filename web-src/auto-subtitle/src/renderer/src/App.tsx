@@ -6230,19 +6230,22 @@ export default function App(): ReactElement {
 
   const exportVideo = useCallback(() => {
     if (!videoPath || subtitles.length === 0 || isExporting) return
-    // 보이는 자막 텍스트가 하나도 없으면(무음 칩만 있거나 전부 삭제·숨김) 빈 파일 대신 이유를 알려 준다.
-    if (exportFormat !== 'video' && exportFormat !== 'mp3' && exportFormat !== 'wav'
-      && buildExportCueLines(subtitles).length === 0) {
+    // 「자막 숨김」은 화면·자막 입힌 영상에서만 숨긴다 — SRT/VTT/ASS/TXT 파일에는 숨긴 줄도 넣는다.
+    const isTextFile = exportFormat === 'srt' || exportFormat === 'vtt' || exportFormat === 'ass' || exportFormat === 'txt'
+    const cues = buildExportCueLines(subtitles, {
+      includeWords: exportFormat === 'video' && wordHighlightEnabled,
+      includeEmphasis: exportFormat === 'video',
+      includeHidden: isTextFile
+    })
+    // 자막 글자가 하나도 없으면(무음 칩만 있거나 전부 삭제) 빈 파일 대신 이유를 알려 준다.
+    if (isTextFile && cues.length === 0) {
       setExportNotice('내보낼 자막 글자가 없습니다. 자막 추출 여부를 확인해 주세요.')
       return
     }
     const request: ExportRequest = {
       inputPath: videoPath,
       format: exportFormat,
-      subtitles: buildExportCueLines(subtitles, {
-        includeWords: exportFormat === 'video' && wordHighlightEnabled,
-        includeEmphasis: exportFormat === 'video'
-      }),
+      subtitles: cues,
       cutRanges: mergedWaveformPeaksStitchCuts,
       subtitleStyle: {
         fontFamily: subtitleFontFamily,
