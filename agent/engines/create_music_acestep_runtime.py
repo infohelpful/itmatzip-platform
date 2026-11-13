@@ -11,12 +11,17 @@ import tempfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+try:
+    from engines import create_music_fetch as fetch
+except ImportError:  # 엔진 폴더에서 직접 실행할 때
+    import create_music_fetch as fetch  # type: ignore[no-redef]
 from common.subprocess_util import no_window_creationflags, run_hidden
 from common.runtime_site_packages import (
     TOOL_CREATE_MUSIC,
@@ -40,6 +45,25 @@ PYTORCH_CUDA_PACKAGES = (
     "torchvision==0.22.1+cu128",
     "torchaudio==2.7.1+cu128",
 )
+# 공식 서버(download.pytorch.org)에서 받는 wheel과 sha256.
+# 해시는 공식 색인 값이며 library-hub 번들 안의 사본과도 같습니다.
+PYTORCH_CU128_WHEELS: tuple[tuple[str, str], ...] = (
+    (
+        "torch-2.7.1+cu128-cp312-cp312-win_amd64.whl",
+        "2bb8c05d48ba815b316879a18195d53a6472a03e297d971e916753f8e1053d30",
+    ),
+    (
+        "torchvision-0.22.1+cu128-cp312-cp312-win_amd64.whl",
+        "650561ba326d21021243f5e064133dc62dc64d52f79623db5cd76637a9665f96",
+    ),
+    (
+        "torchaudio-2.7.1+cu128-cp312-cp312-win_amd64.whl",
+        "4586e3106701b06a4f9377f5c1da9e1d8555e16bd58fd7d810aa3f6cf50bd713",
+    ),
+)
+_TORCH_WHEEL_PREFIXES = ("torch-", "torchvision-", "torchaudio-")
+# PyTorch 설치(지우고 다시 풀기)가 두 곳에서 동시에 돌지 않도록
+_SITE_LOCK = threading.RLock()
 
 FLASH_ATTN_WIN_CP312_CU128 = (
     "https://huggingface.co/lldacing/flash-attention-windows-wheel/resolve/main/"
@@ -50,21 +74,14 @@ CREATE_MUSIC_LIB_BASE = (
     "https://github.com/infohelpful/library-hub/releases/download/Create_Music_Lib"
 )
 DEFAULT_ACESTEP_SOURCE_ZIP_URL = f"{CREATE_MUSIC_LIB_BASE}/ACE-Step-1.5.zip"
-DEFAULT_NANO_VLLM_ZIP_URL = ""
 DEFAULT_WHEELS_PART_URLS = (
     f"{CREATE_MUSIC_LIB_BASE}/wheels_create_music.zip.001",
     f"{CREATE_MUSIC_LIB_BASE}/wheels_create_music.zip.002",
 )
 # Hub zip 교체 시 캐시 무효화 (파일명 동일)
 CREATE_MUSIC_WHEELS_BUNDLE_REVISION = "cp312-cu128-complete-v3"
-
-_NANO_VLLM_VERIFY_SCRIPT = """
-import importlib.util
-import triton  # noqa: F401
-import triton.language  # noqa: F401
-import nanovllm  # noqa: F401
-print("ok")
-"""
+# 번들에서 PyTorch를 뺀 나머지만 골라 받은 캐시 표시
+CREATE_MUSIC_WHEELS_CACHE_LAYOUT = "no-torch-v1"
 
 _TORCH_VERIFY_SCRIPT = """
 import sys
@@ -113,12 +130,6 @@ def purge_legacy_acestep_venv(
     if message_cb:
         message_cb("구 .venv-acestep 삭제 중…")
     shutil.rmtree(legacy, ignore_errors=True)
-
-
-def nano_vllm_cache_dir() -> Path:
-    p = create_music_data_root() / "nano-vllm-source"
-    p.mkdir(parents=True, exist_ok=True)
-    return p.resolve()
 
 
 def wheels_cache_dir() -> Path:
@@ -233,40 +244,12 @@ def _download_http_file(
         raise RuntimeError(f"{label} 실패: {url}") from exc
 
 
-def _merge_split_zip_parts(parts: list[Path], dest: Path) -> None:
-    with dest.open("wb") as outfile:
-        for part in parts:
-            if not part.is_file():
-                raise FileNotFoundError(f"분할 zip 없음: {part}")
-            with part.open("rb") as infile:
-                shutil.copyfileobj(infile, outfile, length=16 * 1024 * 1024)
-
-
 def _verify_zip_archive(path: Path) -> None:
     if not zipfile.is_zipfile(path):
         raise RuntimeError(f"유효한 zip이 아닙니다: {path}")
     with zipfile.ZipFile(path, "r") as zf:
         if zf.testzip() is not None:
             raise RuntimeError(f"손상된 zip: {path}")
-
-
-def _extract_wheel_archive(archive: Path, dest: Path) -> None:
-    dest.mkdir(parents=True, exist_ok=True)
-    staging = dest / "_extract_staging"
-    if staging.exists():
-        shutil.rmtree(staging)
-    staging.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(archive, "r") as zf:
-        zf.extractall(staging)
-    for artifact in staging.rglob("*"):
-        if not artifact.is_file():
-            continue
-        if artifact.suffix.lower() == ".whl" or artifact.name.endswith(".tar.gz"):
-            target = dest / artifact.name
-            if target.exists():
-                target.unlink()
-            shutil.copy2(artifact, target)
-    shutil.rmtree(staging, ignore_errors=True)
 
 
 def _is_valid_acestep_root(path: Path) -> bool:
@@ -328,7 +311,7 @@ def ensure_acestep_source_from_zip(
             need_download = True
 
     if need_download:
-        _download_http_file(url, zip_path, message_cb=message_cb, label="ACE-Step 소스 다운로드")
+        _download_http_file(url, zip_path, message_cb=message_cb, label="음악 엔진 받는 중")
         try:
             _verify_zip_archive(zip_path)
         except RuntimeError as exc:
@@ -342,7 +325,7 @@ def ensure_acestep_source_from_zip(
             shutil.rmtree(extract_dir, ignore_errors=True)
         extract_dir.mkdir(parents=True, exist_ok=True)
         if message_cb:
-            message_cb("ACE-Step 소스 압축 해제 중…")
+            message_cb("음악 엔진 파일 푸는 중…")
         _extract_zip(zip_path, extract_dir)
 
     root = _find_acestep_project_root(extract_dir)
@@ -377,27 +360,15 @@ def _prune_incompatible_wheels(wheel_dir: Path) -> list[str]:
     return removed
 
 
-def _find_wheel_file(wheel_dir: Path, package: str, *, must_contain: tuple[str, ...] = ()) -> Path:
-    prefix = f"{package.lower()}-"
-    candidates = [
-        p
-        for p in wheel_dir.glob("*.whl")
-        if p.is_file() and p.name.lower().startswith(prefix) and _wheel_matches_py312_win(p.name)
-    ]
-    for token in must_contain:
-        candidates = [p for p in candidates if token.lower() in p.name.lower()]
-    if not candidates:
-        found = ", ".join(sorted(p.name for p in wheel_dir.glob("*.whl"))[:8]) or "(없음)"
-        raise RuntimeError(f"wheel 없음: {package} {must_contain} · 폴더: {found}")
-    return sorted(candidates, key=lambda p: p.name)[-1]
-
-
 def _wheel_bundle_marker_path() -> Path:
     return wheels_cache_dir() / "bundle_urls.txt"
 
 
 def _wheel_bundle_marker_payload(urls: tuple[str, str]) -> str:
-    return f"{CREATE_MUSIC_WHEELS_BUNDLE_REVISION}\n" + "\n".join(urls)
+    return (
+        f"{CREATE_MUSIC_WHEELS_BUNDLE_REVISION}/{CREATE_MUSIC_WHEELS_CACHE_LAYOUT}\n"
+        + "\n".join(urls)
+    )
 
 
 def _normalize_marker_text(text: str) -> str:
@@ -413,11 +384,7 @@ def _wheel_bundle_cache_valid(urls: tuple[str, str]) -> bool:
         _wheel_bundle_marker_payload(urls)
     ):
         return False
-    try:
-        _find_wheel_file(wheel_dir, "torch", must_contain=("cu128", "2.7.1"))
-    except RuntimeError:
-        return False
-    # 완전 번들 최소 검증
+    # PyTorch는 따로 받으므로 여기엔 없음 — 나머지 핵심 패키지만 확인
     for name in ("transformers", "safetensors", "diffusers", "numpy"):
         if not any(
             p.name.lower().replace("_", "-").startswith(name.replace("_", "-") + "-")
@@ -427,58 +394,135 @@ def _wheel_bundle_cache_valid(urls: tuple[str, str]) -> bool:
     return True
 
 
+def _is_torch_wheel_name(name: str) -> bool:
+    return name.lower().startswith(_TORCH_WHEEL_PREFIXES)
+
+
+def _is_bundle_package_member(name: str) -> bool:
+    """번들에서 골라 받을 항목: PyTorch 3종을 뺀 wheel / sdist."""
+    base = Path(name).name
+    if not (base.lower().endswith(".whl") or base.endswith(".tar.gz")):
+        return False
+    return not _is_torch_wheel_name(base)
+
+
 def ensure_wheels_bundle_extracted(
     *,
     message_cb: Callable[[str], None] | None = None,
     force: bool = False,
+    progress: fetch.ByteProgress | None = None,
 ) -> Path:
-    """wheels_create_music.zip.001·002 다운로드 → 병합 → 압축 해제.
+    """library-hub 번들(wheels_create_music.zip.001·002)에서 PyTorch를 뺀 패키지만 받기.
 
-    force=True 여도 로컬 완전 캐시가 있으면 hub 재다운로드하지 않습니다.
-    (site-packages 재설치는 install_*_from_wheels 쪽에서 처리)
+    번들은 무압축 zip이라 필요한 파일만 Range 요청으로 골라 받습니다 (약 0.5GB).
+    조각 합치기·zip 풀기용 임시 파일은 만들지 않습니다.
     """
     del force  # 캐시 무효일 때만 hub fetch — 유효 캐시 삭제는 금지
     urls = _wheels_part_urls()
     wheel_dir = wheels_extract_dir()
-    cache = wheels_cache_dir()
 
     if _wheel_bundle_cache_valid(urls):
         if message_cb:
-            message_cb("wheel 번들 캐시 사용")
+            message_cb("패키지 캐시 사용")
         return wheel_dir
 
-    parts_dir = cache / "parts"
-    parts_dir.mkdir(parents=True, exist_ok=True)
-    part_paths = [parts_dir / f"wheels_create_music.zip.{i:03d}" for i in (1, 2)]
-
-    for idx, (url, part_path) in enumerate(zip(urls, part_paths, strict=True), start=1):
-        _download_http_file(
-            url,
-            part_path,
-            message_cb=message_cb,
-            label=f"Create Music wheel 다운로드 ({idx}/2)",
-        )
-
     if message_cb:
-        message_cb("wheel zip 병합 중…")
-    merged = cache / "wheels_create_music.zip"
-    _merge_split_zip_parts(part_paths, merged)
-    _verify_zip_archive(merged)
+        message_cb("패키지 목록 확인 중…")
+    parts, members = fetch.list_remote_zip(urls)
+    selected = [m for m in members if _is_bundle_package_member(m.name)]
+    if not selected:
+        raise RuntimeError("library-hub 번들에서 설치할 패키지를 찾지 못했습니다.")
 
-    if message_cb:
-        message_cb("wheel zip 압축 해제 중…")
     if wheel_dir.exists():
         shutil.rmtree(wheel_dir, ignore_errors=True)
     wheel_dir.mkdir(parents=True, exist_ok=True)
-    _extract_wheel_archive(merged, wheel_dir)
+    _wheel_bundle_marker_path().unlink(missing_ok=True)
+    if message_cb:
+        mb = sum(m.size for m in selected) / (1024 * 1024)
+        message_cb(f"패키지 {len(selected)}개 받는 중 ({mb:.0f} MB)…")
+    fetch.download_remote_members(parts, selected, wheel_dir, progress=progress)
     pruned = _prune_incompatible_wheels(wheel_dir)
-    if pruned and message_cb:
-        message_cb(f"미호환 wheel 제외: {', '.join(pruned[:3])}")
+    if pruned:
+        logger.info(f"skipped incompatible wheels: {', '.join(pruned[:3])}")
 
     _wheel_bundle_marker_path().write_text(
         _wheel_bundle_marker_payload(urls), encoding="utf-8"
     )
     return wheel_dir
+
+
+def _torch_source_order() -> list[str]:
+    """PyTorch 받는 곳 순서. 기본: 공식 서버 → 실패 시 GitHub library-hub."""
+    pref = os.environ.get("ITMATZIP_CREATE_MUSIC_TORCH_SOURCE", "").strip().lower()
+    if pref in ("github", "hub", "library-hub"):
+        return ["github"]
+    if pref in ("official", "pytorch"):
+        return ["official"]
+    return ["official", "github"]
+
+
+def _official_torch_url(name: str) -> str:
+    return f"{PYTORCH_CU128_INDEX}/{urllib.parse.quote(name)}"
+
+
+def _download_torch_official(
+    dest_dir: Path, progress: fetch.ByteProgress | None
+) -> list[Path]:
+    targets = [(_official_torch_url(name), name, sha) for name, sha in PYTORCH_CU128_WHEELS]
+    sizes = [fetch.probe(url)[0] for url, _name, _sha in targets]
+    total = sum(sizes)
+    out: list[Path] = []
+    base = 0
+    for (url, name, sha), size in zip(targets, sizes, strict=True):
+        cb = None
+        if progress:
+            cb = lambda done, _t, b=base: progress(b + done, total)  # noqa: E731
+        out.append(fetch.download_file(url, dest_dir / name, sha256=sha, progress=cb))
+        base += size
+    return out
+
+
+def _download_torch_from_hub(
+    dest_dir: Path, progress: fetch.ByteProgress | None
+) -> list[Path]:
+    parts, members = fetch.list_remote_zip(_wheels_part_urls())
+    wanted = {name: sha for name, sha in PYTORCH_CU128_WHEELS}
+    selected = [m for m in members if Path(m.name).name in wanted]
+    if len(selected) != len(wanted):
+        raise RuntimeError("library-hub 번들에 PyTorch wheel이 없습니다.")
+    paths = fetch.download_remote_members(parts, selected, dest_dir, progress=progress)
+    for path in paths:
+        if fetch.sha256_file(path) != wanted[path.name]:
+            path.unlink(missing_ok=True)
+            raise RuntimeError(f"파일 검증 실패(sha256 불일치): {path.name}")
+    order = [name for name, _sha in PYTORCH_CU128_WHEELS]
+    return sorted(paths, key=lambda p: order.index(p.name))
+
+
+def download_pytorch_wheels(
+    dest_dir: Path,
+    *,
+    message_cb: Callable[[str], None] | None = None,
+    progress: fetch.ByteProgress | None = None,
+) -> list[Path]:
+    """PyTorch·torchvision·torchaudio wheel 받기: 공식 서버 우선, 실패하면 GitHub library-hub."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    errors: list[str] = []
+    for source in _torch_source_order():
+        try:
+            if source == "official":
+                if message_cb:
+                    message_cb("PyTorch 받는 중…")
+                return _download_torch_official(dest_dir, progress)
+            if message_cb:
+                message_cb("PyTorch 받는 중…")
+            return _download_torch_from_hub(dest_dir, progress)
+        except Exception as exc:
+            logger.warning("PyTorch download from %s failed: %s", source, exc)
+            errors.append(f"{source}: {exc}")
+            if message_cb and source == "official":
+                message_cb("기본 서버에 연결되지 않아 보조 서버에서 받습니다…")
+    raise RuntimeError("PyTorch 다운로드 실패 — " + " / ".join(errors))
 
 
 def _extract_wheel_into_site(wheel_path: Path, site: Path) -> None:
@@ -500,47 +544,22 @@ def _pip_uninstall_torch_stack() -> None:
     )
 
 
-def install_pytorch_from_wheels(
-    wheel_dir: Path,
+def install_pytorch_wheels(
+    wheels: list[Path],
     *,
-    force: bool = False,
     message_cb: Callable[[str], None] | None = None,
 ) -> None:
-    del force
-    torch_whl = _find_wheel_file(wheel_dir, "torch", must_contain=("cu128", "2.7.1"))
-    vision_whl = _find_wheel_file(wheel_dir, "torchvision", must_contain=("cu128",))
-    audio_whl = _find_wheel_file(wheel_dir, "torchaudio", must_contain=("cu128",))
+    """받아 둔 PyTorch wheel을 site-packages에 풀기 (의존 패키지는 번들 쪽에서 설치)."""
     if message_cb:
-        message_cb("PyTorch (CUDA) wheel 해제 중…")
-    _pip_uninstall_torch_stack()
-    site = acestep_site_packages()
-    t0 = time.monotonic()
-    for whl in (torch_whl, vision_whl, audio_whl):
-        if message_cb:
-            message_cb(f"해제: {whl.name}")
-        _extract_wheel_into_site(whl, site)
-    # torch runtime deps from bundle
-    for dep in (
-        "typing_extensions",
-        "sympy",
-        "mpmath",
-        "networkx",
-        "jinja2",
-        "markupsafe",
-        "fsspec",
-        "filelock",
-    ):
-        for whl in sorted(wheel_dir.glob(f"{dep}-*.whl")) + sorted(
-            wheel_dir.glob(f"{dep.replace('-', '_')}-*.whl")
-        ):
-            if _wheel_matches_py312_win(whl.name):
-                _extract_wheel_into_site(whl, site)
-                break
-    finalize_runtime_pip(TOOL_CREATE_MUSIC)
+        message_cb("PyTorch (CUDA) 설치 중…")
+    with _SITE_LOCK:
+        _pip_uninstall_torch_stack()
+        site = acestep_site_packages()
+        t0 = time.monotonic()
+        for whl in wheels:
+            _extract_wheel_into_site(whl, site)
+        finalize_runtime_pip(TOOL_CREATE_MUSIC)
     logger.info("extracted torch stack in %.1fs", time.monotonic() - t0)
-    ok, detail = verify_torch_installation()
-    if not ok:
-        raise RuntimeError(f"PyTorch wheel 설치 검증 실패: {detail}")
 
 
 def _package_name_from_spec(spec: str) -> str:
@@ -578,7 +597,7 @@ def install_runtime_packages_from_wheels(
     """완전 wheel 세트 → site-packages 직접 해제 (오프라인, PyPI 없음)."""
     del force
     if message_cb:
-        message_cb("런타임 library-hub wheel 해제 (오프라인)…")
+        message_cb("패키지 설치 중…")
     site = acestep_site_packages()
     skip_prefixes = (
         "torch-",
@@ -629,9 +648,10 @@ def install_runtime_packages_from_wheels(
         )
 
     total = len(best)
+    # PyTorch 3종은 여기서 빠지므로 PyTorch 설치와 동시에 풀어도 파일이 겹치지 않습니다.
     for i, (_key, whl) in enumerate(sorted(best.items()), start=1):
         if message_cb and (i == 1 or i == total or i % 5 == 0):
-            message_cb(f"wheel 해제 {i}/{total}: {whl.name}")
+            message_cb(f"패키지 설치 중 ({i}/{total})")
         _extract_wheel_into_site(whl, site)
     finalize_runtime_pip(TOOL_CREATE_MUSIC)
 
@@ -646,6 +666,14 @@ def _runtime_wheel_dir() -> Path | None:
 _MODEL_DOWNLOAD_IMPORT_CHECK = """
 import importlib
 for name in ("huggingface_hub", "modelscope", "loguru"):
+    importlib.import_module(name)
+print("ok")
+"""
+
+# PyTorch 설치 전에도 가능한 확인 (modelscope는 import 시 torch를 불러옴)
+_MODEL_DOWNLOAD_LIGHT_CHECK = """
+import importlib
+for name in ("huggingface_hub", "loguru"):
     importlib.import_module(name)
 print("ok")
 """
@@ -677,12 +705,13 @@ print("ok")
 """
 
 
-def verify_model_download_packages() -> tuple[bool, str]:
+def verify_model_download_packages(*, light: bool = False) -> tuple[bool, str]:
     try:
         acestep_python()
     except RuntimeError as exc:
         return False, str(exc)
-    proc = _run_acestep_python(["-c", _MODEL_DOWNLOAD_IMPORT_CHECK], timeout=60)
+    script = _MODEL_DOWNLOAD_LIGHT_CHECK if light else _MODEL_DOWNLOAD_IMPORT_CHECK
+    proc = _run_acestep_python(["-c", script], timeout=60)
     if proc.returncode == 0:
         return True, ""
     detail = (proc.stderr or proc.stdout or "model download import check failed").strip()
@@ -721,7 +750,7 @@ def ensure_model_download_packages(
             "환경 준비를 다시 실행하세요."
         )
     if message_cb:
-        message_cb("모델 다운로드용 패키지 wheel 해제…")
+        message_cb("모델 다운로드 준비 중…")
     install_runtime_packages_from_wheels(wheel_dir, force=force, message_cb=message_cb)
     ok, detail = verify_model_download_packages()
     if not ok:
@@ -760,85 +789,45 @@ def ensure_runtime_packages(
             "Create Music는 library-hub wheel 번들 설치만 지원합니다. "
             "ITMATZIP_ACESTEP_SKIP_WHEELS 를 끄세요."
         )
-    wheel_dir = wheel_dir or ensure_wheels_bundle_extracted(message_cb=message_cb)
+    # 이미 설치돼 있으면 번들을 다시 받지 않도록 먼저 확인 (설치 후 캐시는 지워짐)
     ok, _ = verify_runtime_packages()
     if ok and not force:
         if message_cb:
-            message_cb("런타임 패키지 이미 설치됨")
+            message_cb("패키지 이미 설치됨")
         return
+    wheel_dir = wheel_dir or ensure_wheels_bundle_extracted(message_cb=message_cb)
     install_runtime_packages_from_wheels(wheel_dir, force=force, message_cb=message_cb)
     ok, detail = verify_runtime_packages()
     if not ok:
         raise RuntimeError(f"런타임 의존성 설치 실패: {detail}")
 
 
-def install_create_music_wheels_bundle(
-    *,
-    force: bool = False,
-    message_cb: Callable[[str], None] | None = None,
-) -> Path:
-    """library-hub wheel 번들 → site-packages 해제."""
-    wheel_dir = ensure_wheels_bundle_extracted(message_cb=message_cb, force=force)
-    need_torch = force or not verify_torch_installation()[0]
-    if need_torch:
-        install_pytorch_from_wheels(wheel_dir, force=force, message_cb=message_cb)
-    elif message_cb:
-        message_cb("PyTorch 이미 설치됨 — 건너뜀")
-    ensure_runtime_packages(wheel_dir=wheel_dir, force=force, message_cb=message_cb)
-    return wheel_dir
-
-
-def _nano_vllm_zip_url() -> str:
-    for key in ("ITMATZIP_NANO_VLLM_ZIP_URL", "NANO_VLLM_ZIP_URL"):
-        raw = os.environ.get(key, "").strip()
-        if raw:
-            return raw
-    cfg = str(_create_music_config().get("nano_vllm_zip_url") or "").strip()
-    if cfg:
-        return cfg
-    return DEFAULT_NANO_VLLM_ZIP_URL
-
-
-def _find_nano_vllm_package_root(base: Path) -> Path | None:
-    """압축 해제 루트 또는 하위 폴더에서 pip install -e 대상 찾기."""
-    if not base.is_dir():
-        return None
-    if (base / "pyproject.toml").is_file():
-        return base
-    for child in sorted(base.iterdir()):
-        if child.is_dir() and (child / "pyproject.toml").is_file():
-            return child
-    return None
-
-
-def _download_nano_vllm_zip(url: str, dest: Path, *, message_cb: Callable[[str], None] | None = None) -> None:
-    headers = {
-        "User-Agent": "ItMatZip-Agent-CreateMusic/1.0",
-        "Accept": "application/octet-stream,*/*",
-    }
-    token = (
-        os.environ.get("ITMATZIP_NANO_VLLM_ZIP_TOKEN", "").strip()
-        or os.environ.get("GITHUB_TOKEN", "").strip()
-        or os.environ.get("GH_TOKEN", "").strip()
-    )
-    if token:
-        headers["Authorization"] = f"token {token}"
-    part = dest.with_suffix(dest.suffix + ".part")
-    if message_cb:
-        message_cb("nano-vllm zip 다운로드 중…")
-    request = urllib.request.Request(url, headers=headers, method="GET")
+def cleanup_install_cache() -> int:
+    """설치가 끝난 뒤 wheels-cache(받은 wheel·예전 분할 zip·합친 zip) 삭제. 지운 바이트 수."""
+    # 예전 버전이 만들던 nano-vllm 캐시 폴더 (더 이상 쓰지 않음)
+    shutil.rmtree(create_music_data_root() / "nano-vllm-source", ignore_errors=True)
+    # 예전 버전이 받아 둔 LM (생성에 쓰이지 않음, 1.7B는 약 3.5GB)
+    ckpt = acestep_checkpoints_dir()
+    for lm_dir in ckpt.glob("acestep-5Hz-lm-*"):
+        if lm_dir.is_dir():
+            try:
+                size = sum(f.stat().st_size for f in lm_dir.rglob("*") if f.is_file())
+            except OSError:
+                size = 0
+            shutil.rmtree(lm_dir, ignore_errors=True)
+            logger.info("unused LM removed: %s (%.1f GB)", lm_dir.name, size / 1024**3)
+    cache = create_music_data_root() / "wheels-cache"
+    if not cache.exists():
+        return 0
+    freed = 0
     try:
-        with urllib.request.urlopen(request, timeout=600) as response:
-            with part.open("wb") as out:
-                while True:
-                    chunk = response.read(256 * 1024)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-        os.replace(part, dest)
-    except (urllib.error.URLError, OSError) as exc:
-        part.unlink(missing_ok=True)
-        raise RuntimeError(f"nano-vllm zip 다운로드 실패: {url}") from exc
+        freed = sum(f.stat().st_size for f in cache.rglob("*") if f.is_file())
+    except OSError:
+        pass
+    shutil.rmtree(cache, ignore_errors=True)
+    if freed:
+        logger.info("Create Music install cache removed: %.1f GB", freed / 1024**3)
+    return freed
 
 
 def _extract_zip(zip_path: Path, out_dir: Path) -> None:
@@ -848,93 +837,6 @@ def _extract_zip(zip_path: Path, out_dir: Path) -> None:
             zf.extractall(out_dir)
     except zipfile.BadZipFile as exc:
         raise RuntimeError(f"zip 압축 해제 실패 ({zip_path}): {exc}") from exc
-
-
-def ensure_nano_vllm_from_zip(
-    url: str,
-    *,
-    message_cb: Callable[[str], None] | None = None,
-    force: bool = False,
-) -> Path:
-    """GitHub 등에 올린 nano-vllm.zip 다운로드 후 캐시에 압축 해제."""
-    cache = nano_vllm_cache_dir()
-    extract_dir = cache / "extracted"
-    marker = cache / "source_url.txt"
-    zip_path = cache / "nano-vllm.zip"
-
-    if not force and marker.is_file() and marker.read_text(encoding="utf-8").strip() == url:
-        root = _find_nano_vllm_package_root(extract_dir)
-        if root is not None:
-            return root
-
-    if extract_dir.is_dir():
-        shutil.rmtree(extract_dir, ignore_errors=True)
-    extract_dir.mkdir(parents=True, exist_ok=True)
-
-    _download_nano_vllm_zip(url, zip_path, message_cb=message_cb)
-    if message_cb:
-        message_cb("nano-vllm zip 압축 해제 중…")
-    _extract_zip(zip_path, extract_dir)
-
-    root = _find_nano_vllm_package_root(extract_dir)
-    if root is None:
-        raise RuntimeError(
-            f"nano-vllm 패키지 루트를 찾을 수 없습니다 ({extract_dir}). "
-            "zip 안에 pyproject.toml 이 있는 nano-vllm 폴더가 있어야 합니다."
-        )
-    marker.write_text(url, encoding="utf-8")
-    return root
-
-
-def resolve_nano_vllm_dir(
-    acestep_root: Path | None = None,
-    *,
-    message_cb: Callable[[str], None] | None = None,
-) -> Path:
-    """
-    nano-vllm 소스 경로 (우선순위):
-    1) ITMATZIP_NANO_VLLM_DIR
-    2) ProgramData 캐시 (이전 zip 설치)
-    3) ACE-Step 번들 third_parts/nano-vllm
-    4) ITMATZIP_NANO_VLLM_ZIP_URL / config nano_vllm_zip_url
-    """
-    override = os.environ.get("ITMATZIP_NANO_VLLM_DIR", "").strip()
-    if override:
-        p = Path(override).expanduser().resolve()
-        root = _find_nano_vllm_package_root(p)
-        if root is None:
-            raise FileNotFoundError(f"ITMATZIP_NANO_VLLM_DIR 에 pyproject.toml 없음: {p}")
-        return root
-
-    cache = nano_vllm_cache_dir() / "extracted"
-    root = _find_nano_vllm_package_root(cache)
-    if root is not None:
-        return root
-
-    acestep_root = acestep_root or resolve_acestep_root()
-    # ACE-Step 소스에 번들된 nano-vllm 우선 탐색 (폴더명이 버전마다 다를 수 있음)
-    bundled_candidates = (
-        acestep_root / "acestep" / "third_parts" / "nano-vllm",
-        acestep_root / "acestep" / "third_part" / "nano-vllm",
-        acestep_root / "acestep" / "third_party" / "nano-vllm",
-        acestep_root / "acestep" / "third-party" / "nano-vllm",
-    )
-    for cand in bundled_candidates:
-        root = _find_nano_vllm_package_root(cand)
-        if root is not None:
-            return root
-
-    zip_url = _nano_vllm_zip_url()
-    if zip_url:
-        try:
-            return ensure_nano_vllm_from_zip(zip_url, message_cb=message_cb)
-        except Exception as exc:
-            raise FileNotFoundError(f"nano-vllm zip 다운로드 실패: {zip_url} ({exc})") from exc
-
-    raise FileNotFoundError(
-        "nano-vllm 소스를 찾을 수 없습니다. 환경 준비로 zip 다운로드를 시도하거나 "
-        "ACE-Step third_parts/nano-vllm, ITMATZIP_NANO_VLLM_DIR 을 확인하세요."
-    )
 
 
 def _engines_dir() -> Path:
@@ -1011,33 +913,9 @@ def venv_python() -> Path:
     return acestep_python()
 
 
-def is_nano_vllm_ready() -> bool:
-    """로컬 nano-vllm + Triton (선택)."""
-    if not is_venv_ready_fast():
-        return False
-    env = _acestep_env(lm_backend="pt")
-    proc = _run_acestep_python(
-        ["-c", _NANO_VLLM_VERIFY_SCRIPT],
-        timeout=120,
-        env=env,
-        include_nano=True,
-    )
-    return proc.returncode == 0
-
-
 def resolve_lm_backend(*, prefer_vllm: bool = False) -> str:
-    """
-    LM 백엔드: auto(기본) | pt | vllm
-    ITMATZIP_ACESTEP_LM_BACKEND 환경 변수로 강제 가능.
-    """
-    pref = os.environ.get("ITMATZIP_ACESTEP_LM_BACKEND", "auto").strip().lower()
-    if pref == "pt":
-        return "pt"
-    if pref == "vllm":
-        return "vllm" if is_nano_vllm_ready() else "pt"
-    # auto
-    if prefer_vllm and is_nano_vllm_ready():
-        return "vllm"
+    """LM 백엔드는 PyTorch(pt) 하나만 씁니다 (nano-vllm은 쓰지 않음)."""
+    del prefer_vllm
     return "pt"
 
 
@@ -1073,9 +951,6 @@ def _acestep_env(extra: Optional[dict[str, str]] = None, *, lm_backend: str = "p
     parts = [site]
     if root:
         parts.insert(0, root)
-        nano = _nano_vllm_path_hint(Path(root))
-        if nano:
-            parts.insert(0, nano)
     prev = base.get("PYTHONPATH", "")
     if prev:
         parts.append(prev)
@@ -1086,20 +961,7 @@ def _acestep_env(extra: Optional[dict[str, str]] = None, *, lm_backend: str = "p
     return pip_subprocess_env(base)
 
 
-def _nano_vllm_path_hint(ace_root: Path) -> str | None:
-    bundled = ace_root / "third_parts" / "nano-vllm"
-    if (bundled / "nanovllm").is_dir() or (bundled / "setup.py").is_file() or (
-        bundled / "pyproject.toml"
-    ).is_file():
-        return str(bundled.resolve())
-    cached = nano_vllm_cache_dir()
-    for cand in cached.rglob("nanovllm"):
-        if cand.is_dir():
-            return str(cand.parent.resolve())
-    return None
-
-
-def _path_bootstrap_prefix(*, include_acestep: bool = True, include_nano: bool = False) -> str:
+def _path_bootstrap_prefix(*, include_acestep: bool = True) -> str:
     """Embeddable Python: inject engine-runtime (+ ACE-Step source) into sys.path."""
     parts: list[str] = [engine_python_c_prefix(TOOL_CREATE_MUSIC)]
     if include_acestep:
@@ -1108,12 +970,6 @@ def _path_bootstrap_prefix(*, include_acestep: bool = True, include_nano: bool =
             parts.append(
                 f"_v={root!r}; sys.path.insert(0, _v) if _v not in sys.path else None; "
             )
-            if include_nano:
-                nano = _nano_vllm_path_hint(Path(root))
-                if nano:
-                    parts.append(
-                        f"_n={nano!r}; sys.path.insert(0, _n) if _n not in sys.path else None; "
-                    )
         except Exception:
             pass
     return "".join(parts)
@@ -1125,12 +981,11 @@ def _run_acestep_python(
     cwd: Path | None = None,
     timeout: float = 3600.0,
     env: dict[str, str] | None = None,
-    include_nano: bool = False,
 ) -> subprocess.CompletedProcess:
     merged = _acestep_env() if env is None else env
     cmd_args = list(args)
     if cmd_args[:1] == ["-c"] and len(cmd_args) >= 2:
-        prefix = _path_bootstrap_prefix(include_acestep=True, include_nano=include_nano)
+        prefix = _path_bootstrap_prefix(include_acestep=True)
         if prefix and not str(cmd_args[1]).startswith("import sys"):
             cmd_args[1] = "import sys; " + prefix + str(cmd_args[1])
         elif prefix and "sys.path.insert" not in str(cmd_args[1])[:80]:
@@ -1161,14 +1016,33 @@ def verify_torch_installation() -> tuple[bool, str]:
     return True, version
 
 
-def install_pytorch_stack(*, force: bool = False, message_cb: Callable[[str], None] | None = None) -> None:
-    """오프라인 wheel만 — 온라인 CUDA index 금지."""
+def install_pytorch_stack(
+    *,
+    force: bool = False,
+    message_cb: Callable[[str], None] | None = None,
+    progress: fetch.ByteProgress | None = None,
+    verify: bool = True,
+) -> None:
+    """PyTorch(CUDA 12.8) 설치: 공식 서버 → 실패 시 library-hub. 받은 wheel은 설치 후 삭제.
+
+    verify=False: 다른 패키지를 동시에 설치 중일 때 (검증은 호출 쪽에서 나중에).
+    """
     del force
-    if not _use_offline_wheels():
-        raise RuntimeError("Create Music는 library-hub wheel만 지원합니다.")
-    if message_cb:
-        message_cb("PyTorch — library-hub wheel 번들 사용")
-    install_create_music_wheels_bundle(force=True, message_cb=message_cb)
+    dl_dir = wheels_cache_dir() / "torch"
+    try:
+        wheels = download_pytorch_wheels(dl_dir, message_cb=message_cb, progress=progress)
+        install_pytorch_wheels(wheels, message_cb=message_cb)
+    finally:
+        shutil.rmtree(dl_dir, ignore_errors=True)
+    if not verify:
+        return
+    ok, detail = verify_torch_installation()
+    if not ok:
+        # torch가 쓰는 패키지(sympy 등)가 빠졌을 수 있음 → 번들 패키지 보충 후 재확인
+        ensure_runtime_packages(force=True, message_cb=message_cb)
+        ok, detail = verify_torch_installation()
+    if not ok:
+        raise RuntimeError(f"PyTorch 설치 검증 실패: {detail}")
 
 
 def is_venv_ready() -> bool:
@@ -1227,7 +1101,7 @@ def runtime_status_fast() -> dict[str, Any]:
 
     venv_fast = is_venv_ready_fast()
     models_fast = is_models_ready(require_venv=False)
-    lm_backend = resolve_lm_backend(prefer_vllm=False)
+    lm_backend = resolve_lm_backend()
 
     return {
         "acestep_root": root_path,
@@ -1244,9 +1118,6 @@ def runtime_status_fast() -> dict[str, Any]:
         "python312_error": py_err,
         "runner_python": str(acestep_python()) if venv_fast else "",
         "runtime": "create-music-engine-runtime",
-        "nano_vllm_ready": False,
-        "nano_vllm_zip_url": _nano_vllm_zip_url(),
-        "nano_vllm_cache_dir": str(nano_vllm_cache_dir()),
         "wheels_bundle_urls": list(_wheels_part_urls()),
         "wheels_cache_dir": str(wheels_cache_dir()),
         "wheels_bundle_cached": _wheel_bundle_cache_valid(_wheels_part_urls()),
@@ -1275,8 +1146,7 @@ def runtime_status() -> dict[str, Any]:
         py_err = str(e)
 
     torch_ok, torch_detail = verify_torch_installation()
-    nano_ok = is_nano_vllm_ready()
-    lm_backend = resolve_lm_backend(prefer_vllm=nano_ok)
+    lm_backend = resolve_lm_backend()
 
     return {
         "acestep_root": root_path,
@@ -1293,9 +1163,6 @@ def runtime_status() -> dict[str, Any]:
         "python312_error": py_err,
         "runner_python": str(acestep_python()) if is_venv_ready_fast() else "",
         "runtime": "create-music-engine-runtime",
-        "nano_vllm_ready": nano_ok,
-        "nano_vllm_zip_url": _nano_vllm_zip_url(),
-        "nano_vllm_cache_dir": str(nano_vllm_cache_dir()),
         "wheels_bundle_urls": list(_wheels_part_urls()),
         "wheels_cache_dir": str(wheels_cache_dir()),
         "wheels_bundle_cached": _wheel_bundle_cache_valid(_wheels_part_urls()),
@@ -1348,13 +1215,12 @@ ACESTEP_RUNTIME_PACKAGES = [
 ]
 
 
-def _install_acestep_package(
+def _link_acestep_source(
     root: Path,
     *,
     message_cb: Callable[[str], None] | None = None,
-    wheel_dir: Path | None = None,
 ) -> None:
-    """ACE-Step 소스 경로 설정 + 런타임 wheel (editable pip 없음)."""
+    """ACE-Step 소스 경로 설정 (editable pip 없음, runner가 경로를 주입)."""
     forced_js_files = (
         root / "acestep" / "ui" / "gradio" / "interfaces" / "audio_player_preferences.js",
         root / "acestep" / "ui" / "gradio" / "interfaces" / "user_preferences.js",
@@ -1366,61 +1232,7 @@ def _install_acestep_package(
             logger.warning("ACE-Step force-include placeholder created: %s", js_path)
     _persist_acestep_root_config(root, _acestep_source_zip_url())
     if message_cb:
-        message_cb(f"ACE-Step 소스 경로: {root}")
-    ensure_runtime_packages(wheel_dir=wheel_dir, message_cb=message_cb)
-
-
-def install_nano_vllm_stack(
-    root: Path | None = None,
-    *,
-    message_cb: Callable[[str], None] | None = None,
-    install_flash_attn: bool = True,
-) -> tuple[bool, str]:
-    """
-    nano-vllm: path inject + 선택 wheel(triton/xxhash/flash_attn) 해제.
-    PyPI / pip -e 없음. 실패해도 LM pt 백엔드로 동작.
-    """
-    ace_root: Path | None = None
-    try:
-        ace_root = root or resolve_acestep_root()
-    except FileNotFoundError:
-        ace_root = None
-
-    try:
-        nano_dir = resolve_nano_vllm_dir(ace_root, message_cb=message_cb)
-    except FileNotFoundError as exc:
-        return False, str(exc)
-
-    def step(msg: str) -> None:
-        if message_cb:
-            message_cb(msg)
-        logger.info("[nano-vllm] %s", msg)
-
-    wheel_dir = wheels_extract_dir() if wheels_extract_dir().is_dir() else None
-    site = acestep_site_packages()
-
-    if wheel_dir:
-        step("Triton / xxhash wheel 해제 (있으면)…")
-        for pattern in ("triton_windows-*.whl", "triton-*.whl", "xxhash-*.whl"):
-            for whl in wheel_dir.glob(pattern):
-                if _wheel_matches_py312_win(whl.name):
-                    try:
-                        _extract_wheel_into_site(whl, site)
-                    except Exception as exc:
-                        logger.warning("optional wheel extract failed %s: %s", whl.name, exc)
-        if install_flash_attn:
-            flash_local = list(wheel_dir.glob("flash_attn*.whl"))
-            if flash_local:
-                try:
-                    _extract_wheel_into_site(flash_local[0], site)
-                except Exception as exc:
-                    logger.warning("flash-attn extract skipped: %s", exc)
-        finalize_runtime_pip(TOOL_CREATE_MUSIC)
-
-    step(f"nano-vllm 경로 사용: {nano_dir}")
-    if is_nano_vllm_ready():
-        return True, f"nano-vllm 준비됨 ({nano_dir}) — LM vllm 사용 가능"
-    return False, "nano-vllm 검증 실패 — LM은 pt 백엔드로 동작"
+        message_cb("음악 엔진 연결 중…")
 
 
 def _run_pip(
@@ -1464,12 +1276,16 @@ def ensure_venv(
     on_message: Callable[[str], None] | None = None,
     on_progress: Callable[[float, str], None] | None = None,
     force_repair_torch: bool = False,
+    on_bytes: Callable[[str, int, int], None] | None = None,
+    on_packages_ready: Callable[[], None] | None = None,
 ) -> None:
-    """engine-runtime + library-hub 완전 wheel (하위 호환 이름 ensure_venv)."""
+    """engine-runtime 준비 (하위 호환 이름 ensure_venv)."""
     ensure_runtime(
         on_message=on_message,
         on_progress=on_progress,
         force_repair_torch=force_repair_torch,
+        on_bytes=on_bytes,
+        on_packages_ready=on_packages_ready,
     )
 
 
@@ -1478,8 +1294,16 @@ def ensure_runtime(
     on_message: Callable[[str], None] | None = None,
     on_progress: Callable[[float, str], None] | None = None,
     force_repair_torch: bool = False,
+    on_bytes: Callable[[str, int, int], None] | None = None,
+    on_packages_ready: Callable[[], None] | None = None,
 ) -> None:
-    """MSI engine python + engine-runtime/create-music + offline wheels."""
+    """MSI engine python + engine-runtime/create-music.
+
+    PyTorch(공식 서버 → library-hub)와 나머지 패키지(library-hub에서 골라 받기)를
+    동시에 받습니다. 나머지 패키지가 설치되면 on_packages_ready()를 불러
+    호출 쪽이 모델 다운로드를 바로 시작할 수 있게 합니다 (모델 다운로드엔 PyTorch 불필요).
+    on_bytes(key, done, total): key는 "torch" 또는 "packages".
+    """
 
     def notify(pct: float, text: str) -> None:
         if on_progress:
@@ -1491,7 +1315,7 @@ def ensure_runtime(
     acestep_site_packages()
     ensure_runtime_tree_acl(TOOL_CREATE_MUSIC)
 
-    notify(13, "ACE-Step 소스 확인…")
+    notify(13, "음악 엔진 확인 중…")
     root = resolve_acestep_root(message_cb=lambda m: notify(14, m))
 
     torch_ok, _ = verify_torch_installation()
@@ -1502,26 +1326,15 @@ def ensure_runtime(
         except Exception:
             acestep_ok = False
 
-    install_nv = os.environ.get("ITMATZIP_INSTALL_NANO_VLLM", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-    )
-
     if torch_ok and acestep_ok and not force_repair_torch:
-        notify(30, "런타임 의존성 확인 중…")
+        notify(30, "설치 상태 확인 중…")
         ensure_runtime_packages(
             wheel_dir=_runtime_wheel_dir(),
             message_cb=lambda m: notify(30, m),
         )
-        if install_nv and not is_nano_vllm_ready():
-            notify(32, "nano-vllm (선택) 준비 중…")
-            ok_nv, msg_nv = install_nano_vllm_stack(
-                root,
-                message_cb=lambda m: notify(32, m),
-            )
-            logger.info("nano-vllm install: ok=%s %s", ok_nv, msg_nv)
-        notify(34, "ACE-Step 환경 이미 준비됨")
+        notify(34, "음악 엔진 준비됨")
+        if on_packages_ready:
+            on_packages_ready()
         return
 
     if not _use_offline_wheels():
@@ -1530,32 +1343,53 @@ def ensure_runtime(
             "ITMATZIP_ACESTEP_SKIP_WHEELS 를 끄세요."
         )
 
-    notify(16, "Create Music wheel 번들 다운로드·해제 중…")
-    wheel_dir = install_create_music_wheels_bundle(
-        force=force_repair_torch or not torch_ok,
-        message_cb=lambda m: notify(22, m),
-    )
-    notify(28, "wheel 번들 설치 완료")
+    def bytes_cb(key: str) -> fetch.ByteProgress | None:
+        if not on_bytes:
+            return None
+        return lambda done, total: on_bytes(key, done, total)
 
-    notify(29, "ACE-Step 소스 연결…")
-    _install_acestep_package(
-        root,
-        message_cb=lambda m: notify(30, m),
-        wheel_dir=wheel_dir,
-    )
+    torch_errors: list[BaseException] = []
+    torch_thread: threading.Thread | None = None
+    if force_repair_torch or not torch_ok:
 
-    if install_nv and not is_nano_vllm_ready():
-        notify(32, "nano-vllm (선택) 준비 중…")
-        ok_nv, msg_nv = install_nano_vllm_stack(
-            root,
-            message_cb=lambda m: notify(32, m),
+        def _torch_job() -> None:
+            try:
+                install_pytorch_stack(
+                    message_cb=lambda m: notify(20, m),
+                    progress=bytes_cb("torch"),
+                    verify=False,
+                )
+            except BaseException as exc:  # 메인 스레드에서 다시 올림
+                torch_errors.append(exc)
+
+        torch_thread = threading.Thread(target=_torch_job, name="cm-torch", daemon=True)
+        torch_thread.start()
+
+    try:
+        notify(16, "패키지 받는 중…")
+        wheel_dir = ensure_wheels_bundle_extracted(
+            message_cb=lambda m: notify(18, m),
+            progress=bytes_cb("packages"),
         )
-        logger.info("nano-vllm install: ok=%s %s", ok_nv, msg_nv)
-        if ok_nv:
-            notify(33, msg_nv)
-        else:
-            notify(33, f"{msg_nv}")
+        install_runtime_packages_from_wheels(wheel_dir, message_cb=lambda m: notify(24, m))
+        _link_acestep_source(root, message_cb=lambda m: notify(26, m))
+        if on_packages_ready:
+            on_packages_ready()
+    finally:
+        if torch_thread is not None:
+            torch_thread.join()
+    if torch_errors:
+        raise RuntimeError(f"PyTorch 설치 실패: {torch_errors[0]}") from torch_errors[0]
 
+    notify(28, "설치 확인 중…")
+    ok, detail = verify_torch_installation()
+    if not ok:
+        raise RuntimeError(f"PyTorch 설치 검증 실패: {detail}")
+    ok, detail = verify_runtime_packages()
+    if not ok:
+        raise RuntimeError(f"런타임 의존성 설치 실패: {detail}")
+
+    notify(33, "설치 확인 중…")
     if not is_venv_ready():
         raise RuntimeError("ACE-Step 설치 후 검증에 실패했습니다.")
 
@@ -1591,31 +1425,34 @@ def _run_subprocess_script(
             [p for p in (agent_pkg, prev) if p]
         )
 
-        proc = run_hidden(
-            [str(py), str(script), str(req_path)],
-            capture_output=True,
-            text=True,
-            timeout=timeout_sec,
-            env=env,
-            creationflags=no_window_creationflags(),
-        )
-
         stop = threading.Event()
 
         def _poll():
+            last = None
             while not stop.is_set():
                 if prog_path.is_file():
                     try:
                         data = json.loads(prog_path.read_text(encoding="utf-8"))
-                        if on_progress:
-                            on_progress(float(data.get("progress", 0)), str(data.get("message", "")))
+                        cur = (float(data.get("progress", 0)), str(data.get("message", "")))
+                        if on_progress and cur != last:
+                            on_progress(*cur)
+                        last = cur
                     except Exception:
                         pass
                 time.sleep(0.8)
 
+        # 실행 중에 진행률을 읽어야 하므로 실행 전에 시작 (예전엔 끝난 뒤 시작해 진행률이 안 보였음)
         poll_t = threading.Thread(target=_poll, daemon=True)
         poll_t.start()
         try:
+            proc = run_hidden(
+                [str(py), str(script), str(req_path)],
+                capture_output=True,
+                text=True,
+                timeout=timeout_sec,
+                env=env,
+                creationflags=no_window_creationflags(),
+            )
             if proc.returncode != 0:
                 err = (proc.stderr or proc.stdout or "")[-3000:]
                 if out_path.is_file():
@@ -1638,31 +1475,44 @@ def prepare_models(
     dit_configs: list[str] | None = None,
     lm_models: list[str] | None = None,
     on_progress: Callable[[float, str], None] | None = None,
+    runtime_ready: bool = True,
 ) -> None:
+    """모델 가중치 받기.
+
+    runtime_ready=False: PyTorch를 아직 받는 중일 때 (병렬 설치).
+    모델 다운로드(HuggingFace)에는 huggingface_hub·loguru만 필요하므로 그것만 확인합니다.
+    """
     if not force and is_models_ready(require_venv=False):
-        pkg_ok, _ = verify_model_download_packages()
+        pkg_ok, _ = verify_model_download_packages(light=not runtime_ready)
         if pkg_ok:
             if on_progress:
                 on_progress(95, "모델 이미 설치됨 — 다운로드 생략")
             return
 
-    if not verify_torch_installation()[0]:
+    if runtime_ready:
+        if not verify_torch_installation()[0]:
+            if on_progress:
+                on_progress(18, "PyTorch 복구 중…")
+            install_pytorch_stack(
+                force=True, message_cb=lambda m: on_progress(18, m) if on_progress else None
+            )
         if on_progress:
-            on_progress(18, "PyTorch 복구 중…")
-        install_pytorch_stack(force=True, message_cb=lambda m: on_progress(18, m) if on_progress else None)
-    if on_progress:
-        on_progress(33, "모델 다운로드 의존성 확인 중…")
-    wheel_dir = _runtime_wheel_dir()
-    ensure_model_download_packages(
-        wheel_dir=wheel_dir,
-        force=force,
-        message_cb=lambda m: on_progress(33, m) if on_progress else None,
-    )
-    ensure_runtime_packages(
-        wheel_dir=wheel_dir,
-        force=force,
-        message_cb=lambda m: on_progress(34, m) if on_progress else None,
-    )
+            on_progress(33, "모델 다운로드 의존성 확인 중…")
+        wheel_dir = _runtime_wheel_dir()
+        ensure_model_download_packages(
+            wheel_dir=wheel_dir,
+            force=force,
+            message_cb=lambda m: on_progress(33, m) if on_progress else None,
+        )
+        ensure_runtime_packages(
+            wheel_dir=wheel_dir,
+            force=force,
+            message_cb=lambda m: on_progress(34, m) if on_progress else None,
+        )
+    else:
+        ok, detail = verify_model_download_packages(light=True)
+        if not ok:
+            raise RuntimeError(f"모델 다운로드용 패키지가 준비되지 않았습니다: {detail}")
     payload = {
         "force": force,
         "project_root": str(resolve_acestep_root()),

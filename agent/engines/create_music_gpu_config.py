@@ -189,14 +189,9 @@ def resolve_lm_checkpoint(lm_model: str, config: GpuConfig) -> Optional[str]:
 
 
 def recommended_lm_backend(config: GpuConfig) -> str:
-    """nano-vllm 설치 시 티어 4+는 vllm, 아니면 pt."""
-    try:
-        from engines import create_music_acestep_runtime as ace_rt
-
-        prefer_vllm = config.tier in ("tier4", "tier5", "tier6a", "tier6b", "unlimited")
-        return ace_rt.resolve_lm_backend(prefer_vllm=prefer_vllm)
-    except Exception:
-        return "pt"
+    """LM은 PyTorch 백엔드만 씁니다."""
+    del config
+    return "pt"
 
 
 def available_dit_models(config: GpuConfig) -> list[str]:
@@ -417,12 +412,7 @@ def gpu_config_for_api(config: GpuConfig) -> dict:
         },
         "available_lm_models": list(s.available_lm_models),
         "available_dit_models": available_dit_models(config),
-        "lm_implemented": True,
-        "lm_note": (
-            "LM: auto=가능 시 vllm(nano-vllm), 아니면 pt. "
-            "환경 변수 ITMATZIP_ACESTEP_LM_BACKEND=vllm|pt|auto. "
-            "6GB 이하에서는 LM 없이 DiT만 권장."
-        ),
+        "lm_implemented": False,
         "runtime": "acestep-3.12-venv",
         "docs": "https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/ko/GPU_COMPATIBILITY.md",
     }

@@ -31,9 +31,6 @@ def _bootstrap_import_paths() -> None:
     ).strip()
     if root and root not in sys.path:
         sys.path.insert(0, root)
-    nano = Path(root) / "third_parts" / "nano-vllm" if root else None
-    if nano and nano.is_dir() and str(nano) not in sys.path:
-        sys.path.insert(0, str(nano))
 
 
 _bootstrap_import_paths()
@@ -95,6 +92,18 @@ def main() -> int:
         from acestep.inference import GenerationConfig, GenerationParams, generate_music
         from acestep.llm_inference import LLMHandler
 
+        p_req = req.get("params") or {}
+        # ACE-Step은 thinking 또는 CoT 옵션이 켜졌을 때만 LM을 씁니다 (inference.generate_music의 use_lm).
+        lm_needed = bool(req.get("thinking", False)) or any(
+            bool(p_req.get(k, False))
+            for k in ("use_cot_caption", "use_cot_language", "use_cot_metas")
+        )
+        if not lm_needed:
+            # LM을 설치하지 않으므로, ACE-Step이 LM이 없다고 기본 모델을 다시 받지 않게 함
+            from engines.create_music_model_policy import exclude_bundled_lm
+
+            exclude_bundled_lm()
+
         _write_progress(progress_path, 8, "DiT 모델 로딩 중…")
         dit = AceStepHandler()
         quant = req.get("quantization")
@@ -117,7 +126,8 @@ def main() -> int:
 
         llm = LLMHandler()
         lm_ckpt = req.get("lm_checkpoint")
-        if lm_ckpt:
+        # 안 쓸 LM을 불러오면 생성마다 약 35초가 그냥 버려지므로 그때는 불러오지 않습니다.
+        if lm_ckpt and lm_needed:
             _write_progress(progress_path, 22, f"LM 로딩 중… ({lm_ckpt})")
             lm_status, lm_ok = llm.initialize(
                 checkpoint_dir=req["checkpoints_dir"],

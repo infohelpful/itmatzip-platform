@@ -99,7 +99,6 @@ const $audioFormat = document.getElementById("audio-format");
 const $batchSize = document.getElementById("batch-size");
 
 const $ditModel = document.getElementById("dit-model");
-const $lmModel = document.getElementById("lm-model");
 const $inferenceSteps = document.getElementById("inference-steps");
 const $guidanceScale = document.getElementById("guidance-scale");
 const $shift = document.getElementById("shift");
@@ -230,13 +229,7 @@ function setComputeCapabilityBadge(ctx) {
       : vramGb
         ? `GPU · ${vramGb}`
         : t("gpuAvailable", "GPU 사용 가능");
-    let title = gpu.docs || "";
-    if (rt.nano_vllm_ready) {
-      title = [title, `LM: ${rt.lm_backend || "vllm"} (nano-vllm)`].filter(Boolean).join("\n");
-    } else if (gpu.lm_note) {
-      title = [title, gpu.lm_note].filter(Boolean).join("\n");
-    }
-    $computeCap.title = title;
+    $computeCap.title = gpu.docs || "";
     return;
   }
 
@@ -445,37 +438,14 @@ function applyGpuTierLimits(gpu) {
     opt.hidden = !ok;
   });
 
-  const allowedLm = new Set(["none", "auto", ...(gpu.available_lm_models || [])]);
-  Array.from($lmModel.options).forEach((opt) => {
-    if (opt.value === "auto") {
-      opt.disabled = false;
-      return;
-    }
-    const ok = allowedLm.has(opt.value);
-    opt.disabled = !ok;
-    if (!ok && opt.value !== "auto") opt.title = t("lmUnavailable", "현재 GPU VRAM 티어에서 사용 불가");
-  });
-
-  const rt = window.__createMusicRuntime || {};
-  if (rt.nano_vllm_ready) {
-    $lmModel.title = tf("lmBackend", "LM 백엔드: {backend} (nano-vllm 설치됨)", {
-      backend: rt.lm_backend || "vllm",
-    });
-  } else if (gpu.lm_note) {
-    $lmModel.title = gpu.lm_note;
-  }
-
   if (presetKey !== "custom" && PRESETS[presetKey]) {
-    applyPresetValues(PRESETS[presetKey], { allowedDit, allowedLm });
+    applyPresetValues(PRESETS[presetKey], { allowedDit });
     return;
   }
 
   if (allowedDit.size > 0 && !allowedDit.has($ditModel.value)) {
     const fb = [...allowedDit].find((k) => k === "sft") || [...allowedDit][0] || "turbo";
     $ditModel.value = fb;
-  }
-  if (!allowedLm.has($lmModel.value)) {
-    $lmModel.value = allowedLm.has("1.7B") ? "1.7B" : allowedLm.has("auto") ? "auto" : "none";
   }
 }
 
@@ -485,61 +455,55 @@ function applyGpuTierLimits(gpu) {
 const PRESETS = {
   speed: {
     dit_model: "turbo",
-    lm_model: "1.7B",
     inference_steps: 8,
     guidance_scale: 3.5,
     shift: 3.0,
     seed: -1,
     infer_method: "ode",
     tooltip:
-      "🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다. DiT: Turbo · LM: 1.7B · 스텝 8 (10 넘기지 마세요) · CFG 3.5 (4.0 이상 절대 금지) · 시프트 3.0",
+      "🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다. DiT: Turbo · 스텝 8 (10 넘기지 마세요) · CFG 3.5 (4.0 이상 절대 금지) · 시프트 3.0",
   },
   quality: {
     dit_model: "sft",
-    lm_model: "1.7B",
     inference_steps: 25,
     guidance_scale: 6.5,
     shift: 4.0,
     seed: -1,
     infer_method: "ode",
     tooltip:
-      "✨ 고품질 마스터링 (음질 최상, 정석 세팅) — DiT: SFT (터보에서 이걸로 무조건 바꾸세요) · LM: 1.7B · 스텝 25 · CFG 6.5 · 시프트 4.0",
+      "✨ 고품질 마스터링 (음질 최상, 정석 세팅) — DiT: SFT (터보에서 이걸로 무조건 바꾸세요) · 스텝 25 · CFG 6.5 · 시프트 4.0",
   },
   creative: {
     dit_model: "sft",
-    lm_model: "1.7B",
     inference_steps: 15,
     guidance_scale: 3.0,
     shift: 3.0,
     seed: -1,
     infer_method: "sde",
     tooltip:
-      "🎲 크리에이티브 (AI가 맘대로 독특하게 변주) — DiT: SFT · LM: 1.7B · 스텝 15 · CFG 3.0 · 시프트 3.0",
+      "🎲 크리에이티브 (AI가 맘대로 독특하게 변주) — DiT: SFT · 스텝 15 · CFG 3.0 · 시프트 3.0",
   },
   strict: {
     dit_model: "sft",
-    lm_model: "1.7B",
     inference_steps: 30,
     guidance_scale: 8.5,
     shift: 3.0,
     seed: -1,
     infer_method: "ode",
     tooltip:
-      "🎯 가사/스타일 집중 (가사 절대 안 씹히게) — 가사 똑바로 부르게 하려면 반드시 SFT. DiT: SFT · LM: 1.7B · 스텝 30 · CFG 8.5 · 시프트 3.0",
+      "🎯 가사/스타일 집중 (가사 절대 안 씹히게) — 가사 똑바로 부르게 하려면 반드시 SFT. DiT: SFT · 스텝 30 · CFG 8.5 · 시프트 3.0",
   },
   custom: {
     tooltip: "모든 옵션을 직접 설정할 수 있습니다. 자유롭게 조합하세요.",
   },
 };
 
-function applyPresetValues(preset, { allowedDit, allowedLm } = {}) {
+function applyPresetValues(preset, { allowedDit } = {}) {
   if (!preset?.dit_model) return;
 
   const ditOk = !allowedDit || allowedDit.size === 0 || allowedDit.has(preset.dit_model);
-  const lmOk = !allowedLm || allowedLm.has(preset.lm_model);
 
   if (ditOk) $ditModel.value = preset.dit_model;
-  if (lmOk) $lmModel.value = preset.lm_model;
   if (preset.inference_steps != null) $inferenceSteps.value = preset.inference_steps;
   if (preset.guidance_scale != null) $guidanceScale.value = preset.guidance_scale;
   if (preset.shift != null) $shift.value = preset.shift;
@@ -548,7 +512,7 @@ function applyPresetValues(preset, { allowedDit, allowedLm } = {}) {
 }
 
 const $presetTooltip = document.getElementById("preset-tooltip");
-const advancedInputs = [$ditModel, $lmModel, $inferenceSteps, $guidanceScale, $shift, $seed, $inferMethod, $loraSelect];
+const advancedInputs = [$ditModel, $inferenceSteps, $guidanceScale, $shift, $seed, $inferMethod, $loraSelect];
 
 function setAdvancedFieldsDisabled(disabled) {
   advancedInputs.forEach((el) => { el.disabled = disabled; });
@@ -844,7 +808,7 @@ $btnGenerate.addEventListener("click", async () => {
     duration: parseFloat($duration.value) || -1,
     batch_size: parseInt($batchSize.value) || 1,
     dit_model: $ditModel.value,
-    lm_model: $lmModel.value,
+    lm_model: "none",
     inference_steps: parseInt($inferenceSteps.value) || 10,
     guidance_scale: parseFloat($guidanceScale.value) || 5.0,
     shift: parseFloat($shift.value) || 3.0,

@@ -39,7 +39,7 @@ class GenerateRequest(BaseModel):
     batch_size: int = Field(default=1, ge=1, le=8)
 
     dit_model: str = "turbo"
-    lm_model: str = "auto"
+    lm_model: str = "none"  # 사용하지 않음 (하위 호환)
     inference_steps: int = Field(default=10, ge=1, le=200)
     guidance_scale: float = Field(default=5.0, ge=1.0, le=15.0)
     shift: float = Field(default=3.0, ge=1.0, le=5.0)
@@ -92,7 +92,7 @@ def get_readiness(quick: bool = False) -> dict:
         "all_ready": all_ready,
         "runtime": runtime,
         "dit_models": tier_info["available_dit_models"],
-        "lm_models": ["none", *tier_info["available_lm_models"]],
+        "lm_models": ["none"],  # LM 미사용
         "lora_list": _list_loras(),
     }
 

@@ -139,7 +139,7 @@ class GenerationParams:
     batch_size: int = 1
 
     dit_model: str = "turbo"
-    lm_model: str = "auto"
+    lm_model: str = "none"  # 사용하지 않음 (하위 호환용 필드)
     inference_steps: int = 10
     guidance_scale: float = 5.0
     shift: float = 3.0
@@ -200,6 +200,84 @@ def is_prepare_running() -> bool:
     return _prepare_state.phase not in ("idle", "done", "error")
 
 
+def _fmt_bytes(done: int, total: int) -> str:
+    if total >= 1024**3:
+        return f"{done / 1024**3:.1f}/{total / 1024**3:.1f}GB"
+    return f"{done / 1024**2:.0f}/{total / 1024**2:.0f}MB"
+
+
+class _InstallBoard:
+    """PyTorch·패키지·모델을 동시에 받을 때 진행률과 메시지를 하나로 합칩니다."""
+
+    _LABELS = {"torch": "PyTorch", "packages": "패키지"}
+
+    def __init__(self, publish) -> None:
+        self._publish = publish  # (progress, message)
+        self._lock = threading.Lock()
+        self._bytes: dict[str, tuple[int, int]] = {}
+        self._step = ""
+        self._runtime_done = False
+        self._model_frac = 0.0
+        self._model_msg = ""
+
+    def on_bytes(self, key: str, done: int, total: int) -> None:
+        with self._lock:
+            self._bytes[key] = (done, total)
+        self._render()
+
+    def on_step(self, _pct: float, msg: str) -> None:
+        with self._lock:
+            self._step = msg
+        self._render()
+
+    def runtime_done(self) -> None:
+        with self._lock:
+            self._runtime_done = True
+            self._step = ""
+        self._render()
+
+    def on_model(self, pct: float, msg: str) -> None:
+        # runner 진행률: 45(메인 모델) → 95(완료)
+        with self._lock:
+            self._model_frac = max(self._model_frac, min(1.0, max(0.0, (pct - 45.0) / 50.0)))
+            self._model_msg = msg
+        self._render()
+
+    def _render(self) -> None:
+        with self._lock:
+            done = sum(d for d, _t in self._bytes.values())
+            total = sum(t for _d, t in self._bytes.values())
+            if self._runtime_done:
+                rt_frac = 1.0
+            elif total > 0:
+                rt_frac = min(0.95, done / total)
+            else:
+                rt_frac = 0.0
+            progress = 10.0 + 30.0 * rt_frac + 59.0 * self._model_frac
+            parts: list[str] = []
+            if not self._runtime_done:
+                for key, (d, t) in self._bytes.items():
+                    if t > 0 and d < t:
+                        parts.append(f"{self._LABELS.get(key, key)} {_fmt_bytes(d, t)}")
+                if not parts and self._step:
+                    parts.append(self._step)
+            if self._model_msg:
+                parts.append(f"모델: {self._model_msg}")
+            message = " · ".join(parts)
+        if message:
+            self._publish(progress, message)
+
+
+def _cleanup_install_cache_async() -> None:
+    def _run() -> None:
+        try:
+            ace_rt.cleanup_install_cache()
+        except Exception as exc:
+            logger.warning("install cache cleanup failed: %s", exc)
+
+    threading.Thread(target=_run, name="cm-cache-cleanup", daemon=True).start()
+
+
 def start_prepare(force: bool = False) -> PrepareState:
     global _prepare_thread, _prepare_state
     if is_prepare_running():
@@ -211,6 +289,8 @@ def start_prepare(force: bool = False) -> PrepareState:
             progress=100.0,
             message="이미 설치되어 있습니다.",
         )
+        # 예전 방식으로 설치된 PC에 남은 임시 파일(최대 11GB) 정리
+        _cleanup_install_cache_async()
         return _prepare_state
 
     def _run():
@@ -256,36 +336,66 @@ def start_prepare(force: bool = False) -> PrepareState:
             def _on_acestep_src(msg: str) -> None:
                 _set_progress(max(_prepare_state.progress, 6.0), msg)
 
-            root = ace_rt.resolve_acestep_root(
+            ace_rt.resolve_acestep_root(
                 message_cb=_on_acestep_src,
                 force_download=force,
             )
-            _set_progress(10, f"가상환경 준비 중… ({root})")
 
-            _set_progress(12, "engine-runtime·패키지 설치 중…")
-            ace_rt.ensure_venv(on_progress=_set_progress, force_repair_torch=force)
-            _set_progress(35, "런타임 준비 완료")
-            _prepare_state.phase = "downloading_model"
-            _prepare_state.message = "모델 가중치 다운로드 중… (첫 실행 시 수 GB, 수 분~수십 분)"
-
-            gpu_cfg = get_gpu_config()
             rec = recommend_models()
             dit_cfg = resolve_config_path(rec["dit"])
-            lm_list: list[str] = []
-            lm_ckpt = resolve_lm_checkpoint(rec["lm"], gpu_cfg)
-            if lm_ckpt:
-                lm_list.append(lm_ckpt)
+            # LM은 받지 않음 — 생성에 thinking/CoT를 쓰지 않아 LM이 쓰이지 않음 (약 3.5GB 절약)
+            model_kwargs = {
+                "force": force,
+                "dit_configs": [dit_cfg, "acestep-v15-turbo"],
+                "lm_models": [],
+            }
 
-            def _on_prog(pct: float, msg: str) -> None:
-                mapped = 35 + (pct / 100.0) * 64
-                _set_progress(mapped, msg)
+            board = _InstallBoard(_set_progress)
+            models: dict[str, Any] = {"thread": None, "error": None, "done": False}
 
-            ace_rt.prepare_models(
-                force=force,
-                dit_configs=[dit_cfg, "acestep-v15-turbo"],
-                lm_models=lm_list,
-                on_progress=_on_prog,
-            )
+            def _download_models() -> None:
+                try:
+                    ace_rt.prepare_models(
+                        **model_kwargs, on_progress=board.on_model, runtime_ready=False
+                    )
+                    models["done"] = True
+                except Exception as exc:
+                    # 예: HuggingFace 대신 ModelScope로 받다가 PyTorch가 필요한 경우
+                    # → 런타임 설치가 끝난 뒤 한 번 더 시도
+                    logger.warning("parallel model download failed, will retry: %s", exc)
+                    models["error"] = exc
+
+            def _start_models() -> None:
+                if models["thread"] is not None:
+                    return
+                t = threading.Thread(target=_download_models, name="cm-models", daemon=True)
+                models["thread"] = t
+                t.start()
+
+            # PyTorch(공식 서버)·패키지(library-hub)·모델(HuggingFace)을 동시에 받기
+            _set_progress(10, "PyTorch·패키지 받는 중…")
+            try:
+                ace_rt.ensure_venv(
+                    on_progress=board.on_step,
+                    force_repair_torch=force,
+                    on_bytes=board.on_bytes,
+                    on_packages_ready=_start_models,
+                )
+                board.runtime_done()
+                _prepare_state.phase = "downloading_model"
+            finally:
+                # 실패해도 모델 다운로드 스레드가 끝날 때까지 기다림 (재시도 시 중복 다운로드 방지)
+                t = models["thread"]
+                if t is not None:
+                    t.join()
+
+            if not models["done"]:
+                ace_rt.prepare_models(
+                    **model_kwargs, on_progress=board.on_model, runtime_ready=True
+                )
+
+            _set_progress(99, "설치 임시 파일 정리 중…")
+            ace_rt.cleanup_install_cache()
 
             _prepare_state.phase = "done"
             _prepare_state.progress = 100
@@ -336,10 +446,11 @@ def _run_generation(job: GenerationJob) -> None:
     assert params is not None
 
     gpu_cfg = get_gpu_config()
-    use_lm = params.lm_model not in ("", "none") or params.lm_model == "auto"
+    # LM은 설치하지도 쓰지도 않음 (thinking/CoT 미사용) — 요청 값과 무관하게 끔
+    use_lm = False
     dit_model, lm_key, duration, batch_size, steps, tier_warnings = clamp_generation_params(
         dit_model=params.dit_model,
-        lm_model=params.lm_model,
+        lm_model="none",
         duration=params.duration,
         batch_size=params.batch_size,
         inference_steps=params.inference_steps,
@@ -383,9 +494,7 @@ def _run_generation(job: GenerationJob) -> None:
         "quantization": quant,
         "compile_model": runtime["compile_model"] if quant else False,
         "lm_checkpoint": lm_checkpoint,
-        "lm_backend": ace_rt.resolve_lm_backend(
-            prefer_vllm=gpu_cfg.tier in ("tier4", "tier5", "tier6a", "tier6b", "unlimited"),
-        ),
+        "lm_backend": ace_rt.resolve_lm_backend(),
         "thinking": False,
         "params": {
             "task_type": params.task_type,

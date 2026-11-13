@@ -46,6 +46,10 @@ def _write_progress(path: str, progress: float, message: str) -> None:
 
 def _prepare_main_model(ckpt: Path, *, force: bool) -> tuple[bool, str]:
     from acestep.model_downloader import download_main_model, ensure_main_model
+    from engines.create_music_model_policy import exclude_bundled_lm
+
+    # 기본 모델 묶음에서 쓰지 않는 LM 1.7B(약 3.5GB)는 받지 않음
+    exclude_bundled_lm()
 
     if force:
         return download_main_model(checkpoints_dir=ckpt, force=True)

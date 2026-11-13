@@ -236,7 +236,7 @@
             <div class="form-row">
               <label class="form-label" for="duration" data-i18n="duration">길이 (초)</label>
               <input type="number" id="duration" class="form-input" name="duration" value="-1" min="-1" max="600" step="1">
-              <span class="form-hint" id="duration-hint" data-i18n="durationHint">-1 = 가사 줄 수로 길이 추정 (티어6a+LM 최대 480초). 고정하려면 초 단위로 입력 (예: 180, 240)</span>
+              <span class="form-hint" id="duration-hint" data-i18n="durationHint">-1 = 가사 줄 수로 길이 추정 (티어6a 최대 600초). 고정하려면 초 단위로 입력 (예: 180, 240)</span>
             </div>
             <div class="form-row">
               <label class="form-label" data-i18n="output">출력</label>
@@ -258,10 +258,10 @@
             <h3 class="section-title" data-i18n="adv">고급 설정</h3>
             <div class="preset-bar">
               <span class="preset-label" data-i18n="presetLabel">프리셋:</span>
-              <button class="preset-btn active" data-preset="speed" data-i18n="preset.speed" data-i18n-title="preset.speedTitle" title="속도 최우선, 테스트용. Turbo · LM 1.7B · 스텝 8 · CFG 3.5 (4.0 이상 금지)">🚀 스피드 초안</button>
-              <button class="preset-btn" data-preset="quality" data-i18n="preset.quality" data-i18n-title="preset.qualityTitle" title="음질 최상. SFT · LM 1.7B · 스텝 25 · CFG 6.5 · 시프트 4.0">✨ 고품질 마스터링</button>
-              <button class="preset-btn" data-preset="creative" data-i18n="preset.creative" data-i18n-title="preset.creativeTitle" title="AI 독특 변주. SFT · LM 1.7B · 스텝 15 · CFG 3.0">🎲 크리에이티브</button>
-              <button class="preset-btn" data-preset="strict" data-i18n="preset.strict" data-i18n-title="preset.strictTitle" title="가사/스타일 집중. SFT 필수 · LM 1.7B · 스텝 30 · CFG 8.5">🎯 가사/스타일 집중</button>
+              <button class="preset-btn active" data-preset="speed" data-i18n="preset.speed" data-i18n-title="preset.speedTitle" title="속도 최우선, 테스트용. Turbo · 스텝 8 · CFG 3.5 (4.0 이상 금지)">🚀 스피드 초안</button>
+              <button class="preset-btn" data-preset="quality" data-i18n="preset.quality" data-i18n-title="preset.qualityTitle" title="음질 최상. SFT · 스텝 25 · CFG 6.5 · 시프트 4.0">✨ 고품질 마스터링</button>
+              <button class="preset-btn" data-preset="creative" data-i18n="preset.creative" data-i18n-title="preset.creativeTitle" title="AI 독특 변주. SFT · 스텝 15 · CFG 3.0">🎲 크리에이티브</button>
+              <button class="preset-btn" data-preset="strict" data-i18n="preset.strict" data-i18n-title="preset.strictTitle" title="가사/스타일 집중. SFT 필수 · 스텝 30 · CFG 8.5">🎯 가사/스타일 집중</button>
               <button class="preset-btn" data-preset="custom" data-i18n="preset.custom" data-i18n-title="preset.customTitle" title="모든 옵션을 직접 설정합니다.">🛠️ 커스텀</button>
             </div>
           </div>
@@ -278,17 +278,6 @@
                   <option value="xl-base" data-i18n="dit.xlBase">XL 베이스 — 대형·기본</option>
                 </select>
                 <span class="form-hint" data-i18n="ditHint">ACE-Step 공식 체크포인트 (Python 3.12 전용 환경)</span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="lm-model" data-i18n="lmModel">가사 이해 모델 (LM)</label>
-                <select id="lm-model" class="form-select" name="lm-model">
-                  <option value="auto" selected data-i18n="lm.auto">자동 (VRAM에 따라 추천)</option>
-                  <option value="none" data-i18n="lm.none">사용 안 함</option>
-                  <option value="0.6B" data-i18n="lm.light">0.6B (경량)</option>
-                  <option value="1.7B" data-i18n="lm.balanced">1.7B (균형)</option>
-                  <option value="4B" data-i18n="lm.hq">4B (고품질, VRAM 20GB+)</option>
-                </select>
-                <span class="form-hint" data-i18n="lmHint">6GB 이하: LM 꺼짐 권장 · 12GB+: 1.7B · 24GB+: 4B</span>
               </div>
               <div class="form-row">
               <label class="form-label" for="inference-steps" data-i18n="inferSteps">추론 스텝 수</label>
@@ -469,6 +458,6 @@
   <script type="module" src="../common/agent-update-boot.js?v=1"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=31"></script>
+  <script type="module" src="script.js?v=33"></script>
 </body>
 </html>
