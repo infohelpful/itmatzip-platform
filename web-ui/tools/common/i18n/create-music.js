@@ -2,6 +2,8 @@
   if (!window.ITZ_I18N) return;
   window.ITZ_I18N.register("create-music", {
   "ko": {
+    "cm.aiPickAria": "사용할 AI",
+    "cm.aiClientOff": "연결되지 않았어요",
     "cm.agentChecking": "에이전트 확인 중…",
     "cm.agentOk": "에이전트 연결됨",
     "cm.agentOkV": "에이전트 연결됨 · v{v}",
@@ -442,6 +444,8 @@
     "agent.waiting": "대기 중"
   },
   "en": {
+    "cm.aiPickAria": "AI to use",
+    "cm.aiClientOff": "Not connected",
     "cm.agentChecking": "Checking agent…",
     "cm.agentOk": "Agent connected",
     "cm.agentOkV": "Agent connected · v{v}",
@@ -882,6 +886,8 @@
     "agent.waiting": "Idle"
   },
   "ja": {
+    "cm.aiPickAria": "使用するAI",
+    "cm.aiClientOff": "接続されていません",
     "cm.agentChecking": "エージェント確認中…",
     "cm.agentOk": "エージェント接続済み",
     "cm.agentOkV": "エージェント接続済み · v{v}",
@@ -1322,6 +1328,8 @@
     "agent.waiting": "待機中"
   },
   "zh": {
+    "cm.aiPickAria": "使用的 AI",
+    "cm.aiClientOff": "未连接",
     "cm.agentChecking": "正在检查代理…",
     "cm.agentOk": "代理已连接",
     "cm.agentOkV": "代理已连接 · v{v}",

@@ -420,3 +420,19 @@ html body.cm-app .tool-guide.cm-guide h3,
 html body.cm-app .tool-guide.cm-guide li strong { color: #FFFFFF !important; }
 html body.cm-app .tool-guide.cm-guide h3 { border-color: var(--cm-border-strong) !important; }
 html body.cm-app .tool-guide.cm-guide .tool-guide-note { color: #AEB4C0 !important; }
+
+/* AI 작곡 도우미: 제목 오른쪽 AI 선택 버튼 3개 (연결된 것만 켜짐) */
+.cm-chat-head { gap: 10px; }
+.cm-ai-clients {
+  display: flex; gap: 3px; padding: 3px; flex-shrink: 0; border-radius: 9px;
+  background: var(--cm-bg); border: 1px solid var(--cm-border);
+}
+.cm-ai-clients button {
+  padding: 5px 8px; border: none; border-radius: 6px; background: transparent; cursor: pointer;
+  color: var(--cm-text-2); font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+.cm-ai-clients button:hover:not(:disabled):not(.is-active) { color: var(--cm-text); background: rgba(255, 255, 255, 0.05); }
+.cm-ai-clients button.is-active { background: var(--cm-accent); color: #fff; box-shadow: 0 2px 8px var(--cm-accent-glow); }
+.cm-ai-clients button:disabled { opacity: 0.3; cursor: not-allowed; }
+html body.cm-app .cm-ai-clients button:not(.is-active) { color: var(--cm-text-2) !important; background: transparent !important; }
+html body.cm-app .cm-ai-clients button.is-active { color: #fff !important; background: var(--cm-accent) !important; }

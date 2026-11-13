@@ -116,7 +116,7 @@ const ui = {
   pTot: $("cm-p-tot"),
   pVol: $("cm-p-vol"),
   chat: $("cm-chat"),
-  chatClose: $("cm-chat-close"),
+  aiClientBtns: Array.from(document.querySelectorAll("#cm-ai-clients button")),
   chatMsgs: $("cm-chat-msgs"),
   chatIn: $("cm-chat-in"),
   chatSend: $("cm-chat-send"),
@@ -137,6 +137,7 @@ const state = {
   history: [],
   generating: null, // { jobId, progress, message, title, vocal, genres }
   aiClients: [],
+  aiClient: "", // 지금 고른 AI
   aiBusy: false,
   aiHistory: [], // [{ role: "user" | "assistant", text }]
 };
@@ -1035,9 +1036,51 @@ ui.pVol.addEventListener("input", () => {
 // ---------------------------------------------------------------------------
 const AI_CLIENT_ORDER = ["claude", "codex", "antigravity"];
 
+const AI_CLIENT_KEY = "create-music:ai-client";
+
+function loadSavedAiClient() {
+  try {
+    return localStorage.getItem(AI_CLIENT_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+/** 연결된 AI 버튼만 켜고, 고른 AI가 없거나 쓸 수 없으면 저장해 둔 것 → 순서대로 첫 번째로 */
+function renderAiClients() {
+  if (!state.aiClients.includes(state.aiClient)) {
+    const saved = loadSavedAiClient();
+    state.aiClient = state.aiClients.includes(saved)
+      ? saved
+      : AI_CLIENT_ORDER.find((c) => state.aiClients.includes(c)) || "";
+  }
+  ui.aiClientBtns.forEach((b) => {
+    const usable = state.aiClients.includes(b.dataset.client);
+    const on = usable && b.dataset.client === state.aiClient;
+    b.disabled = !usable;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-checked", String(on));
+    b.title = usable ? "" : t("cm.aiClientOff", "연결되지 않았어요");
+  });
+}
+
+ui.aiClientBtns.forEach((b) =>
+  b.addEventListener("click", () => {
+    if (b.disabled || state.aiBusy) return;
+    state.aiClient = b.dataset.client;
+    try {
+      localStorage.setItem(AI_CLIENT_KEY, state.aiClient);
+    } catch {
+      /* 저장 못 해도 이번 방문에는 적용 */
+    }
+    renderAiClients();
+  }),
+);
+
 function setAiAvailable(clients) {
   const had = state.aiClients.length > 0;
   state.aiClients = clients;
+  renderAiClients();
   const on = clients.length > 0;
   ui.aiBtn.disabled = !on;
   ui.aiBtn.title = on ? "" : t("cm.aiOff", "AI 채팅(Claude·Codex CLI)을 연결하면 쓸 수 있어요");
@@ -1074,12 +1117,14 @@ function addBubble(kind, text) {
 async function sendChat() {
   const text = ui.chatIn.value.trim();
   if (!text || state.aiBusy || !state.aiClients.length) return;
-  const client = AI_CLIENT_ORDER.find((c) => state.aiClients.includes(c));
+  const client = state.aiClient;
+  if (!client) return;
   ui.chatIn.value = "";
   addBubble("me", text);
   const pending = addBubble("ai", t("cm.aiThinking", "생각하는 중… (10~30초)"));
   state.aiBusy = true;
   ui.chatSend.disabled = true;
+  ui.aiClientBtns.forEach((b) => (b.disabled = true));
   try {
     const form = currentForm();
     const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/ai/compose`, {
@@ -1115,13 +1160,13 @@ async function sendChat() {
   } finally {
     state.aiBusy = false;
     ui.chatSend.disabled = false;
+    renderAiClients();
   }
 }
 
 ui.aiBtn.addEventListener("click", () => {
   if (!ui.aiBtn.disabled) setChat(ui.chat.hidden);
 });
-ui.chatClose.addEventListener("click", () => setChat(false));
 ui.chatSend.addEventListener("click", () => void sendChat());
 ui.chatIn.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
@@ -1142,6 +1187,7 @@ document.addEventListener("itz:lang-change", () => {
   syncRefUi();
   renderStatus();
   renderTracks();
+  renderAiClients();
 });
 
 renderAllChips();

@@ -79,7 +79,7 @@
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
-  <link rel="stylesheet" href="style.css?v=23">
+  <link rel="stylesheet" href="style.css?v=24">
 </head>
 <body class="cm-app">
   <div class="cm-root" id="cm-root">
@@ -247,7 +247,11 @@
       <aside class="cm-chat" id="cm-chat" hidden>
         <div class="cm-chat-head">
           <div><b data-i18n="cm.aiTitle">AI 작곡 도우미</b><small data-i18n="cm.aiSub">말하면 왼쪽 입력 칸을 채워 드려요</small></div>
-          <button type="button" class="cm-icon-btn" id="cm-chat-close" title="닫기" data-i18n-title="cm.close">✕</button>
+          <div class="cm-ai-clients" id="cm-ai-clients" role="radiogroup" aria-label="사용할 AI" data-i18n-aria="cm.aiPickAria">
+            <button type="button" data-client="claude" role="radio" aria-checked="false" disabled>Claude</button>
+            <button type="button" data-client="codex" role="radio" aria-checked="false" disabled>Codex</button>
+            <button type="button" data-client="antigravity" role="radio" aria-checked="false" disabled>Antigravity</button>
+          </div>
         </div>
         <div class="cm-chat-msgs" id="cm-chat-msgs"></div>
         <div class="cm-chat-input">
@@ -295,6 +299,6 @@
   <script type="module" src="../common/agent-update-boot.js?v=1"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=34"></script>
+  <script type="module" src="script.js?v=35"></script>
 </body>
 </html>
