@@ -41,6 +41,13 @@ describe('applyAiEditorOps', () => {
     expect(back.summary.unemphasized).toBe(1)
   })
 
+  it('emphasizes only the named part of a word (no particles)', () => {
+    const { lines: out, summary } = applyAiEditorOps(lines, ids, parseAiEditorOps({ emphasisParts: [{ index: 1, text: '포토크래프트' }, { index: 2, text: '없는글자' }] }))
+    expect(out[0]!.emphasis).toEqual([{ start: 4, end: 10, text: '포토크래프트' }])
+    expect(out[1]!.emphasis).toEqual([{ start: 0, end: 3, text: '소개해' }])
+    expect(summary.parts).toBe(2)
+  })
+
   it('soft-deletes words without touching other lines', () => {
     const { lines: out, summary } = applyAiEditorOps(lines, ids, { deleteWords: [2] })
     expect(summary.deleted).toBe(1)

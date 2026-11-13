@@ -100,6 +100,43 @@ def _cli_environment(client: str, executable: str) -> dict[str, str]:
     return environment
 
 
+# What to emphasize. Shared with the AI proofread prompt idea: few, information-bearing words only.
+EMPHASIS_GUIDE = (
+    "Emphasis is a colored highlight that makes a viewer's eye land on the one piece of information they "
+    "should remember from a line. Pick it the way a professional Korean YouTube editor would:\n"
+    "  EMPHASIZE: product, brand, program, game or person names; numbers with their unit (가격, 퍼센트, 배, "
+    "초, 개); the key result, benefit or problem of the sentence (e.g. '무료', '두 배 빠른', '오류', '자동으로'); "
+    "a contrast or warning word that carries the point ('하지만 절대', '주의').\n"
+    "  NEVER EMPHASIZE: particles and endings on their own, filler and interjections (음, 어, 자, 그, 이제, 진짜, "
+    "정말, 그냥), pronouns and demonstratives (이거, 저희, 여러분), generic verbs and auxiliaries (하다, 있다, "
+    "되다, 드리다, 보다), connectives (그리고, 그래서, 근데), greetings and sign-offs, or a word only because it "
+    "starts or ends the line.\n"
+    "  AMOUNT: zero or one highlight per line; most lines in ordinary talk get none. A line with nothing "
+    "worth remembering gets nothing - never pick a word just to fill a quota. Highlight a recurring name only "
+    "where it is introduced or matters, not every time. When the phrase is two or three words ('두 배 빠른'), "
+    "list each of its indexes.\n"
+)
+
+
+def _split_emphasis(raw: Any, word_count: int) -> tuple[list[int], list[dict[str, Any]]]:
+    """Whole-word indexes and {index, text} parts (a substring of the word, without particles)."""
+    whole: set[int] = set()
+    parts: dict[int, str] = {}
+    for item in raw if isinstance(raw, list) else []:
+        if isinstance(item, int) and not isinstance(item, bool) and 0 <= item < word_count:
+            whole.add(item)
+        elif isinstance(item, dict):
+            index, text = item.get("index"), item.get("text")
+            if not (isinstance(index, int) and not isinstance(index, bool) and 0 <= index < word_count):
+                continue
+            if isinstance(text, str) and text.strip() and len(text) <= 200:
+                parts[index] = text.strip()
+            else:
+                whole.add(index)
+    whole -= parts.keys()
+    return sorted(whole), [{"index": i, "text": t} for i, t in sorted(parts.items())]
+
+
 def _run(job_id: str, client: str, instruction: str, session_id: str, script: str = "") -> None:
     try:
         executable = _executable(client)
@@ -175,11 +212,13 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
             "reads naturally; you do not have to measure exactly, because the app enforces the length limit "
             "afterwards.\n"
             "EMPHASIS (only if the request asks to emphasize, highlight or color important parts, e.g. '강조', "
-            "'하이라이트', '중요한 부분', '색칠'; otherwise return an empty emphasis array): list the indexes of the "
-            "words a viewer should notice - key numbers, product or proper names, the main point of a sentence - "
-            "about one per line on average unless the request asks for more or fewer, and follow any specific "
-            "words or kinds of words the request names. The app colors these words with the user's emphasis "
-            "color; you do not choose colors. Emphasis never changes the words or line breaks.\n"
+            "'하이라이트', '중요한 부분', '색칠'; otherwise return an empty emphasis array). " + EMPHASIS_GUIDE +
+            "Each emphasis item is either a word index (color the whole word) or {\"index\": i, \"text\": part} "
+            "where part is the exact substring of that word to color - use this to leave out Korean particles "
+            "and endings (word '포토크래프트라는' -> {\"index\": i, \"text\": \"포토크래프트\"}; '3배나' -> \"3배\"). "
+            "Follow any specific words or kinds of words the request names; they override the rules above. "
+            "The app colors them with the user's emphasis color; you do not choose colors here. Emphasis never "
+            "changes the words or line breaks.\n"
             "OTHER EDITOR FEATURES (use only the ones the request asks for; leave the others out). Words are "
             "referred to by index; a line operation applies to the whole caption line that contains the word. "
             "The Context shows the current state (hidden lines by their first word, displayTiming, emphasized "
@@ -264,17 +303,17 @@ def _run(job_id: str, client: str, instruction: str, session_id: str, script: st
         skipped = len(corrections) - len(valid)
         if corrections and not valid:
             raise ValueError("CLI 수정 단어 형식이 올바르지 않습니다.")
-        raw_emphasis = answer.get("emphasis", [])
-        emphasis = sorted({index for index in (raw_emphasis if isinstance(raw_emphasis, list) else [])
-                           if isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(words)})
+        emphasis, emphasis_parts = _split_emphasis(answer.get("emphasis", []), len(words))
         staged = {
             "corrections": [{"id": item["index"], "text": item["text"]} for item in valid],
             "lineStarts": starts, "uncertain": [], "emphasis": emphasis,
         }
         staged.update(_editor_ops(answer, len(words)))
+        if emphasis_parts:
+            staged["emphasisParts"] = emphasis_parts
         mcp_registry.stage_edit(revision, staged, expected_session_id=session_id)
         message = (f"{CLIENT_LABELS[client]}가 자막 수정안을 보냈습니다 ({time.monotonic() - started:.0f}초). "
-                   + (f"강조 {len(emphasis)}개. " if emphasis else "")
+                   + (f"강조 {len(emphasis) + len(emphasis_parts)}개. " if emphasis or emphasis_parts else "")
                    + (f"형식이 맞지 않은 수정 {skipped}개는 제외했습니다. " if skipped else "")
                    + "편집기에서 결과를 확인해 주세요.")
         state = {"status": "done", "message": message}

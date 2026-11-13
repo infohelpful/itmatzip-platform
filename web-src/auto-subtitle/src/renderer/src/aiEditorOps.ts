@@ -40,6 +40,8 @@ export type AiEditorOps = {
   unemphasize?: number[]
   /** 지정한 색으로 강조할 단어 index */
   emphasisColored?: { index: number; color: string }[]
+  /** 단어 일부만 강조(조사·어미 빼고) — `text` 는 그 단어 안의 글자. 색은 전체 강조 색 */
+  emphasisParts?: { index: number; text: string }[]
   /** 이 단어가 든 줄을 「자막 숨김」 */
   hide?: number[]
   /** 이 단어가 든 줄을 다시 표시 */
@@ -54,6 +56,8 @@ export type AiEditorOps = {
 export type AiOpsSummary = {
   unemphasized: number
   colored: number
+  /** 단어 일부만 강조한 수 */
+  parts: number
   hidden: number
   shown: number
   timed: number
@@ -118,6 +122,14 @@ export function parseAiEditorOps(raw: Record<string, unknown>): AiEditorOps | nu
     })
     if (colored.length) ops.emphasisColored = colored
   }
+  if (Array.isArray(raw.emphasisParts)) {
+    const parts = raw.emphasisParts.slice(0, MAX_OPS).flatMap(item => {
+      const o = item as Record<string, unknown> | null
+      return o && Number.isInteger(o.index) && (o.index as number) >= 0 && typeof o.text === 'string'
+        && o.text.trim() && o.text.length <= 200 ? [{ index: o.index as number, text: o.text.trim() }] : []
+    })
+    if (parts.length) ops.emphasisParts = parts
+  }
   if (Array.isArray(raw.displayTiming)) {
     const timing = raw.displayTiming.slice(0, MAX_OPS).flatMap(item => {
       const o = item as Record<string, unknown> | null
@@ -178,7 +190,7 @@ export function applyAiEditorOps(
   ops: AiEditorOps | null,
 ): { lines: SubtitleLine[]; summary: AiOpsSummary } {
   const summary: AiOpsSummary = {
-    unemphasized: 0, colored: 0, hidden: 0, shown: 0, timed: 0, deleted: 0,
+    unemphasized: 0, colored: 0, parts: 0, hidden: 0, shown: 0, timed: 0, deleted: 0,
     styleKeys: ops?.style ? Object.keys(ops.style) : [],
   }
   if (!ops) return { lines, summary }
@@ -187,9 +199,10 @@ export function applyAiEditorOps(
   const where = () => locateWords(next)
 
   // 강조 해제 · 색 지정 강조
-  if (ops.unemphasize?.length || ops.emphasisColored?.length) {
+  if (ops.unemphasize?.length || ops.emphasisColored?.length || ops.emphasisParts?.length) {
     const loc = where()
-    const byLine = new Map<number, { off: number[]; color: { word: number; color: string }[] }>()
+    type Mark = { word: number; color?: string; part?: string }
+    const byLine = new Map<number, { off: number[]; color: Mark[] }>()
     const bucket = (li: number) => byLine.get(li) ?? (byLine.set(li, { off: [], color: [] }), byLine.get(li)!)
     for (const g of ops.unemphasize ?? []) {
       const at = loc.get(idOf(g) ?? '')
@@ -198,6 +211,10 @@ export function applyAiEditorOps(
     for (const { index, color } of ops.emphasisColored ?? []) {
       const at = loc.get(idOf(index) ?? '')
       if (at) bucket(at.line).color.push({ word: at.word, color })
+    }
+    for (const { index, text } of ops.emphasisParts ?? []) {
+      const at = loc.get(idOf(index) ?? '')
+      if (at) bucket(at.line).color.push({ word: at.word, part: text })
     }
     next = next.map((line, li) => {
       const job = byLine.get(li)
@@ -211,11 +228,18 @@ export function applyAiEditorOps(
         ranges = ranges.filter(r => !drop.has(`${r.start}:${r.end}`))
         summary.unemphasized += before - ranges.length
       }
-      for (const { word, color } of job.color) {
+      for (const { word, color, part } of job.color) {
         const span = wordCharRange(line, word)
         if (!span) continue
-        ranges = addCaptionEmphasis(text, ranges, span[0], span[1], color)
-        summary.colored++
+        let [s, e] = span
+        // 단어 일부(조사·어미 뺀 부분)만: 그 단어 글자 안에서 찾고, 없으면 단어 전체
+        if (part) {
+          const at = text.slice(s, e).indexOf(part)
+          if (at >= 0) { s += at; e = s + part.length }
+        }
+        ranges = addCaptionEmphasis(text, ranges, s, e, color)
+        if (color) summary.colored++
+        else summary.parts++
       }
       return withUserCaptionEmphasis(line, ranges)
     })
@@ -278,6 +302,7 @@ export function applyAiEditorOps(
 /** 채팅 요약 한 줄(바뀐 것만) */
 export function describeAiOps(summary: AiOpsSummary): string {
   const parts: string[] = []
+  if (summary.parts) parts.push(`강조 ${summary.parts}`)
   if (summary.colored) parts.push(`색 강조 ${summary.colored}`)
   if (summary.unemphasized) parts.push(`강조 해제 ${summary.unemphasized}`)
   if (summary.hidden) parts.push(`숨김 ${summary.hidden}줄`)
