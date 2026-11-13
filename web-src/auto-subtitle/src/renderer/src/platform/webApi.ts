@@ -136,6 +136,13 @@ export function createWebApi(): SidecarApi {
       ? req.subtitles.flatMap((cue) => mapSourceIntervalToProgram(cue.start, cue.end, plan)
         .map((t) => ({ ...t, text: cue.text }))).sort((a, b) => a.start - b.start)
       : normalizeMappedSubtitles(buildMappedSubtitles(req.subtitles, cuts))
+    // 변환 결과가 비면 빈 파일을 저장하지 않고 어느 단계에서 비었는지 알려 준다.
+    if (mapped.length === 0) {
+      throw new Error(
+        `내보낼 자막이 없습니다. (편집 자막 ${req.subtitles.length}개 → 컷 반영 후 0개, 컷 구간 ${cuts.length}개) ` +
+        '컷/삭제 구간이 자막 전체를 덮고 있지 않은지 확인해 주세요.'
+      )
+    }
     const text = format === 'srt' ? buildSrtText(mapped)
       : format === 'vtt' ? buildWebVttText(mapped, req.subtitleStyle)
         : format === 'ass' ? buildAssText(mapped, req.subtitleStyle)
