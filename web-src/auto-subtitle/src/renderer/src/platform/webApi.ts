@@ -140,7 +140,9 @@ export function createWebApi(): SidecarApi {
     if (mapped.length === 0) {
       throw new Error(
         `내보낼 자막이 없습니다. (편집 자막 ${req.subtitles.length}개 → 컷 반영 후 0개, 컷 구간 ${cuts.length}개) ` +
-        '컷/삭제 구간이 자막 전체를 덮고 있지 않은지 확인해 주세요.'
+        (req.subtitles.length === 0
+          ? '편집 화면에 보이는 자막 텍스트가 없습니다. 자막 추출 여부와 삭제·숨김 상태를 확인해 주세요.'
+          : '컷/삭제 구간이 자막 전체를 덮고 있지 않은지 확인해 주세요.')
       )
     }
     const text = format === 'srt' ? buildSrtText(mapped)
