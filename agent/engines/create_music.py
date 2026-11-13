@@ -147,6 +147,8 @@ class GenerationParams:
     infer_method: str = "ode"
     audio_format: str = "wav"
     lora_name: Optional[str] = None
+    # 화면 표시·「설정 다시 쓰기」용 정보 (제목·장르·보컬·가사 등) — 기록(meta.json)에 그대로 저장
+    display: Optional[dict] = None
 
     src_audio_path: Optional[str] = None
     reference_audio_path: Optional[str] = None
@@ -341,12 +343,11 @@ def start_prepare(force: bool = False) -> PrepareState:
                 force_download=force,
             )
 
-            rec = recommend_models()
-            dit_cfg = resolve_config_path(rec["dit"])
+            # 화면에서 고를 수 있는 turbo(빠르게)·sft(고품질)만 받음.
             # LM은 받지 않음 — 생성에 thinking/CoT를 쓰지 않아 LM이 쓰이지 않음 (약 3.5GB 절약)
             model_kwargs = {
                 "force": force,
-                "dit_configs": [dit_cfg, "acestep-v15-turbo"],
+                "dit_configs": list(ace_rt.REQUIRED_DIT_CONFIGS),
                 "lm_models": [],
             }
 
@@ -563,12 +564,35 @@ def _run_generation(job: GenerationJob) -> None:
         "tier_warnings": tier_warnings,
         "output_files": job.output_paths,
         "created_at": job.created_at,
+        "display": sanitize_display(params.display),
+        "peaks": [float(x) for x in (result.get("peaks") or [])][:200],
+        "audio_duration": result.get("audio_duration"),
     }
     (output_dir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
     job.progress = 100
     job.status = "completed"
     job.message = "생성 완료"
+
+
+_DISPLAY_STR_KEYS = ("title", "vocal", "mood", "tempo", "lyrics", "vocal_language", "quality", "duration_choice")
+_DISPLAY_LIST_KEYS = ("genres", "instruments", "vocal_styles")
+
+
+def sanitize_display(raw: Any) -> dict:
+    """화면에서 보낸 표시용 정보 — 알려진 키만, 길이 제한."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key in _DISPLAY_STR_KEYS:
+        val = raw.get(key)
+        if isinstance(val, (str, int, float)) and not isinstance(val, bool):
+            out[key] = str(val)[: 4000 if key == "lyrics" else 200]
+    for key in _DISPLAY_LIST_KEYS:
+        val = raw.get(key)
+        if isinstance(val, list):
+            out[key] = [str(v)[:60] for v in val if isinstance(v, (str, int, float))][:30]
+    return out
 
 
 def list_history(limit: int = 50) -> list[dict]:

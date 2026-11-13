@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=43"></script>
+  <script src="../common/site-runtime.js?v=51"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>AI 음악 생성 - Create Music | ItMatZip</title>
   <meta name="description" content="텍스트와 가사로 AI 음악을 만들고 LoRA로 스타일을 맞춥니다. 생성은 로컬 PC에서 이루어집니다.">
@@ -76,381 +76,218 @@
   </script>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=17">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
-<body>
-  <div class="app-container">
-    <main class="main-content">
-      <header class="app-header">
-        <div class="logo-area">
-          <span class="badge" data-i18n="ldAlternate">AI 음악 생성</span>
-          <div class="logo-title-row">
-            <h1>Create <span class="accent">Music</span></h1>
-            <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
-          </div>
-          <p class="header-tagline">ACE-Step 1.5 기반 AI 음악 생성 — 텍스트와 가사로 나만의 음악을 만들어보세요.</p>
+<body class="cm-app">
+  <div class="cm-root" id="cm-root">
+    <!-- ================= 헤더 ================= -->
+    <header class="app-header cm-header">
+      <div class="logo-area">
+        <div class="logo-title-row">
+          <h1>Create <span class="accent">Music</span></h1>
+          <a href="../index.html" class="btn-to-dashboard">대시보드로 이동</a>
         </div>
-        <div class="header-status-col">
-          <div id="compute-capability" class="compute-capability is-pending" title="">확인 중…</div>
-          <div id="connection-status" class="status-dot">에이전트 연결 확인 중…</div>
-          <div class="bin-readiness" id="bin-readiness">Create Music · 환경 준비 대기</div>
-          <button id="btn-prepare" class="btn btn-secondary btn-prepare" data-i18n="ui.prepare">환경 준비</button>
+      </div>
+      <div class="cm-header-right">
+        <div class="cm-status" id="cm-status">
+          <button type="button" class="cm-pill is-pending" id="cm-agent-pill" data-pop>
+            <span class="cm-dot" aria-hidden="true"></span><span id="cm-agent-text" data-i18n="cm.agentChecking">에이전트 확인 중…</span>
+          </button>
+          <button type="button" class="cm-pill is-info" id="cm-gpu-pill" data-pop hidden></button>
+          <button type="button" class="cm-pill is-pending" id="cm-env-pill" data-pop>
+            <span id="cm-env-text" data-i18n="cm.envChecking">음악 엔진 확인 중…</span> <span aria-hidden="true">▾</span>
+          </button>
         </div>
-      </header>
+        <button type="button" class="cm-ai-btn" id="cm-ai-btn" disabled data-i18n="cm.aiHelper">✦ AI 작곡 도우미</button>
+      </div>
 
-      <!-- 광고 (상단) -->
-      <div class="editor-ad" id="editor-ad-above-tabs" aria-label="광고"></div>
+      <div class="cm-popover" id="cm-popover" hidden>
+        <span class="cm-pop-title" data-i18n="cm.envTitle">실행 환경</span>
+        <div class="cm-check-list" id="cm-check-list"></div>
+        <p class="cm-pop-note" id="cm-pop-note"></p>
+        <button type="button" class="cm-primary-btn" id="cm-prepare-btn" data-i18n="cm.recheck">↻ 다시 확인</button>
+      </div>
+    </header>
 
-      <!-- 콘텐츠 영역 (팝업이 이 안에서만 뜸, 광고는 바깥) -->
-      <div class="content-shell" id="content-shell">
-
-        <!-- 환경 준비 팝업 -->
-        <div id="prepare-overlay" class="prepare-overlay" hidden>
-          <div class="prepare-overlay__panel">
-            <div class="prepare-overlay__spinner"></div>
-            <h3 class="prepare-overlay__title" data-i18n="prepareOverlay">환경 준비 중</h3>
-            <p id="prepare-overlay-step" class="prepare-overlay__step"></p>
-            <p id="prepare-overlay-msg" class="prepare-overlay__message" data-i18n="prepareMsg">AI 음악 생성에 필요한 패키지와 모델을 설치합니다…</p>
-            <div class="prepare-overlay__track">
-              <div id="prepare-overlay-bar" class="prepare-overlay__bar"></div>
-            </div>
-            <p id="prepare-overlay-percent" class="prepare-overlay__percent" aria-live="polite">0%</p>
-          </div>
-        </div>
-
-        <!-- 탭 -->
-        <nav class="tabs-nav">
-          <button class="tab-btn active" data-tab="generate" data-i18n="tabGen">음악 생성</button>
-          <button class="tab-btn" data-tab="lora" data-i18n="tabLora">스타일 학습 (LoRA)</button>
-          <button class="tab-btn" data-tab="history" data-i18n="tabHist">생성 기록</button>
-        </nav>
-
-        <!-- 음악 생성 탭 -->
-        <section class="tab-panel active" id="tab-generate">
-          <!-- 생성 모드 선택 -->
-          <div class="form-row">
-            <label class="form-label" data-i18n="mode">생성 모드</label>
-            <select id="task-type" class="form-select" name="task-type">
-              <option value="text2music" data-i18n="mode.text2music">텍스트 → 음악 (기본)</option>
-              <option value="remix" data-i18n="mode.remix">리믹스 — 기존 곡 스타일 변환</option>
-              <option value="repaint" data-i18n="mode.repaint">리페인트 — 특정 구간 재생성</option>
-              <option value="cover" data-i18n="mode.cover">커버 — 다른 음색으로 재해석</option>
-              <option value="lego" data-i18n="mode.lego">레고 — 구조 재조합</option>
-            </select>
-          </div>
-
-          <!-- 음악 스타일 (caption 빌더) -->
-          <div class="compose-panel" id="music-compose-root">
-            <h3 class="compose-panel-title" data-i18n="styleTitle">음악 스타일</h3>
-            <p class="compose-panel-desc" data-i18n="styleDesc">장르·템포·악기는 선택, 분위기는 직접 입력. Instrumental 연주 설명은 가사가 아니라 여기(또는 연주 구간)에만 넣습니다.</p>
-
-            <div class="form-row">
-              <label class="form-label" data-i18n="genreLabel">장르 <span class="form-label-note">(복수 선택 가능)</span></label>
-              <div class="compose-chip-row" id="genre-chips"></div>
-            </div>
-
-            <div class="options-grid options-grid--compose">
-              <div class="form-row">
-                <label class="form-label" for="tempo-preset" data-i18n="tempo">템포</label>
-                <select id="tempo-preset" class="form-select" name="tempo-preset"></select>
-              </div>
-              <div class="form-row is-hidden" id="bpm-custom-row">
-                <label class="form-label" for="bpm-custom">BPM</label>
-                <input type="number" id="bpm-custom" class="form-input" min="40" max="220" step="1" placeholder="120">
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="vocal-type" data-i18n="vocal">보컬</label>
-                <select id="vocal-type" class="form-select" name="vocal-type"></select>
-                <span class="form-hint" data-i18n="vocalHint">성별·듀엣은 caption에 반영됩니다. 100% 보장은 어렵습니다 — 아래 <strong>참조 보컬</strong>이 가장 확실합니다.</span>
-              </div>
-            </div>
-
-            <div class="form-row" id="vocal-style-row">
-              <label class="form-label" data-i18n="vocalStyleLabel">보컬 느낌 <span class="form-label-note">(복수 선택 · 선택 사항)</span></label>
-              <div class="compose-chip-row" id="vocal-style-chips"></div>
-            </div>
-
-            <div class="form-row" id="vocal-ref-row">
-              <label class="form-label" data-i18n="vocalRefLabel">참조 보컬 <span class="form-label-note">(선택 · 가장 확실한 방법)</span></label>
-              <div class="vocal-ref-controls">
-                <button type="button" id="btn-vocal-ref" class="btn btn-outline btn-sm" data-i18n="vocalRefPick">참조 보컬 선택</button>
-                <button type="button" id="btn-vocal-ref-clear" class="btn btn-outline btn-sm" data-i18n="vocalRefClear">지우기</button>
-                <span id="vocal-ref-name" class="file-name-label"></span>
-              </div>
-              <div class="vocal-ref-strength-row is-hidden" id="vocal-ref-strength-row">
-                <label class="form-label form-label-sm" for="vocal-ref-strength" data-i18n="vocalRefStrength">참조 반영 강도</label>
-                <input type="range" id="vocal-ref-strength" min="0.2" max="1" step="0.05" value="0.55">
-                <span id="vocal-ref-strength-val" class="vocal-ref-strength-val">0.55</span>
-              </div>
-              <span class="form-hint" data-i18n="vocalRefHint">원하는 목소리 톤이 담긴 보컬 클립(10~30초 권장, 긴 파일도 가능)을 넣으세요. ACE-Step이 앞·중·뒤 구간을 샘플링해 참조합니다. 강도 0.4~0.7 권장.</span>
-            </div>
-
-            <div class="form-row">
-              <label class="form-label" data-i18n="instLabel">악기 <span class="form-label-note">(복수 선택 가능)</span></label>
-              <div class="compose-chip-row" id="instrument-chips"></div>
-            </div>
-
-            <div class="form-row">
-              <label class="form-label" for="mood-text" data-i18n="mood">분위기</label>
-              <input type="text" id="mood-text" class="form-input" name="mood" placeholder="예: 몽환적, 밤, 그리움, 편안한" data-i18n-placeholder="moodPh">
-              <span class="form-hint" data-i18n="moodHint">짧게 입력 — ACE-Step caption에 포함됩니다.</span>
-            </div>
-
-            <details class="compose-preview-details">
-              <summary data-i18n="stylePreview">스타일 설명 미리보기</summary>
-              <pre id="caption-preview" class="compose-preview"></pre>
-            </details>
-
-            <h3 class="compose-panel-title compose-panel-title--lyrics" data-i18n="lyricsTitle">가사 구조</h3>
-            <p class="compose-panel-desc" data-i18n="lyricsDesc">구간별로 나눠 입력하면 자동으로 <code>[Verse]</code> 형식으로 조합됩니다. <strong>Instrumental 아래에는 가사를 넣지 마세요.</strong></p>
-
-            <div class="lyrics-builder-toolbar">
-              <button type="button" id="btn-add-section" class="btn btn-outline btn-sm" data-i18n="addSection">+ 구간 추가</button>
-              <span class="form-hint lyrics-builder-hint" data-i18n="lyricsHint">가사 정확도를 위해 프리셋 「🎯 가사/스타일 집중」 권장</span>
-            </div>
-
-            <div id="lyrics-sections-list" class="lyrics-sections-list"></div>
-
-            <details class="compose-preview-details">
-              <summary data-i18n="lyricsPreview">가사 원문 미리보기</summary>
-              <pre id="lyrics-preview" class="compose-preview"></pre>
-            </details>
-          </div>
-
-          <!-- 기본 옵션 -->
-          <div class="options-grid">
-            <div class="form-row">
-              <label class="form-label" for="vocal-lang" data-i18n="vocalLang">보컬 언어</label>
-              <select id="vocal-lang" class="form-select" name="vocal-lang">
-                <option value="ko" data-i18n="lang.ko">한국어</option>
-                <option value="en" data-i18n="lang.en">영어</option>
-                <option value="zh" data-i18n="lang.zh">중국어</option>
-                <option value="ja" data-i18n="lang.ja">일본어</option>
-                <option value="es" data-i18n="lang.es">스페인어</option>
-                <option value="fr" data-i18n="lang.fr">프랑스어</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label class="form-label" for="duration" data-i18n="duration">길이 (초)</label>
-              <input type="number" id="duration" class="form-input" name="duration" value="-1" min="-1" max="600" step="1">
-              <span class="form-hint" id="duration-hint" data-i18n="durationHint">-1 = 가사 줄 수로 길이 추정 (티어6a 최대 600초). 고정하려면 초 단위로 입력 (예: 180, 240)</span>
-            </div>
-            <div class="form-row">
-              <label class="form-label" data-i18n="output">출력</label>
-              <p class="form-hint form-hint-block" data-i18n="outputHint">생성·재생은 WAV로 저장됩니다. 재생이 끝나면 아래에서 <strong>MP3 다운로드</strong>가 가능합니다.</p>
-              <select id="audio-format" class="form-select hidden" name="audio-format" aria-hidden="true" tabindex="-1">
-                <option value="wav" selected>WAV</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label class="form-label" for="batch-size" data-i18n="batch">동시 생성 수</label>
-              <input type="number" id="batch-size" class="form-input" name="batch-size" value="1" min="1" max="8">
-              <span class="form-hint" data-i18n="batchHint">여러 변형을 한번에 생성 (1~8)</span>
+    <div class="cm-body">
+      <!-- ================= 왼쪽: 만들기 ================= -->
+      <aside class="cm-sidebar">
+        <div class="cm-scroll">
+          <div class="cm-group">
+            <span class="cm-label" data-i18n="cm.vocal">보컬</span>
+            <div class="cm-seg cm-seg-4" id="cm-vocal" role="radiogroup">
+              <button type="button" class="active" data-value="female" data-i18n="cm.vFemale">여자</button>
+              <button type="button" data-value="male" data-i18n="cm.vMale">남자</button>
+              <button type="button" data-value="duet" data-i18n="cm.vDuet">듀엣</button>
+              <button type="button" data-value="none" data-i18n="cm.vNone">연주곡</button>
             </div>
           </div>
 
-        <!-- 고급 설정 -->
-        <div class="advanced-panel-open">
-          <div class="advanced-header">
-            <h3 class="section-title" data-i18n="adv">고급 설정</h3>
-            <div class="preset-bar">
-              <span class="preset-label" data-i18n="presetLabel">프리셋:</span>
-              <button class="preset-btn active" data-preset="speed" data-i18n="preset.speed" data-i18n-title="preset.speedTitle" title="속도 최우선, 테스트용. Turbo · 스텝 8 · CFG 3.5 (4.0 이상 금지)">🚀 스피드 초안</button>
-              <button class="preset-btn" data-preset="quality" data-i18n="preset.quality" data-i18n-title="preset.qualityTitle" title="음질 최상. SFT · 스텝 25 · CFG 6.5 · 시프트 4.0">✨ 고품질 마스터링</button>
-              <button class="preset-btn" data-preset="creative" data-i18n="preset.creative" data-i18n-title="preset.creativeTitle" title="AI 독특 변주. SFT · 스텝 15 · CFG 3.0">🎲 크리에이티브</button>
-              <button class="preset-btn" data-preset="strict" data-i18n="preset.strict" data-i18n-title="preset.strictTitle" title="가사/스타일 집중. SFT 필수 · 스텝 30 · CFG 8.5">🎯 가사/스타일 집중</button>
-              <button class="preset-btn" data-preset="custom" data-i18n="preset.custom" data-i18n-title="preset.customTitle" title="모든 옵션을 직접 설정합니다.">🛠️ 커스텀</button>
+          <div class="cm-group">
+            <span class="cm-label"><span data-i18n="cm.genre">장르</span> <span class="cm-hint" data-i18n="cm.genreHint">하나 이상 선택</span></span>
+            <div class="cm-chips" id="cm-genres"></div>
+          </div>
+
+          <div class="cm-group">
+            <label class="cm-label" for="cm-mood"><span data-i18n="cm.mood">분위기</span> <span class="cm-hint" data-i18n="cm.moodHint">짧게 적어도 충분해요</span></label>
+            <input id="cm-mood" class="cm-input" maxlength="120" placeholder="예: 비 오는 밤 드라이브, 몽환적이고 따뜻한" data-i18n-placeholder="cm.moodPh">
+          </div>
+
+          <div class="cm-group">
+            <span class="cm-label" data-i18n="cm.tempo">템포</span>
+            <div class="cm-seg cm-seg-3 is-quiet" id="cm-tempo" role="radiogroup">
+              <button type="button" data-value="slow" data-i18n="cm.tSlow">느리게</button>
+              <button type="button" class="active" data-value="medium" data-i18n="cm.tMedium">보통</button>
+              <button type="button" data-value="fast" data-i18n="cm.tFast">빠르게</button>
             </div>
           </div>
-          <p id="preset-tooltip" class="preset-tooltip" data-i18n="preset.speedTip">🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다.</p>
-          <div class="options-grid">
-              <div class="form-row">
-                <label class="form-label" for="dit-model" data-i18n="ditModel">음악 생성 모델 (DiT)</label>
-                <select id="dit-model" class="form-select" name="dit-model">
-                  <option value="turbo" selected data-i18n="dit.turbo">터보 — 빠른 생성 (권장)</option>
-                  <option value="sft" data-i18n="dit.sft">SFT — 고품질</option>
-                  <option value="base" data-i18n="dit.base">베이스 — 기본</option>
-                  <option value="xl-turbo" data-i18n="dit.xlTurbo">XL 터보 — 대형·빠름</option>
-                  <option value="xl-sft" data-i18n="dit.xlSft">XL SFT — 대형·고품질</option>
-                  <option value="xl-base" data-i18n="dit.xlBase">XL 베이스 — 대형·기본</option>
+
+          <div class="cm-group" id="cm-lyrics-group">
+            <span class="cm-label"><span data-i18n="cm.lyrics">가사</span> <span class="cm-hint" data-i18n="cm.lyricsHint">구간 버튼으로 구조를 나눠 보세요</span></span>
+            <div class="cm-lyrics" id="cm-lyrics-wrap">
+              <div class="cm-lyrics-bar">
+                <button type="button" class="cm-tag-btn" data-tag="[Verse]" data-i18n="cm.addVerse">+ 절</button>
+                <button type="button" class="cm-tag-btn" data-tag="[Chorus]" data-i18n="cm.addChorus">+ 후렴</button>
+                <button type="button" class="cm-tag-btn" data-tag="[Bridge]" data-i18n="cm.addBridge">+ 브릿지</button>
+                <button type="button" class="cm-tag-btn" data-tag="[Instrumental]" data-i18n="cm.addInst">+ 간주</button>
+                <select class="cm-select cm-lang" id="cm-vocal-lang" aria-label="노래 언어" data-i18n-aria="cm.vocalLang">
+                  <option value="ko" data-i18n="lang.ko">한국어</option>
+                  <option value="en" data-i18n="lang.en">영어</option>
+                  <option value="ja" data-i18n="lang.ja">일본어</option>
+                  <option value="zh" data-i18n="lang.zh">중국어</option>
                 </select>
-                <span class="form-hint" data-i18n="ditHint">ACE-Step 공식 체크포인트 (Python 3.12 전용 환경)</span>
               </div>
-              <div class="form-row">
-              <label class="form-label" for="inference-steps" data-i18n="inferSteps">추론 스텝 수</label>
-              <input type="number" id="inference-steps" class="form-input" name="inference-steps" value="8" min="1" max="200">
-              <span class="form-hint" data-i18n="inferStepsHint">낮을수록 빠름, 높을수록 디테일</span>
+              <textarea id="cm-lyrics" class="cm-lyrics-text" maxlength="4000" placeholder="[Verse]&#10;골목길 가로등 불빛 아래&#10;차가운 밤공기가 스쳐가&#10;&#10;[Chorus]&#10;우리의 기억들이 번져가는 밤" data-i18n-placeholder="cm.lyricsPh"></textarea>
             </div>
-            <div class="form-row">
-              <label class="form-label" for="guidance-scale" data-i18n="cfg">가이던스 강도 (CFG)</label>
-              <input type="number" id="guidance-scale" class="form-input" name="guidance-scale" value="3.5" min="1.0" max="15.0" step="0.5">
-              <span class="form-hint" data-i18n="cfgHint">낮으면 자유롭게, 높으면 프롬프트에 충실</span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="shift" data-i18n="shift">타임스텝 시프트</label>
-                <input type="number" id="shift" class="form-input" name="shift" value="3.0" min="1.0" max="5.0" step="0.1">
-                <span class="form-hint" data-i18n="shiftHint">기본값 3.0 권장</span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="seed" data-i18n="seed">시드 (재현용)</label>
-                <input type="number" id="seed" class="form-input" name="seed" value="-1" min="-1">
-                <span class="form-hint" data-i18n="seedHint">-1 = 매번 다른 결과 (일반 용도 권장)</span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="infer-method" data-i18n="inferMethod">추론 방식</label>
-                <select id="infer-method" class="form-select" name="infer-method">
-                  <option value="ode" selected data-i18n="infer.ode">ODE — 빠르고 안정적 (권장)</option>
-                  <option value="sde" data-i18n="infer.sde">SDE — 확률적·다양한 결과</option>
-                </select>
-                <span class="form-hint" data-i18n="inferHint">일반 용도에는 ODE 권장</span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" for="lora-select" data-i18n="loraStyle">LoRA 스타일</label>
-                <select id="lora-select" class="form-select" name="lora-select">
-                  <option value="" selected data-i18n="loraNone">사용 안 함</option>
-                </select>
-                <span class="form-hint" data-i18n="loraHint">학습된 스타일이 있으면 여기서 선택</span>
-              </div>
+          </div>
+          <p class="cm-notice" id="cm-inst-notice" hidden data-i18n="cm.instNotice">연주곡은 가사 없이 장르·분위기만으로 만들어요.</p>
+
+          <div class="cm-group">
+            <span class="cm-label"><span data-i18n="cm.duration">곡 길이</span> <span class="cm-hint" id="cm-dur-hint" data-i18n="cm.durAutoLyrics">자동 = 가사 길이에 맞춤</span></span>
+            <div class="cm-seg cm-seg-5 is-quiet" id="cm-duration" role="radiogroup">
+              <button type="button" class="active" data-value="-1" data-i18n="cm.dAuto">자동</button>
+              <button type="button" data-value="60" data-i18n="cm.d1">1분</button>
+              <button type="button" data-value="120" data-i18n="cm.d2">2분</button>
+              <button type="button" data-value="180" data-i18n="cm.d3">3분</button>
+              <button type="button" data-value="300" data-i18n="cm.d5">5분</button>
             </div>
           </div>
 
-          <!-- 리믹스/리페인트 구간 (기본 숨김) -->
-          <div id="remix-section" class="remix-section hidden">
-            <h3 class="section-title" data-i18n="srcAudio">원본 / 참조 오디오</h3>
-            <div class="options-grid">
-              <div class="form-row">
-                <label class="form-label" data-i18n="srcAudioFile">원본 오디오</label>
-                <button id="btn-src-audio" class="btn btn-outline" data-i18n="pickFile">파일 선택</button>
-                <span id="src-audio-name" class="file-name-label"></span>
-              </div>
-              <div class="form-row">
-                <label class="form-label" data-i18n="refAudioStyle">참조 오디오 (스타일)</label>
-                <button id="btn-ref-audio" class="btn btn-outline" data-i18n="pickFile">파일 선택</button>
-                <span id="ref-audio-name" class="file-name-label"></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 파형 플레이어 + 생성 -->
-          <section id="music-player" class="music-player is-empty" aria-label="생성 결과 재생" data-i18n-aria="playerAria">
-            <div class="music-player__wave-wrap">
-              <canvas id="music-wave-canvas" class="music-player__canvas" height="120" aria-label="오디오 파형" data-i18n-aria="waveAria" hidden></canvas>
-              <div id="music-playhead" class="music-player__playhead" hidden aria-hidden="true">
-                <span id="music-playhead-time" class="music-player__playhead-time">0:00</span>
-              </div>
-              <div id="music-player-overlay" class="music-player__overlay" hidden>
-                <p id="music-player-overlay-msg" class="music-player__overlay-msg" data-i18n="generating">음악 생성 중…</p>
-                <div class="music-player__progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
-                  <div id="music-player-progress-bar" class="music-player__progress-bar"></div>
+          <div class="cm-accordion" id="cm-adv">
+            <button type="button" class="cm-acc-head" aria-expanded="false"><span data-i18n="cm.more">더 세밀하게 (선택)</span><span class="cm-acc-arrow" aria-hidden="true">▾</span></button>
+            <div class="cm-acc-body">
+              <div class="cm-group">
+                <span class="cm-label"><span data-i18n="cm.quality">품질</span> <span class="cm-hint" data-i18n="cm.qualityHint">고품질은 더 오래 걸려요</span></span>
+                <div class="cm-seg cm-seg-2 is-quiet" id="cm-quality" role="radiogroup">
+                  <button type="button" class="active" data-value="speed" data-i18n="cm.qSpeed">빠르게</button>
+                  <button type="button" data-value="quality" data-i18n="cm.qHigh">고품질</button>
                 </div>
-                <p id="music-player-overlay-pct" class="music-player__overlay-pct">0%</p>
+              </div>
+              <div class="cm-group">
+                <span class="cm-label" data-i18n="cm.instruments">악기</span>
+                <div class="cm-chips" id="cm-instruments"></div>
+              </div>
+              <div class="cm-group" id="cm-vstyle-group">
+                <span class="cm-label" data-i18n="cm.vocalStyle">보컬 느낌</span>
+                <div class="cm-chips" id="cm-vocal-styles"></div>
+              </div>
+              <div class="cm-group" id="cm-ref-group">
+                <span class="cm-label"><span data-i18n="cm.refVocal">참조 보컬</span> <span class="cm-hint" data-i18n="cm.refHint">10~30초 목소리 샘플</span></span>
+                <div class="cm-upload">
+                  <button type="button" class="cm-upload-btn" id="cm-ref-pick"><span id="cm-ref-name" data-i18n="cm.refPick">+ 목소리 샘플 고르기</span></button>
+                  <button type="button" class="cm-icon-btn" id="cm-ref-clear" hidden title="지우기" data-i18n-title="cm.clear">✕</button>
+                </div>
+              </div>
+              <div class="cm-group">
+                <label class="cm-label" for="cm-seed"><span data-i18n="cm.seed">시드</span> <span class="cm-hint" data-i18n="cm.seedHint">-1 = 매번 다르게</span></label>
+                <input id="cm-seed" class="cm-input" type="number" value="-1" min="-1" step="1">
               </div>
             </div>
-            <div class="music-player__transport">
-              <button type="button" id="music-btn-play" class="music-player__play" disabled title="재생/일시정지" data-i18n-title="playPause">▶</button>
-              <span id="music-time-current" class="music-player__time">0:00</span>
-              <span class="music-player__sep">/</span>
-              <span id="music-time-total" class="music-player__time">0:00</span>
-              <span id="music-player-status" class="music-player__status" data-i18n="playerIdle">생성된 음악이 여기 재생됩니다</span>
-            </div>
-          </section>
-
-          <div class="generate-section generate-section--full">
-            <button id="btn-generate" class="btn btn-primary btn-large btn-full" disabled>
-              <span class="btn-icon">🎵</span> <span data-i18n="generate">음악 생성하기</span>
-            </button>
           </div>
+        </div>
 
-          <div id="download-section" class="generate-section generate-section--full download-section">
-            <button type="button" id="btn-download-mp3" class="btn btn-download-mp3 btn-large btn-full" disabled>
-              <span class="btn-icon" aria-hidden="true">⬇</span>
-              <span class="btn-label" data-i18n="download">MP3 다운로드</span>
-            </button>
-          </div>
-        </section>
+        <div class="cm-footer">
+          <button type="button" class="cm-generate" id="cm-generate" disabled data-i18n="cm.generate">✦ 음악 만들기</button>
+          <p class="cm-footer-hint" id="cm-gen-hint" data-i18n="cm.genHintWait">음악 엔진을 확인하고 있어요</p>
+        </div>
+      </aside>
 
-        <!-- 스타일 학습 (LoRA) 탭 -->
-        <section class="tab-panel" id="tab-lora">
-          <h2 class="section-title" data-i18n="loraTitle">나만의 스타일 학습 (LoRA)</h2>
-          <p class="section-desc" data-i18n="loraDesc">3~20곡의 오디오 파일로 나만의 음악 스타일을 학습시키세요. 학습 완료 후 생성 시 적용할 수 있습니다.</p>
-
-          <div class="form-row">
-            <label class="form-label" for="lora-name" data-i18n="loraName">스타일 이름</label>
-            <input type="text" id="lora-name" class="form-input" name="lora-name" placeholder="예: 내-로파이-스타일" data-i18n-placeholder="loraNamePh">
-          </div>
-          <div class="form-row">
-            <label class="form-label" data-i18n="loraFiles">학습용 오디오 파일</label>
-            <button id="btn-lora-files" class="btn btn-outline" data-i18n="loraPickFiles">파일 선택 (여러 개)</button>
-            <span id="lora-files-count" class="file-name-label"></span>
-          </div>
-          <div class="options-grid">
-            <div class="form-row">
-              <label class="form-label" for="lora-steps" data-i18n="loraTrainSteps">학습 스텝 수</label>
-              <input type="number" id="lora-steps" class="form-input" name="lora-steps" value="1000" min="100" max="10000">
-              <span class="form-hint" data-i18n="loraTrainStepsHint">많을수록 정밀하게 학습 (기본 1000)</span>
-            </div>
-            <div class="form-row">
-              <label class="form-label" for="lora-lr" data-i18n="loraLr">학습률</label>
-              <input type="text" id="lora-lr" class="form-input" name="lora-lr" value="1e-4">
-              <span class="form-hint" data-i18n="loraLrHint">너무 높으면 과적합, 낮으면 학습 느림</span>
-            </div>
-            <div class="form-row">
-              <label class="form-label" for="lora-rank" data-i18n="loraRank">랭크 (모델 크기)</label>
-              <input type="number" id="lora-rank" class="form-input" name="lora-rank" value="32" min="4" max="128">
-              <span class="form-hint" data-i18n="loraRankHint">높을수록 표현력↑ VRAM↑ (기본 32)</span>
+      <!-- ================= 가운데: 만든 곡 ================= -->
+      <main class="cm-main">
+        <div class="cm-ad-dock">
+          <span class="cm-ad-tag">ADVERTISEMENT</span>
+          <div class="cm-ad editor-ad" id="editor-ad-above-tabs" aria-label="광고"></div>
+        </div>
+        <div class="cm-list-scroll">
+          <div class="cm-list-head"><span class="cm-count" id="cm-count"></span></div>
+          <div class="cm-tracks" id="cm-tracks"></div>
+        </div>
+        <footer class="cm-player">
+          <div class="cm-p-track">
+            <div class="cm-p-thumb" id="cm-p-thumb"></div>
+            <div class="cm-p-text">
+              <div class="cm-p-title" id="cm-p-title" data-i18n="cm.pIdle">곡을 선택해 재생하세요</div>
+              <div class="cm-p-sub" id="cm-p-sub" data-i18n="cm.pIdleSub">만든 곡이 여기서 재생돼요</div>
             </div>
           </div>
-          <div class="generate-section">
-            <button id="btn-train-lora" class="btn btn-primary btn-large" disabled data-i18n="loraStart">스타일 학습 시작</button>
+          <div class="cm-p-center">
+            <button type="button" class="cm-p-play" id="cm-p-play" disabled aria-label="재생" data-i18n-aria="cm.play">▶</button>
+            <span id="cm-p-cur">0:00</span>
+            <input type="range" id="cm-p-seek" min="0" max="1000" value="0" disabled aria-label="재생 위치" data-i18n-aria="cm.seek">
+            <span id="cm-p-tot">0:00</span>
           </div>
-          <div id="lora-progress-area" class="progress-area hidden">
-            <div class="progress-bar-container">
-              <div id="lora-progress-bar" class="progress-bar" style="width:0%"></div>
-            </div>
-            <p id="lora-progress-msg" class="progress-msg" data-i18n="loraWaiting">대기 중…</p>
-          </div>
-        </section>
+          <div class="cm-p-vol"><span aria-hidden="true">🔊</span><input type="range" id="cm-p-vol" min="0" max="100" value="80" aria-label="음량" data-i18n-aria="cm.volume"></div>
+        </footer>
+      </main>
 
-        <!-- 생성 기록 탭 -->
-        <section class="tab-panel" id="tab-history">
-          <h2 class="section-title" data-i18n="histTitle">생성 기록</h2>
-          <div id="history-list" class="history-list">
-            <p class="empty-state" data-i18n="histEmpty">아직 생성된 음악이 없습니다.</p>
-          </div>
-        </section>
-
-      </div><!-- /.content-shell -->
-
-      <!-- 광고 (하단) -->
-      <div class="editor-ad" id="editor-ad-below-generate" aria-label="광고"></div>
-
-      <section class="tool-guide" aria-label="Create Music 안내">
-        <p class="tool-guide-kicker">Create Music</p>
-        <h2>텍스트와 가사로 스케치를 뽑는 로컬 작곡 도구</h2>
-        <p class="tool-guide-lead">Create Music은 ACE-Step 1.5를 로컬에서 돌려, 장르·분위기 설명과 가사를 음악으로 만듭니다. 스트리밍 생성 사이트에 프롬프트를 맡기는 대신, 모델과 결과 파일이 PC에 남고 LoRA로 톤을 더 맞출 수 있습니다.</p>
-        <h3>이 도구가 하는 일</h3>
-        <p>영상 BGM, 프로토타입 멜로디, 가사 있는 데모처럼 “아직 편곡 전이지만 소리가 필요한” 단계를 돕습니다. 생성 탭에서 조건을 넣고, 기록 탭에서 이전 결과와 비교합니다. 환경 준비로 체크포인트와 런타임을 한 번 설치하면 이후 작업은 같은 PC에서 반복됩니다.</p>
-        <h3>작업 과정</h3>
-        <ol>
-          <li><strong>환경 준비.</strong> 에이전트 연결 후 모델·의존성을 설치합니다. GPU가 있으면 생성 시간이 줄어듭니다.</li>
-          <li><strong>조건 입력.</strong> 스타일 설명, 가사, 길이 등 화면에 있는 항목을 채웁니다.</li>
-          <li><strong>생성.</strong> ACE-Step이 오디오를 만들고 미리듣기가 열립니다. 마음에 들 때까지 조건을 바꿔 다시 돌릴 수 있습니다.</li>
-          <li><strong>저장과 학습(선택).</strong> 쓸 트랙을 받고, 필요하면 LoRA로 특정 톤에 가깝게 맞춥니다.</li>
-        </ol>
-        <h3>이 도구의 장점</h3>
-        <ul>
-          <li><strong>스케치 속도가 빠릅니다.</strong> 레퍼런스를 말로 적고 바로 들어볼 수 있어, 레퍼런스 트랙을 찾기 전의 공백을 메웁니다.</li>
-          <li><strong>파일이 로컬에 쌓입니다.</strong> 생성 기록을 PC에서 관리하므로 의뢰 프로젝트의 중간 결과도 외부에 남기지 않아도 됩니다.</li>
-          <li><strong>톤을 고정할 여지가 있습니다.</strong> LoRA를 쓰면 매번 다른 랜덤 스타일로만 뽑히는 문제를 줄일 수 있습니다.</li>
-        </ul>
-        <p class="tool-guide-note">결과물은 완성된 마스터가 아니라 아이디어 단계의 음원입니다. 상용 배포 전에는 편곡·믹스·저작권 검토를 별도로 하는 것이 맞습니다.</p>
-      </section>
-
-    </main>
+      <!-- ================= 오른쪽: AI 작곡 도우미 자리 (항상 비워 둠) ================= -->
+      <aside class="cm-chat" id="cm-chat" hidden>
+        <div class="cm-chat-head">
+          <div><b data-i18n="cm.aiTitle">AI 작곡 도우미</b><small data-i18n="cm.aiSub">말하면 왼쪽 입력 칸을 채워 드려요</small></div>
+          <button type="button" class="cm-icon-btn" id="cm-chat-close" title="닫기" data-i18n-title="cm.close">✕</button>
+        </div>
+        <div class="cm-chat-msgs" id="cm-chat-msgs"></div>
+        <div class="cm-chat-input">
+          <textarea id="cm-chat-in" rows="2" maxlength="2000" placeholder="예: 비 오는 밤 여자 보컬 시티팝, 가사도 써줘" data-i18n-placeholder="cm.aiPh"></textarea>
+          <button type="button" class="cm-send" id="cm-chat-send" aria-label="보내기" data-i18n-aria="cm.send">↑</button>
+        </div>
+      </aside>
+    </div>
   </div>
+
+  <div class="cm-toast" id="cm-toast" role="status" aria-live="polite"></div>
+
+  <section class="tool-guide cm-guide" aria-label="Create Music 안내">
+    <div class="cm-guide-col cm-guide-intro">
+      <p class="tool-guide-kicker">Create Music</p>
+      <h2>텍스트와 가사로 스케치를 뽑는 로컬 작곡 도구</h2>
+      <p class="tool-guide-lead">Create Music은 ACE-Step 1.5를 로컬에서 돌려, 장르·분위기 설명과 가사를 음악으로 만듭니다. 스트리밍 생성 사이트에 프롬프트를 맡기는 대신, 모델과 결과 파일이 PC에 남고 LoRA로 톤을 더 맞출 수 있습니다.</p>
+      <h3>이 도구가 하는 일</h3>
+      <p>영상 BGM, 프로토타입 멜로디, 가사 있는 데모처럼 “아직 편곡 전이지만 소리가 필요한” 단계를 돕습니다. 생성 탭에서 조건을 넣고, 기록 탭에서 이전 결과와 비교합니다. 환경 준비로 체크포인트와 런타임을 한 번 설치하면 이후 작업은 같은 PC에서 반복됩니다.</p>
+      <p class="tool-guide-note">결과물은 완성된 마스터가 아니라 아이디어 단계의 음원입니다. 상용 배포 전에는 편곡·믹스·저작권 검토를 별도로 하는 것이 맞습니다.</p>
+    </div>
+    <div class="cm-guide-col">
+      <h3>작업 과정</h3>
+      <ol>
+        <li><strong>환경 준비.</strong> 에이전트 연결 후 모델·의존성을 설치합니다. GPU가 있으면 생성 시간이 줄어듭니다.</li>
+        <li><strong>조건 입력.</strong> 스타일 설명, 가사, 길이 등 화면에 있는 항목을 채웁니다.</li>
+        <li><strong>생성.</strong> ACE-Step이 오디오를 만들고 미리듣기가 열립니다. 마음에 들 때까지 조건을 바꿔 다시 돌릴 수 있습니다.</li>
+        <li><strong>저장과 학습(선택).</strong> 쓸 트랙을 받고, 필요하면 LoRA로 특정 톤에 가깝게 맞춥니다.</li>
+      </ol>
+    </div>
+    <div class="cm-guide-col">
+      <h3>이 도구의 장점</h3>
+      <ul>
+        <li><strong>스케치 속도가 빠릅니다.</strong> 레퍼런스를 말로 적고 바로 들어볼 수 있어, 레퍼런스 트랙을 찾기 전의 공백을 메웁니다.</li>
+        <li><strong>파일이 로컬에 쌓입니다.</strong> 생성 기록을 PC에서 관리하므로 의뢰 프로젝트의 중간 결과도 외부에 남기지 않아도 됩니다.</li>
+        <li><strong>톤을 고정할 여지가 있습니다.</strong> LoRA를 쓰면 매번 다른 랜덤 스타일로만 뽑히는 문제를 줄일 수 있습니다.</li>
+      </ul>
+    </div>
+  </section>
+
 
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <link rel="stylesheet" href="../common/ai-setup-panel.css?v=4">
@@ -458,6 +295,6 @@
   <script type="module" src="../common/agent-update-boot.js?v=1"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=33"></script>
+  <script type="module" src="script.js?v=34"></script>
 </body>
 </html>

@@ -1,559 +1,271 @@
 /**
- * Create-Music — ACE-Step 1.5 AI 음악 생성 UI
+ * Create Music — ACE-Step 1.5 AI 음악 생성 (간단한 화면)
+ * 왼쪽: 보컬·장르·분위기·템포·가사·길이 / 가운데: 만든 곡 목록·플레이어 / 오른쪽: AI 작곡 도우미(MCP 연결 시)
  */
 import * as Bridge from "../common/bridge.js?v=lna27";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
-import { createMusicWaveformPlayer } from "./waveform-player.js?v=2";
-import { initMusicComposeEditor } from "./music-compose.js?v=11";
+import {
+  GENRE_OPTIONS,
+  INSTRUMENT_OPTIONS,
+  VOCAL_STYLE_OPTIONS,
+  compileCaption,
+} from "./music-compose.js?v=12";
 
 Bridge.configureBridge();
 
+const API = "/api/tools/create-music";
+const DOWNLOAD_PAGE = "download.html";
+const STORAGE = {
+  jobId: "create-music:job-id",
+  filename: "create-music:filename",
+  source: "create-music:source-name",
+  mp3Url: "create-music:mp3-download-url",
+  wavUrl: "create-music:wav-download-url",
+  format: "create-music:format",
+};
+/** 품질: 빠르게 = turbo(8스텝), 고품질 = sft(25스텝) — 예전 「스피드 초안」·「고품질 마스터링」 프리셋 값 */
+const QUALITY = {
+  speed: { dit_model: "turbo", inference_steps: 8, guidance_scale: 3.5, shift: 3.0 },
+  quality: { dit_model: "sft", inference_steps: 25, guidance_scale: 6.5, shift: 4.0 },
+};
+const GENRES_VISIBLE = 10;
+const COVERS = [
+  "linear-gradient(135deg,#6366F1,#EC4899)",
+  "linear-gradient(135deg,#0EA5E9,#6366F1)",
+  "linear-gradient(135deg,#8B5CF6,#3B82F6)",
+  "linear-gradient(135deg,#7C3AED,#10B981)",
+  "linear-gradient(135deg,#F59E0B,#EF4444)",
+  "linear-gradient(135deg,#14B8A6,#6366F1)",
+];
+
+// ---------------------------------------------------------------------------
+// i18n
+// ---------------------------------------------------------------------------
 function t(key, fallback) {
   return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
 }
-
 function tf(key, fallback, vars) {
   let s = t(key, fallback);
-  if (vars) {
-    Object.keys(vars).forEach((k) => {
-      s = s.split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
-    });
-  }
+  Object.keys(vars || {}).forEach((k) => {
+    s = s.split(`{${k}}`).join(String(vars[k] == null ? "" : vars[k]));
+  });
   return s;
 }
-
-const AGENT_MSG_MAP = [
-  [/^(.+?)\s*전용 Python(?: 3\.12)? 환경 설치 중/, (m) => {
-    const name = String(m[1] || "").trim();
-    if (typeof window.ITZ_I18N?.tf === "function") {
-      const out = window.ITZ_I18N.tf("pyEnv", { name });
-      if (out && out !== "pyEnv") return out;
-    }
-    return tf("pyEnv", "Installing the {name} Python environment…", { name });
-  }],
-  [/^설치 시작$/, () => t("installStart", "Starting install")],
-  [/^확인 중[….]*$/, () => t("ui.checking", "Checking…")],
-  [/^에이전트 연결 확인 중[….]*$/, () => t("conn.checking", "Checking agent…")],
-  [/환경 준비 대기/, () => t("waitPrep", "Create Music · waiting to prepare")],
-  [/^이미 설치되어 있습니다\.?$/, () => t("agent.alreadyInstalled", "Already installed.")],
-  [/^FFmpeg 설치 중[….]*$/, () => t("agent.ffmpegInstall", "Installing FFmpeg…")],
-  [/^FFmpeg 준비 완료$/, () => t("agent.ffmpegReady", "FFmpeg is ready")],
-  [/^ACE-Step 소스 확인·다운로드 중[….]*$/, () => t("agent.aceSrc", "Checking and downloading ACE-Step source…")],
-  [/^가상환경 준비 중/, () => t("agent.venvPrep", "Preparing the virtual environment…")],
-  [/^engine-runtime·패키지 설치 중[….]*$/, () => t("agent.pkgInstall", "Installing engine-runtime packages…")],
-  [/^런타임 준비 완료$/, () => t("agent.runtimeReady", "Runtime is ready")],
-  [/^모델 가중치 다운로드 중/, () => t("agent.weights", "Downloading model weights… (first run can be several GB and take a while)")],
-  [/^준비 완료$/, () => t("agent.ready", "Ready")],
-  [/^생성 시작[….]*$/, () => t("agent.genStart", "Starting generation…")],
-  [/^ACE-Step 생성 프로세스 시작[….]*$/, () => t("agent.genProc", "Starting ACE-Step generation…")],
-  [/^음악 생성 중[….]*$/, () => t("generating", "Generating music…")],
-  [/^생성 완료$/, () => t("agent.genDone", "Generation complete")],
-  [/^대기 중$/, () => t("agent.waiting", "Idle")],
-  [/^설치 진행 중[….]*$/, () => t("prepareProgress", "Install in progress…")],
-  [/^DiT 모델 로딩 중/, () => t("ui.ditLoad", "Loading the DiT model…")],
-  [/^LM 로딩 중/, () => t("ui.lmLoad", "Loading the LM…")],
-  [/^결과 정리 중/, () => t("ui.tidyResult", "Finishing the result…")],
-];
-
+/** 에이전트가 보내는 한국어 진행 문구 → 현재 언어 (없으면 그대로) */
 function locAgent(s) {
   const raw = String(s || "").trim();
   if (!raw) return raw;
-  for (const [re, fn] of AGENT_MSG_MAP) {
-    const m = raw.match(re);
-    if (m) return fn(m);
-  }
-  if (typeof window.itzAgentText === "function") return window.itzAgentText(raw);
-  return raw;
+  return typeof window.itzAgentText === "function" ? window.itzAgentText(raw) : raw;
 }
 
-const musicCompose = initMusicComposeEditor(document.getElementById("music-compose-root"));
+// ---------------------------------------------------------------------------
+// DOM
+// ---------------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+};
 
-function installDialogOpts() {
-  return agentInstallDialogOptions(async () => {
-    const detail = await Bridge.checkAgentConnection();
-    if (detail.ok) {
-      connected = true;
-      Bridge.applyConnectionStatusDot($connectionStatus, true, detail);
-      void ensureEnvironmentOnConnect();
-    }
-    return detail;
-  });
-}
-
-const DOWNLOAD_PAGE = "download.html";
-const STORAGE_JOB_ID = "create-music:job-id";
-const STORAGE_FILENAME = "create-music:filename";
-const STORAGE_SOURCE = "create-music:source-name";
-const STORAGE_MP3_URL = "create-music:mp3-download-url";
-const STORAGE_WAV_URL = "create-music:wav-download-url";
-const $connectionStatus = document.getElementById("connection-status");
-const $computeCap = document.getElementById("compute-capability");
-const $binReadiness = document.getElementById("bin-readiness");
-
-const $taskType = document.getElementById("task-type");
-const $vocalLang = document.getElementById("vocal-lang");
-const $duration = document.getElementById("duration");
-const $audioFormat = document.getElementById("audio-format");
-const $batchSize = document.getElementById("batch-size");
-
-const $ditModel = document.getElementById("dit-model");
-const $inferenceSteps = document.getElementById("inference-steps");
-const $guidanceScale = document.getElementById("guidance-scale");
-const $shift = document.getElementById("shift");
-const $seed = document.getElementById("seed");
-const $inferMethod = document.getElementById("infer-method");
-const $loraSelect = document.getElementById("lora-select");
-
-const $remixSection = document.getElementById("remix-section");
-const $btnSrcAudio = document.getElementById("btn-src-audio");
-const $srcAudioName = document.getElementById("src-audio-name");
-const $btnRefAudio = document.getElementById("btn-ref-audio");
-const $refAudioName = document.getElementById("ref-audio-name");
-const $btnVocalRef = document.getElementById("btn-vocal-ref");
-const $btnVocalRefClear = document.getElementById("btn-vocal-ref-clear");
-const $vocalRefName = document.getElementById("vocal-ref-name");
-const $vocalRefStrengthRow = document.getElementById("vocal-ref-strength-row");
-const $vocalRefStrength = document.getElementById("vocal-ref-strength");
-const $vocalRefStrengthVal = document.getElementById("vocal-ref-strength-val");
-
-const $btnGenerate = document.getElementById("btn-generate");
-const $btnPrepare = document.getElementById("btn-prepare");
-const $downloadSection = document.getElementById("download-section");
-const $btnDownloadMp3 = document.getElementById("btn-download-mp3");
-
-const $loraName = document.getElementById("lora-name");
-const $loraSteps = document.getElementById("lora-steps");
-const $loraLr = document.getElementById("lora-lr");
-const $loraRank = document.getElementById("lora-rank");
-const $btnTrainLora = document.getElementById("btn-train-lora");
-const $loraProgressArea = document.getElementById("lora-progress-area");
-const $loraProgressBar = document.getElementById("lora-progress-bar");
-const $loraProgressMsg = document.getElementById("lora-progress-msg");
-
-const $historyList = document.getElementById("history-list");
+const ui = {
+  agentPill: $("cm-agent-pill"),
+  agentText: $("cm-agent-text"),
+  gpuPill: $("cm-gpu-pill"),
+  envPill: $("cm-env-pill"),
+  envText: $("cm-env-text"),
+  popover: $("cm-popover"),
+  checkList: $("cm-check-list"),
+  popNote: $("cm-pop-note"),
+  prepareBtn: $("cm-prepare-btn"),
+  aiBtn: $("cm-ai-btn"),
+  vocal: $("cm-vocal"),
+  genres: $("cm-genres"),
+  mood: $("cm-mood"),
+  tempo: $("cm-tempo"),
+  lyricsGroup: $("cm-lyrics-group"),
+  lyricsWrap: $("cm-lyrics-wrap"),
+  lyrics: $("cm-lyrics"),
+  vocalLang: $("cm-vocal-lang"),
+  instNotice: $("cm-inst-notice"),
+  duration: $("cm-duration"),
+  durHint: $("cm-dur-hint"),
+  adv: $("cm-adv"),
+  quality: $("cm-quality"),
+  instruments: $("cm-instruments"),
+  vstyleGroup: $("cm-vstyle-group"),
+  vstyles: $("cm-vocal-styles"),
+  refGroup: $("cm-ref-group"),
+  refPick: $("cm-ref-pick"),
+  refName: $("cm-ref-name"),
+  refClear: $("cm-ref-clear"),
+  seed: $("cm-seed"),
+  generate: $("cm-generate"),
+  genHint: $("cm-gen-hint"),
+  count: $("cm-count"),
+  tracks: $("cm-tracks"),
+  pThumb: $("cm-p-thumb"),
+  pTitle: $("cm-p-title"),
+  pSub: $("cm-p-sub"),
+  pPlay: $("cm-p-play"),
+  pCur: $("cm-p-cur"),
+  pSeek: $("cm-p-seek"),
+  pTot: $("cm-p-tot"),
+  pVol: $("cm-p-vol"),
+  chat: $("cm-chat"),
+  chatClose: $("cm-chat-close"),
+  chatMsgs: $("cm-chat-msgs"),
+  chatIn: $("cm-chat-in"),
+  chatSend: $("cm-chat-send"),
+  toast: $("cm-toast"),
+};
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let connected = false;
-let allReady = false;
-let autoPrepareStarted = false;
-let preparePollTimer = null;
-let srcAudioPath = null;
-let refAudioPath = null;
-let generationPollTimer = null;
-let loraPollTimer = null;
-
-const musicPlayer = createMusicWaveformPlayer({
-  getAgentOrigin: () => Bridge.getAgentOrigin(),
-});
-
-let lastReadinessData = null;
-let lastGpuCtx = null;
-let mp3LabelKey = "download";
-
-function setMp3DownloadLabel(key, fallback) {
-  mp3LabelKey = key || "download";
-  const text = t(mp3LabelKey, fallback || "MP3 다운로드");
-  const label = $btnDownloadMp3?.querySelector(".btn-label");
-  if (label) label.textContent = text;
-  else if ($btnDownloadMp3) $btnDownloadMp3.textContent = text;
-}
-
-function setDownloadEnabled(on) {
-  if (!$btnDownloadMp3) return;
-  $btnDownloadMp3.disabled = !on;
-  if (!on) setMp3DownloadLabel("download", "MP3 다운로드");
-}
-
-// ---------------------------------------------------------------------------
-// Tabs
-// ---------------------------------------------------------------------------
-document.querySelectorAll(".tab-btn").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add("active");
-
-    if (btn.dataset.tab === "history") loadHistory();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Connection monitor (Silence Detector / Vocal Remover와 동일)
-// ---------------------------------------------------------------------------
-function setComputeCapabilityBadge(ctx) {
-  lastGpuCtx = ctx;
-  if (!$computeCap) return;
-  $computeCap.classList.remove("is-gpu", "is-cpu", "is-pending", "is-warn");
-
-  if (ctx.agentOk === false) {
-    $computeCap.classList.add("is-pending");
-    $computeCap.textContent = t("gpuUnknown", "연산 장치 확인 불가");
-    $computeCap.title = t("gpuUnknownTitle", "에이전트에 연결되면 GPU/CPU 여부를 표시합니다.");
-    return;
-  }
-
-  const gpu = ctx.gpu;
-  if (!gpu) {
-    $computeCap.classList.add("is-pending");
-    $computeCap.textContent = t("gpuChecking", "연산 장치 확인 중…");
-    $computeCap.title = "";
-    return;
-  }
-
-  const rt = ctx.runtime || {};
-  if (!rt.acestep_root_ok && rt.acestep_root_error) {
-    $computeCap.classList.add("is-warn");
-    $computeCap.textContent = t("aceSrcMissing", "ACE-Step 소스 미설치");
-    $computeCap.title = rt.acestep_root_error;
-    return;
-  }
-
-  if (gpu.available) {
-    $computeCap.classList.add("is-gpu");
-    const tierLabel = gpu.tier_label || gpu.tier || "";
-    const vramGb =
-      gpu.vram_gb != null
-        ? `${Number(gpu.vram_gb).toFixed(1)} GB`
-        : gpu.vram_mb
-          ? `${Math.round(gpu.vram_mb / 1024)} GB`
-          : "";
-    $computeCap.textContent = tierLabel
-      ? vramGb
-        ? `GPU · ${tierLabel} · ${vramGb}`
-        : `GPU · ${tierLabel}`
-      : vramGb
-        ? `GPU · ${vramGb}`
-        : t("gpuAvailable", "GPU 사용 가능");
-    $computeCap.title = gpu.docs || "";
-    return;
-  }
-
-  $computeCap.classList.add("is-cpu");
-  $computeCap.textContent = gpu.tier_label || t("cpuOnly", "CPU 전용");
-  $computeCap.title = t("cpuTitle", "NVIDIA GPU가 감지되지 않았습니다. CPU 오프로드로 동작할 수 있습니다.");
-}
-
-function updateBinReadiness(agentOk, data) {
-  if (!$binReadiness) return;
-
-  if (!agentOk) {
-    $binReadiness.className = "bin-readiness is-warn";
-    $binReadiness.textContent = t("binNoAgent", "에이전트 미연결 → ACE-Step · FFmpeg 점검 불가");
-    return;
-  }
-
-  if (!data) {
-    $binReadiness.className = "bin-readiness is-warn";
-    $binReadiness.textContent = t("binChecking", "Create Music · 환경 확인 중…");
-    return;
-  }
-
-  const d = data.dependencies || {};
-  const labels = [
-    ["acestep_source", "ACE-Step"],
-    ["python312", "Py3.12"],
-    ["pytorch", "PyTorch"],
-    ["acestep_venv", "venv"],
-    ["acestep_models", t("dep.models", "모델")],
-  ];
-  const parts = labels.map(([key, label]) => (d[key] ? label : `${label} ✗`));
-
-  if (data.all_ready) {
-    $binReadiness.className = "bin-readiness is-ok";
-    $binReadiness.textContent = t("binReady", "ACE-Step · venv · 모델 · FFmpeg(MP3) 준비됨");
-    return;
-  }
-
-  $binReadiness.className = "bin-readiness is-warn";
-  $binReadiness.textContent = `${parts.join(" · ")} · ${t("needPrep", "환경 준비 필요")}`;
-}
-
-const connectionMonitor = Bridge.startConnectionMonitor({
-  intervalMs: 12_000,
-  immediate: true,
-  autoShowInstallDialog: true,
-  installDialogOptions: installDialogOpts,
-  onChange(ok, detail) {
-    const busy = Bridge.isAgentLongOperationActive() || detail?.longOp;
-    connected = ok || busy;
-    Bridge.applyConnectionStatusDot($connectionStatus, ok || busy, detail);
-    if (ok || busy) {
-      if (ok) void ensureEnvironmentOnConnect();
-      return;
-    }
-    setComputeCapabilityBadge({ agentOk: false });
-    updateBinReadiness(false, null);
-    allReady = false;
-    $btnGenerate.disabled = true;
-    $btnTrainLora.disabled = true;
-  },
-});
-
-window.addEventListener("focus", () => void connectionMonitor.refresh());
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") void connectionMonitor.refresh();
-});
-
-// ---------------------------------------------------------------------------
-// Readiness (접속 시 자동 확인 — 환경 준비 버튼 수동 클릭 불필요)
-// ---------------------------------------------------------------------------
-function applyReadinessData(data) {
-  lastReadinessData = data;
-  const rt = data.runtime || {};
-  window.__createMusicRuntime = rt;
-  setComputeCapabilityBadge({ agentOk: true, gpu: data.gpu, runtime: rt });
-  updateBinReadiness(true, data);
-  applyGpuTierLimits(data.gpu);
-
-  allReady = Boolean(data.all_ready);
-  $btnGenerate.disabled = !allReady;
-  $btnTrainLora.disabled = true;
-
-  if (!allReady) {
-    const parts = [];
-    if (!data.dependencies?.acestep_source) parts.push(t("dep.source", "ACE-Step 소스"));
-    if (!data.dependencies?.python312) parts.push(t("dep.py", "Python 3.12"));
-    if (!data.dependencies?.pytorch) parts.push(t("dep.torch", "PyTorch"));
-    if (!data.dependencies?.acestep_venv) parts.push(t("dep.venv", "가상환경"));
-    if (!data.dependencies?.acestep_models) parts.push(t("dep.models", "모델"));
-    $btnPrepare.textContent = parts.length
-      ? tf("prepWithParts", "환경 준비 ({parts})", { parts: parts.join(", ") })
-      : t("ui.prepare", "환경 준비");
-    $btnPrepare.disabled = false;
-  } else {
-    $btnPrepare.textContent = t("recheck", "환경 재확인");
-    $btnPrepare.disabled = false;
-  }
-
-  if (data.lora_list && data.lora_list.length > 0) {
-    const current = $loraSelect.value;
-    $loraSelect.innerHTML = `<option value="">${t("loraNone", "사용 안 함")}</option>`;
-    data.lora_list.forEach((name) => {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name;
-      $loraSelect.appendChild(opt);
-    });
-    if (current) $loraSelect.value = current;
-  }
-}
-
-async function checkReadiness({ full = false } = {}) {
-  if (!connected) {
-    setComputeCapabilityBadge({ agentOk: false });
-    updateBinReadiness(false, null);
-    return false;
-  }
-
-  try {
-    const origin = Bridge.getAgentOrigin();
-    const q = full ? "" : "?quick=1";
-    const res = await Bridge.fetchAgent(`${origin}/api/tools/create-music/readiness${q}`);
-    if (!res.ok) {
-      updateBinReadiness(true, null);
-      return false;
-    }
-    const data = await res.json();
-    applyReadinessData(data);
-    return data.all_ready;
-  } catch {
-    updateBinReadiness(connected, null);
-    return false;
-  }
-}
-
-async function runAutoPrepare() {
-  if (!connected || allReady || autoPrepareStarted) return;
-  autoPrepareStarted = true;
-
-  try {
-    const origin = Bridge.getAgentOrigin();
-    const res = await Bridge.fetchAgent(`${origin}/api/tools/create-music/prepare`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      autoPrepareStarted = false;
-      return;
-    }
-    const data = await res.json();
-    if (data.phase === "done") {
-      await checkReadiness({ full: false });
-      autoPrepareStarted = false;
-      return;
-    }
-
-    if ($binReadiness) {
-      $binReadiness.className = "bin-readiness is-warn";
-      $binReadiness.textContent = t("prepLong", "환경 준비 중… (처음 설치 시 수 분~수십 분)");
-    }
-    startPreparePolling({ showOverlayAfterMs: 2500 });
-  } catch {
-    autoPrepareStarted = false;
-  }
-}
-
-async function ensureEnvironmentOnConnect() {
-  const quickReady = await checkReadiness({ full: false });
-  if (quickReady) return;
-  await runAutoPrepare();
-}
-
-// ---------------------------------------------------------------------------
-// GPU tier limits (ACE-Step GPU_COMPATIBILITY.md)
-// ---------------------------------------------------------------------------
-function getActivePresetKey() {
-  const active = document.querySelector(".preset-btn.active");
-  return active?.dataset.preset || "speed";
-}
-
-function applyGpuTierLimits(gpu) {
-  if (!gpu) return;
-
-  const presetKey = getActivePresetKey();
-
-  const limits = gpu.limits || {};
-  const maxDur = Math.max(
-    limits.max_duration_without_lm_sec || 600,
-    limits.max_duration_with_lm_sec || 480,
-  );
-  $duration.max = String(maxDur);
-  if (Number($duration.value) > maxDur) $duration.value = String(maxDur);
-
-  const maxBatch = Math.max(
-    limits.max_batch_without_lm || 1,
-    limits.max_batch_with_lm || 1,
-  );
-  $batchSize.max = String(maxBatch);
-  if (Number($batchSize.value) > maxBatch) $batchSize.value = String(maxBatch);
-
-  const allowedDit = new Set(gpu.available_dit_models || []);
-  Array.from($ditModel.options).forEach((opt) => {
-    const ok = allowedDit.size === 0 || allowedDit.has(opt.value);
-    opt.disabled = !ok;
-    opt.hidden = !ok;
-  });
-
-  if (presetKey !== "custom" && PRESETS[presetKey]) {
-    applyPresetValues(PRESETS[presetKey], { allowedDit });
-    return;
-  }
-
-  if (allowedDit.size > 0 && !allowedDit.has($ditModel.value)) {
-    const fb = [...allowedDit].find((k) => k === "sft") || [...allowedDit][0] || "turbo";
-    $ditModel.value = fb;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Presets
-// ---------------------------------------------------------------------------
-const PRESETS = {
-  speed: {
-    dit_model: "turbo",
-    inference_steps: 8,
-    guidance_scale: 3.5,
-    shift: 3.0,
-    seed: -1,
-    infer_method: "ode",
-    tooltip:
-      "🚀 스피드 초안 (속도 최우선, 테스트용) — 터보 모델은 수치를 낮춰야 돌아갑니다. DiT: Turbo · 스텝 8 (10 넘기지 마세요) · CFG 3.5 (4.0 이상 절대 금지) · 시프트 3.0",
-  },
-  quality: {
-    dit_model: "sft",
-    inference_steps: 25,
-    guidance_scale: 6.5,
-    shift: 4.0,
-    seed: -1,
-    infer_method: "ode",
-    tooltip:
-      "✨ 고품질 마스터링 (음질 최상, 정석 세팅) — DiT: SFT (터보에서 이걸로 무조건 바꾸세요) · 스텝 25 · CFG 6.5 · 시프트 4.0",
-  },
-  creative: {
-    dit_model: "sft",
-    inference_steps: 15,
-    guidance_scale: 3.0,
-    shift: 3.0,
-    seed: -1,
-    infer_method: "sde",
-    tooltip:
-      "🎲 크리에이티브 (AI가 맘대로 독특하게 변주) — DiT: SFT · 스텝 15 · CFG 3.0 · 시프트 3.0",
-  },
-  strict: {
-    dit_model: "sft",
-    inference_steps: 30,
-    guidance_scale: 8.5,
-    shift: 3.0,
-    seed: -1,
-    infer_method: "ode",
-    tooltip:
-      "🎯 가사/스타일 집중 (가사 절대 안 씹히게) — 가사 똑바로 부르게 하려면 반드시 SFT. DiT: SFT · 스텝 30 · CFG 8.5 · 시프트 3.0",
-  },
-  custom: {
-    tooltip: "모든 옵션을 직접 설정할 수 있습니다. 자유롭게 조합하세요.",
-  },
+const state = {
+  connected: false,
+  agentVersion: "",
+  readiness: null,
+  ready: false,
+  preparing: null, // { progress, message } while the agent installs
+  maxDuration: 600,
+  refPath: null,
+  history: [],
+  generating: null, // { jobId, progress, message, title, vocal, genres }
+  aiClients: [],
+  aiBusy: false,
+  aiHistory: [], // [{ role: "user" | "assistant", text }]
 };
 
-function applyPresetValues(preset, { allowedDit } = {}) {
-  if (!preset?.dit_model) return;
-
-  const ditOk = !allowedDit || allowedDit.size === 0 || allowedDit.has(preset.dit_model);
-
-  if (ditOk) $ditModel.value = preset.dit_model;
-  if (preset.inference_steps != null) $inferenceSteps.value = preset.inference_steps;
-  if (preset.guidance_scale != null) $guidanceScale.value = preset.guidance_scale;
-  if (preset.shift != null) $shift.value = preset.shift;
-  if (preset.seed != null) $seed.value = preset.seed;
-  if (preset.infer_method) $inferMethod.value = preset.infer_method;
+function toast(message, { error = false } = {}) {
+  ui.toast.textContent = message;
+  ui.toast.classList.toggle("is-err", error);
+  ui.toast.classList.add("is-show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => ui.toast.classList.remove("is-show"), error ? 4200 : 2200);
 }
 
-const $presetTooltip = document.getElementById("preset-tooltip");
-const advancedInputs = [$ditModel, $inferenceSteps, $guidanceScale, $shift, $seed, $inferMethod, $loraSelect];
-
-function setAdvancedFieldsDisabled(disabled) {
-  advancedInputs.forEach((el) => { el.disabled = disabled; });
+function flash(node) {
+  node.classList.remove("cm-ai-filled");
+  void node.offsetWidth;
+  node.classList.add("cm-ai-filled");
 }
 
-function applyPreset(key) {
-  document.querySelectorAll(".preset-btn").forEach((b) => b.classList.remove("active"));
-  document.querySelector(`.preset-btn[data-preset="${key}"]`)?.classList.add("active");
+// ---------------------------------------------------------------------------
+// 입력 칸: 세그먼트 버튼·칩
+// ---------------------------------------------------------------------------
+function segValue(seg) {
+  return seg.querySelector("button.active")?.dataset.value ?? "";
+}
+function setSeg(seg, value) {
+  const target = seg.querySelector(`button[data-value="${CSS.escape(String(value))}"]`);
+  if (!target || target.disabled) return false;
+  seg.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === target));
+  return true;
+}
+function bindSeg(seg, onChange) {
+  seg.querySelectorAll("button").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (b.disabled || b.classList.contains("active")) return;
+      setSeg(seg, b.dataset.value);
+      onChange?.(b.dataset.value);
+    }),
+  );
+}
 
-  const preset = PRESETS[key];
-  if (!preset) return;
-
-  $presetTooltip.textContent = t(`preset.${key}Tip`, preset.tooltip);
-  $presetTooltip.setAttribute("data-i18n", `preset.${key}Tip`);
-
-  if (key === "custom") {
-    setAdvancedFieldsDisabled(false);
-    return;
+/** 칩 그룹: 옵션의 i18nKey로 선택 상태를 기억 */
+function renderChips(box, options, { limit = 0 } = {}) {
+  const selected = new Set(chipValues(box));
+  box.textContent = "";
+  const showAll = box.dataset.expanded === "1" || !limit;
+  options.forEach((opt, i) => {
+    if (!showAll && i >= limit && !selected.has(opt.i18nKey)) return;
+    const chip = el("button", "cm-chip", t(opt.i18nKey, opt.label));
+    chip.type = "button";
+    chip.dataset.key = opt.i18nKey;
+    chip.classList.toggle("active", selected.has(opt.i18nKey));
+    chip.addEventListener("click", () => {
+      chip.classList.toggle("active");
+      updateGenerateState();
+    });
+    box.appendChild(chip);
+  });
+  if (!showAll) {
+    const more = el("button", "cm-chip is-more", t("cm.more2", "+ 더보기"));
+    more.type = "button";
+    more.addEventListener("click", () => {
+      box.dataset.expanded = "1";
+      renderChips(box, options, { limit });
+    });
+    box.appendChild(more);
   }
+}
+function chipValues(box) {
+  return Array.from(box.querySelectorAll(".cm-chip.active")).map((c) => c.dataset.key).filter(Boolean);
+}
+function setChips(box, options, keys, opts) {
+  const wanted = new Set(keys || []);
+  if (opts?.limit && options.findIndex((o) => wanted.has(o.i18nKey)) >= opts.limit) box.dataset.expanded = "1";
+  box.querySelectorAll(".cm-chip.active").forEach((c) => c.classList.remove("active"));
+  renderChips(box, options, opts);
+  box.querySelectorAll(".cm-chip").forEach((c) => c.classList.toggle("active", wanted.has(c.dataset.key)));
+}
+const optionByKey = (options, key) => options.find((o) => o.i18nKey === key);
+const optionLabel = (options, key) => {
+  const opt = optionByKey(options, key);
+  return opt ? t(opt.i18nKey, opt.label) : key;
+};
 
-  setAdvancedFieldsDisabled(true);
-  applyPresetValues(preset);
+function renderAllChips() {
+  renderChips(ui.genres, GENRE_OPTIONS, { limit: GENRES_VISIBLE });
+  renderChips(ui.instruments, INSTRUMENT_OPTIONS);
+  renderChips(ui.vstyles, VOCAL_STYLE_OPTIONS);
 }
 
-// 초기 상태: 스피드 초안 프리셋 적용 + 필드 비활성화
-applyPreset("speed");
+function syncVocalUi() {
+  const instrumental = segValue(ui.vocal) === "none";
+  ui.lyricsGroup.hidden = instrumental;
+  ui.instNotice.hidden = !instrumental;
+  ui.vstyleGroup.hidden = instrumental;
+  ui.refGroup.hidden = instrumental;
+  ui.durHint.textContent = instrumental
+    ? t("cm.durAutoInst", "자동 = 약 1분")
+    : t("cm.durAutoLyrics", "자동 = 가사 길이에 맞춤");
+  updateGenerateState();
+}
 
-document.querySelectorAll(".preset-btn").forEach((btn) => {
-  btn.addEventListener("click", () => applyPreset(btn.dataset.preset));
+bindSeg(ui.vocal, syncVocalUi);
+bindSeg(ui.tempo);
+bindSeg(ui.duration);
+bindSeg(ui.quality);
+ui.lyrics.addEventListener("input", updateGenerateState);
+ui.mood.addEventListener("input", updateGenerateState);
+
+ui.adv.querySelector(".cm-acc-head").addEventListener("click", (e) => {
+  const open = ui.adv.classList.toggle("is-open");
+  e.currentTarget.setAttribute("aria-expanded", String(open));
 });
 
-// ---------------------------------------------------------------------------
-// Task type change (show/hide remix section)
-// ---------------------------------------------------------------------------
-$taskType.addEventListener("change", () => {
-  const isRemix = ["remix", "repaint", "cover", "lego"].includes($taskType.value);
-  $remixSection.classList.toggle("hidden", !isRemix);
-});
+document.querySelectorAll(".cm-tag-btn").forEach((b) =>
+  b.addEventListener("click", () => {
+    const ta = ui.lyrics;
+    const pos = ta.selectionStart ?? ta.value.length;
+    const before = ta.value.slice(0, pos);
+    const prefix = before && !before.endsWith("\n\n") ? (before.endsWith("\n") ? "\n" : "\n\n") : "";
+    const insert = `${prefix}${b.dataset.tag}\n`;
+    ta.value = before + insert + ta.value.slice(ta.selectionEnd ?? pos);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = pos + insert.length;
+    updateGenerateState();
+  }),
+);
 
 // ---------------------------------------------------------------------------
-// Audio file picking (via agent file dialog)
+// 참조 보컬 (에이전트 파일 선택 창)
 // ---------------------------------------------------------------------------
 async function pickAudioFile() {
   const agent = await Bridge.checkAgentConnection();
@@ -561,597 +273,880 @@ async function pickAudioFile() {
     await Bridge.showInstallAgentDialog(await installDialogOpts());
     return null;
   }
-  const origin = Bridge.getAgentOrigin();
   try {
-    const res = await Bridge.fetchAgent(`${origin}${AGENT_PICK_AUDIO}`, {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${AGENT_PICK_AUDIO}`, {
       method: "POST",
       headers: { Accept: "application/json" },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const detail = typeof data?.detail === "string" ? data.detail : res.statusText || t("reqFail", "요청 실패");
+      const detail = typeof data?.detail === "string" ? data.detail : res.statusText;
       if (res.status === 400 && (detail.includes("취소") || /cancel/i.test(detail))) return null;
-      alert(`${t("pickFail", "파일 선택 실패")}: ${detail}`);
+      toast(`${t("pickFail", "파일 선택 실패")}: ${detail}`, { error: true });
       return null;
     }
-    const path = String(data.audio_path || data.video_path || data.path || "").trim();
-    if (!path) return null;
-    return path;
+    return String(data.audio_path || data.path || "").trim() || null;
   } catch (e) {
-    alert(`${t("pickFail", "파일 선택 실패")}: ${e instanceof Error ? e.message : String(e)}`);
+    toast(`${t("pickFail", "파일 선택 실패")}: ${e instanceof Error ? e.message : e}`, { error: true });
     return null;
   }
 }
-
-function syncVocalRefUi() {
-  const hasRef = Boolean(refAudioPath);
-  const fileName = hasRef ? refAudioPath.split(/[\\/]/).pop() : "";
-  if ($vocalRefName) {
-    $vocalRefName.textContent = fileName;
-    $vocalRefName.classList.toggle("is-set", hasRef);
-  }
-  if ($refAudioName && hasRef) {
-    $refAudioName.textContent = fileName;
-  }
-  $vocalRefStrengthRow?.classList.toggle("is-hidden", !hasRef);
-  document.getElementById("vocal-ref-row")?.classList.toggle("has-ref", hasRef);
+function syncRefUi() {
+  const name = state.refPath ? state.refPath.split(/[\\/]/).pop() : "";
+  ui.refName.textContent = name ? `🎵 ${name}` : t("cm.refPick", "+ 목소리 샘플 고르기");
+  ui.refPick.classList.toggle("is-set", Boolean(name));
+  ui.refClear.hidden = !name;
 }
-
-function setReferenceAudioPath(path) {
-  refAudioPath = path || null;
-  syncVocalRefUi();
-}
-
-$btnSrcAudio.addEventListener("click", async () => {
-  const path = await pickAudioFile();
-  if (path) {
-    srcAudioPath = path;
-    $srcAudioName.textContent = path.split(/[\\/]/).pop();
-  }
-});
-
-$btnRefAudio.addEventListener("click", async () => {
-  const path = await pickAudioFile();
-  if (path) setReferenceAudioPath(path);
-});
-
-$btnVocalRef?.addEventListener("click", async () => {
-  $btnVocalRef.disabled = true;
+ui.refPick.addEventListener("click", async () => {
+  ui.refPick.disabled = true;
   try {
     const path = await pickAudioFile();
-    if (path) setReferenceAudioPath(path);
-  } finally {
-    $btnVocalRef.disabled = false;
-  }
-});
-
-$btnVocalRefClear?.addEventListener("click", () => {
-  setReferenceAudioPath(null);
-  if ($refAudioName) $refAudioName.textContent = "";
-});
-
-$vocalRefStrength?.addEventListener("input", () => {
-  if ($vocalRefStrengthVal) {
-    $vocalRefStrengthVal.textContent = Number($vocalRefStrength.value).toFixed(2);
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Prepare overlay
-// ---------------------------------------------------------------------------
-const $prepareOverlay = document.getElementById("prepare-overlay");
-const $prepareStep = document.getElementById("prepare-overlay-step");
-const $prepareMsg = document.getElementById("prepare-overlay-msg");
-const $prepareBar = document.getElementById("prepare-overlay-bar");
-const $preparePercent = document.getElementById("prepare-overlay-percent");
-
-function setPrepareProgress(progress, { indeterminate = false } = {}) {
-  const pct = Math.max(0, Math.min(100, Number(progress) || 0));
-  if (indeterminate) {
-    $prepareBar.classList.add("is-indeterminate");
-    $preparePercent.textContent = "…";
-    return;
-  }
-  $prepareBar.classList.remove("is-indeterminate");
-  $prepareBar.style.width = `${pct}%`;
-  $preparePercent.textContent = `${Math.round(pct)}%`;
-}
-
-function showPrepareOverlay() {
-  Bridge.setAgentLongOperationActive(true);
-  if (window.__itzSetupPanel) return;
-  $prepareOverlay.hidden = false;
-  setPrepareProgress(0, { indeterminate: true });
-  $prepareStep.textContent = "";
-  $prepareMsg.textContent = t("prepareInstall", "AI 음악 생성에 필요한 패키지와 모델을 설치합니다…");
-  $prepareOverlay.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function hidePrepareOverlay() {
-  $prepareOverlay.hidden = true;
-  Bridge.setAgentLongOperationActive(false);
-}
-
-function stopPreparePolling() {
-  if (preparePollTimer) {
-    clearInterval(preparePollTimer);
-    preparePollTimer = null;
-  }
-}
-
-function startPreparePolling({ showOverlayAfterMs = 0 } = {}) {
-  stopPreparePolling();
-  const origin = Bridge.getAgentOrigin();
-  let overlayShown = showOverlayAfterMs <= 0;
-  let overlayTimer = 0;
-
-  if (!overlayShown && showOverlayAfterMs > 0) {
-    overlayTimer = window.setTimeout(() => {
-      if (!overlayShown) {
-        overlayShown = true;
-        showPrepareOverlay();
-      }
-    }, showOverlayAfterMs);
-  } else {
-    showPrepareOverlay();
-  }
-
-  preparePollTimer = setInterval(async () => {
-    try {
-      const res = await Bridge.fetchAgent(`${origin}/api/tools/create-music/prepare/status`);
-      const data = await res.json();
-
-      if (!overlayShown && data.phase === "downloading_model") {
-        overlayShown = true;
-        clearTimeout(overlayTimer);
-        showPrepareOverlay();
-      }
-
-      setPrepareProgress(data.progress ?? 0);
-      $prepareMsg.textContent = locAgent(data.message) || t("prepareProgress", "설치 진행 중…");
-
-      const phaseLabels = {
-        installing_dependencies: t("phaseDeps", "패키지 설치 중"),
-        downloading_model: t("phaseModel", "모델 다운로드 중"),
-        done: t("phaseDone", "완료"),
-        error: t("phaseError", "오류 발생"),
-      };
-      $prepareStep.textContent = phaseLabels[data.phase] || data.phase || "";
-
-      if (data.phase === "done") {
-        stopPreparePolling();
-        clearTimeout(overlayTimer);
-        setPrepareProgress(100);
-        $prepareMsg.textContent = t("prepDoneMsg", "환경 준비 완료! 음악을 생성할 수 있습니다.");
-        $prepareStep.textContent = t("prepDoneStep", "설치 완료 ✓");
-        autoPrepareStarted = false;
-        await checkReadiness({ full: false });
-        setTimeout(() => {
-          hidePrepareOverlay();
-        }, allReady ? 400 : 1500);
-      } else if (data.phase === "error") {
-        stopPreparePolling();
-        clearTimeout(overlayTimer);
-        autoPrepareStarted = false;
-        $prepareStep.textContent = t("phaseError", "오류 발생");
-        $prepareMsg.textContent = locAgent(data.error) || t("unknownError", "알 수 없는 오류가 발생했습니다.");
-        setTimeout(() => {
-          hidePrepareOverlay();
-          $btnPrepare.textContent = t("ui.prepare", "환경 준비");
-          $btnPrepare.disabled = false;
-        }, 3000);
-      }
-    } catch {
-      stopPreparePolling();
-      clearTimeout(overlayTimer);
-      autoPrepareStarted = false;
-      hidePrepareOverlay();
-      $btnPrepare.textContent = t("ui.prepare", "환경 준비");
-      $btnPrepare.disabled = false;
+    if (path) {
+      state.refPath = path;
+      syncRefUi();
     }
-  }, 2000);
+  } finally {
+    ui.refPick.disabled = false;
+  }
+});
+ui.refClear.addEventListener("click", () => {
+  state.refPath = null;
+  syncRefUi();
+});
+
+// ---------------------------------------------------------------------------
+// 생성 가능 여부
+// ---------------------------------------------------------------------------
+/** [Verse] 같은 구간 표시를 뺀 실제 가사가 있는지 */
+function hasLyricText(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .some((line) => line.trim() && !/^\s*\[[^\]]*\]\s*$/.test(line));
 }
 
-$btnPrepare.addEventListener("click", async () => {
-  const agent = await Bridge.checkAgentConnection();
-  if (!agent.ok) {
+function formProblem() {
+  if (!chipValues(ui.genres).length && !ui.mood.value.trim()) {
+    return t("cm.needStyle", "장르를 고르거나 분위기를 적어 주세요");
+  }
+  if (segValue(ui.vocal) !== "none" && !hasLyricText(ui.lyrics.value)) {
+    return t("cm.needLyrics", "가사를 입력해야 만들 수 있어요 (가사 없이 만들려면 「연주곡」)");
+  }
+  return "";
+}
+
+function updateGenerateState() {
+  const busy = Boolean(state.generating);
+  let hint = "";
+  if (!state.connected) hint = t("cm.hintNoAgent", "에이전트를 연결하면 만들 수 있어요");
+  else if (!state.ready) {
+    hint = state.preparing
+      ? tf("cm.hintPreparing", "음악 엔진 준비 중 {p}%", { p: Math.round(state.preparing.progress || 0) })
+      : t("cm.hintNeedPrep", "위쪽 상태 표시를 눌러 환경 준비를 마쳐 주세요");
+  } else if (busy) hint = t("cm.hintBusy", "곡을 만드는 중이에요");
+  else hint = formProblem() || t("cm.hintReady", "60초 곡 기준 약 20초 걸려요");
+  ui.generate.disabled = !state.connected || !state.ready || busy || Boolean(formProblem());
+  ui.generate.textContent = busy ? t("cm.generating", "만드는 중…") : t("cm.generate", "✦ 음악 만들기");
+  ui.genHint.textContent = hint;
+}
+
+// ---------------------------------------------------------------------------
+// 에이전트 연결 · 환경 상태
+// ---------------------------------------------------------------------------
+function installDialogOpts() {
+  return agentInstallDialogOptions(async () => {
+    const detail = await Bridge.checkAgentConnection();
+    if (detail.ok) onAgentChange(true, detail);
+    return detail;
+  });
+}
+
+function setPill(node, kind) {
+  node.classList.remove("is-ok", "is-warn", "is-info", "is-pending");
+  node.classList.add(kind);
+}
+
+function renderStatus() {
+  // 에이전트
+  if (state.connected) {
+    setPill(ui.agentPill, "is-ok");
+    ui.agentText.textContent = state.agentVersion
+      ? tf("cm.agentOkV", "에이전트 연결됨 · v{v}", { v: state.agentVersion })
+      : t("cm.agentOk", "에이전트 연결됨");
+  } else {
+    setPill(ui.agentPill, "is-warn");
+    ui.agentText.textContent = t("cm.agentOff", "에이전트 꺼짐");
+  }
+
+  // GPU
+  const gpu = state.readiness?.gpu;
+  if (state.connected && gpu) {
+    ui.gpuPill.hidden = false;
+    const minutes = Math.floor(state.maxDuration / 60);
+    ui.gpuPill.textContent = gpu.available
+      ? tf("cm.gpuPill", "GPU {gb}GB · 최대 {m}분", { gb: Math.round(Number(gpu.vram_gb) || (gpu.vram_mb || 0) / 1024), m: minutes })
+      : tf("cm.cpuPill", "CPU 모드 · 최대 {m}분", { m: minutes });
+  } else {
+    ui.gpuPill.hidden = true;
+  }
+
+  // 음악 엔진
+  if (!state.connected) {
+    setPill(ui.envPill, "is-warn");
+    ui.envText.textContent = t("cm.envNeedAgent", "⚠ 에이전트 연결 필요");
+  } else if (state.ready) {
+    setPill(ui.envPill, "is-ok");
+    ui.envText.textContent = t("cm.envReady", "✓ 음악 엔진 준비됨");
+  } else if (state.preparing) {
+    setPill(ui.envPill, "is-warn");
+    ui.envText.textContent = tf("cm.envPreparing", "음악 엔진 준비 중 {p}%", { p: Math.round(state.preparing.progress || 0) });
+  } else if (state.readiness) {
+    setPill(ui.envPill, "is-warn");
+    ui.envText.textContent = t("cm.envNeed", "⚠ 처음 한 번 준비가 필요해요");
+  } else {
+    setPill(ui.envPill, "is-pending");
+    ui.envText.textContent = t("cm.envChecking", "음악 엔진 확인 중…");
+  }
+
+  // 상태 창
+  const dep = state.readiness?.dependencies || {};
+  const rows = [
+    [t("cm.chkAgent", "에이전트"), state.connected],
+    [t("cm.chkRuntime", "음악 엔진"), state.connected && Boolean(dep.pytorch && dep.acestep_venv && dep.acestep_source)],
+    [t("cm.chkModels", "AI 모델 (빠르게·고품질)"), state.connected && Boolean(dep.acestep_models)],
+  ];
+  ui.checkList.textContent = "";
+  rows.forEach(([name, ok]) => {
+    const row = el("div", "cm-check-row");
+    row.append(el("span", null, name), el("span", ok ? "is-ok" : "is-no", ok ? t("cm.chkOk", "✓ 준비됨") : t("cm.chkNo", "필요")));
+    ui.checkList.appendChild(row);
+  });
+  if (!state.connected) {
+    ui.popNote.textContent = t("cm.noteAgent", "이 PC에서 음악을 만들려면 잇맛집 에이전트가 필요해요.");
+    ui.prepareBtn.textContent = t("cm.btnAgent", "에이전트 연결하기");
+    ui.prepareBtn.disabled = false;
+  } else if (state.ready) {
+    ui.popNote.textContent = t("cm.noteReady", "모든 준비가 끝났습니다. 바로 음악을 만들 수 있어요.");
+    ui.prepareBtn.textContent = t("cm.recheck", "↻ 다시 확인");
+    ui.prepareBtn.disabled = false;
+  } else if (state.preparing) {
+    ui.popNote.textContent = locAgent(state.preparing.message) || t("cm.notePreparing", "설치하고 있어요. 잠시만 기다려 주세요.");
+    ui.prepareBtn.textContent = tf("cm.btnPreparing", "준비 중 {p}%", { p: Math.round(state.preparing.progress || 0) });
+    ui.prepareBtn.disabled = true;
+  } else {
+    ui.popNote.textContent = t("cm.noteSetup", "처음 한 번만 필요해요. 음악 엔진과 AI 모델(빠르게·고품질)을 받습니다.");
+    ui.prepareBtn.textContent = t("cm.btnPrepare", "환경 준비 시작");
+    ui.prepareBtn.disabled = false;
+  }
+
+  // 곡 길이: GPU 등급의 최대 길이를 넘는 버튼은 끔
+  ui.duration.querySelectorAll("button").forEach((b) => {
+    const sec = Number(b.dataset.value);
+    b.disabled = sec > 0 && sec > state.maxDuration;
+  });
+  if (ui.duration.querySelector("button.active")?.disabled) setSeg(ui.duration, "-1");
+
+  updateGenerateState();
+}
+
+async function checkReadiness({ full = false } = {}) {
+  if (!state.connected) return false;
+  try {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/readiness${full ? "" : "?quick=1"}`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    state.readiness = data;
+    state.ready = Boolean(data.all_ready);
+    const limits = data.gpu?.limits || {};
+    state.maxDuration = Number(limits.max_duration_without_lm_sec) || 600;
+    if (state.ready) state.preparing = null;
+    renderStatus();
+    if (!state.ready) void pollPrepare();
+    return state.ready;
+  } catch {
+    return false;
+  }
+}
+
+let preparePolling = false;
+async function pollPrepare() {
+  if (preparePolling) return;
+  preparePolling = true;
+  try {
+    while (state.connected && !state.ready) {
+      const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/prepare/status`).catch(() => null);
+      const data = res?.ok ? await res.json().catch(() => null) : null;
+      const phase = data?.phase || "idle";
+      if (phase === "done") {
+        state.preparing = null;
+        await checkReadiness();
+        break;
+      }
+      if (phase === "error") {
+        state.preparing = null;
+        renderStatus();
+        if (data?.error) toast(locAgent(data.error), { error: true });
+        break;
+      }
+      state.preparing = phase === "idle" ? null : { progress: data.progress || 0, message: data.message || "" };
+      renderStatus();
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  } finally {
+    preparePolling = false;
+  }
+}
+
+async function startPrepare() {
+  try {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/prepare`, { method: "POST" });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    if (data.phase === "done") await checkReadiness({ full: true });
+    else {
+      state.preparing = { progress: data.progress || 0, message: data.message || "" };
+      renderStatus();
+      void pollPrepare();
+    }
+  } catch (e) {
+    toast(tf("cm.prepFail", "환경 준비를 시작하지 못했어요: {msg}", { msg: e instanceof Error ? e.message : e }), { error: true });
+  }
+}
+
+ui.prepareBtn.addEventListener("click", async () => {
+  if (!state.connected) {
     await Bridge.showInstallAgentDialog(await installDialogOpts());
     return;
   }
-
-  $btnPrepare.disabled = true;
-  autoPrepareStarted = true;
-
-  try {
-    const origin = Bridge.getAgentOrigin();
-    const res = await Bridge.fetchAgent(`${origin}/api/tools/create-music/prepare`, {
-      method: "POST",
-    });
-    if (!res.ok) throw new Error("prepare failed");
-    const data = await res.json();
-    if (data.phase === "done") {
-      await checkReadiness({ full: false });
-      $btnPrepare.disabled = false;
-      return;
-    }
-    startPreparePolling({ showOverlayAfterMs: 0 });
-  } catch {
-    autoPrepareStarted = false;
-    hidePrepareOverlay();
-    $btnPrepare.textContent = t("prepFail", "환경 준비 실패");
-    $btnPrepare.disabled = false;
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Generate
-// ---------------------------------------------------------------------------
-$btnGenerate.addEventListener("click", async () => {
-  if (!allReady) return;
-
-  const validation = musicCompose.validateForGeneration();
-  if (!validation.ok) {
-    alert(validation.message);
+  if (state.ready) {
+    ui.prepareBtn.disabled = true;
+    await checkReadiness({ full: true });
+    toast(state.ready ? t("cm.recheckOk", "모든 환경이 정상이에요") : t("cm.envNeed", "⚠ 처음 한 번 준비가 필요해요"));
     return;
   }
+  await startPrepare();
+});
 
-  const composed = musicCompose.compileForGeneration($vocalLang.value);
-  const origin = Bridge.getAgentOrigin();
-  const payload = {
-    task_type: $taskType.value,
-    caption: composed.caption,
-    lyrics: composed.lyrics,
-    vocal_language: $vocalLang.value,
-    vocal_type: composed.vocal_type,
-    instrumental: composed.instrumental,
-    bpm: composed.bpm,
-    duration: parseFloat($duration.value) || -1,
-    batch_size: parseInt($batchSize.value) || 1,
-    dit_model: $ditModel.value,
-    lm_model: "none",
-    inference_steps: parseInt($inferenceSteps.value) || 10,
-    guidance_scale: parseFloat($guidanceScale.value) || 5.0,
-    shift: parseFloat($shift.value) || 3.0,
-    seed: parseInt($seed.value) || -1,
-    infer_method: $inferMethod.value,
-    audio_format: $audioFormat.value,
-    lora_name: $loraSelect.value || null,
-    src_audio_path: srcAudioPath,
-    reference_audio_path: refAudioPath,
-    cover_strength: refAudioPath
-      ? parseFloat($vocalRefStrength?.value) || 0.55
-      : 1.0,
+document.querySelectorAll("[data-pop]").forEach((p) =>
+  p.addEventListener("click", (e) => {
+    e.stopPropagation();
+    ui.popover.hidden = !ui.popover.hidden;
+  }),
+);
+document.addEventListener("click", (e) => {
+  if (!ui.popover.hidden && !ui.popover.contains(e.target)) ui.popover.hidden = true;
+});
+
+function onAgentChange(ok, detail) {
+  const busy = Bridge.isAgentLongOperationActive() || detail?.longOp;
+  const wasConnected = state.connected;
+  state.connected = Boolean(ok || busy);
+  if (detail?.agentVersion) state.agentVersion = String(detail.agentVersion);
+  if (!state.connected) {
+    state.ready = false;
+    state.preparing = null;
+    renderStatus();
+    setAiAvailable([]);
+    return;
+  }
+  renderStatus();
+  if (ok && !wasConnected) {
+    void checkReadiness();
+    void loadHistory();
+    void resumeGeneration();
+    void refreshAiStatus();
+  }
+}
+
+const connectionMonitor = Bridge.startConnectionMonitor({
+  intervalMs: 12_000,
+  immediate: true,
+  autoShowInstallDialog: true,
+  installDialogOptions: installDialogOpts,
+  onChange: onAgentChange,
+});
+window.addEventListener("focus", () => void connectionMonitor.refresh());
+window.addEventListener("itz:ai-setup-ready", () => void checkReadiness());
+
+// ---------------------------------------------------------------------------
+// 생성
+// ---------------------------------------------------------------------------
+function currentForm() {
+  const vocal = segValue(ui.vocal) || "female";
+  const instrumental = vocal === "none";
+  return {
+    vocal,
+    instrumental,
+    genres: chipValues(ui.genres),
+    instruments: chipValues(ui.instruments),
+    vocal_styles: instrumental ? [] : chipValues(ui.vstyles),
+    mood: ui.mood.value.trim(),
+    tempo: segValue(ui.tempo) || "medium",
+    lyrics: instrumental ? "" : ui.lyrics.value.trim(),
+    vocal_language: ui.vocalLang.value || "ko",
+    duration: Number(segValue(ui.duration) || -1),
+    quality: segValue(ui.quality) || "speed",
+    seed: Number.parseInt(ui.seed.value, 10),
   };
+}
 
-  $btnGenerate.disabled = true;
-  setDownloadEnabled(false);
+function trackTitle(form) {
+  const genre = form.genres[0] ? optionLabel(GENRE_OPTIONS, form.genres[0]) : t("cm.newSong", "새 곡");
+  return form.mood ? `${genre} · ${form.mood.slice(0, 24)}` : genre;
+}
+
+function buildPayload(form) {
+  const captionState = {
+    genres: form.genres.map((k) => optionByKey(GENRE_OPTIONS, k)?.caption).filter(Boolean),
+    tempoPreset: form.tempo,
+    bpmCustom: null,
+    instruments: form.instruments.map((k) => optionByKey(INSTRUMENT_OPTIONS, k)?.caption).filter(Boolean),
+    vocalType: form.vocal,
+    vocalStyles: form.vocal_styles.map((k) => optionByKey(VOCAL_STYLE_OPTIONS, k)?.caption).filter(Boolean),
+    mood: form.mood,
+    instrumentalNotes: [],
+  };
+  const bpm = { slow: 70, medium: 110, fast: 140 }[form.tempo] || null;
+  const quality = QUALITY[form.quality] || QUALITY.speed;
+  const useRef = Boolean(state.refPath) && !form.instrumental;
+  return {
+    task_type: "text2music",
+    caption: compileCaption(captionState, form.vocal_language),
+    lyrics: form.instrumental ? "[Instrumental]" : form.lyrics,
+    vocal_language: form.vocal_language,
+    vocal_type: form.vocal,
+    instrumental: form.instrumental,
+    bpm,
+    // 연주곡은 가사가 없어 「자동」이면 길이를 짐작할 수 없음(서버는 30초로 잡음) → 약 1분
+    duration: form.duration > 0 ? Math.min(form.duration, state.maxDuration) : form.instrumental ? 60 : -1,
+    batch_size: 1,
+    ...quality,
+    seed: Number.isFinite(form.seed) ? form.seed : -1,
+    infer_method: "ode",
+    audio_format: "wav",
+    reference_audio_path: useRef ? state.refPath : null,
+    cover_strength: useRef ? 0.55 : 1.0,
+    display: {
+      title: trackTitle(form),
+      vocal: form.vocal,
+      genres: form.genres,
+      instruments: form.instruments,
+      vocal_styles: form.vocal_styles,
+      mood: form.mood,
+      tempo: form.tempo,
+      lyrics: form.lyrics,
+      vocal_language: form.vocal_language,
+      quality: form.quality,
+      duration_choice: String(form.duration),
+    },
+  };
+}
+
+ui.generate.addEventListener("click", async () => {
+  const problem = formProblem();
+  if (problem) {
+    toast(problem, { error: true });
+    if (segValue(ui.vocal) !== "none" && !hasLyricText(ui.lyrics.value)) flash(ui.lyricsWrap);
+    return;
+  }
+  if (!state.ready || state.generating) return;
+  const form = currentForm();
+  const payload = buildPayload(form);
+  state.generating = {
+    jobId: "",
+    progress: 2,
+    message: t("cm.genRequest", "요청하는 중"),
+    title: payload.display.title,
+    vocal: form.vocal,
+    genres: form.genres,
+  };
+  renderTracks();
+  updateGenerateState();
   Bridge.setAgentLongOperationActive(true);
-  musicPlayer.showGenerating(0, t("genRequest", "생성 요청 중…"));
-
   try {
-    const res = await fetch(`${origin}/api/tools/create-music/generate`, {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      Bridge.setAgentLongOperationActive(false);
-      musicPlayer.hideGenerating();
-      musicPlayer.resetIdle();
-      setDownloadEnabled(false);
-      alert(tf("errorPrefix", "오류: {msg}", { msg: err.detail || res.statusText }));
-      $btnGenerate.disabled = false;
-      return;
-    }
-
-    pollGeneration();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : res.statusText);
+    state.generating.jobId = data.job_id || "";
+    void pollGeneration();
   } catch (e) {
-    Bridge.setAgentLongOperationActive(false);
-    musicPlayer.hideGenerating();
-    musicPlayer.resetIdle();
-    setDownloadEnabled(false);
-    alert(`${t("reqFail", "요청 실패")}: ${e.message}`);
-    $btnGenerate.disabled = false;
+    finishGeneration();
+    toast(tf("cm.genFail", "만들지 못했어요: {msg}", { msg: locAgent(e instanceof Error ? e.message : String(e)) }), { error: true });
   }
 });
 
-function pollGeneration() {
-  const origin = Bridge.getAgentOrigin();
-  if (generationPollTimer) clearInterval(generationPollTimer);
-
-  generationPollTimer = setInterval(async () => {
-    try {
-      const res = await fetch(`${origin}/api/tools/create-music/generate/status`);
-      const data = await res.json();
-
-      const pct = data.progress || 0;
-      if (data.status === "running" || data.status === "pending") {
-        musicPlayer.showGenerating(pct, locAgent(data.message) || t("generating", "음악 생성 중…"));
-      }
-
-      if (data.status === "completed") {
-        clearInterval(generationPollTimer);
-        generationPollTimer = null;
-        Bridge.setAgentLongOperationActive(false);
-        $btnGenerate.disabled = false;
-        await onGenerationComplete(data.job_id, data.output_paths);
-      } else if (data.status === "failed") {
-        clearInterval(generationPollTimer);
-        generationPollTimer = null;
-        Bridge.setAgentLongOperationActive(false);
-        $btnGenerate.disabled = false;
-        musicPlayer.hideGenerating();
-        musicPlayer.resetIdle();
-        setDownloadEnabled(false);
-        alert(tf("genFail", "생성 실패: {msg}", { msg: locAgent(data.message) || data.message }));
-      }
-    } catch {
-      // continue polling
-    }
-  }, 1500);
+function finishGeneration() {
+  state.generating = null;
+  Bridge.setAgentLongOperationActive(false);
+  renderTracks();
+  updateGenerateState();
 }
 
-async function onGenerationComplete(jobId, outputPaths) {
-  const paths = (outputPaths || []).filter(Boolean);
-  if (!paths.length) {
-    Bridge.setAgentLongOperationActive(false);
-    musicPlayer.hideGenerating();
-    musicPlayer.resetIdle();
-    setDownloadEnabled(false);
-    alert(t("noOutput", "생성은 완료됐지만 재생할 파일이 없습니다. 환경 준비(ffmpeg) 후 다시 시도하세요."));
+let generationPolling = false;
+async function pollGeneration() {
+  if (generationPolling) return;
+  generationPolling = true;
+  try {
+    while (state.generating) {
+      await new Promise((r) => setTimeout(r, 1500));
+      const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/generate/status`).catch(() => null);
+      const data = res?.ok ? await res.json().catch(() => null) : null;
+      if (!data || !state.generating) continue;
+      if (data.status === "completed") {
+        const jobId = data.job_id;
+        finishGeneration();
+        await loadHistory();
+        const item = state.history.find((h) => h.id === jobId);
+        if (item) playItem(item);
+        return;
+      }
+      if (data.status === "failed") {
+        finishGeneration();
+        toast(tf("cm.genFail", "만들지 못했어요: {msg}", { msg: locAgent(data.message) }), { error: true });
+        return;
+      }
+      if (data.status === "idle") {
+        finishGeneration();
+        return;
+      }
+      state.generating.progress = Number(data.progress) || state.generating.progress;
+      state.generating.message = locAgent(data.message) || state.generating.message;
+      renderTracks();
+    }
+  } finally {
+    generationPolling = false;
+  }
+}
+
+/** 페이지를 다시 열었을 때 생성 중이던 작업 이어서 표시 */
+async function resumeGeneration() {
+  try {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/generate/status`);
+    const data = res.ok ? await res.json() : null;
+    if (!data || !["running", "pending"].includes(data.status) || state.generating) return;
+    state.generating = {
+      jobId: data.job_id,
+      progress: Number(data.progress) || 0,
+      message: locAgent(data.message),
+      title: t("cm.newSong", "새 곡"),
+      vocal: "",
+      genres: [],
+    };
+    Bridge.setAgentLongOperationActive(true);
+    renderTracks();
+    updateGenerateState();
+    void pollGeneration();
+  } catch {
+    /* 상태를 못 읽으면 그냥 둠 */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 만든 곡 목록
+// ---------------------------------------------------------------------------
+function coverFor(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return COVERS[h % COVERS.length];
+}
+const fmtTime = (sec) => {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+function vocalLabel(v) {
+  return {
+    female: t("cm.vFemale", "여자"),
+    male: t("cm.vMale", "남자"),
+    duet: t("cm.vDuet", "듀엣"),
+    none: t("cm.vNone", "연주곡"),
+  }[v] || "";
+}
+function itemFile(item) {
+  const path = (item.output_files || []).find(Boolean) || "";
+  return path.split(/[\\/]/).pop();
+}
+function itemUrl(item, file = itemFile(item)) {
+  return `${Bridge.getAgentOrigin()}${API}/result/${encodeURIComponent(item.id)}/${encodeURIComponent(file)}`;
+}
+function itemTitle(item) {
+  const d = item.display || {};
+  if (d.title) return d.title;
+  const caption = String(item.params?.caption || "").trim();
+  return caption ? caption.slice(0, 40) : `#${item.id}`;
+}
+function itemTags(item) {
+  const d = item.display || {};
+  return (d.genres || []).slice(0, 2).map((k) => optionLabel(GENRE_OPTIONS, k));
+}
+function itemDuration(item) {
+  return Number(item.audio_duration) || Number(item.params?.duration) || 0;
+}
+
+async function loadHistory() {
+  if (!state.connected) return;
+  try {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/history?limit=50`);
+    const data = res.ok ? await res.json() : { items: [] };
+    state.history = (data.items || []).filter((item) => itemFile(item));
+  } catch {
+    state.history = [];
+  }
+  renderTracks();
+}
+
+function renderTracks() {
+  const box = ui.tracks;
+  box.textContent = "";
+  ui.count.textContent = tf("cm.count", "만든 곡 {n}개", { n: state.history.length });
+
+  const g = state.generating;
+  if (g) {
+    const card = el("div", "cm-track");
+    const cover = el("div", "cm-cover", "⏳");
+    cover.style.background = COVERS[3];
+    cover.style.opacity = "0.75";
+    const info = el("div", "cm-info");
+    info.appendChild(el("div", "cm-title", g.title || t("cm.newSong", "새 곡")));
+    const meta = el("div", "cm-meta");
+    if (g.vocal) meta.appendChild(el("span", "cm-tag-v", vocalLabel(g.vocal)));
+    meta.appendChild(el("span", "cm-tag-s", tf("cm.making", "만드는 중 {p}%", { p: Math.round(g.progress || 0) })));
+    info.appendChild(meta);
+    const prog = el("div", "cm-progress");
+    const fill = el("div");
+    fill.style.width = `${Math.max(2, Math.min(100, g.progress || 0))}%`;
+    prog.appendChild(fill);
+    const msg = el("div", "cm-dur", "");
+    msg.style.width = "auto";
+    msg.textContent = g.message || "";
+    card.append(cover, info, prog, msg);
+    box.appendChild(card);
+  }
+
+  if (!state.history.length && !g) {
+    box.appendChild(
+      el("div", "cm-empty", t("cm.empty", "아직 만든 곡이 없어요. 왼쪽에서 장르를 고르고 「음악 만들기」를 눌러 보세요.")),
+    );
     return;
   }
 
-  const p = paths[0];
-  const filename = p.split(/[\\/]/).pop();
-  const url = `${Bridge.getAgentOrigin()}/api/tools/create-music/result/${jobId}/${encodeURIComponent(filename)}`;
+  state.history.forEach((item) => {
+    const playing = player.item?.id === item.id;
+    const card = el("div", `cm-track${playing ? " is-playing" : ""}`);
+    card.dataset.id = item.id;
 
-  try {
-    await musicPlayer.loadFromUrl(jobId, filename, url);
-    setDownloadEnabled(true);
-  } catch (e) {
-    musicPlayer.hideGenerating();
-    musicPlayer.resetIdle();
-    setDownloadEnabled(false);
-    alert(tf("playPrepFail", "재생 준비 실패: {msg}", { msg: e.message }));
-  }
+    const cover = el("div", "cm-cover");
+    cover.style.background = coverFor(item.id);
+    const play = el("button", "cm-play", playing && !player.audio.paused ? "❚❚" : "▶");
+    play.type = "button";
+    play.setAttribute("aria-label", t("cm.play", "재생"));
+    play.addEventListener("click", () => playItem(item));
+    cover.appendChild(play);
+
+    const info = el("div", "cm-info");
+    const title = el("div", "cm-title", itemTitle(item));
+    title.title = itemTitle(item);
+    info.appendChild(title);
+    const meta = el("div", "cm-meta");
+    const vocal = vocalLabel(item.display?.vocal);
+    if (vocal) meta.appendChild(el("span", "cm-tag-v", vocal));
+    itemTags(item).forEach((tag) => meta.appendChild(el("span", "cm-tag-s", tag)));
+    if (item.display?.quality === "quality") meta.appendChild(el("span", "cm-tag-s", t("cm.qHigh", "고품질")));
+    info.appendChild(meta);
+
+    const wave = el("div", "cm-wave");
+    const peaks = Array.isArray(item.peaks) && item.peaks.length ? item.peaks : Array(48).fill(0.3);
+    peaks.forEach((p) => {
+      const bar = el("div", "cm-bar");
+      bar.style.height = `${Math.max(8, Math.round(Number(p) * 100))}%`;
+      wave.appendChild(bar);
+    });
+    wave.addEventListener("click", (e) => {
+      const rect = wave.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      playItem(item, { at: ratio });
+    });
+
+    const actions = el("div", "cm-actions");
+    ["MP3", "WAV"].forEach((fmt) => {
+      const b = el("button", "cm-small-btn", fmt);
+      b.type = "button";
+      b.title = tf("cm.dlTitle", "{f}로 받기", { f: fmt });
+      b.addEventListener("click", () => goDownload(item, fmt.toLowerCase()));
+      actions.appendChild(b);
+    });
+    const reuse = el("button", "cm-icon-btn", "↺");
+    reuse.type = "button";
+    reuse.title = t("cm.reuse", "이 곡 설정 다시 쓰기");
+    reuse.addEventListener("click", () => applyDisplay(item));
+    actions.appendChild(reuse);
+
+    card.append(cover, info, wave, el("div", "cm-dur", fmtTime(itemDuration(item))), actions);
+    box.appendChild(card);
+  });
+  paintProgress();
 }
 
-function saveDownloadSession(track) {
+/** MP3·WAV → 다운로드 페이지로 같은 탭 이동 (페이지 이동 때 전면 광고가 뜰 수 있게) */
+function goDownload(item, format) {
+  const file = itemFile(item);
   const origin = Bridge.getAgentOrigin();
-  const { jobId, filename } = track;
-  const base = filename.replace(/\.[^.]+$/, "") || jobId;
-  sessionStorage.setItem(STORAGE_JOB_ID, jobId);
-  sessionStorage.setItem(STORAGE_FILENAME, filename);
-  sessionStorage.setItem(STORAGE_SOURCE, base);
-  sessionStorage.setItem(
-    STORAGE_MP3_URL,
-    `${origin}/api/tools/create-music/download-mp3/${jobId}?filename=${encodeURIComponent(filename)}`,
-  );
-  sessionStorage.setItem(
-    STORAGE_WAV_URL,
-    `${origin}/api/tools/create-music/result/${jobId}/${encodeURIComponent(filename)}`,
-  );
-}
-
-function navigateToDownloadPage() {
+  try {
+    sessionStorage.setItem(STORAGE.jobId, item.id);
+    sessionStorage.setItem(STORAGE.filename, file);
+    sessionStorage.setItem(STORAGE.source, itemTitle(item));
+    sessionStorage.setItem(STORAGE.mp3Url, `${origin}${API}/download-mp3/${encodeURIComponent(item.id)}?filename=${encodeURIComponent(file)}`);
+    sessionStorage.setItem(STORAGE.wavUrl, itemUrl(item, file));
+    sessionStorage.setItem(STORAGE.format, format);
+  } catch {
+    toast(t("cm.dlStoreFail", "브라우저 저장소를 쓸 수 없어 다운로드 페이지를 열 수 없어요."), { error: true });
+    return;
+  }
   window.location.assign(new URL(DOWNLOAD_PAGE, window.location.href).href);
 }
 
-$btnDownloadMp3?.addEventListener("click", () => {
-  const track = musicPlayer.getCurrentTrack();
-  if (!track.jobId || !track.filename) return;
-
-  saveDownloadSession(track);
-  $btnDownloadMp3.disabled = true;
-  setMp3DownloadLabel("dlNavigating", "다운로드 페이지로 이동 중…");
-  navigateToDownloadPage();
-});
-
-// ---------------------------------------------------------------------------
-// LoRA Training
-// ---------------------------------------------------------------------------
-$btnTrainLora.addEventListener("click", async () => {
-  if (!allReady) return;
-
-  const origin = Bridge.getAgentOrigin();
-  const name = $loraName.value.trim();
-  if (!name) {
-    alert(t("loraNeedName", "스타일 이름을 입력하세요."));
+/** 「이 곡 설정 다시 쓰기」 — 기록에 저장한 화면 설정을 왼쪽에 채움 */
+function applyDisplay(item) {
+  const d = item.display || {};
+  if (!d.vocal && !d.genres) {
+    toast(t("cm.reuseNone", "이 곡은 예전 화면에서 만들어 설정을 불러올 수 없어요."), { error: true });
     return;
   }
+  applyFormPatch({
+    vocal: d.vocal,
+    genres: d.genres,
+    instruments: d.instruments,
+    vocal_styles: d.vocal_styles,
+    mood: d.mood,
+    tempo: d.tempo,
+    lyrics: d.lyrics,
+    vocal_language: d.vocal_language,
+    quality: d.quality,
+    duration: d.duration_choice,
+  });
+  toast(t("cm.reuseOk", "이 곡의 설정을 왼쪽에 불러왔어요."));
+}
 
-  const payload = {
-    lora_name: name,
-    training_steps: parseInt($loraSteps.value) || 1000,
-    learning_rate: $loraLr.value || "1e-4",
-    rank: parseInt($loraRank.value) || 32,
+/** 왼쪽 입력 칸 일부/전체 바꾸기 (설정 다시 쓰기·AI 작곡 도우미 공용) */
+function applyFormPatch(p) {
+  const changed = [];
+  if (p.vocal && setSeg(ui.vocal, p.vocal)) changed.push(ui.vocal);
+  if (Array.isArray(p.genres)) {
+    setChips(ui.genres, GENRE_OPTIONS, p.genres, { limit: GENRES_VISIBLE });
+    changed.push(ui.genres);
+  }
+  if (Array.isArray(p.instruments)) setChips(ui.instruments, INSTRUMENT_OPTIONS, p.instruments);
+  if (Array.isArray(p.vocal_styles)) setChips(ui.vstyles, VOCAL_STYLE_OPTIONS, p.vocal_styles);
+  if (typeof p.mood === "string") {
+    ui.mood.value = p.mood;
+    changed.push(ui.mood);
+  }
+  if (p.tempo) setSeg(ui.tempo, p.tempo);
+  if (typeof p.lyrics === "string") {
+    ui.lyrics.value = p.lyrics;
+    changed.push(ui.lyricsWrap);
+  }
+  if (p.vocal_language && ui.vocalLang.querySelector(`option[value="${CSS.escape(p.vocal_language)}"]`)) {
+    ui.vocalLang.value = p.vocal_language;
+  }
+  if (p.quality) setSeg(ui.quality, p.quality);
+  if (p.duration != null && p.duration !== "") setSeg(ui.duration, String(p.duration));
+  syncVocalUi();
+  changed.forEach(flash);
+}
+
+// ---------------------------------------------------------------------------
+// 플레이어
+// ---------------------------------------------------------------------------
+const player = { audio: new Audio(), item: null };
+player.audio.preload = "metadata";
+player.audio.volume = 0.8;
+
+function playItem(item, { at = null } = {}) {
+  if (player.item?.id === item.id && at == null) {
+    if (player.audio.paused) void player.audio.play().catch(() => {});
+    else player.audio.pause();
+    return;
+  }
+  if (player.item?.id !== item.id) {
+    player.item = item;
+    player.audio.src = itemUrl(item);
+    ui.pThumb.style.background = coverFor(item.id);
+    ui.pTitle.textContent = itemTitle(item);
+    ui.pSub.textContent = [vocalLabel(item.display?.vocal), ...itemTags(item)].filter(Boolean).join(" · ");
+    ui.pTot.textContent = fmtTime(itemDuration(item));
+    ui.pPlay.disabled = false;
+    ui.pSeek.disabled = false;
+  }
+  const start = () => {
+    if (at != null && Number.isFinite(player.audio.duration)) player.audio.currentTime = at * player.audio.duration;
+    void player.audio.play().catch((e) => toast(tf("cm.playFail", "재생하지 못했어요: {msg}", { msg: e.message }), { error: true }));
   };
+  if (player.audio.readyState >= 1) start();
+  else player.audio.addEventListener("loadedmetadata", start, { once: true });
+  renderTracks();
+}
 
-  $btnTrainLora.disabled = true;
-  $loraProgressArea.classList.remove("hidden");
-  $loraProgressBar.style.width = "0%";
-  $loraProgressMsg.textContent = t("loraRequest", "학습 요청 중…");
+function paintProgress() {
+  const a = player.audio;
+  const dur = Number.isFinite(a.duration) ? a.duration : itemDuration(player.item || {});
+  const ratio = dur > 0 ? a.currentTime / dur : 0;
+  ui.pCur.textContent = fmtTime(a.currentTime);
+  if (dur > 0) ui.pTot.textContent = fmtTime(dur);
+  if (document.activeElement !== ui.pSeek) ui.pSeek.value = String(Math.round(ratio * 1000));
+  ui.pPlay.textContent = a.paused ? "▶" : "❚❚";
+  if (!player.item) return;
+  const card = ui.tracks.querySelector(`.cm-track[data-id="${CSS.escape(player.item.id)}"]`);
+  if (!card) return;
+  const bars = card.querySelectorAll(".cm-bar");
+  const on = Math.floor(ratio * bars.length);
+  bars.forEach((b, i) => b.classList.toggle("is-on", i < on));
+  const btn = card.querySelector(".cm-play");
+  if (btn) btn.textContent = a.paused ? "▶" : "❚❚";
+}
 
+player.audio.addEventListener("timeupdate", paintProgress);
+player.audio.addEventListener("play", paintProgress);
+player.audio.addEventListener("pause", paintProgress);
+player.audio.addEventListener("ended", () => {
+  player.audio.currentTime = 0;
+  paintProgress();
+});
+player.audio.addEventListener("error", () => {
+  if (player.item) toast(t("cm.playErr", "곡 파일을 불러오지 못했어요. 에이전트가 켜져 있는지 확인해 주세요."), { error: true });
+});
+ui.pPlay.addEventListener("click", () => {
+  if (!player.item) return;
+  if (player.audio.paused) void player.audio.play().catch(() => {});
+  else player.audio.pause();
+});
+ui.pSeek.addEventListener("input", () => {
+  const dur = player.audio.duration;
+  if (Number.isFinite(dur)) player.audio.currentTime = (Number(ui.pSeek.value) / 1000) * dur;
+});
+ui.pVol.addEventListener("input", () => {
+  player.audio.volume = Number(ui.pVol.value) / 100;
+});
+
+// ---------------------------------------------------------------------------
+// AI 작곡 도우미 (MCP·AI CLI가 연결된 사람만)
+// ---------------------------------------------------------------------------
+const AI_CLIENT_ORDER = ["claude", "codex", "antigravity"];
+
+function setAiAvailable(clients) {
+  const had = state.aiClients.length > 0;
+  state.aiClients = clients;
+  const on = clients.length > 0;
+  ui.aiBtn.disabled = !on;
+  ui.aiBtn.title = on ? "" : t("cm.aiOff", "AI 채팅(Claude·Codex CLI)을 연결하면 쓸 수 있어요");
+  if (!on) setChat(false);
+  else if (!had) setChat(true); // 연결된 사람은 처음부터 열어 둠
+}
+
+function setChat(open) {
+  ui.chat.hidden = !open;
+  ui.aiBtn.classList.toggle("is-on", open);
+  if (open && !ui.chatMsgs.childElementCount) {
+    addBubble("ai", t("cm.aiHello", "어떤 곡을 만들고 싶은지 말해 주세요. 장르·분위기·가사를 왼쪽에 채워 드릴게요."));
+  }
+}
+
+async function refreshAiStatus() {
   try {
-    const res = await fetch(`${origin}/api/tools/create-music/lora/train`, {
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/ai/status`);
+    const data = res.ok ? await res.json() : null;
+    const clients = Array.isArray(data?.configuredClients) ? data.configuredClients : [];
+    setAiAvailable(clients.filter((c) => AI_CLIENT_ORDER.includes(c)));
+  } catch {
+    setAiAvailable([]);
+  }
+}
+
+function addBubble(kind, text) {
+  const b = el("div", `cm-bubble is-${kind}`, text);
+  ui.chatMsgs.appendChild(b);
+  ui.chatMsgs.scrollTop = ui.chatMsgs.scrollHeight;
+  return b;
+}
+
+async function sendChat() {
+  const text = ui.chatIn.value.trim();
+  if (!text || state.aiBusy || !state.aiClients.length) return;
+  const client = AI_CLIENT_ORDER.find((c) => state.aiClients.includes(c));
+  ui.chatIn.value = "";
+  addBubble("me", text);
+  const pending = addBubble("ai", t("cm.aiThinking", "생각하는 중… (10~30초)"));
+  state.aiBusy = true;
+  ui.chatSend.disabled = true;
+  try {
+    const form = currentForm();
+    const res = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/ai/compose`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        client,
+        instruction: text,
+        form: { ...form, max_duration: state.maxDuration },
+        history: state.aiHistory.slice(-6),
+      }),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      $loraProgressMsg.textContent = tf("errorPrefix", "오류: {msg}", { msg: err.detail || res.statusText });
-      $btnTrainLora.disabled = false;
-      return;
+    const started = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof started.detail === "string" ? started.detail : res.statusText);
+    let result = null;
+    for (let i = 0; i < 620 && !result; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const s = await Bridge.fetchAgent(`${Bridge.getAgentOrigin()}${API}/ai/compose?jobId=${encodeURIComponent(started.jobId)}`);
+      const data = await s.json().catch(() => ({}));
+      if (!s.ok) throw new Error(typeof data.detail === "string" ? data.detail : s.statusText);
+      if (data.status === "error") throw new Error(data.message || "error");
+      if (data.status === "done") result = data;
     }
-    pollLoraTraining();
+    if (!result) throw new Error(t("cm.aiTimeout", "응답이 너무 오래 걸려요. 다시 요청해 주세요."));
+    pending.remove();
+    const reply = result.message || t("cm.aiApplied", "왼쪽에 채웠어요. 마음에 들면 「음악 만들기」를 눌러 주세요.");
+    addBubble("ai", reply);
+    if (result.patch && Object.keys(result.patch).length) applyFormPatch(result.patch);
+    state.aiHistory.push({ role: "user", text }, { role: "assistant", text: reply });
   } catch (e) {
-    $loraProgressMsg.textContent = `${t("reqFail", "요청 실패")}: ${e.message}`;
-    $btnTrainLora.disabled = false;
+    pending.remove();
+    addBubble("err", tf("cm.aiFail", "도우미가 답하지 못했어요: {msg}", { msg: e instanceof Error ? e.message : String(e) }));
+  } finally {
+    state.aiBusy = false;
+    ui.chatSend.disabled = false;
+  }
+}
+
+ui.aiBtn.addEventListener("click", () => {
+  if (!ui.aiBtn.disabled) setChat(ui.chat.hidden);
+});
+ui.chatClose.addEventListener("click", () => setChat(false));
+ui.chatSend.addEventListener("click", () => void sendChat());
+ui.chatIn.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    void sendChat();
   }
 });
-
-function pollLoraTraining() {
-  const origin = Bridge.getAgentOrigin();
-  if (loraPollTimer) clearInterval(loraPollTimer);
-
-  loraPollTimer = setInterval(async () => {
-    try {
-      const res = await fetch(`${origin}/api/tools/create-music/lora/status`);
-      const data = await res.json();
-
-      $loraProgressBar.style.width = `${data.progress || 0}%`;
-      $loraProgressMsg.textContent = locAgent(data.message) || "";
-
-      if (data.status === "completed" || data.status === "idle") {
-        clearInterval(loraPollTimer);
-        loraPollTimer = null;
-        $btnTrainLora.disabled = false;
-        if (data.status === "completed") {
-          $loraProgressMsg.textContent = t("loraDone", "학습 완료! 나만의 스타일이 저장되었습니다. 생성 시 적용할 수 있습니다.");
-          checkReadiness();
-        }
-      } else if (data.status === "failed") {
-        clearInterval(loraPollTimer);
-        loraPollTimer = null;
-        $btnTrainLora.disabled = false;
-      }
-    } catch {
-      // continue polling
-    }
-  }, 3000);
-}
+setInterval(() => {
+  if (state.connected) void refreshAiStatus();
+}, 60_000);
 
 // ---------------------------------------------------------------------------
-// History
+// 언어 변경 · 시작
 // ---------------------------------------------------------------------------
-async function loadHistory() {
-  const origin = Bridge.getAgentOrigin();
-  try {
-    const res = await fetch(`${origin}/api/tools/create-music/history`);
-    const data = await res.json();
-
-    if (!data.items || data.items.length === 0) {
-      $historyList.innerHTML = `<p class="empty-state">${t("histEmpty", "아직 생성된 음악이 없습니다.")}</p>`;
-      return;
-    }
-
-    $historyList.innerHTML = "";
-    data.items.forEach((item) => {
-      const card = document.createElement("div");
-      card.className = "history-card";
-
-      const lang = (window.ITZ_I18N && window.ITZ_I18N.getLang && window.ITZ_I18N.getLang()) || "ko";
-      const loc = { ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN" };
-      const date = new Date(item.created_at * 1000).toLocaleString(loc[lang] || "ko-KR");
-      const caption = item.params?.caption || t("noCaption", "(설명 없음)");
-      const files = item.output_files || [];
-      const seed = item.seed ?? "N/A";
-
-      card.innerHTML = `
-        <div class="history-card-header">
-          <span class="history-card-title">#${item.id}</span>
-          <span class="history-card-date">${date}</span>
-        </div>
-        <p class="history-card-caption">${escapeHtml(caption)}</p>
-        <div class="history-card-meta">
-          <span class="history-seed" title="${t("seedCopyHint", "클릭하여 시드 복사")}">${tf("seedLabel", "시드: {seed}", { seed })}</span>
-          <span class="history-model">${tf("modelLabel", "모델: {model}", { model: item.params?.dit_model || "" })}</span>
-          <span class="history-duration">${item.params?.duration > 0 ? tf("durationLabel", "길이: {n}초", { n: item.params.duration }) : t("durationAuto", "길이: 자동")}</span>
-        </div>
-      `;
-
-      const seedEl = card.querySelector(".history-seed");
-      seedEl.addEventListener("click", () => {
-        navigator.clipboard.writeText(String(seed)).then(() => {
-          seedEl.textContent = t("copied", "복사 완료!");
-          setTimeout(() => { seedEl.textContent = tf("seedLabel", "시드: {seed}", { seed }); }, 1500);
-        });
-      });
-
-      files.forEach((filePath) => {
-        const filename = filePath.split(/[\\/]/).pop();
-        const url = `${origin}/api/tools/create-music/result/${item.id}/${filename}`;
-
-        const row = document.createElement("div");
-        row.className = "history-audio-row";
-
-        const audio = document.createElement("audio");
-        audio.controls = true;
-        audio.src = url;
-
-        const dlBtn = document.createElement("a");
-        dlBtn.className = "btn btn-outline btn-download";
-        dlBtn.href = url;
-        dlBtn.download = filename;
-        dlBtn.textContent = "⬇";
-        dlBtn.title = t("histDl", "다운로드");
-
-        row.appendChild(audio);
-        row.appendChild(dlBtn);
-        card.appendChild(row);
-      });
-
-      $historyList.appendChild(card);
-    });
-  } catch {
-    $historyList.innerHTML = `<p class="empty-state">${t("histLoadFail", "생성 기록을 불러올 수 없습니다.")}</p>`;
-  }
-}
-
-function escapeHtml(str) {
-  const d = document.createElement("div");
-  d.textContent = str;
-  return d.innerHTML;
-}
-
-function refreshPendingChrome() {
-  if (lastGpuCtx) {
-    setComputeCapabilityBadge(lastGpuCtx);
-  } else if ($computeCap?.classList.contains("is-pending")) {
-    $computeCap.textContent = t("gpuChecking", "연산 장치 확인 중…");
-  }
-  if (lastReadinessData) {
-    applyReadinessData(lastReadinessData);
-  } else if ($binReadiness) {
-    const raw = $binReadiness.textContent || "";
-    if (!connected || /환경 준비 대기|waiting to prepare|環境準備待ち|等待准备环境/.test(raw)) {
-      $binReadiness.textContent = t("waitPrep", "Create Music · 환경 준비 대기");
-    }
-  }
-  setMp3DownloadLabel(mp3LabelKey, mp3LabelKey === "download" ? "MP3 다운로드" : "다운로드 페이지로 이동 중…");
-  const presetKey = getActivePresetKey();
-  if (PRESETS[presetKey] && $presetTooltip) {
-    $presetTooltip.textContent = t(`preset.${presetKey}Tip`, PRESETS[presetKey].tooltip);
-    $presetTooltip.setAttribute("data-i18n", `preset.${presetKey}Tip`);
-  }
-  if ($loraSelect) {
-    const none = $loraSelect.querySelector('option[value=""]');
-    if (none) none.textContent = t("loraNone", "사용 안 함");
-  }
-  const histPanel = document.getElementById("tab-history");
-  if (histPanel?.classList.contains("active")) void loadHistory();
-}
-
 document.addEventListener("itz:lang-change", () => {
-  refreshPendingChrome();
+  renderAllChips();
+  syncVocalUi();
+  syncRefUi();
+  renderStatus();
+  renderTracks();
 });
-refreshPendingChrome();
-window.addEventListener('itz:ai-setup-ready', () => void checkReadiness({ full: false }));
-if (typeof musicCompose.relabel === "function") musicCompose.relabel();
 
-// ---------------------------------------------------------------------------
-// AdSense
-// ---------------------------------------------------------------------------
+renderAllChips();
+syncVocalUi();
+syncRefUi();
+renderStatus();
+renderTracks();
 void showAdSense("editorAboveWorkspace", "#editor-ad-above-tabs");
-void showAdSense("editorBelowExport", "#editor-ad-below-generate");
-
-void (async () => {
-  const agent = await Bridge.checkAgentConnection();
-  if (!agent.ok) {
-    await Bridge.showInstallAgentDialog(await installDialogOpts());
-  }
-})();

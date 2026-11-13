@@ -17,6 +17,7 @@ const STORAGE_FILENAME = "create-music:filename";
 const STORAGE_SOURCE = "create-music:source-name";
 const STORAGE_MP3_URL = "create-music:mp3-download-url";
 const STORAGE_WAV_URL = "create-music:wav-download-url";
+const STORAGE_FORMAT = "create-music:format";
 
 const elTitle = document.getElementById("dl-title");
 const elStatus = document.getElementById("dl-status");
@@ -26,6 +27,16 @@ const elSpinner = document.getElementById("dl-spinner");
 const elAgentHint = document.getElementById("dl-agent-hint");
 const elBtnMp3 = document.getElementById("dl-btn-mp3");
 const elBtnBack = document.getElementById("dl-btn-back");
+const elFormat = document.getElementById("dl-format");
+
+/** 만들기 화면에서 누른 형식 (mp3 | wav). 페이지에서 바꿀 수 있음 */
+let format = "mp3";
+try {
+  format = sessionStorage.getItem(STORAGE_FORMAT) === "wav" ? "wav" : "mp3";
+} catch {
+  format = "mp3";
+}
+const FORMAT_LABEL = { mp3: "MP3", wav: "WAV" };
 
 function t(key, fallback) {
   return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
@@ -144,6 +155,37 @@ async function downloadMp3Blob(session) {
   return { ok: true, via: "browser" };
 }
 
+function downloadLabel() {
+  return tf("dlBtnFmt", "{f} 다운로드", { f: FORMAT_LABEL[format] });
+}
+
+function setFormat(next) {
+  format = next === "wav" ? "wav" : "mp3";
+  try {
+    sessionStorage.setItem(STORAGE_FORMAT, format);
+  } catch {
+    /* 저장 못 해도 이 페이지에서는 동작 */
+  }
+  elFormat?.querySelectorAll("[data-format]").forEach((b) => {
+    const on = b.getAttribute("data-format") === format;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-checked", String(on));
+  });
+  if (elBtnMp3) elBtnMp3.textContent = downloadLabel();
+}
+
+async function downloadWavBlob(session) {
+  if (!session.wavUrl) throw new Error(t("dlNoUrl", "다운로드 URL이 없습니다."));
+  const res = await fetchAgent(session.wavUrl);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(typeof err.detail === "string" ? err.detail : t("dlLoadWavFail", "원본 오디오를 불러올 수 없습니다."));
+  }
+  const base = session.filename.replace(/\.[^.]+$/, "") || session.jobId;
+  triggerBlobDownload(await res.blob(), `${base}.wav`);
+  return { ok: true, via: "server" };
+}
+
 async function runDownload() {
   if (downloadInFlight) return;
 
@@ -165,15 +207,21 @@ async function runDownload() {
   downloadInFlight = true;
   clearCountdown();
   setBusy(true);
-  setStatus(t("dlPrepDownload", "MP3 변환·다운로드 준비 중…"));
+  const isWav = format === "wav";
+  setStatus(isWav ? t("dlPrepWav", "WAV 다운로드 준비 중…") : t("dlPrepDownload", "MP3 변환·다운로드 준비 중…"));
 
   try {
-    const result = await downloadMp3Blob(session);
-    const viaLabel = result.via === "server" ? t("dlViaAgent", "에이전트(FFmpeg)") : t("dlViaBrowser", "브라우저");
-    setStatus(tf("dlStarted", "MP3 다운로드가 시작되었습니다. ({via}) 다시 받으려면 버튼을 눌러 주세요.", { via: viaLabel }), "ok");
+    if (isWav) {
+      await downloadWavBlob(session);
+      setStatus(t("dlStartedWav", "WAV 다운로드가 시작되었습니다. 다시 받으려면 버튼을 눌러 주세요."), "ok");
+    } else {
+      const result = await downloadMp3Blob(session);
+      const viaLabel = result.via === "server" ? t("dlViaAgent", "에이전트(FFmpeg)") : t("dlViaBrowser", "브라우저");
+      setStatus(tf("dlStarted", "MP3 다운로드가 시작되었습니다. ({via}) 다시 받으려면 버튼을 눌러 주세요.", { via: viaLabel }), "ok");
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    setStatus(tf("dlFail", "MP3 다운로드 실패: {msg}", { msg }), "err");
+    setStatus(tf("dlFailFmt", "{f} 다운로드 실패: {msg}", { f: FORMAT_LABEL[format], msg }), "err");
   } finally {
     downloadInFlight = false;
     setBusy(false);
@@ -184,7 +232,7 @@ async function runDownload() {
 
 function startCountdown() {
   countdownLeft = AUTO_START_SEC;
-  setStatus(tf("dlCountdown", "{n}초 후 자동으로 MP3 다운로드가 시작됩니다…", { n: AUTO_START_SEC }));
+  setStatus(tf("dlCountdownFmt", "{n}초 후 자동으로 {f} 다운로드가 시작됩니다…", { n: AUTO_START_SEC, f: FORMAT_LABEL[format] }));
   showCountdown(countdownLeft);
 
   countdownTimer = window.setInterval(() => {
@@ -199,7 +247,8 @@ function startCountdown() {
 }
 
 async function initPage() {
-  document.title = t("dlTitle", "Create Music · MP3 다운로드");
+  document.title = t("dlTitle2", "Create Music · 음악 다운로드");
+  setFormat(format);
 
   const session = readSession();
   if (!canDownloadFromSession()) {
@@ -227,6 +276,18 @@ async function initPage() {
   startCountdown();
 }
 
+elFormat?.querySelectorAll("[data-format]").forEach((b) =>
+  b.addEventListener("click", () => {
+    if (downloadInFlight) return;
+    setFormat(b.getAttribute("data-format"));
+    // 자동 시작 전이면 바뀐 형식으로 카운트다운 다시
+    if (countdownTimer) {
+      clearCountdown();
+      startCountdown();
+    }
+  }),
+);
+
 elBtnMp3?.addEventListener("click", () => {
   clearCountdown();
   void runDownload();
@@ -236,15 +297,16 @@ void showAdSense("downloadTop", "#dl-ad-top");
 void showAdSense("downloadBottom", "#dl-ad-bottom");
 
 document.addEventListener("itz:lang-change", () => {
-  document.title = t("dlTitle", "Create Music · MP3 다운로드");
-  if (elTitle) elTitle.textContent = t("dlH1", "생성 음악 MP3 다운로드");
+  document.title = t("dlTitle2", "Create Music · 음악 다운로드");
+  if (elTitle) elTitle.textContent = t("dlH1b", "만든 음악 다운로드");
+  if (elBtnMp3) elBtnMp3.textContent = downloadLabel();
   const session = readSession();
   if (elMeta && canDownloadFromSession()) {
     const label = session.source || session.filename;
     elMeta.textContent = label ? tf("dlFileMeta", "파일: {name}", { name: label }) : "";
   }
   if (!downloadInFlight && countdownTimer && countdownLeft > 0) {
-    setStatus(tf("dlCountdown", "{n}초 후 자동으로 MP3 다운로드가 시작됩니다…", { n: countdownLeft }));
+    setStatus(tf("dlCountdownFmt", "{n}초 후 자동으로 {f} 다운로드가 시작됩니다…", { n: countdownLeft, f: FORMAT_LABEL[format] }));
   }
 });
 

@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex,follow">
   <link rel="canonical" href="https://tools.itmatzip.com/create-music/">
-  <script src="../common/site-runtime.js?v=43"></script>
+  <script src="../common/site-runtime.js?v=51"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
-  <title data-i18n="dlTitle">Create Music · MP3 다운로드</title>
+  <title data-i18n="dlTitle2">Create Music · 음악 다운로드</title>
   <link rel="stylesheet" href="../silence-remover/download.css?v=7">
-  <link rel="stylesheet" href="download.css?v=1">
+  <link rel="stylesheet" href="download.css?v=2">
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
 </head>
@@ -17,15 +17,19 @@
   <div class="dl-page">
     <div class="dl-ad" id="dl-ad-top" aria-label="광고"></div>
     <div class="dl-card">
-      <h1 id="dl-title" data-i18n="dlH1">생성 음악 MP3 다운로드</h1>
-      <p class="dl-status" id="dl-status" data-i18n="dlStatusReady">MP3 파일을 내려받을 수 있습니다.</p>
+      <h1 id="dl-title" data-i18n="dlH1b">만든 음악 다운로드</h1>
+      <p class="dl-status" id="dl-status" data-i18n="dlStatusReady2">음악 파일을 내려받을 수 있습니다.</p>
       <p class="dl-meta" id="dl-meta"></p>
+      <div class="dl-format" id="dl-format" role="radiogroup" aria-label="파일 형식" data-i18n-aria="dlFormat">
+        <button type="button" class="dl-format__btn is-active" data-format="mp3" role="radio" aria-checked="true">MP3 <small data-i18n="dlFmtMp3">가볍고 어디서나 재생</small></button>
+        <button type="button" class="dl-format__btn" data-format="wav" role="radio" aria-checked="false">WAV <small data-i18n="dlFmtWav">원음 그대로 · 편집용</small></button>
+      </div>
       <div class="dl-spinner is-hidden" id="dl-spinner" aria-hidden="true"></div>
       <p class="dl-countdown is-hidden" id="dl-countdown" aria-live="polite"></p>
       <div class="dl-agent-hint is-hidden" id="dl-agent-hint"></div>
       <div class="dl-actions">
-        <button type="button" class="dl-btn dl-btn-mp3" id="dl-btn-mp3" disabled data-i18n="download">MP3 다운로드</button>
-        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back" data-i18n="dlBack">편집 화면으로 돌아가기</a>
+        <button type="button" class="dl-btn dl-btn-mp3" id="dl-btn-mp3" disabled>MP3 다운로드</button>
+        <a href="index.html" class="dl-btn dl-btn-back" id="dl-btn-back" data-i18n="dlBack2">음악 만들기로 돌아가기</a>
       </div>
     </div>
 
@@ -45,6 +49,13 @@
               <h3 class="dl-nle-item__name" data-i18n="dlMp3Name">MP3 (192kbps)</h3>
             </div>
             <p class="dl-nle-item__steps" data-i18n="dlMp3Steps">재생에 사용한 WAV를 MP3로 변환해 저장합니다. 에이전트에 FFmpeg가 있으면 서버에서 변환하고, 없으면 브라우저에서 변환합니다.</p>
+          </li>
+          <li class="dl-nle-item">
+            <div class="dl-nle-item__brand">
+              <span class="dl-nle-item__logo dl-nle-item__logo--wav" aria-hidden="true">WAV</span>
+              <h3 class="dl-nle-item__name" data-i18n="dlWavName">WAV (무손실 원본)</h3>
+            </div>
+            <p class="dl-nle-item__steps" data-i18n="dlWavSteps">생성된 원본 파일을 그대로 저장합니다. 용량은 크지만 음질 손실이 없어 영상 편집 프로그램에서 다듬을 때 좋습니다.</p>
           </li>
         </ul>
         <aside class="dl-callout">
@@ -94,6 +105,6 @@
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="download.js?v=2"></script>
+  <script type="module" src="download.js?v=3"></script>
 </body>
 </html>

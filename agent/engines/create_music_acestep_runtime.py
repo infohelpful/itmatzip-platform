@@ -62,6 +62,8 @@ PYTORCH_CU128_WHEELS: tuple[tuple[str, str], ...] = (
     ),
 )
 _TORCH_WHEEL_PREFIXES = ("torch-", "torchvision-", "torchaudio-")
+# 환경 준비에서 받는 음악 생성 모델: 빠르게(turbo)·고품질(sft)
+REQUIRED_DIT_CONFIGS = ("acestep-v15-turbo", "acestep-v15-sft")
 # PyTorch 설치(지우고 다시 풀기)가 두 곳에서 동시에 돌지 않도록
 _SITE_LOCK = threading.RLock()
 
@@ -1070,9 +1072,9 @@ def is_models_ready(*, require_venv: bool = True) -> bool:
     if require_venv and not is_venv_ready():
         return False
     ckpt = acestep_checkpoints_dir()
-    turbo = ckpt / "acestep-v15-turbo"
-    vae = ckpt / "vae"
-    for p in (turbo, vae):
+    # 화면의 품질 선택: 빠르게(turbo) / 고품질(sft) — 둘 다 환경 준비에서 미리 받음
+    required = [ckpt / name for name in REQUIRED_DIT_CONFIGS] + [ckpt / "vae"]
+    for p in required:
         if not p.is_dir():
             return False
         if not any(p.glob("*.safetensors")) and not any(p.glob("*.bin")):

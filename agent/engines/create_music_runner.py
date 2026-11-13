@@ -45,6 +45,25 @@ def _write_progress(path: str, progress: float, message: str) -> None:
     )
 
 
+def _audio_summary(path: str, bars: int = 48) -> tuple[float | None, list[float]]:
+    """곡 목록 파형용 구간별 최대 음량(0~1)과 실제 길이(초). 실패해도 생성은 성공으로 둠."""
+    try:
+        import numpy as np
+        import soundfile as sf
+
+        data, sr = sf.read(path, dtype="float32", always_2d=True)
+        level = np.abs(data).max(axis=1)
+        if level.size == 0 or not sr:
+            return None, []
+        chunks = np.array_split(level, bars)
+        peaks = [float(c.max()) if c.size else 0.0 for c in chunks]
+        top = max(peaks) or 1.0
+        return round(level.size / float(sr), 2), [round(p / top, 3) for p in peaks]
+    except Exception as exc:  # noqa: BLE001
+        print(f"warning: waveform summary failed: {exc}", file=sys.stderr)
+        return None, []
+
+
 def _collect_output_files(result, save_dir: Path) -> list[str]:
     """저장된 파일 경로 수집. MP3 등 실패 시 텐서에서 WAV로 재저장."""
     output_files: list[str] = []
@@ -193,9 +212,12 @@ def main() -> int:
                 "출력 형식을 WAV 또는 FLAC로 선택한 뒤 다시 생성하세요."
             )
 
+        audio_duration, peaks = _audio_summary(output_files[0])
         out = {
             "ok": True,
             "output_files": output_files,
+            "audio_duration": audio_duration,
+            "peaks": peaks,
             "seed": result.audios[0].get("params", {}).get("seed") if result.audios else seed,
             "status_message": result.status_message,
         }

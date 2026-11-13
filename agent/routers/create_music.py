@@ -5,13 +5,14 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Body, HTTPException, Query, UploadFile, File
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from common.bin_manager import ensure_ffmpeg, get_ffmpeg_executable
 from common.subprocess_util import run_hidden
-from engines import create_music
+from engines import create_music, create_music_ai
 
 try:
     from engines import create_music_lora
@@ -53,6 +54,7 @@ class GenerateRequest(BaseModel):
     repainting_start: float = 0.0
     repainting_end: float = -1.0
     cover_strength: float = Field(default=1.0, ge=0.0, le=1.0)
+    display: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +159,7 @@ def post_generate(req: GenerateRequest) -> dict:
         repainting_start=req.repainting_start,
         repainting_end=req.repainting_end,
         cover_strength=req.cover_strength,
+        display=req.display,
     )
 
     try:
@@ -275,6 +278,39 @@ async def upload_audio(file: UploadFile = File(...)) -> dict:
         shutil.copyfileobj(file.file, f)
 
     return {"ok": True, "path": str(dest), "filename": filename}
+
+
+# ---------------------------------------------------------------------------
+# AI 작곡 도우미 (사용자의 AI CLI가 MCP 설정까지 연결된 경우만)
+# ---------------------------------------------------------------------------
+
+@router.get("/ai/status")
+async def get_ai_status() -> dict:
+    clients = await run_in_threadpool(create_music_ai.configured_clients)
+    return {"connected": bool(clients), "configuredClients": clients}
+
+
+@router.post("/ai/compose")
+async def post_ai_compose(body: dict = Body(...)) -> dict:
+    client = body.get("client")
+    instruction = body.get("instruction")
+    if not isinstance(client, str) or not isinstance(instruction, str):
+        raise HTTPException(status_code=400, detail="AI와 요청 문장을 확인해 주세요.")
+    try:
+        job_id = await run_in_threadpool(
+            create_music_ai.start, client, instruction, body.get("form"), body.get("history")
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"jobId": job_id}
+
+
+@router.get("/ai/compose")
+def get_ai_compose(jobId: str = Query(...)) -> dict:
+    try:
+        return create_music_ai.get(jobId)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
 
 # ---------------------------------------------------------------------------
