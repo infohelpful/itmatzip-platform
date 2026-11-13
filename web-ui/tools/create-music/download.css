@@ -73,3 +73,27 @@
   font-weight: 800;
   letter-spacing: 0.02em;
 }
+
+/* 밝은 테마: 공용 스타일은 카드 배경을 어둡게 둔 채 글자만 어두운색으로 바꿔 안 보임 → 카드도 밝게 */
+html[data-theme="light"] .dl-info-card {
+  background: #ffffff;
+  border-color: #d8dee8;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+}
+html[data-theme="light"] .dl-info-card__head { border-bottom-color: #e2e8f0; }
+html[data-theme="light"] .dl-info-card__title,
+html[data-theme="light"] .dl-nle-item__name,
+html[data-theme="light"] .dl-faq__q { color: #0f172a; }
+html[data-theme="light"] .dl-info-card__subtitle,
+html[data-theme="light"] .dl-nle-item__steps,
+html[data-theme="light"] .dl-faq__a { color: #475569; }
+html[data-theme="light"] .dl-nle-item,
+html[data-theme="light"] .dl-faq__item { background: #f4f6fa; border-color: #e2e8f0; }
+html[data-theme="light"] .dl-faq__a strong { color: #0f172a; }
+html[data-theme="light"] .dl-callout { background: #fff7e6; border-color: #f5d48a; color: #0f172a; }
+html[data-theme="light"] .dl-callout p,
+html[data-theme="light"] .dl-callout__icon { color: #0f172a; }
+html[data-theme="light"] .dl-callout strong { color: #b45309; }
+html[data-theme="light"] .dl-format { background: #eef2f7; border-color: #d8dee8; }
+html[data-theme="light"] .dl-format__btn { color: #334155; }
+html[data-theme="light"] .dl-format__btn.is-active { color: #ffffff; }

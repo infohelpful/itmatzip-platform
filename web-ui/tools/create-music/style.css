@@ -388,3 +388,35 @@ html body.cm-app .cm-header a.btn-to-dashboard:hover { color: var(--cm-text) !im
 body.cm-app #itz-ai-setup { bottom: calc(var(--cm-player-h) + 12px) !important; }
 /* 밝은 테마의 body 글자색(어두운 색)을 작업 화면에서 이어받지 않게 */
 html body.cm-app .cm-root { color: var(--cm-text) !important; }
+
+/* 밝은 테마의 .app-header { color: 어두운색 } 을 헤더 안 상태 창이 이어받지 않게 */
+html body.cm-app .cm-header.app-header,
+html body.cm-app .cm-popover { color: var(--cm-text) !important; }
+html body.cm-app .cm-popover .cm-pop-title,
+html body.cm-app .cm-popover .cm-check-row > span:first-child { color: var(--cm-text) !important; }
+html body.cm-app .cm-popover .cm-pop-note { color: var(--cm-text-2) !important; }
+
+/* 안내 글: 밝은 테마가 바꾸는 목록 칸·글자 색 변수를 작업 화면과 같은 어두운 색으로 */
+html body.cm-app .tool-guide.cm-guide {
+  --tg-text: #F3F4F6;
+  --tg-dim: #C3C8D2;
+  --tg-muted: #9CA3AF;
+  --tg-line: #2A2F3D;
+  --tg-panel: #14171F;
+  --tg-accent: #A78BFA;
+  --tg-heading: #F3F4F6;
+  --tg-heading-2: #F3F4F6;
+  --tg-lead: #C3C8D2;
+  --tg-strong: #FFFFFF;
+  --tg-note-bg: rgba(255, 255, 255, 0.03);
+}
+html body.cm-app .tool-guide.cm-guide ol,
+html body.cm-app .tool-guide.cm-guide ul { background: var(--cm-panel) !important; border-color: var(--cm-border-strong) !important; }
+html body.cm-app .tool-guide.cm-guide p,
+html body.cm-app .tool-guide.cm-guide li,
+html body.cm-app .tool-guide.cm-guide .tool-guide-lead { color: #C3C8D2 !important; }
+html body.cm-app .tool-guide.cm-guide h2,
+html body.cm-app .tool-guide.cm-guide h3,
+html body.cm-app .tool-guide.cm-guide li strong { color: #FFFFFF !important; }
+html body.cm-app .tool-guide.cm-guide h3 { border-color: var(--cm-border-strong) !important; }
+html body.cm-app .tool-guide.cm-guide .tool-guide-note { color: #AEB4C0 !important; }
