@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.40",
+    "version":  "1.7.41",
     "published_at":  "2026-11-14",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.40/itmatzip-agent.msi",
-    "sha256":  "b64bb954292b579a4bc901737b127b38dc3e5abedd7f3cc004e10991dfadf619",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.41/itmatzip-agent.msi",
+    "sha256":  "fc928208ae8824d888689ad959713a3e80c11e15b4b96c7deaad194e98fa7433",
     "mandatory":  false,
-    "release_notes":  "Create Music 만든 곡 삭제(파일도 함께 삭제)",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.40/itmatzip-agent.msi",
-    "msi_sha256":  "b64bb954292b579a4bc901737b127b38dc3e5abedd7f3cc004e10991dfadf619"
+    "release_notes":  "Create Music 가사 발음 보호(기호 제거), 곡 길이 안내",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.41/itmatzip-agent.msi",
+    "msi_sha256":  "fc928208ae8824d888689ad959713a3e80c11e15b4b96c7deaad194e98fa7433"
 }
