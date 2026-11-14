@@ -73,7 +73,7 @@
   "tools": {
     "silence-remover": {
       "title": {
-        "ko": "Silence Detector",
+        "ko": "영상 무음 구간 자동 감지",
         "en": "Silence Detector",
         "ja": "Silence Detector",
         "zh": "Silence Detector"

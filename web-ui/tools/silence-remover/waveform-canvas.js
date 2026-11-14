@@ -7,8 +7,8 @@ import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer } from "./waveform-renderer.j
 
 /** @typedef {{ peaks: number[], peaks_db: number[], duration_sec: number, column_count: number, timeline_sec: number, mean_volume_db: number, max_volume_db?: number | null }} WaveformPeaksData */
 
-const SILENCE_FILL = "rgba(210, 58, 255, 0.36)";
-const SILENCE_EDGE_DARK = "rgba(12, 28, 18, 0.94)";
+const SILENCE_FILL = "rgba(244, 63, 94, 0.16)";
+const SILENCE_EDGE_DARK = "rgba(30, 41, 59, 0.94)";
 const SILENCE_EDGE_LIGHT = "rgba(255, 255, 255, 0.98)";
 const SCOPE_SILENCE_REL_FLOOR = 0.04;
 
@@ -372,7 +372,7 @@ export function columnRangesToTimeSegments(columnRanges, timelineSec, columnCoun
  * @param {Array<{ start_sec: number, end_sec: number }>} segments
  */
 function drawSilenceOverlayTimeBased(ctx, w, waveH, startTimeSec, pxPerSec, segments) {
-  const bandFrac = 0.48;
+  const bandFrac = 1;
   const vm = (1 - bandFrac) * 0.5;
   const yBand0 = Math.round(waveH * vm);
   const yBand1 = Math.round(waveH * (1 - vm)) - 1;

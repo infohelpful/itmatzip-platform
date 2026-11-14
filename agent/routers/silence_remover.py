@@ -14,10 +14,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Annotated, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from common.async_io import run_sync
@@ -31,6 +32,15 @@ from runtime_paths import pick_file_available
 router = APIRouter(prefix="/api/tools/silence-remover", tags=["silence-remover"])
 _setup_lock = threading.Lock()
 _setup_state: dict[str, object] = {"state": "idle", "step": "", "percent": None, "error": None}
+_DROP_UPLOAD_ROOT = Path(tempfile.gettempdir()) / "itmatzip" / "silence-remover-uploads"
+_DROP_UPLOAD_MAX_BYTES = 50 * 1024 * 1024 * 1024
+_DROP_UPLOAD_TTL_SEC = 24 * 60 * 60
+_DROP_UPLOAD_LOCK = threading.Lock()
+_ACTIVE_DROP_UPLOADS: set[Path] = set()
+_DROP_UPLOAD_EXTENSIONS = {
+    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v",
+    ".m4a", ".wav", ".mp3", ".aac", ".flac", ".ogg", ".wma", ".opus",
+}
 
 
 def _setup_snapshot() -> dict[str, object]:
@@ -90,6 +100,103 @@ def _resolve_media_path(raw: str) -> Path:
     if resolved is None:
         raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {norm}")
     return resolved
+
+
+def _purge_expired_drop_uploads() -> None:
+    """Remove old agent-staged browser uploads without touching user files."""
+    try:
+        _DROP_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+        cutoff = time.time() - _DROP_UPLOAD_TTL_SEC
+        with _DROP_UPLOAD_LOCK:
+            active_uploads = set(_ACTIVE_DROP_UPLOADS)
+        for entry in _DROP_UPLOAD_ROOT.iterdir():
+            try:
+                if entry.is_dir() and entry not in active_uploads and entry.stat().st_mtime < cutoff:
+                    shutil.rmtree(entry, ignore_errors=True)
+            except OSError:
+                continue
+    except OSError:
+        return
+
+
+@router.post("/drop-upload")
+async def post_drop_upload(request: Request, filename: str) -> dict[str, object]:
+    """Stream one browser-dropped media file into an agent-owned temporary directory."""
+    if not filename or len(filename) > 255:
+        raise HTTPException(status_code=400, detail="파일명이 올바르지 않습니다.")
+    suffix = Path(filename.replace("\\", "/")).suffix.lower()
+    if suffix not in _DROP_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="지원하지 않는 오디오/영상 파일 형식입니다.")
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > _DROP_UPLOAD_MAX_BYTES:
+                raise HTTPException(status_code=413, detail="파일 크기는 50GB 이하여야 합니다.")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="잘못된 업로드 크기 정보입니다.") from None
+
+    _purge_expired_drop_uploads()
+    try:
+        _DROP_UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+        upload_dir = Path(tempfile.mkdtemp(prefix="upload-", dir=_DROP_UPLOAD_ROOT))
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"임시 업로드 폴더를 만들지 못했습니다: {exc}") from exc
+
+    staged_path = upload_dir / f"media{suffix}"
+    with _DROP_UPLOAD_LOCK:
+        _ACTIVE_DROP_UPLOADS.add(upload_dir)
+    total = 0
+    try:
+        try:
+            with staged_path.open("wb") as staged_file:
+                async for chunk in request.stream():
+                    if not chunk:
+                        continue
+                    total += len(chunk)
+                    if total > _DROP_UPLOAD_MAX_BYTES:
+                        raise HTTPException(status_code=413, detail="파일 크기는 50GB 이하여야 합니다.")
+                    await asyncio.to_thread(staged_file.write, chunk)
+            if total == 0:
+                raise HTTPException(status_code=400, detail="업로드된 파일이 비어 있습니다.")
+        except HTTPException:
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            raise
+        except Exception as exc:  # noqa: BLE001 - close and remove partial uploads on disconnect/write failure
+            shutil.rmtree(upload_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=f"파일 업로드가 완료되지 않았습니다: {exc}") from exc
+    finally:
+        with _DROP_UPLOAD_LOCK:
+            _ACTIVE_DROP_UPLOADS.discard(upload_dir)
+
+    return {
+        "video_path": str(staged_path.resolve()),
+        "file_name": Path(filename.replace("\\", "/")).name[:255],
+        "size_bytes": total,
+        "temporary": True,
+    }
+
+
+@router.delete("/drop-upload")
+def delete_drop_upload(video_path: str) -> dict[str, bool]:
+    """Delete only a file staged by the drop-upload endpoint."""
+    try:
+        root = _DROP_UPLOAD_ROOT.resolve()
+        staged_path = Path(video_path).resolve()
+        upload_dir = staged_path.parent
+        if (
+            root not in staged_path.parents
+            or upload_dir.parent != root
+            or not upload_dir.name.startswith("upload-")
+            or staged_path.name != "media" + staged_path.suffix
+        ):
+            raise HTTPException(status_code=400, detail="임시 업로드 파일 경로가 올바르지 않습니다.")
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"임시 업로드 파일을 정리하지 못했습니다: {exc}") from exc
 
 
 class SilenceRemoverAnalyzeBody(BaseModel):

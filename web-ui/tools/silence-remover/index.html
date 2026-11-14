@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko" data-tool-id="silence-remover">
+<html lang="ko" data-tool-id="silence-remover" data-force-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="../common/site-runtime.js?v=43"></script>
+  <script src="../common/site-runtime.js?v=46"></script>
   <meta http-equiv="Permissions-Policy" content="local-network-access=*">
   <title>영상 무음 제거 XML - Silence Detector | ItMatZip</title>
   <meta name="description" content="영상 무음 구간을 자동 분석해 Premiere·DaVinci용 FCP7 XML을 만듭니다. 업로드 없이 PC 로컬에서 처리합니다.">
@@ -76,7 +76,7 @@
   </script>
   <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
   <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
-  <link rel="stylesheet" href="style.css?v=31">
+  <link rel="stylesheet" href="style.css?v=41">
   <link rel="stylesheet" href="mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
@@ -86,9 +86,9 @@
     <main class="main-content">
       <header class="app-header">
         <div class="logo-area">
-          <span class="badge">AI Powered</span>
+          <span class="badge">AI</span>
           <div class="logo-title-row">
-            <h1>Silence <span class="accent">Detector</span></h1>
+            <h1 data-brand-title="영상 무음 구간 자동 감지"><span class="accent">영상 무음 구간 자동 감지</span></h1>
             <a href="../index.html" class="btn-to-dashboard" id="btn-to-dashboard">대시보드로 이동</a>
           </div>
         </div>
@@ -97,20 +97,18 @@
           <div class="bin-readiness" id="bin-readiness" data-i18n="binWait">무음 제거 · FFmpeg 준비 대기</div>
         </div>
       </header>
-      <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고"></div>
-      <section class="drop-zone itmatzip-workflow-no-ads">
-        <div class="path-input-group">
-          <label for="video-path" data-i18n="pathLabel">영상 파일 경로</label>
-          <p class="path-hint" id="path-hint" data-i18n="pathHint"></p>
-          <div class="path-row">
-            <input type="text" id="video-path" autocomplete="off" spellcheck="false">
-            <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
-          </div>
-        </div>
-      </section>
-      <div class="media-workspace itmatzip-workflow-no-ads" id="media-workspace">
+  <div class="studio-layout">
+   <aside class="studio-sidebar">
+      <div class="settings-inspector itmatzip-workflow-no-ads">
         <section class="options-layout" id="options-panel">
           <div class="options-main">
+            <div class="inspector-head">
+              <div>
+                <h2 id="inspector-title" data-i18n="inspectorTitle">감지 파라미터 인스펙터</h2>
+                <p id="inspector-hint" data-i18n="inspectorHint">임계값 조절 시 우측 파형에 실시간 반영</p>
+              </div>
+              <button type="button" id="btn-apply-recommended-sensitivity" data-i18n="applyRecommended">추천값 적용</button>
+            </div>
             <div class="options-row">
               <div class="option-card">
                 <label for="opt-fps" data-i18n="fps">프레임</label>
@@ -124,27 +122,34 @@
               </div>
             </div>
             <div class="options-row">
-              <div class="option-card highlight">
+              <div class="option-card">
                 <label for="opt-rec-db" data-i18n="recDb">추천 무음 민감도 (dB)</label>
                 <p class="option-hint" id="opt-rec-db-hint" data-i18n="recDbHint">자동 계산된 추천 무음 민감도 입니다.</p>
                 <input type="text" id="opt-rec-db" value="" readonly title="">
               </div>
-              <div class="option-card">
+              <div class="option-card highlight">
                 <label for="opt-sensitivity" data-i18n="sensitivity">무음 민감도 (dB)</label>
                 <p class="option-hint" id="opt-sensitivity-hint" data-i18n="sensitivityHint">추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다.</p>
-                <input type="number" id="opt-sensitivity" step="0.01" min="-60" max="-10" value="-40" inputmode="decimal">
+                <output id="opt-sensitivity-display" class="sensitivity-value">-40.0 dB</output>
+                <input type="range" id="opt-sensitivity" step="0.1" min="-60" max="-10" value="-40">
               </div>
             </div>
             <div class="options-duration-stack">
               <div class="option-card option-card-padding">
-                <label for="opt-padding" data-i18n="padding">말소리 앞뒤 여백 (ms, 100ms = 0.1초)</label>
+                <div class="option-control-head">
+                  <label for="opt-padding" data-i18n="padding">말소리 앞뒤 여백 (ms)</label>
+                  <span class="value-pill" id="opt-padding-val">100ms</span>
+                </div>
                 <div class="range-group range-group-padding">
                   <input type="range" id="opt-padding" min="0" max="1000" step="1" value="100">
-                  <span class="range-val" id="opt-padding-val">100ms</span>
                 </div>
+                <p id="opt-padding-hint" class="option-hint" data-i18n="paddingHint">100ms = 0.1초 · 말끝 잘림 방지 보호 구간</p>
               </div>
               <div class="option-card option-card-duration">
-                <label data-i18n="minSilence">최소 무음 길이 (초)</label>
+                <div class="option-control-head">
+                  <label data-i18n="minSilence">최소 무음 길이 (초)</label>
+                  <span class="value-pill" id="opt-min-silence-val">0.3s</span>
+                </div>
                 <div class="duration-chips">
                   <div class="duration-chip-list" id="duration-chip-list">
                     <button type="button" class="chip" data-val="0.1">0.1s</button>
@@ -162,14 +167,16 @@
                   </div>
                   <div class="range-group range-group-min-silence">
                     <input type="range" id="opt-min-silence" min="0.1" max="10" step="0.1" value="0.3">
-                    <span class="range-val" id="opt-min-silence-val">0.3s</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
           <aside class="media-summary-panel" id="media-summary-panel" aria-label="summary">
-            <h4 class="media-summary-title" id="media-summary-title" data-i18n="mediaInfo"></h4>
+            <div class="media-summary-title-row">
+              <h4 class="media-summary-title" id="media-summary-title" data-i18n="mediaInfo">미디어 분석 정보</h4>
+              <span id="summary-ready-indicator" class="summary-ready-indicator">ffprobe 메타데이터</span>
+            </div>
             <p class="media-summary-hint" id="media-summary-hint" data-i18n="mediaHint"></p>
             <dl class="media-summary-list">
               <div class="media-summary-item summary-media-item"><dt></dt><dd id="summary-duration">?</dd></div>
@@ -190,35 +197,77 @@
             </div>
           </aside>
         </section>
-        <section id="waveform-preview-section" class="waveform-preview-section">
+      </div>
+      <div class="action-center">
+        <label class="edl-export-option" for="opt-remove-silent">
+          <input type="checkbox" id="opt-remove-silent" checked>
+          <span class="edl-option-copy">
+            <strong id="opt-remove-silent-caption" data-i18n="removeSilent">무음 구간 자동 제거</strong>
+            <small data-i18n="removeSilentHint">XML 컷 편집 타임라인 자동 반영</small>
+          </span>
+        </label>
+        <button id="btn-analyze" class="btn-main" data-i18n="analyze">무음 구간 분석</button>
+        <div class="edl-export-block">
+          <a href="download.html" id="export-xml-link" class="btn-export btn-export--xml is-disabled" role="button"></a>
+        </div>
+      </div>
+   </aside>
+   <section class="media-workspace waveform-workspace itmatzip-workflow-no-ads" id="media-workspace">
+        <div class="right-ad-section" aria-label="상단 광고 영역">
+          <span class="ad-caption">ADVERTISEMENT</span>
+          <div class="editor-ad-row">
+            <div class="editor-ad" id="editor-ad-above-workspace" aria-label="광고 1"></div>
+            <div class="editor-ad" id="editor-ad-above-workspace-2" aria-label="광고 2"></div>
+          </div>
+        </div>
+        <section id="waveform-preview-section" class="waveform-preview-section" aria-label="오디오 파형 파일 놓기 영역">
           <div class="waveform-preview-head">
-            <h3 id="waveform-preview-title" class="waveform-preview-title" data-i18n="waveform"></h3>
+            <div class="waveform-heading">
+              <div class="waveform-title-line">
+                <h3 id="waveform-preview-title" class="waveform-preview-title" data-i18n="waveform">오디오 파형 타임라인</h3>
+                <span id="waveform-silence-stat" class="waveform-silence-stat" hidden></span>
+              </div>
+              <div class="waveform-legend">
+                <span><i class="legend-keep"></i><span id="waveform-legend-keep">말소리 유지</span></span>
+                <span><i class="legend-cut"></i><span id="waveform-legend-cut">무음 컷 대상</span></span>
+                <span id="waveform-legend-hint">· 파형 영역 클릭/드롭 = 파일 열기 · 마우스 휠 = 줌</span>
+              </div>
+            </div>
             <div class="waveform-zoom-controls">
-              <span class="waveform-zoom-hint" data-i18n="zoomHint"></span>
+              <button type="button" id="waveform-zoom-out" class="waveform-zoom-step" aria-label="축소">−</button>
               <span id="waveform-zoom-level" class="waveform-zoom-level" aria-live="polite">100%</span>
+              <button type="button" id="waveform-zoom-in" class="waveform-zoom-step" aria-label="확대">+</button>
+              <button type="button" id="waveform-zoom-fit" class="waveform-zoom-fit" data-i18n="zoomFit">전체 맞춤</button>
               <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" data-i18n-title="zoomReset" title="">100%</button>
             </div>
           </div>
           <p id="waveform-preview-status" class="waveform-preview-status" aria-live="polite"></p>
+          <section class="drop-zone waveform-file-drop" id="media-drop-zone" aria-label="영상 파일 선택 영역">
+            <span id="video-path-label" class="file-tag" data-i18n="pathLabel">영상 파일 경로</span>
+            <p class="path-hint" id="path-hint" data-i18n="pathHint"></p>
+            <div class="path-row">
+              <input type="text" id="video-path" autocomplete="off" spellcheck="false">
+              <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
+            </div>
+            <p id="file-drop-status" class="file-drop-status" data-i18n="fileDropHint" role="status" aria-live="polite">또는 파형 영역에 파일을 끌어다 놓으세요.</p>
+            <button type="button" id="cancel-file-upload" class="cancel-file-upload" data-i18n="cancelUpload" hidden>업로드 취소</button>
+          </section>
           <div class="waveform-preview-scroll" id="waveform-preview-scroll">
+            <div class="waveform-empty-drop" id="waveform-empty-drop">
+              <span class="waveform-empty-icon" aria-hidden="true">⇧</span>
+              <strong data-i18n="dropEmptyTitle">영상 또는 오디오 파일을 여기에 놓으세요</strong>
+              <span data-i18n="dropEmptyBrowse">또는 찾아보기 버튼으로 파일을 선택하세요.</span>
+              <span class="waveform-empty-formats" data-i18n="dropFormats">MP4 · MOV · MKV · WAV · MP3 등</span>
+            </div>
+            <div class="waveform-drag-overlay" data-i18n="dropOverlay" aria-hidden="true">파일을 놓으면 로컬 에이전트에서 불러옵니다</div>
             <div class="waveform-scroll-track" id="waveform-scroll-track">
               <canvas id="waveform-preview-canvas" class="waveform-preview-canvas" aria-label="waveform"></canvas>
             </div>
           </div>
         </section>
         <div id="media-workspace-loading" class="media-workspace-loading" hidden aria-hidden="true" aria-live="polite"></div>
-      </div>
-      <div class="action-center">
-        <button id="btn-analyze" class="btn-main" data-i18n="analyze">무음 구간 분석</button>
-        <div class="edl-export-block" style="padding-top: 10px; box-sizing: border-box;">
-          <label class="edl-export-option" for="opt-remove-silent">
-            <input type="checkbox" id="opt-remove-silent" checked>
-            <span id="opt-remove-silent-caption" data-i18n="removeSilent">무음 구간 자동 제거</span>
-          </label>
-          <a href="download.html" id="export-xml-link" class="btn-export btn-export--xml is-disabled" role="button"></a>
-        </div>
-        <div class="editor-ad" id="editor-ad-below-export" aria-label="광고"></div>
-      </div>
+   </section>
+  </div>
       <section class="tool-guide" aria-label="Silence Detector 안내">
         <p class="tool-guide-kicker">Silence Detector</p>
         <h2>영상 속 무음을 찾아 편집 타임라인으로 넘기는 도구</h2>
@@ -240,6 +289,7 @@
         </ul>
         <p class="tool-guide-note">분석과 XML 생성은 ItMatZip 에이전트가 설치된 Windows PC에서 동작합니다. 타임라인 FPS는 영상 원본과 맞춰 두는 것이 가장 안전합니다.</p>
       </section>
+      <div class="editor-ad editor-ad-below-guide" id="editor-ad-below-export" aria-label="광고"></div>
     </main>
   </div>
   <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
@@ -273,6 +323,6 @@
   <script type="module" src="../common/agent-update-boot.js?v=1"></script>
   <script src="../common/site-guard.js?v=14"></script>
   <script src="mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=lna51"></script>
+  <script type="module" src="script.js?v=lna56"></script>
 </body>
 </html>

@@ -307,12 +307,12 @@ function setSilenceSummarySectionVisible(visible) {
   const hint = document.getElementById("media-summary-hint");
   const title = document.getElementById("media-summary-title");
   const panel = document.getElementById("media-summary-panel");
+  const waveformStat = document.getElementById("waveform-silence-stat");
   if (sec) sec.hidden = !visible;
+  if (waveformStat) waveformStat.hidden = !visible;
   if (hint) hint.classList.toggle("is-hidden", visible);
   if (title) {
-    title.textContent = visible
-      ? itzT("mediaSilence", "미디어 · 무음 요약")
-      : itzT("mediaInfo", "미디어 정보");
+      title.textContent = itzT("mediaInfo", "미디어 분석 정보");
   }
   if (panel) {
     panel.setAttribute(
@@ -328,11 +328,11 @@ function setSilenceSummarySectionVisible(visible) {
 
 function applySummaryPanelLabels() {
   const mediaDt = [
-    itzT("dtDuration", "길이"),
+    itzT("dtDuration", "영상 길이"),
     itzT("dtMaxVol", "최대 볼륨"),
-    itzT("dtDr", "다이내믹 레인지"),
+    itzT("dtDr", "다이나믹"),
     itzT("dtFps", "원본 FPS"),
-    itzT("dtSr", "샘플레이트"),
+    itzT("dtSr", "오디오 샘플레이트"),
   ];
   const silenceDt = [
     itzT("dtSilenceCount", "무음 구간"),
@@ -408,8 +408,18 @@ function applyStaticUiLabels(opts = {}) {
   setLabel("opt-rec-db", itzT("recDb", "추천 무음 민감도 (dB)"));
   setText("opt-rec-db-hint", itzT("recDbHint", "자동 계산된 추천 무음 민감도 입니다."));
   setLabel("opt-sensitivity", itzT("sensitivity", "무음 민감도 (dB)"));
+  setText("video-path-label", itzT("pathLabel", "영상 파일 경로"));
   setText("opt-sensitivity-hint", itzT("sensitivityHint", "추천값과 동일하게 자동 입력되며 직접 수정 가능 합니다."));
-  setLabel("opt-padding", itzT("padding", "말소리 앞뒤 여백 (ms, 100ms = 0.1초)"));
+  setText("inspector-title", itzT("inspectorTitle", "감지 파라미터 인스펙터"));
+  setText("inspector-hint", itzT("inspectorHint", "임계값 조절 시 우측 파형에 실시간 반영"));
+  setText("btn-apply-recommended-sensitivity", itzT("applyRecommended", "추천값 적용"));
+  setText("waveform-legend-keep", itzT("legendKeep", "말소리 유지"));
+  setText("waveform-legend-cut", itzT("legendCut", "무음 컷 대상"));
+  setText("waveform-legend-hint", itzT("legendHint", "· 파형 영역 클릭/드롭 = 파일 열기 · 마우스 휠 = 줌"));
+  setText("waveform-zoom-fit", itzT("zoomFit", "전체 맞춤"));
+  setText("summary-ready-indicator", itzT("summaryReady", "ffprobe 메타데이터"));
+  setLabel("opt-padding", itzT("padding", "말소리 앞뒤 여백 (ms)"));
+  setText("opt-padding-hint", itzT("paddingHint", "100ms = 0.1초 · 말끝 잘림 방지 보호 구간"));
   const minSilLbl = document.querySelector(".option-card-duration > label");
   if (minSilLbl) minSilLbl.textContent = itzT("minSilence", "최소 무음 길이 (초)");
 
@@ -462,6 +472,9 @@ if (document.readyState === "loading") {
 
 document.addEventListener("DOMContentLoaded", () => {
   const dropZoneContainer = document.querySelector(".drop-zone");
+  const waveformDropZone = document.getElementById("waveform-preview-section");
+  const fileDropStatus = document.getElementById("file-drop-status");
+  const cancelUploadButton = document.getElementById("cancel-file-upload");
   const pathInput = document.getElementById("video-path");
   const btnPickLocalFile = document.getElementById("btn-pick-local-file");
   const btnAnalyze = document.getElementById("btn-analyze");
@@ -577,6 +590,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function onVideoPathInputChanged() {
     const next = pathInput.value.trim();
+    if (mediaWorkspace) mediaWorkspace.classList.toggle("has-media", looksLikeFullPath(next));
     if (looksLikeFullPath(next)) {
       prepareMediaPathChange(next, getAnalysisBoundVideoPath() || getStoredVideoPath() || "");
       sessionStorage.setItem(STORAGE_VIDEO_PATH, next);
@@ -644,6 +658,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function applyVideoPathToInput(trimmed, opts = {}) {
     const path = normalizeAgentMediaPath(trimmed);
     if (!path) return;
+    if (activeDroppedPath && !mediaPathsEqual(activeDroppedPath, path)) {
+      cleanupDroppedUpload(activeDroppedPath);
+      activeDroppedPath = null;
+    }
     if (opts.freshSelection) {
       beginNewMediaWorkflow();
     } else {
@@ -653,12 +671,14 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
     pathInput.value = path;
+    if (mediaWorkspace) mediaWorkspace.classList.add("has-media");
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
     pathInput.setSelectionRange(path.length, path.length);
     pathInput.style.borderColor = "#3b82f6";
     pathInput.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
     const base = path.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
+    if (base) setDropStatus(itzTf("fileSelected", "선택한 파일: {name}", { name: base }));
     if (base) sessionStorage.setItem(STORAGE_NAME, base);
     sessionStorage.setItem(STORAGE_VIDEO_PATH, path);
     window.clearTimeout(probeTimer);
@@ -683,6 +703,134 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   let savedPickBtnLabel = "";
+  let dropUploadController = null;
+  let activeDroppedPath = null;
+  const DROP_UPLOAD_EXTENSIONS = new Set([
+    ".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v",
+    ".m4a", ".wav", ".mp3", ".aac", ".flac", ".ogg", ".wma", ".opus",
+  ]);
+
+  function setDropStatus(message, isError = false) {
+    if (!fileDropStatus) return;
+    fileDropStatus.textContent = message;
+    fileDropStatus.classList.toggle("is-error", isError);
+  }
+
+  function setDropUploadBusy(busy) {
+    if (btnPickLocalFile) btnPickLocalFile.disabled = busy;
+    if (btnAnalyze) btnAnalyze.disabled = busy;
+    if (pathInput) pathInput.readOnly = busy;
+    if (cancelUploadButton) cancelUploadButton.hidden = !busy;
+    if (mediaWorkspace) mediaWorkspace.setAttribute("aria-busy", busy ? "true" : "false");
+    if (dropZoneContainer) dropZoneContainer.classList.toggle("is-uploading", busy);
+  }
+
+  function droppedFileExtension(fileName) {
+    const dot = String(fileName || "").lastIndexOf(".");
+    return dot >= 0 ? String(fileName).slice(dot).toLowerCase() : "";
+  }
+
+  function cleanupDroppedUpload(videoPath) {
+    if (!videoPath) return;
+    const url = `${getAgentOrigin()}/api/tools/silence-remover/drop-upload?video_path=${encodeURIComponent(videoPath)}`;
+    void fetchAgent(url, { method: "DELETE", headers: { Accept: "application/json" }, keepalive: true }).catch(() => {});
+  }
+
+  async function uploadDroppedMedia(file) {
+    if (dropUploadController) return;
+    if (!DROP_UPLOAD_EXTENSIONS.has(droppedFileExtension(file.name))) {
+      setDropStatus(itzT("unsupportedDrop", "지원하지 않는 형식입니다. 오디오 또는 영상 파일을 선택해 주세요."), true);
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024 * 1024) {
+      setDropStatus(itzT("uploadTooLarge", "파일 크기는 50GB 이하여야 합니다."), true);
+      return;
+    }
+    const agent = await checkAgentConnection();
+    if (!agent.ok) {
+      setDropStatus(itzT("uploadAgentUnavailable", "로컬 에이전트에 연결할 수 없습니다. 연결 상태를 확인해 주세요."), true);
+      await showInstallAgentDialog(await installDialogOpts());
+      return;
+    }
+
+    const controller = new AbortController();
+    dropUploadController = controller;
+    setDropUploadBusy(true);
+    setDropStatus(itzTf("uploadingFile", "“{name}”을(를) 로컬 에이전트로 전송 중…", { name: file.name }));
+    if (mediaWorkspace) mediaWorkspace.classList.add("is-file-dragging");
+
+    try {
+      const uploadUrl = `${getAgentOrigin()}/api/tools/silence-remover/drop-upload?filename=${encodeURIComponent(file.name)}`;
+      const response = await fetchAgent(uploadUrl, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/octet-stream" },
+        body: file,
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = data && typeof data.detail === "string" ? data.detail : response.statusText;
+        throw new Error(detail || "파일 업로드에 실패했습니다.");
+      }
+      const stagedPath = normalizeAgentMediaPath(data?.video_path);
+      if (!stagedPath) throw new Error("에이전트가 임시 파일 경로를 반환하지 않았습니다.");
+      setDropStatus(itzTf("uploadReady", "“{name}” 업로드 완료. 미디어 정보를 확인하고 파형을 만드는 중…", { name: file.name }));
+      applyVideoPathToInput(stagedPath, { freshSelection: true });
+      activeDroppedPath = stagedPath;
+    } catch (error) {
+      if (error && typeof error === "object" && error.name === "AbortError") {
+        setDropStatus(itzT("uploadCanceled", "파일 업로드를 취소했습니다."));
+      } else {
+        const message = error instanceof Error ? error.message : String(error);
+        setDropStatus(`파일을 불러오지 못했습니다: ${message}`, true);
+      }
+    } finally {
+      dropUploadController = null;
+      setDropUploadBusy(false);
+      if (mediaWorkspace) mediaWorkspace.classList.remove("is-file-dragging");
+    }
+  }
+
+  function handleFileDragOver(event) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (waveformDropZone) waveformDropZone.classList.add("is-drag-over");
+    if (dropZoneContainer) dropZoneContainer.classList.add("is-drag-over");
+  }
+
+  function handleFileDragLeave(event) {
+    if (event.relatedTarget && event.currentTarget.contains(event.relatedTarget)) return;
+    if (waveformDropZone) waveformDropZone.classList.remove("is-drag-over");
+    if (dropZoneContainer) dropZoneContainer.classList.remove("is-drag-over");
+  }
+
+  function handleFileDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (waveformDropZone) waveformDropZone.classList.remove("is-drag-over");
+    if (dropZoneContainer) dropZoneContainer.classList.remove("is-drag-over");
+    if (dropUploadController) return;
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (files.length > 1) {
+      setDropStatus(itzT("multipleDrop", "한 번에 하나의 파일만 놓을 수 있습니다."), true);
+      return;
+    }
+    if (files.length === 1) void uploadDroppedMedia(files[0]);
+  }
+
+  [dropZoneContainer, waveformDropZone].filter(Boolean).forEach((target) => {
+    target.addEventListener("dragover", handleFileDragOver);
+    target.addEventListener("dragleave", handleFileDragLeave);
+    target.addEventListener("drop", handleFileDrop);
+  });
+  window.addEventListener("dragover", (event) => {
+    if (event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+  });
+  window.addEventListener("drop", (event) => {
+    if (event.dataTransfer?.types?.includes("Files")) event.preventDefault();
+  });
+  cancelUploadButton?.addEventListener("click", () => dropUploadController?.abort());
+
   function setPickBusy(busy) {
     if (btnPickLocalFile) {
       if (busy) {
@@ -771,16 +919,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  if (dropZoneContainer) {
-    dropZoneContainer.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
-    });
-    dropZoneContainer.addEventListener("drop", (e) => {
-      e.preventDefault();
-    });
-  }
-
   if (btnPickLocalFile) {
     btnPickLocalFile.addEventListener("click", () => void pickLocalFileViaAgent());
   }
@@ -789,6 +927,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const optAvgDb = /** @type {HTMLInputElement} */ (document.getElementById("opt-avg-db"));
   const optRecDb = /** @type {HTMLInputElement} */ (document.getElementById("opt-rec-db"));
   const optSens = /** @type {HTMLInputElement} */ (document.getElementById("opt-sensitivity"));
+  const optSensDisplay = document.getElementById("opt-sensitivity-display");
+  const applyRecommendedButton = document.getElementById("btn-apply-recommended-sensitivity");
   const optMinSilence = /** @type {HTMLInputElement} */ (document.getElementById("opt-min-silence"));
   const optMinSilenceVal = document.getElementById("opt-min-silence-val");
   const optRemoveSilent = /** @type {HTMLInputElement | null} */ (
@@ -843,10 +983,15 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("waveform-preview-canvas")
   );
   const waveformPreviewStatus = document.getElementById("waveform-preview-status");
+  const waveformEmptyDrop = document.getElementById("waveform-empty-drop");
   const waveformPreviewScroll = document.getElementById("waveform-preview-scroll");
   const waveformScrollTrack = document.getElementById("waveform-scroll-track");
   const waveformZoomLevel = document.getElementById("waveform-zoom-level");
   const waveformZoomReset = document.getElementById("waveform-zoom-reset");
+  const waveformZoomIn = document.getElementById("waveform-zoom-in");
+  const waveformZoomOut = document.getElementById("waveform-zoom-out");
+  const waveformZoomFit = document.getElementById("waveform-zoom-fit");
+  const waveformSilenceStat = document.getElementById("waveform-silence-stat");
   const summaryDuration = document.getElementById("summary-duration");
   const summaryMaxDb = document.getElementById("summary-max-db");
   const summaryDr = document.getElementById("summary-dr");
@@ -1155,7 +1300,9 @@ document.addEventListener("DOMContentLoaded", () => {
     drawSilenceWaveform(waveformPreviewCanvas, waveformPeaksData, {
       noiseDb: getNoiseDb(),
       minSilenceSec: getMinSilenceSec(),
-      height: WAVEFORM_CANVAS_H,
+      height: window.matchMedia("(min-width: 1100px)").matches
+        ? Math.max(WAVEFORM_CANVAS_H, waveformPreviewScroll?.clientHeight ?? WAVEFORM_CANVAS_H)
+        : WAVEFORM_CANVAS_H,
       showRuler: true,
       showSilenceOverlay: silencePreviewEnabled,
       silenceColumnRanges: silenceColRanges,
@@ -1265,7 +1412,10 @@ document.addEventListener("DOMContentLoaded", () => {
     probedRecommendedNoiseDb = shown;
     if (optRecDb) optRecDb.value = String(shown);
     const sens = clamp(shown, NOISE_DB_MIN, NOISE_DB_MAX);
-    if (optSens) optSens.value = String(truncTo2Decimals(sens));
+    if (optSens) {
+      optSens.value = String(truncTo2Decimals(sens));
+      if (optSensDisplay) optSensDisplay.textContent = `${truncTo2Decimals(sens)} dB`;
+    }
   }
 
   function renderAnalyzedSettingsSummary() {
@@ -1493,6 +1643,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const count = silences.length;
+    if (waveformSilenceStat) {
+      waveformSilenceStat.textContent = itzTf(
+        "waveformSilenceStat",
+        "감지된 무음 {count}개 · {duration} 컷 대상",
+        { count, duration: formatDurationShort(total, true) },
+      );
+    }
     setSummaryCell(
       summarySilenceCount,
       count === 0
@@ -1800,6 +1957,31 @@ document.addEventListener("DOMContentLoaded", () => {
     scheduleWaveformRedraw();
   }
 
+  function zoomWaveformBy(factor) {
+    if (!waveformPreviewScroll || !waveformPeaksData) return;
+    const oldPx = getWaveformPxPerSec();
+    const center = waveformPreviewScroll.clientWidth / 2;
+    const centerTime = (waveformPreviewScroll.scrollLeft + center) / oldPx;
+    const nextPx = clamp(oldPx * factor, getWaveformMinPxPerSec(), WAVEFORM_PX_PER_SEC_MAX);
+    waveformPxPerSec = nextPx;
+    updateWaveformScrollTrack();
+    waveformPreviewScroll.scrollLeft = Math.max(0, centerTime * nextPx - center);
+    scheduleWaveformRedraw();
+  }
+
+  function fitWaveformToDuration() {
+    if (!waveformPreviewScroll || !waveformPeaksData) return resetWaveformZoom();
+    const duration = Math.max(0.001, waveformPeaksData.timeline_sec);
+    waveformPxPerSec = clamp(
+      (getViewportWaveformWidth() * 0.98) / duration,
+      getWaveformMinPxPerSec(),
+      WAVEFORM_PX_PER_SEC_MAX,
+    );
+    waveformPreviewScroll.scrollLeft = 0;
+    updateWaveformScrollTrack();
+    scheduleWaveformRedraw();
+  }
+
   /** @param {WheelEvent} e */
   function onWaveformWheel(e) {
     if (!waveformPreviewScroll || !waveformPreviewCanvas || !waveformPeaksData) return;
@@ -1914,6 +2096,9 @@ document.addEventListener("DOMContentLoaded", () => {
   if (waveformZoomReset) {
     waveformZoomReset.addEventListener("click", () => resetWaveformZoom());
   }
+  waveformZoomIn?.addEventListener("click", () => zoomWaveformBy(WAVEFORM_ZOOM_FACTOR));
+  waveformZoomOut?.addEventListener("click", () => zoomWaveformBy(1 / WAVEFORM_ZOOM_FACTOR));
+  waveformZoomFit?.addEventListener("click", () => fitWaveformToDuration());
   window.addEventListener("resize", () => {
     if (waveformPeaksData) scheduleWaveformRedraw();
   });
@@ -2452,16 +2637,26 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   pathInput.addEventListener("input", onVideoPathInputChanged);
+  waveformEmptyDrop?.addEventListener("click", () => btnPickLocalFile?.click());
   /* blur로 프로브하지 않음 — 옵션 포커스 이동마다 재요청되는 것을 방지 */
 
   optSens.addEventListener("input", () => {
+    if (optSensDisplay) optSensDisplay.textContent = `${truncTo2Decimals(Number(optSens.value))} dB`;
     lastAppliedNoiseDb = null;
     scheduleWaveformHighlightRefresh();
   });
+  if (optSensDisplay) optSensDisplay.textContent = `${truncTo2Decimals(Number(optSens.value))} dB`;
   optSens.addEventListener("change", () => {
     syncNoiseDbInput();
     lastAppliedNoiseDb = null;
     scheduleWaveformHighlightRefresh();
+  });
+  applyRecommendedButton?.addEventListener("click", () => {
+    const suggested = Number(optRecDb?.value);
+    if (!Number.isFinite(suggested)) return;
+    optSens.value = String(clamp(suggested, Number(optSens.min), Number(optSens.max)));
+    optSens.dispatchEvent(new Event("input", { bubbles: true }));
+    optSens.dispatchEvent(new Event("change", { bubbles: true }));
   });
 
   if (optMinSilence) {
@@ -2495,12 +2690,14 @@ document.addEventListener("DOMContentLoaded", () => {
   /** 새로고침 후 경로 없이 남은 고아 session(분석 bound 없음) 제거 */
   disableSilencePreviewOverlay();
   if (!pathInput.value.trim()) {
+    mediaWorkspace?.classList.remove("has-media");
     revokeSilenceOverlay();
     if (!getAnalysisBoundVideoPath() && sessionStorage.getItem(STORAGE_SILENCES)) {
       clearSilenceAnalysisSessionStorage();
       syncExportLinkState();
     }
   } else {
+    mediaWorkspace?.classList.add("has-media");
     discardAnalysisSessionUnlessPath(pathInput.value.trim(), mediaPathsEqual);
     if (!isSilenceOverlayGrantedForPath(pathInput.value.trim(), mediaPathsEqual)) {
       revokeSilenceOverlay();
@@ -3217,4 +3414,5 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 void showAdSense("editorAboveWorkspace", "#editor-ad-above-workspace");
+void showAdSense("editorAboveWorkspace", "#editor-ad-above-workspace-2");
 void showAdSense("editorBelowExport", "#editor-ad-below-export");

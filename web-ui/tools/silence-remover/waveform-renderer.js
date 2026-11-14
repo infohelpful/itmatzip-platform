@@ -6,14 +6,14 @@
 /** @typedef {{ background?: string, waveform?: string, baseline?: string }} WaveformColors */
 
 export const DEFAULT_WAVEFORM_COLORS = {
-  background: "#2d7d5a",
-  waveform: "rgba(230, 247, 255, 0.96)",
-  baseline: "rgba(210, 245, 235, 0.98)",
+  background: "#090c12",
+  waveform: "rgba(45, 212, 191, 0.96)",
+  baseline: "rgba(148, 163, 184, 0.72)",
 };
 
 /** 무음 구간: 중앙 기준 2px 실선 */
 const SILENCE_BAR_HEIGHT_PX = 2;
-const SILENCE_WAVE_COLOR = "rgba(255, 255, 255, 0.32)";
+const SILENCE_WAVE_COLOR = "rgba(251, 113, 133, 0.92)";
 
 /** 룰러·상태 표시용 시:분:초 */
 export function formatWaveformTimeLabel(sec) {
@@ -403,8 +403,11 @@ export class WaveformRenderer {
 
     for (let x = 0; x < w; x += 1) {
       if (silent[x]) {
+        const raw = peaks[x] ?? 0;
+        const amp = mx > 1e-18 ? Math.sqrt(Math.max(0, Math.min(1, raw / mx))) : 0;
+        const hh = raw < 1e-7 ? silenceHalf : Math.max(silenceHalf, Math.min(14, amp * halfMax * 0.2));
         ctx.fillStyle = SILENCE_WAVE_COLOR;
-        ctx.fillRect(x, cy - silenceHalf, 1, SILENCE_BAR_HEIGHT_PX);
+        ctx.fillRect(x, cy - hh, 1, hh * 2);
         continue;
       }
 
@@ -447,13 +450,16 @@ export class WaveformRenderer {
    * @param {string} [color]
    */
   static drawCenterBaseline(ctx, w, waveH, color) {
-    const cy = Math.floor(waveH / 2) + 0.5;
-    ctx.strokeStyle = color ?? DEFAULT_WAVEFORM_COLORS.baseline;
+    ctx.strokeStyle = color ?? "rgba(100, 116, 139, .35)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, cy);
-    ctx.lineTo(w, cy);
-    ctx.stroke();
+    ctx.setLineDash([4, 4]);
+    for (const y of [waveH * 0.38, waveH * 0.62]) {
+      ctx.beginPath();
+      ctx.moveTo(0, Math.floor(y) + 0.5);
+      ctx.lineTo(w, Math.floor(y) + 0.5);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   /** @param {CanvasRenderingContext2D} ctx */
@@ -465,7 +471,7 @@ export class WaveformRenderer {
    * @param {CanvasRenderingContext2D} ctx
    */
   _drawRuler(ctx, w, waveH, rulerH, startSec, endSec, pxPerSec) {
-    const RULER_BG = "#0f1115";
+    const RULER_BG = "#0d1017";
     ctx.fillStyle = RULER_BG;
     ctx.fillRect(0, waveH, w, rulerH);
     ctx.strokeStyle = "rgba(55, 55, 55, 1)";

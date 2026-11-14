@@ -167,7 +167,8 @@
       var asAccent = (cs.getPropertyValue("--as-accent") || "").trim();
       if (asAccent) document.documentElement.style.setProperty("--accent", asAccent);
     }
-    var forced = String(forcedText || "").trim();
+    var localTitle = String(el.getAttribute("data-brand-title") || "").trim();
+    var forced = localTitle || String(forcedText || "").trim();
     var existing = el.querySelector(".accent, .as-logo-accent");
     if (!forced && existing) {
       existing.classList.add("accent");
@@ -1698,7 +1699,7 @@
       return;
     }
     var src = runtimeScriptSrc();
-    var href = "common/i18n/" + id + ".js?v=30";
+    var href = "common/i18n/" + id + ".js?v=32";
     if (src) href = src.replace(/site-runtime\.js[^/]*$/, "i18n/" + id + ".js?v=30");
     var el = document.createElement("script");
     el.src = href;
