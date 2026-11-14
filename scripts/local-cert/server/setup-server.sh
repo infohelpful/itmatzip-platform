@@ -48,25 +48,35 @@ install -m 755 "$TMPD/lego" "$BIN/lego"
 "$BIN/lego" --version
 
 say "3/5 renew script"
-curl -fsSL -o "$BIN/renew-local-cert.sh" "$REPO_RAW/renew-local-cert.sh"
+# ?ts= : bypass the 5-minute GitHub raw cache so a fresh fix is picked up immediately
+curl -fsSL -o "$BIN/renew-local-cert.sh" "$REPO_RAW/renew-local-cert.sh?ts=$(date +%s)"
 chmod 700 "$BIN/renew-local-cert.sh"
 bash -n "$BIN/renew-local-cert.sh"
 
-say "4/5 credentials"
+say "4/5 credentials and failure alerts"
+[ -r /dev/tty ] || die "needs an interactive terminal"
 if [ -s "$CONF_DIR/env" ]; then
-  echo "$CONF_DIR/env already exists - keeping it."
+  echo "$CONF_DIR/env already exists - keeping the e-mail and token."
+  EMAIL="$( . "$CONF_DIR/env" >/dev/null 2>&1; printf '%s' "${EMAIL:-}" )"
 else
-  [ -r /dev/tty ] || die "needs an interactive terminal"
-  read -rp "Contact e-mail for Let's Encrypt (expiry notices): " EMAIL </dev/tty
+  read -rp "Contact e-mail for Let's Encrypt: " EMAIL </dev/tty
   read -rsp "Cloudflare API token (input is hidden): " TOKEN </dev/tty; echo
   [ -n "$EMAIL" ] && [ -n "$TOKEN" ] || die "e-mail and token are required"
-  ( umask 077; printf 'EMAIL=%s\nCLOUDFLARE_DNS_API_TOKEN=%s\n' "$EMAIL" "$TOKEN" >"$CONF_DIR/env" )
-  chmod 600 "$CONF_DIR/env"
+  ( umask 077; printf 'EMAIL=%q\nCLOUDFLARE_DNS_API_TOKEN=%q\n' "$EMAIL" "$TOKEN" >"$CONF_DIR/env" )
   unset TOKEN
 fi
+chmod 600 "$CONF_DIR/env"
+if ! grep -q '^NOTIFY_EMAIL=' "$CONF_DIR/env"; then
+  read -rp "E-mail address for failure alerts [Enter = $EMAIL]: " NOTIFY </dev/tty
+  NOTIFY="${NOTIFY:-$EMAIL}"
+  printf 'NOTIFY_EMAIL=%q\n' "$NOTIFY" >>"$CONF_DIR/env"
+fi
+echo "Sending a test alert (check the inbox AND the spam folder)..."
+"$BIN/renew-local-cert.sh" --test-mail || echo "(test mail could not be sent - failure alerts may not arrive; see the message above)"
 
 say "5/5 first run + weekly cron"
-"$BIN/renew-local-cert.sh"
+FIRST_RUN_OK=1
+"$BIN/renew-local-cert.sh" || FIRST_RUN_OK=0
 
 if command -v crontab >/dev/null 2>&1; then
   CUR=""
@@ -83,4 +93,9 @@ else
   echo "No crontab command. Add this line in cPanel > Cron Jobs:"; echo "$CRON_LINE"
 fi
 
-printf '\nDone. The certificate renews itself weekly (only when fewer than 30 days remain).\nLog: %s/renew.log\n' "$WORK"
+if [ "$FIRST_RUN_OK" = 1 ]; then
+  printf '\nDone. The certificate renews itself weekly (only when fewer than 30 days remain).\nFailures are mailed to the alert address. Log: %s/renew.log\n' "$WORK"
+else
+  printf '\nThe FIRST RUN FAILED (see the output above). The weekly cron is installed and will retry,\nbut fix the cause first and run  ~/bin/renew-local-cert.sh  by hand until it prints "published".\n'
+  exit 1
+fi

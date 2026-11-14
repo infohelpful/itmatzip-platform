@@ -12,7 +12,8 @@ curl -fsSLO https://raw.githubusercontent.com/infohelpful/itmatzip-platform/main
 bash setup-server.sh
 ```
 
-- 이메일과 Cloudflare API 토큰을 물어봅니다(토큰은 입력해도 화면에 안 보임, `chmod 600` 파일에만 저장).
+- 이메일, Cloudflare API 토큰, **실패 알림을 받을 주소**를 물어봅니다(토큰은 입력해도 화면에 안 보임, 모두 서버의 `chmod 600` 파일에만 저장. 저장소에는 주소를 적지 않습니다).
+- 알림 주소로 **시험 메일**을 한 통 보냅니다. 받은편지함과 **스팸함**을 확인하세요.
 - 토큰 권한: `Zone - DNS - Edit`, `Zone - Zone - Read` (영역은 `itmatzip.com` 한 곳).
 - 끝나면 첫 갱신이 실행되고, 매주 월요일 04:17에 도는 cron 항목이 등록됩니다.
 
@@ -22,6 +23,8 @@ bash setup-server.sh
 - 게시 전 검사: 인증서가 `local.itmatzip.com` 용이 아니거나 24시간 안에 만료되면 **게시하지 않고** 오류로 끝냅니다.
 - `bundle.json` 은 임시 파일에 쓴 뒤 교체(atomic)하므로 에이전트가 반쯤 쓴 파일을 받을 일이 없습니다.
 - 에이전트는 하루 한 번 이 파일을 받아 인증서를 바꿉니다(재시작 불필요).
+- **실패하면 메일이 갑니다.** 실행 결과 마지막 60줄이 알림 주소로 전송됩니다(토큰은 포함되지 않음). 성공하면 메일은 없습니다.
+- DNS 조회는 `1.1.1.1` 로 고정합니다. 서버의 DNS 캐시가 예전 네임서버를 기억하고 있어도 영향받지 않게 하기 위함입니다.
 
 ## 확인 / 문제 해결
 
@@ -29,8 +32,10 @@ bash setup-server.sh
 tail -n 20 ~/.local/share/itmatzip-cert/renew.log     # 갱신 기록
 crontab -l | grep renew-local-cert                     # 예약 확인
 ~/bin/renew-local-cert.sh                              # 수동 실행
+~/bin/renew-local-cert.sh --test-mail                  # 알림 메일이 오는지 시험
 ```
 
 - 갱신이 계속 실패해도 사이트는 멈추지 않습니다. 웹은 `127.0.0.1` → `localhost` → `itmatzip.localhost` → HTTPS 순으로 시도합니다.
+- 알림 주소를 바꾸려면 `~/.config/itmatzip-cert/env` 의 `NOTIFY_EMAIL=` 줄을 고치세요.
 - 토큰을 바꿨다면 `~/.config/itmatzip-cert/env` 를 지우고 `bash setup-server.sh` 를 다시 실행하세요.
 - 이 서버에서 갱신하는 인증서는 PC 에서 발급한 것과 별개의 새 인증서입니다.
