@@ -10,7 +10,7 @@
  *   Bridge.startConnectionMonitor({ onChange: (ok) => { ... } });
  */
 
-import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js";
+import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js?v=lna28";
 import { agentAccessBlockedDialogOptions, agentInstallDialogOptions } from "./agent-install-ui.js?v=lna22";
 import {
   ensureSiteModalStyles,

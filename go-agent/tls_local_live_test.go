@@ -90,3 +90,40 @@ func TestLiveLocalTLS(t *testing.T) {
 	t.Logf("verified %s (TLS 0x%x), issuer %s, valid until %s",
 		leaf.DNSNames, resp.TLS.Version, leaf.Issuer.CommonName, leaf.NotAfter.Format(time.RFC3339))
 }
+
+// TestLiveDownload exercises the real download path against the production URL (no local copy, default URL).
+// Run with ITMATZIP_TEST_DOWNLOAD=1 after uploading bundle.json to https://tools.itmatzip.com/agent-cert/.
+func TestLiveDownload(t *testing.T) {
+	if os.Getenv("ITMATZIP_TEST_DOWNLOAD") == "" {
+		t.Skip("set ITMATZIP_TEST_DOWNLOAD=1 to run the live download check")
+	}
+	oldRoot := settingsRootPath
+	settingsRootPath = t.TempDir()
+	defer func() { settingsRootPath = oldRoot }()
+	t.Setenv(certBundleURLEnv, "")
+
+	holder := &localCertHolder{}
+	if !refreshLocalCert(context.Background(), holder) || holder.get() == nil {
+		t.Fatal("could not download a valid certificate bundle from the default URL")
+	}
+	if _, err := os.Stat(localCertPath()); err != nil {
+		t.Fatalf("downloaded bundle was not cached: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	port := freeLoopbackPort(t)
+	startLocalTLSServer(ctx, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok") }), port)
+	client := &http.Client{Timeout: 3 * time.Second}
+	var lastErr error
+	for i := 0; i < 50; i++ {
+		var resp *http.Response
+		if resp, lastErr = client.Get(fmt.Sprintf("https://%s:%d/", localTLSHostname, port)); lastErr == nil {
+			resp.Body.Close()
+			t.Logf("downloaded cert valid until %s", holder.get().notAfter.Format(time.RFC3339))
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("https server did not come up: %v", lastErr)
+}

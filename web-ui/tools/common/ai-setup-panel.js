@@ -1,5 +1,5 @@
 /** Shared installation status for AI tools. The agent remains the source of truth. */
-import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna27';
+import { checkAgentConnection, fetchAgent, getAgentOrigin } from './bridge.js?v=lna28';
 import { getAgentDownloadHref } from './agent-install-ui.js?v=lna22';
 import { TOOLS, running, failed, setupRows, setupGatePhase, jobProgress } from './ai-setup-state.js?v=4';
 const number = v => typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : null;

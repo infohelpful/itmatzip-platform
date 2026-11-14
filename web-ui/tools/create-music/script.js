@@ -2,7 +2,7 @@
  * Create Music — ACE-Step 1.5 AI 음악 생성 (간단한 화면)
  * 왼쪽: 보컬·장르·분위기·템포·가사·길이 / 가운데: 만든 곡 목록·플레이어 / 오른쪽: AI 작곡 도우미(MCP 연결 시)
  */
-import * as Bridge from "../common/bridge.js?v=lna27";
+import * as Bridge from "../common/bridge.js?v=lna28";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=6";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
