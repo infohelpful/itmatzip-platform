@@ -2012,43 +2012,43 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   .header-status-col { gap: calc(12 * var(--u)); }
 
   /* 본문: 왼쪽 영역을 오른쪽으로 넓힘 (calc(350 * var(--u)) → calc(440 * var(--u))) */
-  .studio-layout { height: max(calc(560 * var(--u)), calc(100vh - calc(60 * var(--u)))); grid-template-columns: calc(440 * var(--u)) minmax(0, 1fr); }
+  .studio-layout { height: max(calc(560 * var(--u)), calc(100vh - calc(60 * var(--u)))); grid-template-columns: clamp(380px, 25vw, 780px) minmax(0, 1fr); }
 
   /* 왼쪽 인스펙터 */
-  .settings-inspector { padding: calc(16 * var(--u)) calc(20 * var(--u)); }
-  .inspector-head { margin-bottom: calc(10 * var(--u)); }
-  .inspector-head h2 { font-size: calc(15.5 * var(--u)); }
-  .inspector-head p { font-size: calc(12.5 * var(--u)); }
-  #btn-apply-recommended-sensitivity { padding: calc(5 * var(--u)) calc(11 * var(--u)); font-size: calc(13 * var(--u)); }
-  .settings-inspector .options-row { gap: calc(10 * var(--u)); }
-  .settings-inspector .option-card { padding: calc(10 * var(--u)) calc(12 * var(--u)); }
-  .settings-inspector .option-card > label { margin-bottom: calc(5 * var(--u)); font-size: calc(13 * var(--u)); }
-  .settings-inspector .option-card > .option-hint { font-size: calc(12 * var(--u)); margin-top: calc(3 * var(--u)); }
+  .settings-inspector { padding: calc(16 * var(--us, var(--u))) calc(20 * var(--us, var(--u))); }
+  .inspector-head { margin-bottom: calc(10 * var(--us, var(--u))); }
+  .inspector-head h2 { font-size: calc(15.5 * var(--us, var(--u))); }
+  .inspector-head p { font-size: calc(12.5 * var(--us, var(--u))); }
+  #btn-apply-recommended-sensitivity { padding: calc(5 * var(--us, var(--u))) calc(11 * var(--us, var(--u))); font-size: calc(13 * var(--us, var(--u))); }
+  .settings-inspector .options-row { gap: calc(10 * var(--us, var(--u))); }
+  .settings-inspector .option-card { padding: calc(10 * var(--us, var(--u))) calc(12 * var(--us, var(--u))); }
+  .settings-inspector .option-card > label { margin-bottom: calc(5 * var(--us, var(--u))); font-size: calc(13 * var(--us, var(--u))); }
+  .settings-inspector .option-card > .option-hint { font-size: calc(12 * var(--us, var(--u))); margin-top: calc(3 * var(--us, var(--u))); }
   .settings-inspector .option-card input[type="number"],
-  .settings-inspector .option-card input[type="text"] { font-size: calc(17 * var(--u)); }
-  .sensitivity-value { font-size: calc(17 * var(--u)); }
-  #opt-sensitivity { height: calc(18 * var(--u)); }
+  .settings-inspector .option-card input[type="text"] { font-size: calc(17 * var(--us, var(--u))); }
+  .sensitivity-value { font-size: calc(17 * var(--us, var(--u))); }
+  #opt-sensitivity { height: calc(18 * var(--us, var(--u))); }
   .option-control-head label,
   .settings-inspector .option-card-padding label,
-  .settings-inspector .option-card-duration > label { font-size: calc(15 * var(--u)); }
-  .option-control-head .value-pill { padding: calc(3 * var(--u)) calc(10 * var(--u)); font-size: calc(14 * var(--u)); }
-  .settings-inspector .option-card-padding .option-hint { font-size: calc(13 * var(--u)); }
-  .range-group-padding input[type="range"], .range-group-min-silence input[type="range"] { height: calc(18 * var(--u)); }
-  .duration-chip-list { gap: calc(6 * var(--u)) !important; }
-  .duration-chip-list .chip { padding: calc(7 * var(--u)) 0 !important; font-size: calc(14 * var(--u)); }
-  .media-summary-title { font-size: calc(15 * var(--u)); }
-  .summary-ready-indicator { font-size: calc(12.5 * var(--u)); }
-  .media-summary-item { padding: calc(8 * var(--u)) calc(11 * var(--u)); font-size: calc(13.5 * var(--u)); }
-  .media-summary-item dt { font-size: calc(13.5 * var(--u)); }
-  .media-summary-item dd { font-size: calc(14.5 * var(--u)); }
+  .settings-inspector .option-card-duration > label { font-size: calc(15 * var(--us, var(--u))); }
+  .option-control-head .value-pill { padding: calc(3 * var(--us, var(--u))) calc(10 * var(--us, var(--u))); font-size: calc(14 * var(--us, var(--u))); }
+  .settings-inspector .option-card-padding .option-hint { font-size: calc(13 * var(--us, var(--u))); }
+  .range-group-padding input[type="range"], .range-group-min-silence input[type="range"] { height: calc(18 * var(--us, var(--u))); }
+  .duration-chip-list { gap: calc(6 * var(--us, var(--u))) !important; }
+  .duration-chip-list .chip { padding: calc(7 * var(--us, var(--u))) 0 !important; font-size: calc(14 * var(--us, var(--u))); }
+  .media-summary-title { font-size: calc(15 * var(--us, var(--u))); }
+  .summary-ready-indicator { font-size: calc(12.5 * var(--us, var(--u))); }
+  .media-summary-item { padding: calc(8 * var(--us, var(--u))) calc(11 * var(--us, var(--u))); font-size: calc(13.5 * var(--us, var(--u))); }
+  .media-summary-item dt { font-size: calc(13.5 * var(--us, var(--u))); }
+  .media-summary-item dd { font-size: calc(14.5 * var(--us, var(--u))); }
 
   /* 왼쪽 맨 아래 버튼 독 */
-  .studio-sidebar .action-center { padding: calc(14 * var(--u)) calc(20 * var(--u)) calc(16 * var(--u)); gap: calc(10 * var(--u)); }
-  .edl-export-option { padding: calc(10 * var(--u)) calc(12 * var(--u)); }
-  .edl-export-option input { width: calc(18 * var(--u)); height: calc(18 * var(--u)); }
-  .edl-option-copy strong { font-size: calc(14.5 * var(--u)); }
-  .edl-option-copy small { font-size: calc(12.5 * var(--u)); }
-  .studio-sidebar .btn-main, .studio-sidebar .btn-export { padding: calc(13 * var(--u)); font-size: calc(16 * var(--u)); }
+  .studio-sidebar .action-center { padding: calc(14 * var(--us, var(--u))) calc(20 * var(--us, var(--u))) calc(16 * var(--us, var(--u))); gap: calc(10 * var(--us, var(--u))); }
+  .edl-export-option { padding: calc(10 * var(--us, var(--u))) calc(12 * var(--us, var(--u))); }
+  .edl-export-option input { width: calc(18 * var(--us, var(--u))); height: calc(18 * var(--us, var(--u))); }
+  .edl-option-copy strong { font-size: calc(14.5 * var(--us, var(--u))); }
+  .edl-option-copy small { font-size: calc(12.5 * var(--us, var(--u))); }
+  .studio-sidebar .btn-main, .studio-sidebar .btn-export { padding: calc(13 * var(--us, var(--u))); font-size: calc(16 * var(--us, var(--u))); }
 
   /* 오른쪽 워크스페이스 */
   .ad-caption { font-size: calc(11.5 * var(--u)); }
@@ -2082,4 +2082,37 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   .sr-guide h3 { font-size: calc(16.5 * var(--u)); }
   .sr-guide p, .sr-guide li, .sr-guide .tool-guide-lead { font-size: calc(14.5 * var(--u)); }
   .sr-guide .tool-guide-note { font-size: calc(13.5 * var(--u)); }
+}
+
+/* 파일을 불러오기 전(빈 화면)에는 안내 영역이 남는 공간을 꽉 채우고 글자도 크게, 파형이 있으면 높이를 줄여 보여준다 */
+@media (min-width: 1100px) {
+  .waveform-workspace:not(.has-media) .waveform-preview-section { flex: 1 1 auto; }
+  .waveform-workspace:not(.has-media) .waveform-preview-scroll { flex: 1 1 auto; height: auto; }
+  .waveform-empty-drop { gap: calc(16 * var(--u)); }
+  .waveform-empty-icon { font-size: calc(72 * var(--u)); }
+  .waveform-empty-drop strong { font-size: calc(32 * var(--u)); }
+  .waveform-empty-drop span:not(.waveform-empty-icon) { font-size: calc(19 * var(--u)); }
+  .waveform-empty-drop .waveform-empty-formats { font-size: calc(17 * var(--u)); }
+}
+
+/* 왼쪽 패널이 넓을 때는 분석 정보를 가로로 3칸에 배치해 높이를 줄인다 (정보는 그대로, 글자를 더 크게 키울 수 있음) */
+@media (min-width: 1100px) {
+  .settings-inspector { container-type: inline-size; }
+  .settings-inspector .summary-silence-section .summary-silence-item:last-child { grid-column: 1 / -1; }
+  .settings-inspector .media-summary-item dd.summary-settings-stack { white-space: normal; line-height: 1.4; text-align: right; }
+  @container (min-width: 480px) {
+    .settings-inspector .media-summary-list,
+    .settings-inspector .summary-silence-section .media-summary-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .settings-inspector .summary-media-item:last-child { grid-column: auto; }
+  }
+}
+
+/* 분석 정보 칸: 라벨은 한 줄로 유지(세로로 깨지지 않게), 「분석 설정」은 라벨 + 한 줄 값 */
+@media (min-width: 1100px) {
+  .settings-inspector .media-summary-item dt { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .settings-inspector .media-summary-item dd { white-space: nowrap; }
+  .settings-inspector .summary-silence-section .summary-silence-item:last-child {
+    grid-template-columns: auto minmax(0, 1fr); gap: calc(12 * var(--us, var(--u)));
+  }
+  .settings-inspector .media-summary-item dd.summary-settings-stack { white-space: normal; text-align: right; }
 }

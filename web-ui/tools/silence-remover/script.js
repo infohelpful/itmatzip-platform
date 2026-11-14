@@ -1499,7 +1499,7 @@ document.addEventListener("DOMContentLoaded", () => {
         `무음 민감도: ${sensTxt}`,
         `여백: ${padTxt}`,
         `최소 무음: ${minTxt}`,
-      ].join("\n"),
+      ].join("  ·  "),
     );
   }
 
@@ -2468,6 +2468,8 @@ document.addEventListener("DOMContentLoaded", () => {
           ? raw.pixels_per_second
           : pps;
 
+      // 파형이 그려지는 상태에서는 어떤 경로로 들어왔든 「여기에 놓으세요」 안내를 보이지 않게 한다.
+      if (mediaWorkspace) mediaWorkspace.classList.add("has-media");
       waveformPeaksData = {
         peaks,
         peaks_db: peaksDb.length === columnCount ? peaksDb : peaksDb,
@@ -2849,6 +2851,8 @@ document.addEventListener("DOMContentLoaded", () => {
     editorRestoreInFlight = true;
     try {
       pathInput.value = videoPath;
+      // 다운로드 화면에서 돌아와 복원할 때도 파형이 그려지므로 「여기에 놓으세요」 안내를 숨긴다.
+      if (mediaWorkspace) mediaWorkspace.classList.add("has-media");
       const storedName = sessionStorage.getItem(STORAGE_NAME);
       if (storedName && STAGED_UPLOAD_PATH_RE.test(videoPath)) showPathAsName(videoPath, storedName);
       pathInput.removeAttribute("placeholder");
