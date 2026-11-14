@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.43",
+    "version":  "1.7.44",
     "published_at":  "2026-11-15",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.43/itmatzip-agent.msi",
-    "sha256":  "9046409ae44d120f5b7627295136421e9a738958cc0487be2c66e2f3679ed3da",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.44/itmatzip-agent.msi",
+    "sha256":  "111489c9b2403134149bae93c8c09d0624166af84bf89d9d182820fa7cc0db78",
     "mandatory":  false,
-    "release_notes":  "Silence Detector: XML 내보내기 수정, 파형 캔버스 개선, 화면 확대·한 화면 맞춤, 파형 영역 꽉 채우기",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.43/itmatzip-agent.msi",
-    "msi_sha256":  "9046409ae44d120f5b7627295136421e9a738958cc0487be2c66e2f3679ed3da"
+    "release_notes":  "광고 차단기 우회용 연결 후보 추가 (itmatzip.localhost, https://local.itmatzip.com:19878). 에이전트가 인증서를 받아 HTTPS 로컬 서버를 제공합니다.",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.44/itmatzip-agent.msi",
+    "msi_sha256":  "111489c9b2403134149bae93c8c09d0624166af84bf89d9d182820fa7cc0db78"
 }
