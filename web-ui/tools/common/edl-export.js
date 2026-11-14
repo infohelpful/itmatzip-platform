@@ -30,7 +30,7 @@ export const STORAGE_MIN_SILENCE = "itmatzip_silence_min_silence_sec";
 export const STORAGE_EDL_FINGERPRINT = "itmatzip_silence_edl_fp";
 export const STORAGE_DOWNLOAD_FORMAT = "itmatzip_silence_download_format";
 /** FCP7 XML rev — agent `<!-- itmatzip-fcp7 rev=N -->` 와 일치 */
-export const FCP7_XML_EXPORT_REV = 2;
+export const FCP7_XML_EXPORT_REV = 3;
 /** EDL 생성 로직 rev — agent `* itmatzip-edl rev=N` 와 일치 */
 export const EDL_EXPORT_LOGIC_REV = 2;
 /** 무음 분석 버튼 성공 후에만 파형 무음 미리보기 허용 (정규화된 경로) */
@@ -152,6 +152,35 @@ export function fcpXmlStructurallyValid(xml) {
   return t.includes("<xmeml") && t.includes("<clipitem");
 }
 
+/** Repair rev=2 exports from installed agents without changing any cut positions. */
+export function normalizeFcpXmlSourceDurations(xml) {
+  const text = String(xml || "");
+  if (!/itmatzip-fcp7 rev=2\b/.test(text)) return text;
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.querySelector("parsererror")) return text;
+  const sourceDurations = new Map();
+  for (const file of doc.querySelectorAll("file[id]")) {
+    const duration = Number(file.querySelector("duration")?.textContent);
+    if (Number.isFinite(duration) && duration > 0) {
+      sourceDurations.set(file.getAttribute("id"), duration);
+    }
+  }
+  const clips = [...doc.querySelectorAll("clipitem")];
+  if (!clips.length) return text;
+  for (const clip of clips) {
+    const sourceDuration = sourceDurations.get(clip.querySelector("file")?.getAttribute("id"));
+    const duration = [...clip.children].find((child) => child.tagName === "duration");
+    const out = Number(clip.querySelector("out")?.textContent);
+    if (!duration || !Number.isFinite(sourceDuration) || !Number.isFinite(out) || out > sourceDuration) {
+      return text;
+    }
+    duration.textContent = String(sourceDuration);
+  }
+  return new XMLSerializer().serializeToString(doc).replace(
+    /itmatzip-fcp7 rev=2\b/, `itmatzip-fcp7 rev=${FCP7_XML_EXPORT_REV}`,
+  );
+}
+
 /** 다운로드 캐시용 — rev·remove_silent 옵션까지 현재 세션과 일치 */
 export function fcpXmlLooksValid(xml) {
   if (!fcpXmlStructurallyValid(xml)) return false;
@@ -170,7 +199,7 @@ export function fcpXmlLooksValid(xml) {
 }
 
 export function getStoredFcpXmlFromSession() {
-  return sessionStorage.getItem(STORAGE_FCP_XML)?.trim() || "";
+  return normalizeFcpXmlSourceDurations(sessionStorage.getItem(STORAGE_FCP_XML)?.trim() || "");
 }
 
 export function getSessionFcpXmlForDownload() {
@@ -771,8 +800,9 @@ export async function buildFcpXmlViaAgent(requestAgent, opts = {}) {
         ...(videoPath ? { video_path: videoPath } : {}),
       },
     });
-    const fcpXml =
-      data && typeof data === "object" && typeof data.fcp_xml === "string" ? data.fcp_xml : "";
+    const fcpXml = normalizeFcpXmlSourceDurations(
+      data && typeof data === "object" && typeof data.fcp_xml === "string" ? data.fcp_xml : "",
+    );
     if (fcpXml.trim() && fcpXmlLooksValid(fcpXml)) {
       sessionStorage.setItem(STORAGE_FCP_XML, fcpXml);
       markStoredEdlFingerprintFromSession();

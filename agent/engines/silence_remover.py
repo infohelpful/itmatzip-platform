@@ -3056,7 +3056,7 @@ def _frames_to_timecode_autocutter_edl(total_frames: int, tc_fps: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}:{frames:02d}"
 
 
-FCP7_XML_EXPORT_REV = 2
+FCP7_XML_EXPORT_REV = 3
 
 
 def _autocutter_final_clips(
@@ -3320,7 +3320,8 @@ def create_fcp7_xml(
             [
                 f'          <clipitem id="{cid}">',
                 f"            <name>{safe_name}</name>",
-                f"            <duration>{dur}</duration>",
+                # XMEML duration is the source extent; start/end describe the edit.
+                f"            <duration>{file_duration}</duration>",
             ]
         )
         lines.extend(_fcp7_rate_xml(timebase, ntsc, "            "))
@@ -3368,7 +3369,7 @@ def create_fcp7_xml(
             [
                 f'          <clipitem id="{cid}">',
                 f"            <name>{safe_name}</name>",
-                f"            <duration>{dur}</duration>",
+                f"            <duration>{file_duration}</duration>",
             ]
         )
         lines.extend(_fcp7_rate_xml(timebase, ntsc, "            "))

@@ -37,6 +37,7 @@ export function formatWaveformTimeLabel(sec) {
  * @property {number} [silenceThreshold] peaks_db 없을 때 상대 진폭 임계(0~1)
  * @property {boolean} [flattenSilence] true면 threshold 이하를 2px 실선(기본 true)
  * @property {number} [silenceThresholdDb] flattenSilence + peaks_db일 때 dB 임계
+ * @property {{ start_sec: number, end_sec: number }[]} [silenceTimeSegments] Exact cut ranges; [] preserves all peaks.
  * @property {number} [rulerHeight] 하단 룰러 높이
  * @property {boolean} [showRuler]
  */
@@ -339,9 +340,25 @@ export class WaveformRenderer {
       endTimeSec,
       windowPx,
       silenceThreshold,
-      flattenSilence,
+      flattenSilence && !Array.isArray(view.silenceTimeSegments),
       silenceThresholdDb,
     );
+    if (flattenSilence && Array.isArray(view.silenceTimeSegments)) {
+      let segmentIndex = 0;
+      const segments = view.silenceTimeSegments;
+      for (let px = 0; px < windowPx; px += 1) {
+        const t0 = startTimeSec + (px / windowPx) * (endTimeSec - startTimeSec);
+        const t1 = startTimeSec + ((px + 1) / windowPx) * (endTimeSec - startTimeSec);
+        while (segmentIndex < segments.length && segments[segmentIndex].end_sec < t1 - 1e-9) {
+          segmentIndex += 1;
+        }
+        const segment = segments[segmentIndex];
+        if (segment && t0 >= segment.start_sec - 1e-9 && t1 <= segment.end_sec + 1e-9) {
+          silent[px] = 1;
+          rawPeaks[px] = 0;
+        }
+      }
+    }
     const peaks = this._smoothDisplayPeaks(rawPeaks, silent);
 
     ctx.fillStyle = colors.background ?? DEFAULT_WAVEFORM_COLORS.background;

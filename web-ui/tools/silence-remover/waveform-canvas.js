@@ -3,7 +3,7 @@
  * 파형 본체는 waveform-renderer.js (시간축 재샘플링, CSS 스케일 줌 없음).
  */
 
-import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer, waveformUiScale } from "./waveform-renderer.js?v=4";
+import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer, waveformUiScale } from "./waveform-renderer.js?v=5";
 
 /** @typedef {{ peaks: number[], peaks_db: number[], duration_sec: number, column_count: number, timeline_sec: number, mean_volume_db: number, max_volume_db?: number | null }} WaveformPeaksData */
 
@@ -220,6 +220,25 @@ export function silenceSegmentsFromVocalMs(vocalMs, durationSec) {
   return out;
 }
 
+/** Use the same source-frame rounding as the agent's XML exporter. */
+export function exportSilenceTimeSegments(vocalMs, durationSec, fps) {
+  if (!Number.isFinite(fps) || fps <= 0) {
+    return silenceSegmentsFromVocalMs(vocalMs, durationSec);
+  }
+  // Python round() uses ties-to-even, unlike Math.round().
+  const roundFrame = (value) => {
+    const floor = Math.floor(value);
+    return value - floor === 0.5 ? floor + (floor % 2) : Math.round(value);
+  };
+  const frames = vocalMs.map(([a, b]) => [
+    roundFrame((a / 1000) * fps), roundFrame((b / 1000) * fps),
+  ]).filter(([a, b]) => b > a);
+  return silenceSegmentsFromVocalMs(
+    frames.map(([a, b]) => [(a / fps) * 1000, (b / fps) * 1000]),
+    roundFrame(durationSec * fps) / fps,
+  );
+}
+
 /**
  * @param {TimeSegment[]} segments
  * @param {number} timelineSec
@@ -267,8 +286,8 @@ export function computePaddedSilenceColumnRanges(data, opts) {
   const n = data.column_count;
   if (n < 1 || timeline <= 1e-9) return [];
 
-  const raw = opts.rawSilences ?? [];
-  if (!raw.length) {
+  const raw = opts.rawSilences;
+  if (!Array.isArray(raw)) {
     return computeSilentColumnRanges(data, {
       noiseDb: opts.noiseDb ?? -40,
       minSilenceSec: opts.minSilenceSec,
@@ -381,8 +400,8 @@ function drawSilenceOverlayTimeBased(ctx, w, waveH, startTimeSec, pxPerSec, segm
     const a = Number(seg.start_sec) || 0;
     const b = Number(seg.end_sec) || 0;
     if (b <= a) continue;
-    const x0 = Math.floor((a - startTimeSec) * pxPerSec);
-    const x1 = Math.ceil((b - startTimeSec) * pxPerSec) - 1;
+    const x0 = Math.floor((a - startTimeSec) * pxPerSec + 1e-9);
+    const x1 = Math.ceil((b - startTimeSec) * pxPerSec - 1e-9) - 1;
     if (x1 < 0 || x0 >= w) continue;
     const clipX0 = Math.max(0, x0);
     const clipX1 = Math.min(w - 1, x1);
@@ -443,6 +462,20 @@ export function drawSilenceWaveform(canvas, data, opts) {
     data.max_volume_db,
   );
 
+  // An explicit empty result means no cuts, not permission to guess from peaks.
+  let timeSegments;
+  if (Array.isArray(opts.silenceTimeSegments)) {
+    timeSegments = opts.silenceTimeSegments;
+  } else if (Array.isArray(opts.silenceColumnRanges)) {
+    timeSegments = columnRangesToTimeSegments(
+      opts.silenceColumnRanges, data.timeline_sec, data.column_count,
+    );
+  } else {
+    timeSegments = columnRangesToTimeSegments(
+      computeSilentColumnRanges(data, opts), data.timeline_sec, data.column_count,
+    );
+  }
+
   const viewResult = renderer.render(
     canvas,
     {
@@ -453,6 +486,7 @@ export function drawSilenceWaveform(canvas, data, opts) {
       flattenSilence: opts.flattenSilence === true,
       silenceThresholdDb: threshDb,
       silenceThreshold: opts.amplitudeSilenceThreshold ?? 0.01,
+      silenceTimeSegments: opts.showSilenceOverlay ? timeSegments : undefined,
       rulerHeight: rulerH,
       showRuler: opts.showRuler !== false,
     },
@@ -466,28 +500,6 @@ export function drawSilenceWaveform(canvas, data, opts) {
 
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-  /** @type {TimeSegment[]} */
-  let timeSegments;
-  if (opts.silenceColumnRanges?.length) {
-    timeSegments = columnRangesToTimeSegments(
-      opts.silenceColumnRanges,
-      data.timeline_sec,
-      data.column_count,
-    );
-  } else if (opts.silenceTimeSegments?.length) {
-    timeSegments = opts.silenceTimeSegments;
-  } else {
-    const colRanges = computeSilentColumnRanges(data, {
-      noiseDb: opts.noiseDb,
-      minSilenceSec: opts.minSilenceSec,
-    });
-    timeSegments = columnRangesToTimeSegments(
-      colRanges,
-      data.timeline_sec,
-      data.column_count,
-    );
-  }
 
   drawSilenceOverlayTimeBased(
     ctx,
@@ -508,4 +520,4 @@ export function drawSilenceWaveform(canvas, data, opts) {
   return viewResult;
 }
 
-export { WaveformRenderer } from "./waveform-renderer.js?v=4";
+export { WaveformRenderer } from "./waveform-renderer.js?v=5";

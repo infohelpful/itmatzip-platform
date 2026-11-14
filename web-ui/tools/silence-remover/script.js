@@ -52,6 +52,7 @@ import {
   getStoredVideoPath,
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
+  loadStoredVocalIntervalsMs,
   grantSilenceOverlayForPath,
   isSilenceOverlayGrantedForPath,
   revokeSilenceOverlay,
@@ -64,12 +65,13 @@ import {
   markStoredEdlFingerprintFromSession,
   setDownloadFormatForSession,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna43";
+} from "../common/edl-export.js?v=lna44";
 import {
   computePreviewSilenceColumnRanges,
+  exportSilenceTimeSegments,
   drawSilenceWaveform,
   WaveformRenderer,
-} from "./waveform-canvas.js?v=4";
+} from "./waveform-canvas.js?v=5";
 
 const DOWNLOAD_PAGE = "download.html";
 function itzT(key, fallback) {
@@ -1243,6 +1245,22 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function getAnalyzedSilenceTimeSegmentsForDraw() {
+    const settings = lastAnalyzedSettings;
+    if (!silencePreviewEnabled || !settings || !waveformPeaksData ||
+        !mediaPathsEqual(getAnalysisBoundVideoPath(), pathInput.value.trim())) return undefined;
+    if (settings.fps !== getEditorFpsForExport() ||
+        settings.noiseDb !== (lastAppliedNoiseDb ?? getNoiseDb()) ||
+        settings.paddingMs !== getPaddingMs() ||
+        settings.minSilenceSec !== getMinSilenceSec()) return undefined;
+    const vocal = loadStoredVocalIntervalsMs();
+    if (!vocal) return loadStoredSilenceIntervals();
+    const duration = Number(sessionStorage.getItem(STORAGE_DURATION)) || waveformPeaksData.timeline_sec;
+    return exportSilenceTimeSegments(
+      vocal.map(({ start_ms, end_ms }) => [start_ms, end_ms]), duration, settings.fps,
+    );
+  }
+
   function getViewportWaveformWidth() {
     return Math.max(320, waveformPreviewScroll?.clientWidth ?? 800);
   }
@@ -1350,7 +1368,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const scrollLeftPx = waveformPreviewScroll?.scrollLeft ?? 0;
     const canvasWidth = getViewportWaveformWidth();
 
-    const silenceColRanges = silencePreviewEnabled
+    const silenceTimeSegments = getAnalyzedSilenceTimeSegmentsForDraw();
+    const silenceColRanges = silencePreviewEnabled && !Array.isArray(silenceTimeSegments)
       ? getPreviewSilenceColumnRangesForDraw()
       : undefined;
 
@@ -1363,6 +1382,7 @@ document.addEventListener("DOMContentLoaded", () => {
       showRuler: true,
       showSilenceOverlay: silencePreviewEnabled,
       silenceColumnRanges: silenceColRanges,
+      silenceTimeSegments,
       pxPerSec,
       scrollLeftPx,
       canvasWidth,

@@ -15,7 +15,7 @@ import {
   setDownloadFormatForSession,
   snapshotExportSettingsFromDom,
   validateExportPrerequisitesFromSession,
-} from "../common/edl-export.js?v=lna43";
+} from "../common/edl-export.js?v=lna44";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";
 
 configureBridge({ healthPath: "/health" });
