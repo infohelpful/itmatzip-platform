@@ -2070,9 +2070,6 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   .waveform-drag-overlay { font-size: calc(18 * var(--u)); }
   .file-drop-status { font-size: calc(13 * var(--u)); }
 
-  /* 파형 타임라인: 위아래로 줄임 (화면 높이에 맞춰 늘어나지 않고 고정 범위) */
-  .waveform-workspace .waveform-preview-section { flex: 0 0 auto; }
-  .waveform-preview-scroll { flex: 0 0 auto; height: clamp(calc(240 * var(--u)), 36vh, calc(360 * var(--u))); }
 }
 
 /* 아래 안내 글 */
@@ -2086,8 +2083,9 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
 
 /* 파일을 불러오기 전(빈 화면)에는 안내 영역이 남는 공간을 꽉 채우고 글자도 크게, 파형이 있으면 높이를 줄여 보여준다 */
 @media (min-width: 1100px) {
-  .waveform-workspace:not(.has-media) .waveform-preview-section { flex: 1 1 auto; }
-  .waveform-workspace:not(.has-media) .waveform-preview-scroll { flex: 1 1 auto; height: auto; }
+  /* 파형 영역은 파일 유무와 상관없이 남는 세로 공간을 모두 채운다 */
+  .waveform-workspace .waveform-preview-section { flex: 1 1 auto; }
+  .waveform-workspace .waveform-preview-scroll { flex: 1 1 auto; height: auto; }
   .waveform-empty-drop { gap: calc(16 * var(--u)); }
   .waveform-empty-icon { font-size: calc(72 * var(--u)); }
   .waveform-empty-drop strong { font-size: calc(32 * var(--u)); }
