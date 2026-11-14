@@ -69,7 +69,7 @@ import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
   WaveformRenderer,
-} from "./waveform-canvas.js";
+} from "./waveform-canvas.js?v=2";
 
 const DOWNLOAD_PAGE = "download.html";
 function itzT(key, fallback) {
@@ -249,7 +249,7 @@ function getMinSilenceSecForEdlExport() {
 }
 
 function exportXmlLinkDefaultHtml() {
-  return `<span class="icon">📥</span> ${itzT("exportXml", "XML 파일 다운로드")}`;
+  return `<span class="icon">↓</span> ${itzT("exportXml", "XML 파일 다운로드")}`;
 }
 
 /** 다운로드 페이지 이동 취소·뒤로가기(bfcache) 후 버튼 문구 복구 */
@@ -476,6 +476,30 @@ document.addEventListener("DOMContentLoaded", () => {
   const fileDropStatus = document.getElementById("file-drop-status");
   const cancelUploadButton = document.getElementById("cancel-file-upload");
   const pathInput = document.getElementById("video-path");
+  // 에이전트 임시 복사본 경로는 사용자를 헷갈리게 하므로 화면에는 파일 이름만 보여준다.
+  // 코드 전체가 pathInput.value 를 "실제 경로"로 읽으므로, 보이는 값과 읽히는 값을 분리한다.
+  const nativePathValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  let stagedRealPath = "";
+  if (pathInput) {
+    Object.defineProperty(pathInput, "value", {
+      configurable: true,
+      get() {
+        return stagedRealPath || nativePathValue.get.call(this);
+      },
+      set(v) {
+        stagedRealPath = "";
+        nativePathValue.set.call(this, v);
+      },
+    });
+    pathInput.addEventListener("input", () => {
+      stagedRealPath = "";
+    }, true);
+  }
+  function showPathAsName(realPath, displayName) {
+    stagedRealPath = realPath;
+    nativePathValue.set.call(pathInput, displayName);
+  }
+  const STAGED_UPLOAD_PATH_RE = /silence-remover-uploads[\\/]upload-/i;
   const btnPickLocalFile = document.getElementById("btn-pick-local-file");
   const btnAnalyze = document.getElementById("btn-analyze");
   const exportXmlLink = document.getElementById("export-xml-link");
@@ -671,13 +695,14 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
     pathInput.value = path;
+    if (opts.displayName) showPathAsName(path, opts.displayName);
     if (mediaWorkspace) mediaWorkspace.classList.add("has-media");
     pathInput.removeAttribute("placeholder");
     pathInput.focus();
-    pathInput.setSelectionRange(path.length, path.length);
+    if (!opts.displayName) pathInput.setSelectionRange(path.length, path.length);
     pathInput.style.borderColor = "#3b82f6";
     pathInput.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.2)";
-    const base = path.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
+    const base = opts.displayName || path.replace(/[/\\]+$/, "").split(/[/\\]/).pop();
     if (base) setDropStatus(itzTf("fileSelected", "선택한 파일: {name}", { name: base }));
     if (base) sessionStorage.setItem(STORAGE_NAME, base);
     sessionStorage.setItem(STORAGE_VIDEO_PATH, path);
@@ -756,10 +781,36 @@ document.addEventListener("DOMContentLoaded", () => {
     const controller = new AbortController();
     dropUploadController = controller;
     setDropUploadBusy(true);
-    setDropStatus(itzTf("uploadingFile", "“{name}”을(를) 로컬 에이전트로 전송 중…", { name: file.name }));
+    // 원본 경로를 찾는 동안에는 파일 이름(확장자 포함)만 먼저 보여주고, 경로를 찾으면 전체 경로로 바꾼다.
+    const previousPathValue = pathInput ? pathInput.value : "";
+    let pathApplied = false;
+    if (pathInput) pathInput.value = file.name;
     if (mediaWorkspace) mediaWorkspace.classList.add("is-file-dragging");
 
     try {
+      // 1) 브라우저는 원본 경로를 주지 않으므로, 에이전트가 이름·크기·수정 시각으로 PC에서 원본을 찾는다(복사 없음).
+      setDropStatus(itzTf("locatingFile", "“{name}”의 원본 위치를 찾는 중…", { name: file.name }));
+      try {
+        const located = await fetchAgent(`${getAgentOrigin()}/api/tools/silence-remover/locate-dropped`, {
+          method: "POST",
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ name: file.name, size: file.size, last_modified_ms: file.lastModified || null }),
+          signal: controller.signal,
+        });
+        const found = await located.json().catch(() => ({}));
+        const originalPath = located.ok && found?.found ? normalizeAgentMediaPath(found.video_path) : "";
+        if (originalPath) {
+          setDropStatus(itzTf("locatedFile", "“{name}” 원본을 찾았습니다. 미디어 정보를 확인하고 파형을 만드는 중…", { name: file.name }));
+          pathApplied = true;
+          applyVideoPathToInput(originalPath, { freshSelection: true });
+          return;
+        }
+      } catch (locateError) {
+        if (locateError && typeof locateError === "object" && locateError.name === "AbortError") throw locateError;
+      }
+
+      // 2) 못 찾으면(이동식 저장장치·네트워크 드라이브 등) 에이전트 임시 폴더로 복사해서 사용한다.
+      setDropStatus(itzTf("uploadingFile", "“{name}”을(를) 로컬 에이전트로 전송 중…", { name: file.name }));
       const uploadUrl = `${getAgentOrigin()}/api/tools/silence-remover/drop-upload?filename=${encodeURIComponent(file.name)}`;
       const response = await fetchAgent(uploadUrl, {
         method: "POST",
@@ -775,7 +826,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const stagedPath = normalizeAgentMediaPath(data?.video_path);
       if (!stagedPath) throw new Error("에이전트가 임시 파일 경로를 반환하지 않았습니다.");
       setDropStatus(itzTf("uploadReady", "“{name}” 업로드 완료. 미디어 정보를 확인하고 파형을 만드는 중…", { name: file.name }));
-      applyVideoPathToInput(stagedPath, { freshSelection: true });
+      pathApplied = true;
+      applyVideoPathToInput(stagedPath, { freshSelection: true, displayName: file.name });
       activeDroppedPath = stagedPath;
     } catch (error) {
       if (error && typeof error === "object" && error.name === "AbortError") {
@@ -785,6 +837,7 @@ document.addEventListener("DOMContentLoaded", () => {
         setDropStatus(`파일을 불러오지 못했습니다: ${message}`, true);
       }
     } finally {
+      if (!pathApplied && pathInput) pathInput.value = previousPathValue;
       dropUploadController = null;
       setDropUploadBusy(false);
       if (mediaWorkspace) mediaWorkspace.classList.remove("is-file-dragging");
@@ -1215,7 +1268,11 @@ document.addEventListener("DOMContentLoaded", () => {
   /** 0 = 100% (화면에 ~WAVEFORM_VISIBLE_SEC_AT_100초) */
   function getWaveformPxPerSec() {
     if (waveformPxPerSec > 0) return waveformPxPerSec;
-    return getWaveformBasePxPerSec();
+    const base = getWaveformBasePxPerSec();
+    // 100%는 화면에 60초가 들어오는 배율. 60초보다 짧은 클립은 처음부터 화면 폭에 맞춰 크게 보여 준다.
+    const dur = waveformPeaksData?.timeline_sec ?? 0;
+    if (dur > 1) return Math.max(base, (getViewportWaveformWidth() * 0.98) / dur);
+    return base;
   }
 
   function getWaveformZoomPercent(pxPerSec) {
@@ -2096,6 +2153,11 @@ document.addEventListener("DOMContentLoaded", () => {
   if (waveformZoomReset) {
     waveformZoomReset.addEventListener("click", () => resetWaveformZoom());
   }
+  // 데스크톱 화면에서는 별도 「100%」 버튼 대신 가운데 배율 숫자를 눌러 100%로 되돌린다
+  if (waveformZoomLevel) {
+    waveformZoomLevel.title = itzT("zoomReset", "확대 100% (기본 해상도)");
+    waveformZoomLevel.addEventListener("click", () => resetWaveformZoom());
+  }
   waveformZoomIn?.addEventListener("click", () => zoomWaveformBy(WAVEFORM_ZOOM_FACTOR));
   waveformZoomOut?.addEventListener("click", () => zoomWaveformBy(1 / WAVEFORM_ZOOM_FACTOR));
   waveformZoomFit?.addEventListener("click", () => fitWaveformToDuration());
@@ -2787,6 +2849,8 @@ document.addEventListener("DOMContentLoaded", () => {
     editorRestoreInFlight = true;
     try {
       pathInput.value = videoPath;
+      const storedName = sessionStorage.getItem(STORAGE_NAME);
+      if (storedName && STAGED_UPLOAD_PATH_RE.test(videoPath)) showPathAsName(videoPath, storedName);
       pathInput.removeAttribute("placeholder");
       applyOptionsFromSession();
 

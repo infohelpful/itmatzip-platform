@@ -3,7 +3,7 @@
  * 파형 본체는 waveform-renderer.js (시간축 재샘플링, CSS 스케일 줌 없음).
  */
 
-import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer } from "./waveform-renderer.js";
+import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer } from "./waveform-renderer.js?v=2";
 
 /** @typedef {{ peaks: number[], peaks_db: number[], duration_sec: number, column_count: number, timeline_sec: number, mean_volume_db: number, max_volume_db?: number | null }} WaveformPeaksData */
 
@@ -508,4 +508,4 @@ export function drawSilenceWaveform(canvas, data, opts) {
   return viewResult;
 }
 
-export { WaveformRenderer } from "./waveform-renderer.js";
+export { WaveformRenderer } from "./waveform-renderer.js?v=2";

@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from common.async_io import run_sync
 from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe, is_ffmpeg_ready
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
+from common.locate_dropped_file import find_dropped_file
 from common.media_paths import normalize_media_path, resolve_existing_file
 from engines import silence_remover
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
@@ -102,6 +103,20 @@ def _resolve_media_path(raw: str) -> Path:
     return resolved
 
 
+_INVALID_FILENAME_CHARS = set('<>:"/\\|?*') | {chr(c) for c in range(32)}
+
+
+def _staged_file_name(filename: str, suffix: str) -> str:
+    """임시 복사본에 쓸 파일명: 원래 이름(XML 클립 이름이 원본과 같아지도록)에서 경로·금지 문자만 제거한다."""
+    base = Path(filename.replace("\\", "/")).name
+    stem = Path(base).stem
+    stem = "".join("_" if ch in _INVALID_FILENAME_CHARS else ch for ch in stem).strip(" .")
+    stem = stem[:120].rstrip(" .")
+    if not stem or stem.upper() in {"CON", "PRN", "AUX", "NUL"} or (stem.upper()[:3] in {"COM", "LPT"} and stem[3:].isdigit()):
+        stem = "media"
+    return stem + suffix
+
+
 def _purge_expired_drop_uploads() -> None:
     """Remove old agent-staged browser uploads without touching user files."""
     try:
@@ -117,6 +132,30 @@ def _purge_expired_drop_uploads() -> None:
                 continue
     except OSError:
         return
+
+
+class LocateDroppedBody(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    size: int = Field(..., ge=1)
+    last_modified_ms: float | None = Field(None, description="File.lastModified (epoch ms)")
+
+
+@router.post("/locate-dropped")
+def post_locate_dropped(body: LocateDroppedBody) -> dict[str, object]:
+    """브라우저가 알려 준 이름·크기·수정 시각으로 이 PC의 원본 파일 경로를 찾는다."""
+    name = Path(body.name.replace("\\", "/")).name
+    if Path(name).suffix.lower() not in _DROP_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="지원하지 않는 오디오/영상 파일 형식입니다.")
+    started = time.monotonic()
+    result = find_dropped_file(name, body.size, body.last_modified_ms)
+    candidates = [str(Path(p)) for p in result["candidates"]]  # type: ignore[union-attr]
+    return {
+        "found": bool(candidates),
+        "video_path": candidates[0] if candidates else None,
+        "candidates": candidates[:5],
+        "timed_out": bool(result["timed_out"]),
+        "elapsed_sec": round(time.monotonic() - started, 2),
+    }
 
 
 @router.post("/drop-upload")
@@ -143,7 +182,7 @@ async def post_drop_upload(request: Request, filename: str) -> dict[str, object]
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"임시 업로드 폴더를 만들지 못했습니다: {exc}") from exc
 
-    staged_path = upload_dir / f"media{suffix}"
+    staged_path = upload_dir / _staged_file_name(filename, suffix)
     with _DROP_UPLOAD_LOCK:
         _ACTIVE_DROP_UPLOADS.add(upload_dir)
     total = 0
@@ -188,7 +227,7 @@ def delete_drop_upload(video_path: str) -> dict[str, bool]:
             root not in staged_path.parents
             or upload_dir.parent != root
             or not upload_dir.name.startswith("upload-")
-            or staged_path.name != "media" + staged_path.suffix
+            or staged_path.suffix.lower() not in _DROP_UPLOAD_EXTENSIONS
         ):
             raise HTTPException(status_code=400, detail="임시 업로드 파일 경로가 올바르지 않습니다.")
         shutil.rmtree(upload_dir, ignore_errors=True)

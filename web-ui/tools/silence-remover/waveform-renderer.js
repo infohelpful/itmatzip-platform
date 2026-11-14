@@ -325,17 +325,22 @@ export class WaveformRenderer {
       pxPerSec,
       cssW,
     );
+    // 클립이 화면 폭보다 짧으면 보이는 구간(=클립 전체)은 pxPerSec 기준의 폭만 차지한다.
+    // 예전에는 이 구간을 캔버스 전체 폭으로 늘려 그려서, 룰러·무음 띠(실제 배율)와 어긋났다.
+    const windowPx = Math.max(1, Math.min(cssW, Math.round((endTimeSec - startTimeSec) * pxPerSec)));
     const { peaks: rawPeaks, silent } = this.resamplePeaksForWindow(
       startTimeSec,
       endTimeSec,
-      cssW,
+      windowPx,
       silenceThreshold,
       flattenSilence,
       silenceThresholdDb,
     );
     const peaks = this._smoothDisplayPeaks(rawPeaks, silent);
 
-    this._drawWaveform(ctx, cssW, waveH, peaks, silent, colors);
+    ctx.fillStyle = colors.background ?? DEFAULT_WAVEFORM_COLORS.background;
+    ctx.fillRect(0, 0, cssW, waveH);
+    this._drawWaveform(ctx, windowPx, waveH, peaks, silent, colors);
     this._drawCenterBaseline(ctx, cssW, waveH, colors.baseline ?? DEFAULT_WAVEFORM_COLORS.baseline);
 
     if (rulerH > 0) {

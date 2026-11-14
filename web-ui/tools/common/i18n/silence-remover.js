@@ -2,6 +2,7 @@
   if (!window.ITZ_I18N) return;
   window.ITZ_I18N.register("silence-remover", {
   "ko": {
+    "dropBadge": "📁 <strong>클릭</strong> 또는 <strong>드래그 앤 드롭</strong>으로 영상 불러오기",
     "title": "영상 무음 제거 XML - Silence Detector | ItMatZip",
     "description": "영상 무음 구간을 자동 분석해 Premiere·DaVinci용 FCP7 XML을 만듭니다. 업로드 없이 PC 로컬에서 처리합니다.",
     "keywords": "영상 무음 제거, 무음 컷, FCP7 XML, 프리미어, 다빈치 리졸브, Silence Detector",
@@ -24,7 +25,7 @@
     "guide.note": "분석과 XML 생성은 ItMatZip 에이전트가 설치된 Windows PC에서 동작합니다. 타임라인 FPS는 영상 원본과 맞춰 두는 것이 가장 안전합니다.",
     "guide.aria": "Silence Detector 안내",
     "mobileTitle": "PC에서만 이용할 수 있습니다",
-    "mobileDesc": "Silence Detector는 데스톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.",
+    "mobileDesc": "Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.",
     "browse": "찾아보기",
     "analyze": "무음 구간 분석",
     "download": "XML 내보내기",
@@ -86,6 +87,8 @@
     "dropOverlay": "파일을 놓으면 로컬 에이전트에서 불러옵니다",
     "cancelUpload": "업로드 취소",
     "fileSelected": "선택한 파일: {name}",
+    "locatingFile": "“{name}”의 원본 위치를 찾는 중…",
+    "locatedFile": "“{name}” 원본을 찾았습니다. 미디어 정보를 확인하고 파형을 만드는 중…",
     "uploadingFile": "“{name}”을(를) 로컬 에이전트로 전송 중…",
     "uploadReady": "“{name}” 업로드 완료. 미디어 정보를 확인하고 파형을 만드는 중…",
     "uploadCanceled": "파일 업로드를 취소했습니다.",
@@ -183,6 +186,7 @@
 
   },
   "en": {
+    "dropBadge": "📁 <strong>Click</strong> or <strong>drag &amp; drop</strong> to load media",
     "title": "Silence remover XML for Premiere & DaVinci | ItMatZip",
     "description": "Auto-detect silent gaps in a video and export FCP7 XML for Premiere Pro or DaVinci Resolve. No upload—analysis stays on your PC.",
     "keywords": "silence remover, jump cut, remove silence from video, FCP7 XML, premiere, davinci resolve, dead air",
@@ -267,6 +271,8 @@
     "dropOverlay": "Drop to load the file with the local agent",
     "cancelUpload": "Cancel upload",
     "fileSelected": "Selected file: {name}",
+    "locatingFile": "Looking for the original location of “{name}”…",
+    "locatedFile": "Found the original of “{name}”. Checking media info and building the waveform…",
     "uploadingFile": "Sending “{name}” to the local agent…",
     "uploadReady": "“{name}” uploaded. Reading media info and building the waveform…",
     "uploadCanceled": "File upload canceled.",
@@ -364,6 +370,7 @@
 
   },
   "ja": {
+    "dropBadge": "📁 <strong>クリック</strong>または<strong>ドラッグ＆ドロップ</strong>で動画を読み込む",
     "title": "無音カットXML（Premiere / DaVinci） | ItMatZip",
     "description": "映像の無音区間を自動検出し、PremiereやDaVinci用のFCP7 XMLを書き出します。アップロードなし、PC内だけで解析します。",
     "keywords": "無音カット, ジャンプカット, 無音除去, FCP7 XML, プレミア, ダビンチ, 沈黙カット",
@@ -448,6 +455,8 @@
     "dropOverlay": "ドロップするとローカルエージェントで読み込みます",
     "cancelUpload": "アップロードをキャンセル",
     "fileSelected": "選択したファイル: {name}",
+    "locatingFile": "「{name}」の元の場所を検索中…",
+    "locatedFile": "「{name}」の元ファイルが見つかりました。メディア情報を確認して波形を作成中…",
     "uploadingFile": "「{name}」をローカルエージェントに送信中…",
     "uploadReady": "「{name}」を受信しました。メディア情報と波形を準備しています…",
     "uploadCanceled": "アップロードをキャンセルしました。",
@@ -545,6 +554,7 @@
 
   },
   "zh": {
+    "dropBadge": "📁 <strong>点击</strong>或<strong>拖放</strong>来载入视频",
     "title": "视频去静音 XML（Premiere / 达芬奇） | ItMatZip",
     "description": "自动分析视频静音段，导出 Premiere、达芬奇可用的 FCP7 XML。不上传，分析只在电脑本地完成。",
     "keywords": "去静音, 跳剪, 视频去空白, FCP7 XML, Premiere, 达芬奇, 无声裁剪",
@@ -629,6 +639,8 @@
     "dropOverlay": "放下文件后由本地代理加载",
     "cancelUpload": "取消上传",
     "fileSelected": "已选择文件：{name}",
+    "locatingFile": "正在查找“{name}”的原始位置…",
+    "locatedFile": "已找到“{name}”的原文件。正在检查媒体信息并生成波形…",
     "uploadingFile": "正在将“{name}”发送到本地代理…",
     "uploadReady": "“{name}”已上传，正在读取媒体信息并生成波形…",
     "uploadCanceled": "已取消文件上传。",
