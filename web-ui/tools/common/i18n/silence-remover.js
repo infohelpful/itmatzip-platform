@@ -24,6 +24,7 @@
     "guide.plus3": "<strong>인터뷰·강의·브이로그에 맞습니다.</strong> 침묵이 반복되는 롱테이크에서 손으로 컷을 찍는 시간을 줄입니다.",
     "guide.note": "분석과 XML 생성은 ItMatZip 에이전트가 설치된 Windows PC에서 동작합니다. 타임라인 FPS는 영상 원본과 맞춰 두는 것이 가장 안전합니다.",
     "guide.aria": "Silence Detector 안내",
+    "chrome.dashboard": "대시보드",
     "mobileTitle": "PC에서만 이용할 수 있습니다",
     "mobileDesc": "Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.",
     "browse": "찾아보기",

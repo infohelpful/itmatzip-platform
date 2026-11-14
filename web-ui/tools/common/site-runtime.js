@@ -1700,7 +1700,7 @@
     }
     var src = runtimeScriptSrc();
     var href = "common/i18n/" + id + ".js?v=32";
-    if (src) href = src.replace(/site-runtime\.js[^/]*$/, "i18n/" + id + ".js?v=33");
+    if (src) href = src.replace(/site-runtime\.js[^/]*$/, "i18n/" + id + ".js?v=34");
     var el = document.createElement("script");
     el.src = href;
     el.onload = function () {
