@@ -3,7 +3,7 @@
  * 파형 본체는 waveform-renderer.js (시간축 재샘플링, CSS 스케일 줌 없음).
  */
 
-import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer } from "./waveform-renderer.js?v=2";
+import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer, waveformUiScale } from "./waveform-renderer.js?v=4";
 
 /** @typedef {{ peaks: number[], peaks_db: number[], duration_sec: number, column_count: number, timeline_sec: number, mean_volume_db: number, max_volume_db?: number | null }} WaveformPeaksData */
 
@@ -427,7 +427,7 @@ function drawSilenceOverlayTimeBased(ctx, w, waveH, startTimeSec, pxPerSec, segm
  */
 export function drawSilenceWaveform(canvas, data, opts) {
   const h = opts.height ?? 280;
-  const rulerH = opts.showRuler !== false ? 36 : 0;
+  const rulerH = opts.showRuler !== false ? Math.round(36 * waveformUiScale()) : 0;
   const waveH = h - rulerH;
   const cssW = Math.max(1, Math.floor(opts.canvasWidth ?? canvas.clientWidth ?? 800));
   const pxPerSec = Math.max(1e-6, opts.pxPerSec);
@@ -508,4 +508,4 @@ export function drawSilenceWaveform(canvas, data, opts) {
   return viewResult;
 }
 
-export { WaveformRenderer } from "./waveform-renderer.js?v=2";
+export { WaveformRenderer } from "./waveform-renderer.js?v=4";

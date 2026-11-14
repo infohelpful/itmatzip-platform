@@ -1996,3 +1996,90 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   /* 미디어 분석 정보: 이전 규칙의 안쪽 여백(12px)을 없애 다른 섹션과 왼쪽을 맞춤 */
   .settings-inspector .media-summary-panel { padding: 0; }
 }
+
+/* ===== 가독성 확대: 글자 크기를 키우고, 왼쪽 영역을 넓히고, 파형 타임라인 높이를 줄임 (1100px 이상) ===== */
+@media (min-width: 1100px) {
+  /* 화면 폭·높이에 비례해 모든 크기가 함께 커진다: 1568×764 이하는 1배, 3440×1440 같은 큰 화면은 약 1.65배 */
+  :root { --u: clamp(1px, min(calc(100vw / 1700), calc(100vh / 820)), 2.4px); }
+  /* 헤더 */
+  .app-header { flex-basis: calc(60 * var(--u)); height: calc(60 * var(--u)); min-height: calc(60 * var(--u)); padding: 0 calc(24 * var(--u)); }
+  .app-header .logo-area > .badge { padding: calc(4 * var(--u)) calc(9 * var(--u)) !important; font-size: calc(13 * var(--u)) !important; }
+  .logo-area h1 { font-size: calc(19 * var(--u)); }
+  html body .app-header .lang-field select,
+  html body .app-header #lang-select { min-width: calc(104 * var(--u)) !important; max-width: none !important; height: calc(34 * var(--u)) !important; padding: calc(5 * var(--u)) calc(12 * var(--u)) !important; font-size: calc(14 * var(--u)) !important; }
+  html body .app-header .btn-to-dashboard { padding: calc(8 * var(--u)) calc(18 * var(--u)); font-size: calc(15 * var(--u)); font-weight: 600; color: #cbd5e1; }
+  #connection-status, .bin-readiness { padding: calc(7 * var(--u)) calc(13 * var(--u)); font-size: calc(13.5 * var(--u)); }
+  .header-status-col { gap: calc(12 * var(--u)); }
+
+  /* 본문: 왼쪽 영역을 오른쪽으로 넓힘 (calc(350 * var(--u)) → calc(440 * var(--u))) */
+  .studio-layout { height: max(calc(560 * var(--u)), calc(100vh - calc(60 * var(--u)))); grid-template-columns: calc(440 * var(--u)) minmax(0, 1fr); }
+
+  /* 왼쪽 인스펙터 */
+  .settings-inspector { padding: calc(16 * var(--u)) calc(20 * var(--u)); }
+  .inspector-head { margin-bottom: calc(10 * var(--u)); }
+  .inspector-head h2 { font-size: calc(15.5 * var(--u)); }
+  .inspector-head p { font-size: calc(12.5 * var(--u)); }
+  #btn-apply-recommended-sensitivity { padding: calc(5 * var(--u)) calc(11 * var(--u)); font-size: calc(13 * var(--u)); }
+  .settings-inspector .options-row { gap: calc(10 * var(--u)); }
+  .settings-inspector .option-card { padding: calc(10 * var(--u)) calc(12 * var(--u)); }
+  .settings-inspector .option-card > label { margin-bottom: calc(5 * var(--u)); font-size: calc(13 * var(--u)); }
+  .settings-inspector .option-card > .option-hint { font-size: calc(12 * var(--u)); margin-top: calc(3 * var(--u)); }
+  .settings-inspector .option-card input[type="number"],
+  .settings-inspector .option-card input[type="text"] { font-size: calc(17 * var(--u)); }
+  .sensitivity-value { font-size: calc(17 * var(--u)); }
+  #opt-sensitivity { height: calc(18 * var(--u)); }
+  .option-control-head label,
+  .settings-inspector .option-card-padding label,
+  .settings-inspector .option-card-duration > label { font-size: calc(15 * var(--u)); }
+  .option-control-head .value-pill { padding: calc(3 * var(--u)) calc(10 * var(--u)); font-size: calc(14 * var(--u)); }
+  .settings-inspector .option-card-padding .option-hint { font-size: calc(13 * var(--u)); }
+  .range-group-padding input[type="range"], .range-group-min-silence input[type="range"] { height: calc(18 * var(--u)); }
+  .duration-chip-list { gap: calc(6 * var(--u)) !important; }
+  .duration-chip-list .chip { padding: calc(7 * var(--u)) 0 !important; font-size: calc(14 * var(--u)); }
+  .media-summary-title { font-size: calc(15 * var(--u)); }
+  .summary-ready-indicator { font-size: calc(12.5 * var(--u)); }
+  .media-summary-item { padding: calc(8 * var(--u)) calc(11 * var(--u)); font-size: calc(13.5 * var(--u)); }
+  .media-summary-item dt { font-size: calc(13.5 * var(--u)); }
+  .media-summary-item dd { font-size: calc(14.5 * var(--u)); }
+
+  /* 왼쪽 맨 아래 버튼 독 */
+  .studio-sidebar .action-center { padding: calc(14 * var(--u)) calc(20 * var(--u)) calc(16 * var(--u)); gap: calc(10 * var(--u)); }
+  .edl-export-option { padding: calc(10 * var(--u)) calc(12 * var(--u)); }
+  .edl-export-option input { width: calc(18 * var(--u)); height: calc(18 * var(--u)); }
+  .edl-option-copy strong { font-size: calc(14.5 * var(--u)); }
+  .edl-option-copy small { font-size: calc(12.5 * var(--u)); }
+  .studio-sidebar .btn-main, .studio-sidebar .btn-export { padding: calc(13 * var(--u)); font-size: calc(16 * var(--u)); }
+
+  /* 오른쪽 워크스페이스 */
+  .ad-caption { font-size: calc(11.5 * var(--u)); }
+  .waveform-preview-title { font-size: calc(19 * var(--u)); }
+  .waveform-silence-stat { padding: calc(3 * var(--u)) calc(12 * var(--u)); font-size: calc(13.5 * var(--u)); }
+  .waveform-legend { font-size: calc(13.5 * var(--u)); gap: calc(14 * var(--u)); }
+  .waveform-legend i { width: calc(10 * var(--u)); height: calc(10 * var(--u)); }
+  .waveform-zoom-controls { font-size: calc(14 * var(--u)); }
+  .waveform-zoom-step, .waveform-zoom-fit { padding: calc(6 * var(--u)) calc(13 * var(--u)); font-size: calc(14 * var(--u)); }
+  .waveform-zoom-level { padding: 0 calc(10 * var(--u)); font-size: calc(13.5 * var(--u)); }
+  .waveform-file-drop { padding: calc(8 * var(--u)) calc(12 * var(--u)); gap: calc(10 * var(--u)); }
+  .waveform-file-drop .file-tag { padding: calc(3 * var(--u)) calc(10 * var(--u)); font-size: calc(13 * var(--u)); }
+  .waveform-file-drop .path-row input { font-size: calc(15 * var(--u)); }
+  .waveform-file-drop .btn-pick-file { padding: calc(6 * var(--u)) calc(14 * var(--u)); font-size: calc(14 * var(--u)); }
+  .floating-drop-badge { padding: calc(5 * var(--u)) calc(12 * var(--u)); font-size: calc(13.5 * var(--u)); }
+  .waveform-empty-drop strong { font-size: calc(21 * var(--u)); }
+  .waveform-empty-icon { font-size: calc(40 * var(--u)); }
+  .waveform-empty-formats { font-size: calc(13.5 * var(--u)); }
+  .waveform-drag-overlay { font-size: calc(18 * var(--u)); }
+  .file-drop-status { font-size: calc(13 * var(--u)); }
+
+  /* 파형 타임라인: 위아래로 줄임 (화면 높이에 맞춰 늘어나지 않고 고정 범위) */
+  .waveform-workspace .waveform-preview-section { flex: 0 0 auto; }
+  .waveform-preview-scroll { flex: 0 0 auto; height: clamp(calc(240 * var(--u)), 36vh, calc(360 * var(--u))); }
+}
+
+/* 아래 안내 글 */
+@media (min-width: 1100px) {
+  .sr-guide .tool-guide-kicker { font-size: calc(12.5 * var(--u)); }
+  .sr-guide h2 { font-size: calc(19 * var(--u)); }
+  .sr-guide h3 { font-size: calc(16.5 * var(--u)); }
+  .sr-guide p, .sr-guide li, .sr-guide .tool-guide-lead { font-size: calc(14.5 * var(--u)); }
+  .sr-guide .tool-guide-note { font-size: calc(13.5 * var(--u)); }
+}

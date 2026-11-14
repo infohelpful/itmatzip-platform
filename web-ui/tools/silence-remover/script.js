@@ -69,7 +69,7 @@ import {
   computePreviewSilenceColumnRanges,
   drawSilenceWaveform,
   WaveformRenderer,
-} from "./waveform-canvas.js?v=2";
+} from "./waveform-canvas.js?v=4";
 
 const DOWNLOAD_PAGE = "download.html";
 function itzT(key, fallback) {

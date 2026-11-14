@@ -49,6 +49,12 @@ export function formatWaveformTimeLabel(sec) {
  * @property {number} scrollLeftPx
  */
 
+/** CSS 의 --u 배율과 같은 계산(화면 폭·높이에 비례, 1배~2.4배). 눈금 글자·높이를 화면에 맞춰 키운다. */
+export function waveformUiScale() {
+  if (typeof window === "undefined" || window.innerWidth < 1100) return 1;
+  return Math.min(2.4, Math.max(1, Math.min(window.innerWidth / 1700, window.innerHeight / 820)));
+}
+
 export class WaveformRenderer {
   /**
    * @param {{ audioBuffer?: AudioBuffer, channelData?: Float32Array, sampleRate?: number, peaks?: number[], durationSec: number }} source
@@ -293,7 +299,7 @@ export class WaveformRenderer {
    */
   render(canvas, view, colors = DEFAULT_WAVEFORM_COLORS) {
     const cssW = Math.max(1, Math.floor(view.canvasWidth ?? canvas.clientWidth ?? 800));
-    const rulerH = view.showRuler !== false ? (view.rulerHeight ?? 36) : 0;
+    const rulerH = view.showRuler !== false ? (view.rulerHeight ?? Math.round(36 * waveformUiScale())) : 0;
     const cssH = Math.max(1, Math.floor(view.canvasHeight ?? 280));
     const waveH = cssH - rulerH;
     const pxPerSec = Math.max(1e-6, view.pxPerSec);
@@ -502,7 +508,8 @@ export class WaveformRenderer {
 
     const t0 = Math.floor(startSec / minor) * minor;
     ctx.fillStyle = "rgba(200, 200, 200, 0.95)";
-    ctx.font = "11px system-ui, sans-serif";
+    const uiScale = waveformUiScale();
+    ctx.font = `${Math.round(13 * uiScale)}px system-ui, sans-serif`;
     let lastLabelX = -999;
 
     for (let t = t0; t <= endSec + minor * 0.5; t += minor) {
@@ -511,19 +518,19 @@ export class WaveformRenderer {
       if (x < 0 || x > w) continue;
       const kRound = Math.round(t / major);
       const isMajor = Math.abs(t - kRound * major) < minor * 0.46 || t < 1e-6;
-      const tickH = isMajor ? 12 : 5;
+      const tickH = Math.round((isMajor ? 12 : 5) * uiScale);
       ctx.strokeStyle = isMajor ? "rgba(150,150,150,1)" : "rgba(85,85,85,1)";
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, waveH + rulerH - 1);
       ctx.lineTo(x, waveH + rulerH - 1 - tickH);
       ctx.stroke();
-      if (isMajor && pxPerSec * major >= 24 && x - lastLabelX >= 40) {
+      if (isMajor && pxPerSec * major >= 24 && x - lastLabelX >= 48 * uiScale) {
         const label =
           visDur < 8
             ? `${Math.max(0, t).toFixed(t < 100 ? 1 : 0)}s`
             : formatWaveformTimeLabel(t);
-        ctx.fillText(label, Math.min(x + 3, w - 52), waveH + 18);
+        ctx.fillText(label, Math.min(x + 3, w - 58 * uiScale), waveH + Math.round(20 * uiScale));
         lastLabelX = x;
       }
     }
