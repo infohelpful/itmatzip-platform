@@ -2099,9 +2099,12 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   .settings-inspector .summary-silence-section .summary-silence-item:last-child { grid-column: 1 / -1; }
   .settings-inspector .media-summary-item dd.summary-settings-stack { white-space: normal; line-height: 1.4; text-align: right; }
   @container (min-width: 480px) {
+    /* 6칸 격자: 윗줄은 3개(각 2칸), 둘째 줄 「원본 FPS」「오디오 샘플레이트」는 각각 절반(3칸) */
     .settings-inspector .media-summary-list,
-    .settings-inspector .summary-silence-section .media-summary-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .settings-inspector .summary-media-item:last-child { grid-column: auto; }
+    .settings-inspector .summary-silence-section .media-summary-list { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .settings-inspector .media-summary-item { grid-column: span 2; }
+    .settings-inspector .summary-media-item:nth-child(n+4) { grid-column: span 3; }
+    .settings-inspector .summary-silence-section .summary-silence-item:last-child { grid-column: 1 / -1; }
   }
 }
 
