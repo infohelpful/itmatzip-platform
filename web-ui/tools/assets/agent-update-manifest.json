@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.41",
-    "published_at":  "2026-11-14",
+    "version":  "1.7.42",
+    "published_at":  "2026-11-15",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.41/itmatzip-agent.msi",
-    "sha256":  "fc928208ae8824d888689ad959713a3e80c11e15b4b96c7deaad194e98fa7433",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.42/itmatzip-agent.msi",
+    "sha256":  "ed1f626dbdf48f13318f8b14d90ad6cfb52196be91ba4c50b8e2f27b9dfe2ead",
     "mandatory":  false,
-    "release_notes":  "Create Music 가사 발음 보호(기호 제거), 곡 길이 안내",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.41/itmatzip-agent.msi",
-    "msi_sha256":  "fc928208ae8824d888689ad959713a3e80c11e15b4b96c7deaad194e98fa7433"
+    "release_notes":  "Silence Detector: 기준 디자인 적용, 드래그 앤 드롭 파일 원본 경로 자동 탐색(못 찾으면 임시 복사), 파형 배율 수정",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.42/itmatzip-agent.msi",
+    "msi_sha256":  "ed1f626dbdf48f13318f8b14d90ad6cfb52196be91ba4c50b8e2f27b9dfe2ead"
 }
