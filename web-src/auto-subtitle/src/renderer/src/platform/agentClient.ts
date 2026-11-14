@@ -5,10 +5,21 @@
  * - Tool API (FastAPI behind the Go proxy): `/api/tools/auto-subtitle/v2/*`.
  * Both default to http://127.0.0.1:19876. For development the tool API can point at a separately
  * run FastAPI with `?agentApi=http://127.0.0.1:19887` (remembered in localStorage).
+ *
+ * Some ad blockers block requests from a public page to 127.0.0.1 / localhost. When the current
+ * origin is really unreachable, requests fail over to the next candidate below (see failoverOrigin).
  */
-const DEFAULT_AGENT_ORIGIN = typeof window !== 'undefined' &&
+const LOCAL_TLS_HOST = 'local.itmatzip.com'
+/** Same order as web-ui/tools/common/agent-endpoints.js AGENT_ORIGIN_FALLBACKS. */
+const AGENT_ORIGIN_CANDIDATES = [
+  'http://127.0.0.1:19876',
+  'http://localhost:19876',
+  'http://itmatzip.localhost:19876',
+  `https://${LOCAL_TLS_HOST}:19878`
+]
+const pageServedFromAgent = typeof window !== 'undefined' &&
   /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(window.location.hostname) && window.location.port === '19876'
-  ? window.location.origin : 'http://127.0.0.1:19876'
+const DEFAULT_AGENT_ORIGIN = pageServedFromAgent ? window.location.origin : AGENT_ORIGIN_CANDIDATES[0]
 const API_PATH = '/api/tools/auto-subtitle/v2'
 const STORAGE_KEY = 'autosub.agentApi'
 
@@ -27,8 +38,12 @@ function readOverride(): string | null {
 }
 
 const trimSlash = (s: string) => s.replace(/\/+$/, '')
-export const controllerOrigin = DEFAULT_AGENT_ORIGIN
-export const toolApiBase = trimSlash(readOverride() || DEFAULT_AGENT_ORIGIN) + API_PATH
+const agentApiOverride = readOverride()
+/** Failover only applies to the public web page talking to its own local agent, never to dev overrides. */
+const failoverEnabled = !pageServedFromAgent && !agentApiOverride
+// `let` exports are live bindings: callers that read these at call time follow a failover.
+export let controllerOrigin = DEFAULT_AGENT_ORIGIN
+export let toolApiBase = trimSlash(agentApiOverride || DEFAULT_AGENT_ORIGIN) + API_PATH
 
 export class AgentUnavailable extends Error {
   constructor(cause: unknown) {
@@ -43,7 +58,7 @@ export class AgentUnavailable extends Error {
 export function isLoopbackUrl(url: string): boolean {
   try {
     const h = new URL(url, window.location.href).hostname.replace(/^\[|\]$/g, '').toLowerCase()
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.localhost')
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || h.endsWith('.localhost') || h === LOCAL_TLS_HOST
   } catch {
     return false
   }
@@ -51,7 +66,65 @@ export function isLoopbackUrl(url: string): boolean {
 
 /** fetch() that declares the loopback address space only when the target really is loopback. */
 export function localAwareFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(url, isLoopbackUrl(url) ? loopbackInit(init) : init)
+  return isLoopbackUrl(url) ? fetchWithFailover(url, loopbackInit(init)) : fetch(url, init)
+}
+
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
+async function probeOrigin(origin: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${origin}/health`, loopbackInit({
+      cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(2500)
+    }))
+    if (!res.ok) return false
+    const body = (await res.json()) as { status?: unknown; agent_version?: unknown }
+    return body.status === 'ok' && typeof body.agent_version === 'string'
+  } catch {
+    return false
+  }
+}
+
+let failoverInflight: Promise<string | null> | null = null
+
+/**
+ * Switch the shared agent origin when `failed` is really down. Returns the origin to retry with, or
+ * null when there is nothing to switch to. `failed` is probed first: if it still answers, the
+ * original request may already have reached the agent, so it is never replayed.
+ */
+export function failoverOrigin(failed: string): Promise<string | null> {
+  if (!failoverEnabled || !AGENT_ORIGIN_CANDIDATES.includes(failed)) return Promise.resolve(null)
+  // Another request already moved us elsewhere while this one was failing.
+  if (controllerOrigin !== failed) return Promise.resolve(controllerOrigin)
+  failoverInflight ??= (async () => {
+    if (await probeOrigin(failed)) return null
+    const rest = AGENT_ORIGIN_CANDIDATES.filter((origin) => origin !== failed)
+    const reachable = await Promise.all(rest.map(probeOrigin))
+    const next = rest.find((_, i) => reachable[i]) ?? null
+    if (next) {
+      controllerOrigin = next
+      toolApiBase = next + API_PATH
+    }
+    return next
+  })().finally(() => { failoverInflight = null })
+  return failoverInflight
+}
+
+async function fetchWithFailover(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    const failed = originOf(url)
+    const next = failed && url.startsWith(failed) ? await failoverOrigin(failed) : null
+    if (!failed || !next || next === failed) throw error
+    return fetch(next + url.slice(failed.length), init)
+  }
 }
 
 function loopbackInit(init: RequestInit): RequestInit {
@@ -66,7 +139,7 @@ function loopbackInit(init: RequestInit): RequestInit {
 
 export async function agentFetch(url: string, init: RequestInit = {}): Promise<Response> {
   try {
-    return await fetch(url, loopbackInit({ cache: 'no-store', ...init }))
+    return await fetchWithFailover(url, loopbackInit({ cache: 'no-store', ...init }))
   } catch (error) {
     throw new AgentUnavailable(error)
   }

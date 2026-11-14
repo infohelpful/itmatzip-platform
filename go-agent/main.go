@@ -308,9 +308,11 @@ func startHTTPServer(ctx context.Context, hub *wsHub, wm *workerManager, port in
 	})
 
 	addr := fmt.Sprintf("%s:%d", defaultHost, port)
+	handler := withRecovery(withCORS(mux))
+	startLocalTLSServer(ctx, handler, localTLSPort)
 	srv := &http.Server{
 		Addr:         addr,
-		Handler:      withRecovery(withCORS(mux)),
+		Handler:      handler,
 		ReadTimeout:  120 * time.Second,
 		WriteTimeout: 0,
 		IdleTimeout:  300 * time.Second,
@@ -379,6 +381,7 @@ func main() {
 		port        = flag.Int("port", defaultPort, "HTTP/WebSocket port")
 		grpcPort    = flag.Int("grpc-port", defaultGRPCPort, "Python gRPC worker port")
 		fastapiPort = flag.Int("fastapi-port", defaultFastAPIPort, "FastAPI sidecar port")
+		tlsPort     = flag.Int("tls-port", defaultTLSPort, "HTTPS port for local.itmatzip.com (0 disables)")
 		noGRPC      = flag.Bool("no-grpc", false, "skip launching Python gRPC worker")
 		noFastAPI   = flag.Bool("no-fastapi", false, "skip launching FastAPI sidecar")
 	)
@@ -437,6 +440,7 @@ func main() {
 
 	startGRPC := !*noGRPC
 	startFastAPI := !*noFastAPI
+	localTLSPort = *tlsPort
 	if err := runAgent(*port, *grpcPort, *fastapiPort, startGRPC, startFastAPI); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("agent failed: %v", err)
 	}
@@ -451,6 +455,10 @@ func agentHTTPPortFromRequest(r *http.Request) int {
 		return defaultPort
 	}
 	if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+		// Requests that arrive on the HTTPS listener still need plain-HTTP preview URLs.
+		if localTLSPort > 0 && p == localTLSPort {
+			return defaultPort
+		}
 		return p
 	}
 	return defaultPort

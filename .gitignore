@@ -159,3 +159,9 @@ agent/run_test_separate.py
 # Codex local Go caches
 go-agent/.codex-go-cache/
 go-agent/.codex-go-modcache/
+
+# ——— local.itmatzip.com 인증서 번들 (개인키 포함 — 절대 커밋 금지) ———
+web-ui/tools/agent-cert/
+scripts/local-cert/work/
+**/bundle.json
+*.lego/

@@ -1015,9 +1015,17 @@ export async function checkAgentConnection(signal) {
     : [...new Set([_origin, ..._originFallbacks])];
   /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string, failureKind?: AgentFailureKind } | null} */
   let lastFail = null;
+  /** 로컬 네트워크 차단처럼 보이는 첫 실패 — 전부 실패했을 때 사용자에게 보여줄 원인 */
+  let blockFail = null;
 
-  const pings = await Promise.all(candidates.map((origin) => pingAgentOrigin(origin, signal)));
-  for (let i = 0; i < candidates.length; i++) {
+  // 마지막으로 성공한 주소(_origin)를 먼저 확인하고, 실패했을 때만 나머지 후보를 병렬로 확인한다.
+  // (후보가 늘어도 정상 상태에서는 폴링당 요청이 1건)
+  const firstPing = await pingAgentOrigin(candidates[0], signal);
+  const restPings = firstPing.ok
+    ? []
+    : await Promise.all(candidates.slice(1).map((origin) => pingAgentOrigin(origin, signal)));
+  const pings = [firstPing, ...restPings];
+  for (let i = 0; i < pings.length; i++) {
     const origin = candidates[i];
     const detail = pings[i];
     if (detail.ok) {
@@ -1039,8 +1047,10 @@ export async function checkAgentConnection(signal) {
       error: detail.error,
       failureKind: detail.failureKind,
     };
-    if (isLikelyLocalNetworkBlock(detail.error)) break;
+    // 차단처럼 보여도 멈추지 않는다: 광고 차단기가 127.0.0.1 만 막고 다른 호스트 이름은 통과시킬 수 있다.
+    if (!blockFail && isLikelyLocalNetworkBlock(detail.error)) blockFail = lastFail;
   }
+  if (blockFail) lastFail = blockFail;
 
   const err = lastFail?.error;
   const failureKind =
