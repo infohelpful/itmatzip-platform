@@ -8,7 +8,7 @@ const adsSource = readFileSync(new URL('./adsense.js', import.meta.url), 'utf8')
   .replace(/^import .*;$/m, '').replaceAll('export ', '');
 
 function harness({ loader = false, existing = false } = {}) {
-  let now = 100000, seq = 0, shown = 0, dismissed = 0, active = null, modalShown = 0, notice = null;
+  let now = 100000, seq = 0, shown = 0, dismissed = 0, active = null, modalShown = 0, notice = null, modalOptions = null;
   const session = new Map();
   const timers = new Map(), listeners = new Map(), scripts = [];
   const state = { hiding: false, hideControl: false, snapshot: {
@@ -56,7 +56,7 @@ function harness({ loader = false, existing = false } = {}) {
     ItzSiteModal: {
       isAgentBlockDialogOpen: () => active === 'agent-block',
       isAdBlockDialogOpen: () => active === 'ad-block',
-      showSiteDialog() { modalShown++; active = 'ad-block'; return new Promise(() => {}); },
+      showSiteDialog(options) { shown++; modalShown++; modalOptions = options; active = 'ad-block'; return new Promise(() => {}); },
       dismissActiveSiteModal() { dismissed++; active = null; },
     },
     __itmatzipGetAdSenseGuardSnapshot: () => state.snapshot,
@@ -65,7 +65,7 @@ function harness({ loader = false, existing = false } = {}) {
   context.window = context;
   vm.runInContext(loader ? adsSource : guardSource, context);
   return { context, state, scripts, dispatchEvent,
-    get shown() { return shown; }, get modalShown() { return modalShown; }, get notice() { return notice; }, get dismissed() { return dismissed; },
+    get shown() { return shown; }, get modalShown() { return modalShown; }, get modalOptions() { return modalOptions; }, get notice() { return notice; }, get dismissed() { return dismissed; },
     set active(value) { active = value; }, get active() { return active; },
     advance(ms) {
       const end = now + ms;
@@ -89,17 +89,17 @@ for (const [name, setup] of [
   ['offline', h => { h.context.navigator.onLine = false; h.state.hiding = true; }],
   ['both control and ad probe hidden', h => { h.state.hiding = h.state.hideControl = true; }],
 ]) {
-  test(`no notice: ${name}`, () => { const h=harness(); setup(h); h.advance(30000); assert.equal(h.shown,0); });
+  test(`no wall: ${name}`, () => { const h=harness(); setup(h); h.advance(30000); assert.equal(h.shown,0); });
 }
 
-test('repeated selective hiding plus load failure shows nonblocking notice and OFF clears without filled ad', () => {
+test('repeated selective hiding plus load failure shows blocking popup and OFF clears without filled ad', () => {
   const h=harness(); h.state.hiding=true;
   h.advance(12000); assert.equal(h.shown,0);
   h.advance(1500); assert.equal(h.shown,1);
   h.state.hiding=false; h.advance(1500);
   assert.equal(h.dismissed,1); assert.equal(h.active,null);
 });
-test('late library success clears notice without waiting for ad inventory', () => {
+test('late library success clears popup without waiting for ad inventory', () => {
   const h=harness(); h.state.hiding=true; h.advance(14000);
   h.state.snapshot.scriptLoaded=true;
   h.dispatchEvent({type:'itz:adsense-script-state'});
@@ -109,7 +109,7 @@ test('clearing ad state never dismisses an agent dialog', () => {
   const h=harness(); h.active='agent-block'; h.context.__siteGuard.clearAdLatch();
   assert.equal(h.dismissed,0); assert.equal(h.active,'agent-block');
 });
-test('recovery cannot dismiss a different dialog that opened alongside the notice', () => {
+test('recovery cannot dismiss a different dialog that opened in place of the popup', () => {
   const h=harness(); h.state.hiding=true; h.advance(14000); h.active='agent-block';
   h.state.hiding=false; h.recheck(); assert.equal(h.active,'agent-block');
 });
@@ -159,12 +159,17 @@ test('failed pre-existing script can be replaced on retry', async () => {
   assert.equal(h.context.getAdSenseGuardSnapshot().scriptLoaded,true);
 });
 
- test('confirmed detection never opens a modal; explicit close suppresses repeat notices', () => {
-  const h = harness(); h.state.hiding = true; h.advance(14000);
-  assert.equal(h.shown, 1); assert.equal(h.modalShown, 0);
-  h.notice.children[2].fire('click');
-  assert.equal(h.notice, null);
-  h.advance(30000); h.recheck();
-  assert.equal(h.shown, 1); assert.equal(h.modalShown, 0);
-  assert.equal(h.context.sessionStorage.getItem('itz-ad-notice-dismissed'), '1');
+test('confirmed blocking opens a persistent popup with reload as the only action', () => {
+  const h = harness();
+  // A previous version's dismissed banner must not bypass the blocking dialog.
+  h.context.sessionStorage.setItem('itz-ad-notice-dismissed', '1');
+  h.state.hiding = true; h.advance(14000);
+  assert.equal(h.modalShown, 1);
+  assert.equal(h.modalOptions.persistent, true);
+  assert.equal(h.modalOptions.dialogKind, 'ad-block');
+  assert.deepEqual(Array.from(h.modalOptions.buttons, b => b.act), ['reload']);
+  assert.equal(h.modalOptions.rebuild().persistent, true);
+  h.advance(30000);
+  assert.equal(h.active, 'ad-block');
+  assert.equal(h.dismissed, 0);
 });

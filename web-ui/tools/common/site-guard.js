@@ -203,9 +203,6 @@
   let lastAdCheckAt = 0;
   let evidenceSince = 0;
   let probePair = null;
-  let adNotice = null;
-  let adNoticeDismissed = false;
-  try { adNoticeDismissed = sessionStorage.getItem("itz-ad-notice-dismissed") === "1"; } catch {}
   let adBlockDismissWatchUntil = 0;
   /** @type {MutationObserver | null} */
   let adsenseObserver = null;
@@ -226,6 +223,33 @@
       /* ignore */
     }
     return fallback;
+  }
+
+  function adBlockWallBodyHtml() {
+    const brave = isBraveBrowserSync();
+    const steps = brave
+      ? `
+          <li>${itzT("adblock.stepBrave1", "주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields(보호) 끔</strong>")}</li>
+          <li>${itzT("adblock.stepBrave2", "또는 Shields 켠 채 <strong>고급</strong> → 이 사이트 <strong>광고·추적 허용</strong>")}</li>
+          <li>${itzT("adblock.stepBrave3", "<strong>F5</strong> 새로고침")}</li>
+        `
+      : `
+          <li>${itzT("adblock.stepChrome1", "광고 차단 <strong>확장</strong> → 이 사이트 <strong>허용</strong> 또는 <strong>일시 중지</strong>")}</li>
+          <li>${itzT("adblock.stepChrome2", "<strong>F5</strong> 새로고침")}</li>
+        `;
+    return `
+      <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">📢</p>
+      <p class="itz-modal__msg">
+        ${itzT("adblock.lead", "이 사이트는 <strong>광고 수익</strong>으로 무료 운영됩니다. 지금 <strong>광고가 표시되지 않고</strong> 있습니다.")}
+      </p>
+      <p class="itz-modal__msg itz-modal__sub">
+        ${itzT("adblock.sub", "PC 프로그램(에이전트) 연결 문제와는 <strong>별개</strong>입니다. 아래는 <strong>광고 표시</strong>만 위한 안내입니다.")}
+      </p>
+      <div style="text-align:left;background:#0d1117;border-radius:8px;padding:16px 20px;margin-top:1rem;font-size:0.88rem;color:#8b9cb8">
+        <p style="margin:0 0 8px;color:#e6edf7"><strong>${itzT("adblock.how", "광고 허용 방법")}</strong></p>
+        <ol style="margin:0;padding-left:20px">${steps}</ol>
+      </div>
+    `;
   }
 
   function isAgentBlockDialogOpenSync() {
@@ -297,39 +321,38 @@
     return /Chrome-Lighthouse|PageSpeed|PTST|GTmetrix|WebPageTest|HeadlessChrome/i.test(ua);
   }
 
-  // Detection must never obscure the tool or require a click to make the page usable.
   function showAdBlockWall() {
-    if (isLabAudit() || adBlockLatched || adNoticeDismissed || !document.body) return;
-    if (isAgentBlockDialogOpenSync() || !evaluateAdBlock()) return;
+    if (isLabAudit()) return;
+    if (adBlockLatched) return;
+    if (isAgentBlockDialogOpenSync()) return;
+    if (!evaluateAdBlock()) return;
 
-    const notice = document.createElement("aside");
-    notice.id = "itz-ad-notice";
-    notice.setAttribute("role", "status");
-    notice.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:1000;box-sizing:border-box;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#172033;box-shadow:0 4px 16px #0002;font:14px/1.5 system-ui;";
-    const label = document.createElement("span");
-    label.textContent = braveAdBlockTitle();
-    const reload = document.createElement("button");
-    reload.type = "button";
-    reload.textContent = itzT("modal.reload", "새로고침");
-    reload.addEventListener("click", () => location.reload());
-    const close = document.createElement("button");
-    close.type = "button";
-    close.textContent = "×";
-    close.setAttribute("aria-label", itzT("modal.close", "닫기"));
-    close.addEventListener("click", () => {
-      adNoticeDismissed = true;
-      try { sessionStorage.setItem("itz-ad-notice-dismissed", "1"); } catch {}
-      clearAdBlockLatch();
-    });
-    for (const button of [reload, close]) {
-      button.style.cssText = "flex-shrink:0;min-height:36px;padding:4px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;color:#172033;cursor:pointer;font:inherit;";
+    const modal = window.ItzSiteModal;
+    if (!modal?.showSiteDialog) {
+      scheduler.setTimeout(() => showAdBlockWall(), 400);
+      return;
     }
-    notice.append(label, reload, close);
-    document.body.appendChild(notice);
-    adNotice = notice;
+
     adBlockLatched = true;
     watchAdsenseSlot();
     startAdBlockDismissWatch();
+
+    const adBlockOptions = () => ({
+      title: braveAdBlockTitle(),
+      bodyHtml: adBlockWallBodyHtml(),
+      dialogKind: "ad-block",
+      persistent: true,
+      buttons: [{ label: itzT("modal.reload", "새로고침"), primary: true, act: "reload" }],
+    });
+
+    void modal
+      .showSiteDialog({
+        ...adBlockOptions(),
+        rebuild: adBlockOptions,
+      })
+      .then((act) => {
+        if (act === "reload") location.reload();
+      });
   }
 
   function braveAdBlockTitle() {
@@ -339,8 +362,9 @@
   }
 
   function hideAdBlockWall() {
-    adNotice?.remove();
-    adNotice = null;
+    if (window.ItzSiteModal?.isAdBlockDialogOpen?.()) {
+      window.ItzSiteModal.dismissActiveSiteModal?.();
+    }
   }
 
   function adBlockGraceExpired() {
