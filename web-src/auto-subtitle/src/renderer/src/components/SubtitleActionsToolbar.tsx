@@ -28,18 +28,12 @@ export function SubtitleActionsToolbar(props: Props) {
   }, [])
 
   return <div className="editor-subtitle-tools" role="group" aria-label="자막 싱크 및 대본 도구">
-    <div className="editor-tool-group">
-      <button type="button" disabled={!props.canAlign} onClick={props.realigning ? props.onCancel : props.onAlign}>
-        <EditorToolIcon name={props.realigning ? 'cancel' : 'sync'} />
-        <span>{props.realigning ? '정렬 취소' : '현재 줄 싱크 재정렬'}</span>
+    {/* 현재 줄·전체 싱크 재정렬, 발음 입력 버튼은 화면에서 뺐다(기능 코드는 App 에 남아 있다). 진행 중 정렬을 멈추는 버튼만 유지한다. */}
+    {props.realigning && <div className="editor-tool-group">
+      <button type="button" onClick={props.onCancel}>
+        <EditorToolIcon name="cancel" /><span>정렬 취소</span>
       </button>
-      <button type="button" disabled={!props.canAlign || props.realigning} onClick={props.onAlignAll}>
-        <EditorToolIcon name="syncAll" /><span>전체 자막 싱크 재정렬</span>
-      </button>
-      <button type="button" disabled={!props.canRead} onClick={props.onReading}>
-        <EditorToolIcon name="reading" /><span>발음 입력</span>
-      </button>
-    </div>
+    </div>}
     <div className="editor-tool-group" role="group" aria-label="대본·자막 가져오기">
       <button type="button" disabled={!props.canImport} onClick={props.onImport}
         title="SRT/VTT는 큐 시간을 그대로 가져옵니다. 대본(.txt)은 먼저 추출한 자막의 단어 시간에 맞춥니다.">

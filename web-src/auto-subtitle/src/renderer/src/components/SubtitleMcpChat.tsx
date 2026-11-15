@@ -387,11 +387,11 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
 
   return (
     <div className="subtitle-mcp-chat-anchor">
-      {!open ? (
-        <button className="subtitle-mcp-chat-launch" type="button" onClick={() => setOpen(true)} aria-label="AutoSubtitle AI 채팅 열기">
-          <span aria-hidden="true">✦</span> AI 자막 채팅
-        </button>
-      ) : (
+      <button className={`subtitle-mcp-chat-launch${open ? ' is-open' : ''}`} type="button" onClick={() => setOpen(o => !o)}
+        aria-expanded={open} aria-label={open ? 'AutoSubtitle AI 채팅 닫기' : 'AutoSubtitle AI 채팅 열기'}>
+        <span aria-hidden="true">✦</span> AI 자막 채팅
+      </button>
+      {open ? (
         <section className="subtitle-mcp-chat" aria-label="AutoSubtitle AI 채팅"
           style={{ width: `min(${size.w}px, calc(100vw - 28px))`, height: `min(${size.h}px, calc(100vh - 40px))` }}>
           <div className="subtitle-mcp-chat-resize is-top" onPointerDown={startResize('top')} role="separator" aria-orientation="horizontal" aria-label="채팅창 높이 조절" />
@@ -548,7 +548,7 @@ export function SubtitleMcpChat({ subtitles, preparedAudioPath, mediaDuration, m
             <button type="submit" disabled={busy || !prompt.trim()}>{busy ? '처리 중' : '보내기'}</button>
           </form>
         </section>
-      )}
+      ) : null}
     </div>
   )
 }

@@ -11,7 +11,15 @@ const paths = {
   hide: 'm3 3 18 18M10 5h2c6 0 10 7 10 7a20 20 0 0 1-3 4M6 6a20 20 0 0 0-4 6s4 7 10 7h2m-5-9a3 3 0 0 0 4 4',
   cancel: 'm6 6 12 12M6 18 18 6',
   chevron: 'm8 10 4 4 4-4',
-  watermark: 'M3 5h18v14H3zM13 15h5v2h-5'
+  watermark: 'M3 5h18v14H3zM13 15h5v2h-5',
+  highlightPen: 'M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z',
+  volume: 'M11 5 6 9H2v6h4l5 4V5zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
+  mute: 'M11 5 6 9H2v6h4l5 4V5zM22 9l-6 6M16 9l6 6',
+  extract: 'M3 5h18v14H3zM10 9l5 3-5 3z',
+  replaceVideo: 'M3 6h18v12H3zM10 9l5 3-5 3z',
+  folder: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+  saveAs: 'M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z',
+  save: 'M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8'
 }
 
 export function EditorToolIcon({ name }: { name: keyof typeof paths }) {

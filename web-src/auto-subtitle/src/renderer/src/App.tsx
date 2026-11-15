@@ -81,7 +81,7 @@ import {
 import { CAPSULE_PRESET, capsuleBoxOverrides, parseSubtitleBoxStyle, type SubtitleBoxStyle } from '../../shared/subtitleCapsule'
 import { ensurePretendardLoaded, usesPretendard } from './subtitleFonts'
 import { renderPreviewSubtitleText, type PreviewEmphasisCache } from './previewSubtitleText'
-import { AiProofread, previewLineCapacityUnits } from './components/AiProofread'
+import { AiProofread, AiMarksButton, previewLineCapacityUnits } from './components/AiProofread'
 import type { AiStylePatch } from './aiEditorOps'
 import { SubtitleMcpChat } from './components/SubtitleMcpChat'
 import type { CaptionEmphasisEdit } from './SubtitleVirtualList'
@@ -1547,6 +1547,32 @@ export default function App(): ReactElement {
   const [recentFonts, setRecentFonts] = useState<string[]>(() => readRecentFonts())
   const [videoContentBox, setVideoContentBox] = useState({ left: 0, top: 0, width: 0, height: 0 })
   const [videoNaturalSize, setVideoNaturalSize] = useState({ width: 1920, height: 1080 })
+  /** 프리뷰 볼륨(0~1). 재생 소리는 마스터 <audio> 가 내므로 그 요소의 volume 에 반영한다. */
+  const [previewVolume, setPreviewVolume] = useState(1)
+  const volumeBeforeMuteRef = useRef(1)
+  /** 저장하지 않은 변경: 마지막 저장(또는 불러오기) 시점의 자막·스타일과 현재를 비교한다. */
+  const [, setProjectDirtyState] = useState(false)
+  const projectDirtyRef = useRef(false)
+  const setProjectDirty = useCallback((value: boolean) => { projectDirtyRef.current = value; setProjectDirtyState(value) }, [])
+  const dirtyBaselineRef = useRef<{ timeline: unknown; key: string } | null>(null)
+  const currentSnapRef = useRef<{ timeline: unknown; key: string }>({ timeline: [], key: '' })
+  const rebaselineNextRef = useRef(false)
+  const allowUnloadRef = useRef(false)
+  const [leaveDialog, setLeaveDialog] = useState<{ href: string } | null>(null)
+  /** 드롭한 영상의 원본 위치를 찾는 동안(파일 이름). 전체 화면 로딩 창에 표시하고 그대로 추출 진행으로 이어진다. */
+  const [dropLocating, setDropLocating] = useState<string | null>(null)
+  const dropCancelRef = useRef(false)
+  const markSaved = useCallback((snap: { timeline: unknown; key: string }) => {
+    dirtyBaselineRef.current = snap
+    const cur = currentSnapRef.current
+    setProjectDirty(snap.timeline !== cur.timeline || snap.key !== cur.key)
+  }, [setProjectDirty])
+  useEffect(() => {
+    // 실제 재생 소리는 Web Audio 엔진의 마스터 게인을 지난다. HTML <audio>(폴백 경로)에도 같이 반영한다.
+    webAudioMasterPlaybackRef.current?.setVolume(previewVolume)
+    const audio = masterAudioRef.current
+    if (audio) audio.volume = previewVolume
+  }, [previewVolume, videoPath])
 
   /** SSOT: 문장·토큰 타임라인 — UI·내보내기·Peaks는 파생 `subtitles`(SubtitleLine[]) */
   const [sentenceTokenTimeline, setSentenceTokenTimeline] = useState<SentenceTokenTimeline>([])
@@ -6319,6 +6345,7 @@ export default function App(): ReactElement {
           exportFormat
         })
         markEditorRestore(id)
+        allowUnloadRef.current = true
         window.location.assign(new URL(`export.html?job=${encodeURIComponent(id)}`, window.location.href).href)
       })().catch((error) => {
         setIsExporting(false)
@@ -6456,19 +6483,21 @@ export default function App(): ReactElement {
   const saveProjectAs = useCallback(async () => {
     const defaultPath = projectFilePathRef.current ?? undefined
     const generation = projectGenerationRef.current
+    const savedSnap = currentSnapRef.current
     setProjectIoBusy(true)
     try {
       const json = await buildAutosubProjectJson()
       const r = await window.api.saveProjectFileAs(json, defaultPath)
       if (!r.canceled && generation === projectGenerationRef.current) {
         projectFilePathRef.current = r.path
+        markSaved(savedSnap)
         const mergedCuts = mergeCutRanges([...cutRanges])
         setVirtualTimelineDeleted(mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts))
       }
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     } finally { setProjectIoBusy(false) }
-  }, [buildAutosubProjectJson, cutRanges, subtitles, virtualTimelineDeleted])
+  }, [buildAutosubProjectJson, cutRanges, subtitles, virtualTimelineDeleted, markSaved])
 
   const saveProject = useCallback(async () => {
     if (!projectFilePathRef.current) {
@@ -6477,23 +6506,26 @@ export default function App(): ReactElement {
     }
     const path = projectFilePathRef.current
     const generation = projectGenerationRef.current
+    const savedSnap = currentSnapRef.current
     setProjectIoBusy(true)
     try {
       const json = await buildAutosubProjectJson()
       const res = await window.api.saveProjectFile(path, json)
       if (!res.ok) window.alert(res.reason)
       else if (generation === projectGenerationRef.current) {
+        markSaved(savedSnap)
         const mergedCuts = mergeCutRanges([...cutRanges])
         setVirtualTimelineDeleted(mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts))
       }
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     } finally { setProjectIoBusy(false) }
-  }, [buildAutosubProjectJson, saveProjectAs, cutRanges, subtitles, virtualTimelineDeleted])
+  }, [buildAutosubProjectJson, saveProjectAs, cutRanges, subtitles, virtualTimelineDeleted, markSaved])
 
   useEffect(() => {
     if (!videoPath || pendingProjectCoverageRef.current !== videoPath || !preparedMedia || !(preparedMedia.duration > 0)) return
     pendingProjectCoverageRef.current = null
+    rebaselineNextRef.current = true // 불러온 직후의 자동 보정은 사용자가 바꾼 내용이 아니다
     setSentenceTokenTimeline(current => {
       const lines = sentenceTokenTimelineToSubtitleLines(current)
       const excluded = mergeWaveformPeaksStitchCutRanges(cutRangesRef.current, lines, virtualTimelineDeletedRef.current)
@@ -6549,6 +6581,7 @@ export default function App(): ReactElement {
     pendingProjectCoverageRef.current = d.videoPath
     const excluded = mergeWaveformPeaksStitchCutRanges(d.cutRanges, d.subtitles, tombstones)
     const subtitleEnd = d.subtitles.reduce((end, line) => Math.max(end, line.end), 0)
+    rebaselineNextRef.current = true
     setSentenceTokenTimeline(subtitleLinesToSentenceTokenTimeline(completeMediaCoverage(d.subtitles, subtitleEnd, null, excluded)))
     setGapFillWhenBuildingVrew(false)
     undoStackRef.current = []
@@ -6576,6 +6609,59 @@ export default function App(): ReactElement {
 
   // 내보내기(같은 창 이동) 직전 편집 상태 저장용 — exportVideo 가 이 함수보다 위에 있어 ref 로 넘긴다.
   buildProjectJsonRef.current = buildAutosubProjectJson
+
+  const projectStyleKey = useMemo(() => JSON.stringify([
+    subtitleFontFamily, subtitleFontSize, subtitleFontWeight, subtitleTextColor, subtitleStrokeColor, subtitleStrokeWidth,
+    subtitleBgColor, subtitleBgOpacity, subtitleBgPaddingPct, subtitleX, subtitleY, subtitleBoxStyle,
+    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges
+  ]), [subtitleFontFamily, subtitleFontSize, subtitleFontWeight, subtitleTextColor, subtitleStrokeColor, subtitleStrokeWidth,
+    subtitleBgColor, subtitleBgOpacity, subtitleBgPaddingPct, subtitleX, subtitleY, subtitleBoxStyle,
+    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges])
+  currentSnapRef.current = { timeline: sentenceTokenTimeline, key: projectStyleKey }
+  useEffect(() => {
+    const cur = currentSnapRef.current
+    if (rebaselineNextRef.current) {
+      rebaselineNextRef.current = false
+      dirtyBaselineRef.current = cur
+      setProjectDirty(false)
+      return
+    }
+    const base = dirtyBaselineRef.current
+    setProjectDirty(sentenceTokenTimeline.length > 0 && (!base || base.timeline !== cur.timeline || base.key !== cur.key))
+  }, [sentenceTokenTimeline, projectStyleKey, setProjectDirty])
+
+  // 저장하지 않고 탭을 닫거나 새로고침하면 브라우저 확인창을 띄운다(브라우저 규칙상 문구·버튼은 바꿀 수 없다).
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!projectDirtyRef.current || allowUnloadRef.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [])
+  // 「← 대시보드」로 나갈 때는 「저장하시겠습니까?」 전용 창을 띄운다.
+  useEffect(() => {
+    const onClick = (event: globalThis.MouseEvent) => {
+      const link = (event.target as Element | null)?.closest?.('a.site-topbar-dashboard') as HTMLAnchorElement | null
+      if (!link || !projectDirtyRef.current || allowUnloadRef.current) return
+      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+      event.preventDefault()
+      setLeaveDialog({ href: link.href })
+    }
+    document.addEventListener('click', onClick, true)
+    return () => document.removeEventListener('click', onClick, true)
+  }, [])
+  useEffect(() => {
+    if (!leaveDialog) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setLeaveDialog(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [leaveDialog])
+  const leaveTo = useCallback((href: string) => {
+    allowUnloadRef.current = true
+    window.location.href = href
+  }, [])
 
   // 내보내기 페이지에서 돌아왔을 때 편집 상태를 되살린다. 에이전트 상태 확인이 끝난 뒤에 해야
   // 영상 경로 확인이 실패해 영상 연결이 끊기지 않는다.
@@ -6714,22 +6800,89 @@ export default function App(): ReactElement {
     [applyAutosubPayload, busy, isExtracting, modelReady]
   )
 
-  // Web build: file drag-and-drop is turned off (browsers hide a dropped file's disk path, which the
-  // local engine needs). Dropped files are only blocked so the browser does not open them in the tab.
+  // Web build: browsers hide a dropped file's disk path, so a file dropped on the preview is resolved by the
+  // local agent (finds the original on this PC, or stages a copy) and then handled like a picked video.
+  // Drops anywhere else are only blocked so the browser does not open the file in the tab.
+  const dropBusyRef = useRef(false)
+  const processDroppedVideoPathRef = useRef(processDroppedVideoPath)
+  processDroppedVideoPathRef.current = processDroppedVideoPath
+  const dropGuardRef = useRef({ busy, isExtracting })
+  dropGuardRef.current = { busy, isExtracting }
   useEffect(() => {
-    const block = (e: globalThis.DragEvent) => {
-      if (!Array.from(e.dataTransfer?.types ?? []).includes('Files')) return
+    const inPreview = (target: EventTarget | null) =>
+      target instanceof Element && !!target.closest('.split-preview')
+    const hasFiles = (e: globalThis.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    const setOver = (on: boolean) => document.querySelector('.split-preview')?.classList.toggle('is-drag-over', on)
+    const onOver = (e: globalThis.DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
-      if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+      const ok = inPreview(e.target) && !dropGuardRef.current.busy && !dropGuardRef.current.isExtracting
+      if (e.dataTransfer) e.dataTransfer.dropEffect = ok ? 'copy' : 'none'
+      setOver(ok)
     }
-    document.addEventListener('dragover', block, true)
-    document.addEventListener('drop', block, true)
+    const onLeave = (e: globalThis.DragEvent) => {
+      if (e.relatedTarget === null || !inPreview(e.relatedTarget)) setOver(false)
+    }
+    const onDrop = (e: globalThis.DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      setOver(false)
+      if (!inPreview(e.target)) return
+      e.stopPropagation()
+      const { busy: isBusy, isExtracting: extracting } = dropGuardRef.current
+      if (isBusy || extracting || dropBusyRef.current) return
+      const files = Array.from(e.dataTransfer?.files ?? [])
+      if (files.length !== 1) {
+        if (files.length > 1) setProjectMediaNotice('영상은 한 번에 하나만 놓을 수 있습니다.')
+        return
+      }
+      const file = files[0]
+      if (!isVideoFilePath(file.name)) {
+        setProjectMediaNotice(`지원하지 않는 형식입니다. (${VIDEO_EXTENSIONS.join(', ')}) 영상을 놓아 주세요.`)
+        return
+      }
+      const resolve = window.api.resolveDroppedMedia
+      if (!resolve) return
+      dropBusyRef.current = true
+      dropCancelRef.current = false
+      setProjectMediaNotice('')
+      setDropLocating(file.name)
+      void resolve(file).then((result) => {
+        if (dropCancelRef.current) return
+        if (!result.ok) {
+          setDropLocating(null)
+          setProjectMediaNotice(`영상을 불러오지 못했습니다: ${result.reason}`)
+          return
+        }
+        // 같은 처리 틱에서 추출이 시작되므로 로딩 창이 끊기지 않고 「자막을 추출하고 있습니다」로 이어진다.
+        processDroppedVideoPathRef.current(result.path)
+        setDropLocating(null)
+      }).finally(() => { dropBusyRef.current = false })
+    }
+    document.addEventListener('dragover', onOver, true)
+    document.addEventListener('dragleave', onLeave, true)
+    document.addEventListener('drop', onDrop, true)
     return () => {
-      document.removeEventListener('dragover', block, true)
-      document.removeEventListener('drop', block, true)
+      document.removeEventListener('dragover', onOver, true)
+      document.removeEventListener('dragleave', onLeave, true)
+      document.removeEventListener('drop', onDrop, true)
     }
   }, [])
 
+  const previewVolumeControl = (
+    <div className="preview-volume" role="group" aria-label="볼륨">
+      <button type="button" className="preview-volume-btn" aria-label={previewVolume > 0 ? '음소거' : '음소거 해제'}
+        onClick={() => {
+          if (previewVolume > 0) { volumeBeforeMuteRef.current = previewVolume; setPreviewVolume(0) }
+          else setPreviewVolume(volumeBeforeMuteRef.current > 0 ? volumeBeforeMuteRef.current : 1)
+        }}>
+        <EditorToolIcon name={previewVolume > 0 ? 'volume' : 'mute'} />
+      </button>
+      <input name="preview-volume" type="range" className="preview-volume-range" aria-label="볼륨" min={0} max={100} step={1}
+        value={Math.round(previewVolume * 100)} onChange={(e) => setPreviewVolume(Number(e.target.value) / 100)} />
+      <span className="preview-volume-pct">{Math.round(previewVolume * 100)}%</span>
+    </div>
+  )
   const previewMediaClass = [
     'preview-drop',
     videoPath ? 'preview-drop--filled' : '',
@@ -7017,6 +7170,8 @@ export default function App(): ReactElement {
               </button>
             ) : null}
             {modelReady && !setupPanelActive ? <AlignmentRuntimeControl disabled={busy || isExtracting || realigning} /> : null}
+            <span className="project-meta-file" title={videoPath ?? undefined}>{videoPath ? (videoPath.split(/[\\/]/).pop() || videoPath) : '선택된 영상 없음'}</span>
+            <span className="project-meta-badge">Faster-Whisper {gpuRuntimeStatus.installed ? 'Local GPU' : 'Local'}</span>
           </div>
           {/* Web-only ad slot (filled by web-ui/tools/auto-subtitle/site-glue.js). 광고 표시 + 탭과 간격은 webAds.css */}
           <div className="autosub-ad-wrap" aria-label="광고">
@@ -7029,6 +7184,13 @@ export default function App(): ReactElement {
           onKeyDown={event => { if (event.code === 'Space') event.stopPropagation() }}>
           <div className="preview-subtitle-controls">
             {/* Web build: undo/redo toolbar buttons removed; Ctrl+Z / Ctrl+Y still work. */}
+            {editorTab === 'subtitles' && <div className="editor-subtitle-tools editor-subtitle-tools--solo" role="group" aria-label="영상 선택">
+              <div className="editor-tool-group">
+                <button type="button" className="editor-extract-btn" disabled={isExtracting || busy} onClick={() => void selectVideoForExtraction()}>
+                  <EditorToolIcon name="extract" /><span>{isExtracting ? '자막 추출 중…' : '영상 선택 · 자막 추출'}</span>
+                </button>
+              </div>
+            </div>}
             {editorTab === 'subtitles' && <SubtitleActionsToolbar
               canAlign={!!videoPath && !!subtitles.length && !isExtracting && !projectIoBusy}
               canRead={!!subtitles.length && !isExtracting && !projectIoBusy && !realigning}
@@ -7040,15 +7202,37 @@ export default function App(): ReactElement {
               onImport={() => void importScriptFile()}
             >
               <div className="subtitle-visibility-tools" role="group" aria-label="단어 강조">
-                <div className="preview-export-word-highlight"
-                  title="영상으로 내보낼 때 지금 말하는 단어를 선택한 색으로 강조합니다.">
-                  <label><input name="word-highlight" type="checkbox" checked={wordHighlightEnabled}
+                <label className={`word-hl-btn${wordHighlightEnabled ? ' is-on' : ''}`}
+                  title="처음에는 꺼져 있어 일반 자막과 같습니다. 색을 고르면 그 색으로 지금 말하는 단어를 따라가며 강조합니다(영상 내보내기에도 적용).">
+                  <input name="word-highlight" type="checkbox" className="word-hl-check" checked={wordHighlightEnabled}
                     onChange={(e) => setWordHighlightEnabled(e.target.checked)} disabled={isExporting || isExtracting} />
-                    <span>단어 강조</span></label>
-                  <input name="word-highlight-color" type="color" value={wordHighlightColor} onChange={(e) => setWordHighlightColor(e.target.value)}
-                    disabled={!wordHighlightEnabled || isExporting || isExtracting} aria-label="단어 강조 색" />
-                </div>
+                  <span className="word-hl-top">
+                    <EditorToolIcon name="highlightPen" />
+                    <input name="word-highlight-color" type="color" className="word-hl-chip" value={wordHighlightColor}
+                      onChange={(e) => { setWordHighlightColor(e.target.value); setWordHighlightEnabled(true) }}
+                      disabled={isExporting || isExtracting} aria-label="단어 강조 색" />
+                  </span>
+                  <span className="word-hl-label">단어 강조</span>
+                </label>
               </div>
+              {subtitles.length > 0 && <div className="editor-ai-tools" role="group" aria-label="AI 교정">
+                <AiProofread
+                  subtitles={subtitles}
+                  measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
+                  emphasisColor={captionEmphasisColor}
+                  disabled={isExtracting || projectIoBusy || realigning}
+                  onBeforeRun={() => {
+                    pausePlayback('ai-proofread')
+                    setWaveformLineIndex(null)
+                    setWaveformWordId(null)
+                  }}
+                  onApply={(lines) => {
+                    setGapFillWhenBuildingVrew(false)
+                    applySubtitleChange(() => lines)
+                  }}
+                  onJump={seekToSubtitleStartFromNavigate}
+                />
+              </div>}
             </SubtitleActionsToolbar>}
             {editorTab !== 'subtitles' && realigning && <button type="button" className="editor-align-cancel" onClick={cancelRealignment}>
               <EditorToolIcon name="cancel" />정렬 취소
@@ -7082,6 +7266,25 @@ export default function App(): ReactElement {
               }}
             />}
             {/* Web build: export sits at the right end of the editor toolbar (where the toolbar ad used to be). */}
+            {editorTab === 'subtitles' && <div className="editor-subtitle-tools editor-subtitle-tools--solo editor-project-tools" role="group" aria-label="프로젝트">
+              <div className="editor-tool-group">
+                {editorTab === 'subtitles' && <button type="button" disabled={projectFileUiDisabled || projectIoBusy || subtitles.length === 0} onClick={replaceProjectMedia}
+                  title="자막·타임스탬프는 그대로 두고 원본 영상만 다른 영상(효과를 넣은 영상 등)으로 바꿉니다. 영상 길이가 같아야 합니다.">
+                  <EditorToolIcon name="replaceVideo" /><span>영상 교체</span>
+                </button>}
+                {editorTab === 'subtitles' && <button type="button" disabled={projectFileUiDisabled} onClick={openProjectFile}
+                  title={!modelReady ? '엔진 준비 후 사용할 수 있습니다.' : '저장된 .autosub 프로젝트 열기'}>
+                  <EditorToolIcon name="folder" /><span>불러오기</span>
+                </button>}
+                <button type="button" disabled={projectFileUiDisabled} onClick={saveProjectAs} title="새 파일 이름으로 .autosub 저장">
+                  <EditorToolIcon name="saveAs" /><span>다른 이름으로 저장</span>
+                </button>
+                <button type="button" disabled={projectFileUiDisabled} onClick={saveProject}
+                  title="한 번이라도 저장했거나 .autosub를 연 상태면 탐색기 없이 같은 파일에 덮어씁니다. 처음 저장할 때만 탐색기가 열립니다. 다른 위치·파일 이름은 「다른 이름으로 저장」을 사용하세요.">
+                  <EditorToolIcon name="save" /><span>저장</span>
+                </button>
+              </div>
+            </div>}
             <div className="preview-subtitle-export-actions" role="group" aria-label="내보내기">
               <div className="preview-export-main">
                 <button type="button"
@@ -7240,6 +7443,7 @@ export default function App(): ReactElement {
                     >
                       video를 재생할 수 없습니다.
                     </video>
+                    <div className="preview-frame-label" aria-hidden="true">{videoNaturalSize.width} × {videoNaturalSize.height}</div>
                     <div className="preview-subtitle-overlay" aria-live="polite" style={previewSubtitleOverlayStyle}>
                       <div style={previewSubtitleInnerStyle}>
                         <div className="preview-subtitle-stage">
@@ -7292,9 +7496,11 @@ export default function App(): ReactElement {
                       ? '로딩 중…'
                       : formatClock(displayDurationSec)}
                   </span>
+                  {previewVolumeControl}
                 </div>
               </>
             ) : (
+              <>
               <div className={previewMediaClass}>
                 {/* Web build: browsers hide dropped files' paths, so this area opens the agent's file dialog. */}
                 <button type="button" className="preview-drop-inner" style={{ background: 'none', border: 0, cursor: 'pointer', width: '100%', height: '100%', color: 'inherit' }}
@@ -7302,9 +7508,25 @@ export default function App(): ReactElement {
                   <p className="video-drop-hint">
                     여기를 누르거나 오른쪽 위 「영상 선택 · 자막 추출」로 영상을 고르세요
                     <span className="video-drop-formats"> ({VIDEO_EXTENSIONS.join(', ')})</span>
+                    <span className="video-drop-dnd-hint" aria-hidden="true">
+                      <span className="video-drop-dnd-idle">영상 파일을 여기로 끌어다 놓으면 자막을 바로 추출할 수 있습니다</span>
+                      <span className="video-drop-dnd-active">여기에 놓으면 자막 추출을 시작합니다</span>
+                    </span>
                   </p>
                 </button>
               </div>
+              <div className="preview-controls preview-controls--outside preview-controls--idle" role="group" aria-label="재생 컨트롤">
+                <button type="button" className="preview-play-btn" disabled aria-label="재생">
+                  <svg className="preview-play-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
+                    <path d="M9 6.5v11L18 12 9 6.5Z" fill="currentColor" />
+                  </svg>
+                </button>
+                <span className="preview-time preview-time--current">00:00</span>
+                <input name="preview-position-idle" type="range" className="preview-seek" aria-label="재생 위치" min={0} max={1} step={0.01} value={0} disabled readOnly />
+                <span className="preview-time preview-time--total">00:00</span>
+                {previewVolumeControl}
+              </div>
+              </>
             )}
             {search.open ? (
               <SubtitleSearchPanel
@@ -7319,12 +7541,6 @@ export default function App(): ReactElement {
                 onReplaceAll={replaceAllSearchMatches}
               />
             ) : null}
-            {transcribeDiagnostics.length > 0 && (
-              <details className="text-xs p-2" aria-label="자막 추출 진단">
-                <summary>자막 추출 정보</summary>
-                {transcribeDiagnostics.map((message, i) => <p key={i}>{message}</p>)}
-              </details>
-            )}
             </div>
           </section>
 
@@ -7340,101 +7556,9 @@ export default function App(): ReactElement {
               <header className="subtitle-panel-head">
                 <div className="subtitle-panel-head-top">
                   <h2 className="subtitle-panel-title">자막 추출·수정</h2>
-                  <button type="button" className="app-topbar-gpu-btn preview-project-btn"
-                    disabled={isExtracting || busy} onClick={() => void selectVideoForExtraction()}>
-                    {isExtracting ? '자막 추출 중…' : '영상 선택 · 자막 추출'}
-                  </button>
-                  <div className="app-topbar-project-actions subtitle-panel-project-actions">
-                    <span className="extraction-sync-mode" title="음성 인식 후 발화 구간 안에서 한글 음절과 단어 경계를 정렬합니다.">
-                      정밀 싱크 · 음절 경계 분석
-                    </span>
-                      <button
-                        type="button"
-                        className="app-topbar-gpu-btn preview-project-btn"
-                        disabled={projectFileUiDisabled}
-                        onClick={openProjectFile}
-                        title={
-                          !modelReady
-                            ? '엔진 준비 후 사용할 수 있습니다.'
-                            : '저장된 .autosub 프로젝트 열기'
-                        }
-                      >
-                        불러오기
-                      </button>
-                      <button
-                        type="button"
-                        className="app-topbar-gpu-btn preview-project-btn"
-                        disabled={projectFileUiDisabled}
-                        onClick={saveProjectAs}
-                        title="새 파일 이름으로 .autosub 저장"
-                      >
-                        다른 이름으로 저장
-                      </button>
-                      <button
-                        type="button"
-                        className="app-topbar-gpu-btn preview-project-btn"
-                        disabled={projectFileUiDisabled || projectIoBusy || subtitles.length === 0}
-                        onClick={replaceProjectMedia}
-                        title="자막·타임스탬프는 그대로 두고 원본 영상만 다른 영상(효과를 넣은 영상 등)으로 바꿉니다. 영상 길이가 같아야 합니다."
-                      >
-                        영상 교체
-                      </button>
-                      <button
-                        type="button"
-                        className="app-topbar-gpu-btn preview-project-btn"
-                        disabled={projectFileUiDisabled}
-                        onClick={saveProject}
-                        title="한 번이라도 저장했거나 .autosub를 연 상태면 탐색기 없이 같은 파일에 덮어씁니다. 처음 저장할 때만 탐색기가 열립니다. 다른 위치·파일 이름은 「다른 이름으로 저장」을 사용하세요."
-                      >
-                        저장
-                      </button>
-                    </div>
-                  {subtitles.length > 0 ? (
-                    <div className="subtitle-panel-actions" role="group" aria-label="자막 일괄 편집">
-                      <span className="subtitle-linebreak-ctl">
-                        <input
-                          name="subtitle-line-width"
-                          type="number"
-                          min={4}
-                          max={80}
-                          step={1}
-                          value={lineBreakUnits}
-                          aria-label="줄당 최대 글자 수"
-                          title="한 줄 최대 글자 수(한글 기준, 영문·숫자는 0.5자)"
-                          onChange={e => {
-                            const n = Math.round(Number(e.target.value))
-                            if (Number.isFinite(n)) setLineBreakUnits(Math.min(80, Math.max(4, n)))
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="app-topbar-gpu-btn preview-project-btn subtitle-panel-action-btn"
-                          disabled={isExtracting || projectIoBusy || realigning}
-                          onClick={applyAutoLineBreak}
-                          title="입력한 글자 수를 넘는 줄을 문장 끝·쉼·균형을 고려해 단어 경계에서 나눕니다. 시간과 텍스트는 바뀌지 않습니다."
-                        >
-                          자동 줄바꿈
-                        </button>
-                      </span>
-                      <AiProofread
-                        subtitles={subtitles}
-                        measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
-                        emphasisColor={captionEmphasisColor}
-                        disabled={isExtracting || projectIoBusy || realigning}
-                        onBeforeRun={() => {
-                          pausePlayback('ai-proofread')
-                          setWaveformLineIndex(null)
-                          setWaveformWordId(null)
-                        }}
-                        onApply={(lines) => {
-                          setGapFillWhenBuildingVrew(false)
-                          applySubtitleChange(() => lines)
-                          setAlignmentNotice('AI 교정을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.')
-                        }}
-                        onJump={seekToSubtitleStartFromNavigate}
-                      />
-                    </div>
-                  ) : null}
+                  <span className="extraction-sync-mode subtitle-panel-sync-hint" title="음성 인식 후 발화 구간 안에서 한글 음절과 단어 경계를 정렬합니다.">
+                    정밀 싱크 · 음절 경계 분석
+                  </span>
                 </div>
                 <p className="subtitle-panel-sub">
                   <span role="status">{alignmentNotice}</span>
@@ -7462,27 +7586,6 @@ export default function App(): ReactElement {
                   </p>
                 ) : null}
               </header>
-              <SubtitleMcpChat
-                  subtitles={subtitles}
-                  preparedAudioPath={preparedMedia?.audioPath ?? null}
-                  mediaDuration={preparedMedia?.duration ?? null}
-                  measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
-                  emphasisColor={captionEmphasisColor}
-                  subtitleStyle={aiSubtitleStyle}
-                  onApplyStyle={applyAiSubtitleStyle}
-                  disabled={isExtracting || projectIoBusy || realigning}
-                  onBeforeRun={() => {
-                    pausePlayback('ai-proofread-chat')
-                    setWaveformLineIndex(null)
-                    setWaveformWordId(null)
-                  }}
-                  onApply={lines => {
-                    setGapFillWhenBuildingVrew(false)
-                    applySubtitleChange(() => lines)
-                    setAlignmentNotice('채팅 수정안을 적용했습니다. Ctrl+Z로 되돌릴 수 있습니다.')
-                  }}
-                  onJump={seekToSubtitleStartFromNavigate}
-              />
               <div className="subtitle-selection-toolbar" role="group" aria-label="자막 줄 선택 및 표시">
                 <label><input name="select-all-subtitles" type="checkbox" aria-label="모든 자막 줄 선택"
                   checked={visibleRowIndices.length > 0 && visibleRowIndices.every(i => selectedSubtitleRows.has(i))}
@@ -7490,6 +7593,32 @@ export default function App(): ReactElement {
                   disabled={visibleRowIndices.length === 0}
                   onChange={e => setSelectedSubtitleRows(new Set(e.target.checked ? visibleRowIndices : []))} />전체 선택</label>
                 <span className="subtitle-selection-count" aria-live="polite">{selectedSubtitleRows.size ? `${selectedSubtitleRows.size}줄 선택` : `${visibleRowIndices.length}개의 자막`}</span>
+                <AiMarksButton onJump={seekToSubtitleStartFromNavigate} />
+                <span className="subtitle-linebreak-ctl">
+                  <input
+                    name="subtitle-line-width"
+                    type="number"
+                    min={4}
+                    max={80}
+                    step={1}
+                    value={lineBreakUnits}
+                    aria-label="줄당 최대 글자 수"
+                    title="한 줄 최대 글자 수(한글 기준, 영문·숫자는 0.5자)"
+                    onChange={e => {
+                      const n = Math.round(Number(e.target.value))
+                      if (Number.isFinite(n)) setLineBreakUnits(Math.min(80, Math.max(4, n)))
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="app-topbar-gpu-btn preview-project-btn subtitle-panel-action-btn"
+                    disabled={isExtracting || projectIoBusy || realigning}
+                    onClick={applyAutoLineBreak}
+                    title="입력한 글자 수를 넘는 줄을 문장 끝·쉼·균형을 고려해 단어 경계에서 나눕니다. 시간과 텍스트는 바뀌지 않습니다."
+                  >
+                    자동 줄바꿈
+                  </button>
+                </span>
                 <button type="button" disabled={!selectionHasShown || visibilityEditDisabled} onClick={() => changeSelectedVisibility(true)}>선택 자막 숨기기</button>
                 <button type="button" disabled={!selectionHasHidden || visibilityEditDisabled} onClick={() => changeSelectedVisibility(false)}>선택 자막 표시</button>
                 <button type="button" disabled={visibleRowIndices.length === 0 || visibilityEditDisabled} onClick={toggleAllSubtitlesHidden}>{allSubtitlesHidden ? '전체 자막 표시' : '전체 자막 숨기기'}</button>
@@ -7498,9 +7627,12 @@ export default function App(): ReactElement {
                 {subtitles.length === 0 ? (
                   <div className="subtitle-empty-placeholder" aria-live="polite">
                     <p className="subtitle-empty-hint-text">
-                      아직 자막이 없습니다. 위의 「영상 선택 · 자막 추출」로 영상을 고르면 Faster-Whisper 인식이
-                      자동으로 시작됩니다.
+                      아직 자막이 없습니다. 위의 <strong>「영상 선택 · 자막 추출」</strong>로 영상을 고르면 Faster-Whisper 인식이 자동으로 시작됩니다.
                     </p>
+                    <button type="button" className="subtitle-empty-cta" disabled={isExtracting || busy}
+                      onClick={() => void selectVideoForExtraction()}>
+                      + 영상 선택 · 자막 추출
+                    </button>
                   </div>
                 ) : (
                   <>
@@ -7575,7 +7707,7 @@ export default function App(): ReactElement {
         </div>
       ) : null}
 
-      {isExtracting ? (
+      {isExtracting || dropLocating !== null ? (
         <div className="extract-modal-backdrop" role="presentation">
           <div
             className="extract-modal-card"
@@ -7584,7 +7716,9 @@ export default function App(): ReactElement {
             aria-labelledby="extract-modal-title"
           >
             <h2 id="extract-modal-title" className="extract-modal-title">
-              {extractAwaitListPaint
+              {dropLocating !== null && !isExtracting
+                ? '영상 원본 위치를 찾는 중…'
+                : extractAwaitListPaint
                 ? '자막 화면을 불러오는 중…'
                 : transcribeMode == null ? '자막 추출을 준비하고 있습니다…'
                 : transcribeMode === 'gpu'
@@ -7598,11 +7732,17 @@ export default function App(): ReactElement {
               aria-valuemin={0}
               aria-valuemax={100}
             >
-              <div className="extract-progress-fill" style={{ width: `${Math.min(100, progress)}%` }} />
+              <div className={`extract-progress-fill${dropLocating !== null && !isExtracting ? ' extract-progress-fill--indeterminate' : ''}`}
+                style={dropLocating !== null && !isExtracting ? undefined : { width: `${Math.min(100, progress)}%` }} />
             </div>
-            <p className="extract-modal-pct">{Math.round(progress)}%</p>
-            <p className="text-xs" role="status">{transcribeDiagnostics.at(-1)}</p>
+            {dropLocating !== null && !isExtracting ? null : <p className="extract-modal-pct">{Math.round(progress)}%</p>}
+            <p className="text-xs" role="status">{dropLocating !== null && !isExtracting ? `“${dropLocating}”` : transcribeDiagnostics.at(-1)}</p>
             <button type="button" disabled={extractAwaitListPaint} onClick={async () => {
+              if (dropLocating !== null && !isExtracting) {
+                dropCancelRef.current = true
+                setDropLocating(null)
+                return
+              }
               acceptTranscriptionRef.current=false
               pendingAutoTranscribeRef.current=null
               let notice='자막 추출을 취소했습니다. 영상을 다시 가져오면 재시도합니다.'
@@ -7839,6 +7979,45 @@ export default function App(): ReactElement {
               <button type="button" className="post-engine-primary" onClick={() => setPostEngineDialog({ kind: 'none' })}>
                 닫기
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {/* 하단 상태 바 — 왼쪽 끝 「AI 자막 채팅」 런처(SubtitleMcpChat)는 CSS 로 이 바 위에 놓는다. */}
+      <footer className="app-statusbar" aria-label="상태 표시줄">
+        <SubtitleMcpChat
+            subtitles={subtitles}
+            preparedAudioPath={preparedMedia?.audioPath ?? null}
+            mediaDuration={preparedMedia?.duration ?? null}
+            measureMaxUnits={() => previewLineCapacityUnits(previewSubtitleTextRef.current) ?? lineBreakUnits}
+            emphasisColor={captionEmphasisColor}
+            subtitleStyle={aiSubtitleStyle}
+            onApplyStyle={applyAiSubtitleStyle}
+            disabled={isExtracting || projectIoBusy || realigning}
+            onBeforeRun={() => {
+              pausePlayback('ai-proofread-chat')
+              setWaveformLineIndex(null)
+              setWaveformWordId(null)
+            }}
+            onApply={lines => {
+              setGapFillWhenBuildingVrew(false)
+              applySubtitleChange(() => lines)
+            }}
+            onJump={seekToSubtitleStartFromNavigate}
+        />
+        <span className="app-statusbar-msg">AutoSubtitle 준비 완료 · 단축키: Space(재생), Ctrl+B(선택 단어 강조)</span>
+        <span className="app-statusbar-gpu">{gpuRuntimeStatus.installed ? 'GPU 가속 활성' : gpuRuntimeStatus.nvidiaPresent ? 'GPU 런타임 미설치' : 'CPU 모드'}</span>
+      </footer>
+      {leaveDialog ? (
+        <div className="as-leave-backdrop" role="presentation">
+          <div className="as-leave-dialog" role="alertdialog" aria-modal="true" aria-labelledby="as-leave-title" aria-describedby="as-leave-desc">
+            <h2 id="as-leave-title">저장하시겠습니까?</h2>
+            <p id="as-leave-desc">저장하지 않은 자막 변경 사항이 있습니다. 저장하지 않고 나가면 작업 내용이 사라집니다.</p>
+            <div className="as-leave-actions">
+              <button type="button" className="as-leave-primary" disabled={projectIoBusy} autoFocus
+                onClick={() => { void (async () => { await saveProject(); if (!projectDirtyRef.current) leaveTo(leaveDialog.href) })() }}>저장</button>
+              <button type="button" disabled={projectIoBusy} onClick={() => leaveTo(leaveDialog.href)}>저장 안 함</button>
+              <button type="button" onClick={() => setLeaveDialog(null)}>취소</button>
             </div>
           </div>
         </div>

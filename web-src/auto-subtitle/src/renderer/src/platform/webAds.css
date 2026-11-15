@@ -56,3 +56,6 @@
 
 /* 현재 환경 표시(정밀 싱크)는 프로젝트 버튼 줄에서 「불러오기」 왼쪽에 붙는다. */
 .subtitle-panel-project-actions .extraction-sync-mode { margin-right: 6px; white-space: nowrap; }
+
+/* 프리뷰에 영상 파일을 끌어다 놓을 때 표시 */
+.split-preview.is-drag-over { outline: 2px dashed #13b6d4; outline-offset: -6px; background-color: #1a2a2e; }

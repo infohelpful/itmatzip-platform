@@ -259,5 +259,5 @@ export function mountAiSetupPanel(toolId) {
   window.addEventListener('focus', () => { if (Date.now() - lastTickAt > 5000) void tick(); });
 }
 
-const toolId = document.currentScript?.dataset?.tool || location.pathname.split('/').filter(Boolean).at(-1);
+const toolId = document.currentScript?.dataset?.tool || location.pathname.split('/').filter(Boolean).filter(seg => !/^index\.html?$/i.test(seg)).at(-1);
 if (toolId) mountAiSetupPanel(toolId === 'fixed-area-remover' ? 'watermark-remover' : toolId);

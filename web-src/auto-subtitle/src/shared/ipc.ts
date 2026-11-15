@@ -207,6 +207,8 @@ export type SidecarApi = {
   openVideoFileDialog: () => Promise<OpenVideoDialogResult>
   /** 드롭한 `File`의 디스크 절대 경로 (렌더러의 `File.path`는 비어 있는 경우가 많음) */
   getPathForFile: (file: File) => string
+  /** 웹 전용: 드롭한 `File` 을 에이전트가 PC 에서 원본을 찾아(못 찾으면 임시 업로드) 등록한 경로. 데스크톱에는 없다. */
+  resolveDroppedMedia?: (file: File) => Promise<{ ok: true; path: string } | { ok: false; reason: string }>
   /** 로컬 영상 파일을 `<video src>` 등에 쓸 `file://` URL */
   getMediaFileUrl: (absoluteFilePath: string) => string
   sidecarCall: (method: string, params?: Record<string, unknown>) => Promise<unknown>

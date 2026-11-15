@@ -79,7 +79,7 @@
   <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
-  <link rel="stylesheet" href="app/auto-subtitle.css?v=39">
+  <link rel="stylesheet" href="app/auto-subtitle.css?v=58">
   <style>
     /* The desktop App.css pins html/body/#root to one non-scrolling window; on the web the editor
        fills the first screen and the page scrolls on to the guide below it. */
@@ -94,18 +94,22 @@
     /* Guide spans the editor's full width in three columns instead of a narrow centered column. */
     body.as-app .tool-guide.autosub-guide {
       max-width: none !important; margin: 0 !important; padding: 40px 24px 56px !important;
-      display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; align-items: start;
+      display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: stretch;
       border-top: 1px solid #262b31;
     }
+    /* 세 열을 같은 높이의 둥근 카드로 */
+    .autosub-guide-col { display: flex; flex-direction: column; padding: 24px 26px; border: 1px solid #2d333f; border-radius: 16px; background: rgba(26, 29, 35, 0.72); }
     .autosub-guide-col > h3:first-child { margin-top: 0; }
-    .autosub-guide-intro .tool-guide-note { margin-top: 18px; }
+    .autosub-guide-col ol, .autosub-guide-col ul { margin: 0; padding: 0 0 0 20px; border: 0; border-radius: 0; background: none; }
+    .autosub-guide-col > p:last-child { margin-bottom: 0; }
+    .autosub-guide-intro .tool-guide-note { margin-top: auto; }
+    .autosub-guide-intro .tool-guide-lead + h3 { margin-top: 22px; }
     @media (max-width: 1100px) {
       body.as-app .tool-guide.autosub-guide { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-      .autosub-guide-intro { grid-column: 1 / -1; margin-bottom: 28px; }
+      .autosub-guide-intro { grid-column: 1 / -1; }
     }
     @media (max-width: 700px) {
       body.as-app .tool-guide.autosub-guide { grid-template-columns: minmax(0, 1fr); }
-      .autosub-guide-col + .autosub-guide-col { margin-top: 24px; }
     }
   </style>
 </head>
@@ -142,11 +146,11 @@
 
   <script type="module" src="../common/site-modal-boot.js?v=4"></script>
   <link rel="stylesheet" href="../common/ai-setup-panel.css?v=4">
-  <script type="module" src="../common/ai-setup-panel.js?v=8-lna29"></script>
+  <script type="module" src="../common/ai-setup-panel.js?v=9-lna29"></script>
   <script type="module" src="../common/agent-update-boot.js?v=1-lna29"></script>
   <script src="../common/site-guard.js?v=23"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
   <script type="module" src="site-glue.js?v=9-lna29"></script>
-  <script type="module" src="app/auto-subtitle.js?v=57"></script>
+  <script type="module" src="app/auto-subtitle.js?v=74"></script>
 </body>
 </html>

@@ -1,0 +1,285 @@
+/*
+ * AutoSubtitle UI 리디자인 (디자인 시안 반영) — 기능·동작은 그대로, 화면 구성과 색만 바꾼다.
+ * 기존 클래스를 덮어쓰므로 main.tsx 에서 다른 CSS 뒤에 불러온다.
+ */
+:root {
+  --as-bg-app: #111315; --as-bg-header: #16191c; --as-bg-toolbar: #1a1d21; --as-bg-panel: #14171a;
+  --as-bg-card: #1a1e24; --as-border: #272b30; --as-border-strong: #343940;
+  --as-cyan: #06b6d4; --as-cyan-soft: rgba(6, 182, 212, 0.14);
+  --as-text: #f3f4f6; --as-text-2: #9ca3af; --as-text-3: #6b7280;
+}
+:root, .app { background: var(--as-bg-app); }
+
+/* ───────── 1. 상단 2단 헤더 + 오른쪽 광고 ───────── */
+.app .app-topbar {
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-rows: 46px 52px;
+  column-gap: 12px; row-gap: 0; align-items: center; padding: 0 0 0 20px; min-height: 98px; flex-wrap: nowrap;
+  border-bottom: 1px solid var(--as-border);
+  /* 1층과 2층 사이 얇은 구분선(왼쪽 영역에만, 광고 칸 제외) */
+  background: var(--as-bg-header) linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)) 0 46px / calc(100% - clamp(336px, 38vw, 736px)) 1px no-repeat;
+}
+.app .app-title { grid-row: 1; grid-column: 2; margin: 0; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+.app .app-title::before { width: 26px; height: 26px; font-size: 14px; font-weight: 800; border-radius: 7px;
+  background: linear-gradient(135deg, #06b6d4, #0284c7); box-shadow: 0 2px 8px rgba(6, 182, 212, 0.35); }
+/* 대시보드 링크·에이전트 상태는 그리드 칸에 직접 놓는다 */
+.app .site-topbar-links { display: contents; }
+.app .site-topbar-dashboard { grid-row: 1; grid-column: 1; height: auto; padding: 5px 12px; border-radius: 20px;
+  background: #202429; border-color: var(--as-border); color: var(--as-text-2); font-size: 12.5px; font-weight: 500; }
+.app .site-topbar-dashboard:hover { background: #282d34; color: var(--as-text); border-color: var(--as-border-strong); }
+.app .site-topbar-agent { grid-row: 1; grid-column: 3; justify-self: end; margin-right: 20px; padding: 4px 12px;
+  border-radius: 20px; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.22); font-size: 12px; }
+.app .site-topbar-agent--offline { background: rgba(229, 83, 75, 0.08); border-color: rgba(229, 83, 75, 0.25); }
+.app .site-topbar-agent-text { flex-direction: row; align-items: center; gap: 8px; }
+.app .site-topbar-agent-sub { display: inline !important; font-size: 11.5px; color: var(--as-text-2); }
+.app .editor-tabs { grid-row: 2; grid-column: 1 / 3; align-self: stretch; margin: 0; gap: 6px; }
+.app .editor-tabs button { position: relative; padding: 0 22px; border: 0; background: transparent; color: var(--as-text-2);
+  font-size: 14.5px; font-weight: 600; transition: color 0.15s, background 0.15s; }
+.app .editor-tabs button:hover { color: var(--as-text); background: rgba(255, 255, 255, 0.02); }
+.app .editor-tabs button[aria-pressed='true'] { color: #fff; border: 0;
+  background: linear-gradient(180deg, rgba(6, 182, 212, 0.04) 0%, rgba(6, 182, 212, 0.12) 100%); }
+.app .editor-tabs button[aria-pressed='true']::after { content: ''; position: absolute; bottom: 0; left: 10px; right: 10px; height: 3px;
+  border-radius: 3px 3px 0 0; background: var(--as-cyan); box-shadow: 0 -2px 8px rgba(6, 182, 212, 0.5); }
+.app .app-topbar-actions { grid-row: 2; grid-column: 3; justify-self: end; align-self: center; margin-right: 20px; padding: 0; gap: 8px; }
+.app .project-meta-file { max-width: 38vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; color: var(--as-text-3); }
+.app .project-meta-badge { padding: 3px 9px; border: 1px solid var(--as-border); border-radius: 5px; background: #202429;
+  color: var(--as-text-2); font-size: 11.5px; white-space: nowrap; }
+/* 광고: 헤더 높이 전체를 쓰는 오른쪽 칸 (728x90 규격 + 안내 라벨) */
+.app .autosub-ad-wrap { grid-row: 1 / 3; grid-column: 4; align-self: stretch; margin: 0; padding: 4px 8px; max-width: none;
+  width: clamp(336px, 38vw, 736px); box-sizing: border-box; flex: none; justify-content: center; align-items: center; gap: 3px;
+  border-left: 1px solid var(--as-border); background: #0e1012; }
+.app .autosub-ad-wrap { position: relative; }
+.app .autosub-ad-label { position: absolute; top: 2px; left: 0; right: 0; text-align: center; font-size: 9px; line-height: 1; letter-spacing: 1.2px; color: #4b5563; pointer-events: none; }
+.app .editor-tabs button:focus-visible { outline: 1px solid rgba(6, 182, 212, 0.5); outline-offset: -4px; }
+.app .autosub-ad--topbar { width: 100%; height: 90px; max-width: 728px; border-radius: 6px; }
+
+/* ───────── 2. 툴바 ───────── */
+.app .preview-subtitle-controls-bar, .app .preview-subtitle-controls { background: var(--as-bg-toolbar); border-color: var(--as-border); }
+.app .preview-subtitle-controls { min-height: 58px; padding: 0 20px; gap: 10px; align-content: center; }
+.app .editor-subtitle-tools { flex: 0 0 auto; gap: 10px; }
+.app .editor-tool-group { gap: 4px; padding: 4px; background: #14171a; border: 1px solid var(--as-border); border-radius: 9px; }
+.app .editor-tool-group + .editor-tool-group { padding-left: 4px; border-left: 1px solid var(--as-border); }
+.app .editor-subtitle-tools button, .app .editor-split-menu > summary { min-height: 0; min-width: 68px; gap: 3px; padding: 5px 12px;
+  border: 1px solid transparent; border-radius: 6px; color: var(--as-text-2); font-weight: 500; transition: all 0.15s; }
+.app .editor-subtitle-tools button > span, .app .editor-split-menu > summary > span { color: inherit; font-size: 11px; }
+.app .editor-subtitle-tools .editor-tool-icon, .app .editor-split-menu .editor-tool-icon { width: 16px; height: 16px; }
+.app .editor-subtitle-tools button:hover:not(:disabled), .app .editor-split-menu > summary:hover, .app .editor-split-menu[open] > summary {
+  background: #22262c; color: var(--as-text); }
+.app .editor-extract-btn { background: rgba(6, 182, 212, 0.1) !important; border-color: rgba(6, 182, 212, 0.4) !important; color: #67e8f9 !important; }
+.app .editor-extract-btn:hover:not(:disabled) { background: rgba(6, 182, 212, 0.18) !important; color: #fff !important; }
+/* 단어 강조: 아이콘 + 색 칩 버튼. 꺼져 있으면 칩이 투명(일반 자막과 동일), 색을 고르면 켜진다. */
+.app .subtitle-visibility-tools { padding: 4px; gap: 4px; background: #14171a; border: 1px solid var(--as-border); border-radius: 9px; }
+.app .word-hl-btn { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-width: 68px; padding: 5px 12px; border: 1px solid transparent; border-radius: 6px; color: var(--as-text-2);
+  font-size: 11px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: all 0.15s; }
+.app .word-hl-btn:hover { background: #22262c; color: var(--as-text); }
+.app .word-hl-btn.is-on { background: rgba(6, 182, 212, 0.12); border-color: rgba(6, 182, 212, 0.4); color: #fff; }
+.app .word-hl-check { position: absolute; opacity: 0; width: 0; height: 0; pointer-events: none; }
+.app .word-hl-top { display: flex; align-items: center; gap: 5px; height: 16px; }
+.app .word-hl-top .editor-tool-icon { width: 16px; height: 16px; }
+.app .word-hl-chip { -webkit-appearance: none; appearance: none; width: 12px; height: 12px; padding: 0; margin: 0; border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 3px; background: none; cursor: pointer; }
+.app .word-hl-chip::-webkit-color-swatch-wrapper { padding: 0; }
+.app .word-hl-chip::-webkit-color-swatch { border: 0; border-radius: 2px; }
+.app .word-hl-btn:not(.is-on) .word-hl-chip { border-style: dashed; border-color: rgba(255, 255, 255, 0.3); }
+.app .word-hl-btn:not(.is-on) .word-hl-chip::-webkit-color-swatch { background: transparent !important; }
+.app .word-hl-btn:has(.word-hl-check:disabled) { opacity: 0.35; cursor: default; }
+/* 오른쪽: 워터마크 · 형식 · 내보내기 */
+.app .preview-subtitle-export-actions { border-left: 0; padding-left: 0; flex: 0 0 auto; }
+.app .preview-export-main { gap: 8px; align-items: center; }
+.app .preview-export-main > button:not(.preview-export-btn) { height: 36px; padding: 0 12px; border: 1px solid var(--as-border); border-radius: 8px;
+  background: #20242a; color: var(--as-text); font-size: 12.5px; font-weight: 500; }
+.app .preview-export-main > button:not(.preview-export-btn):hover:not(:disabled) { background: #282d35; }
+.app .preview-export-format { height: 36px; border-radius: 8px; border-color: var(--as-border); background: #14171a; color: var(--as-text); font-size: 12.5px; }
+.app .preview-export-btn { height: 36px; min-height: 36px; padding: 0 16px; border-radius: 8px; background: var(--as-cyan); border-color: var(--as-cyan);
+  color: #081216; font-size: 13px; font-weight: 700; box-shadow: 0 2px 10px rgba(6, 182, 212, 0.28); }
+.app .preview-export-btn:hover:not(:disabled) { background: #22d3ee; border-color: #22d3ee; }
+
+/* ───────── 3. 워크스페이스: 프리뷰(왼쪽) · 자막 목록(오른쪽) ───────── */
+.app .layout-split { background: var(--as-bg-app); }
+.app .split-preview { padding: 18px 20px; background: #121417; border-right: 1px solid var(--as-border); gap: 12px; }
+.app .preview-drop { border: 1.5px dashed #2b3038; border-radius: 12px; background: #0b0d0f; transition: border-color 0.2s, background 0.2s; }
+.app .preview-drop:hover { border-color: var(--as-cyan); background: #0d1115; }
+.app .preview-drop--filled { border-style: solid; border-color: #232830; }
+.app .preview-controls--outside { margin-top: 0; height: 44px; box-sizing: border-box; padding: 0 14px; border: 1px solid var(--as-border); border-radius: 10px; background: #181b20; }
+.app .split-subtitles, .app .subtitle-panel { background: var(--as-bg-panel); }
+.app .subtitle-panel { padding: 18px 22px; box-sizing: border-box; }
+.app .subtitle-panel-head-top { justify-content: space-between; gap: 10px; }
+.app .subtitle-panel-title { font-size: 15px; font-weight: 700; color: var(--as-text); letter-spacing: 0; }
+.app .subtitle-panel-sync-hint { margin-left: auto; color: var(--as-text-3); font-size: 11.5px; }
+.app .subtitle-selection-toolbar { padding: 0 0 12px; margin-bottom: 14px; border-bottom: 1px solid var(--as-border); color: var(--as-text-2); font-size: 12.5px; }
+.app .subtitle-selection-count { color: var(--as-text-3); }
+.app .subtitle-selection-toolbar button { padding: 5px 10px; border: 1px solid var(--as-border); border-radius: 6px; background: #1e2228; color: var(--as-text-2); font-size: 12px; }
+.app .subtitle-selection-toolbar button:hover:not(:disabled) { background: #262b33; color: var(--as-text); border-color: var(--as-border); }
+.app .subtitle-card { border: 1px solid var(--as-border); border-radius: 10px; background: var(--as-bg-card); box-shadow: none; }
+.app .subtitle-card:hover { border-color: var(--as-border-strong); box-shadow: none; }
+.app .subtitle-card--active, .app:not(.is-playing) .subtitle-card:focus-within { border-color: var(--as-cyan); background: #1c232b; box-shadow: none; }
+.app .subtitle-card--active .subtitle-card-times { color: var(--as-cyan); }
+.app .subtitle-empty-placeholder { border: 1px dashed var(--as-border); border-radius: 12px; background: rgba(255, 255, 255, 0.01); }
+
+/* ───────── 4. 하단 상태 바 + AI 자막 채팅 런처 ───────── */
+.app .app-statusbar { flex: 0 0 30px; height: 30px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 18px 0 160px; background: #14171a; border-top: 1px solid var(--as-border); font-size: 11.5px; color: var(--as-text-2); }
+.app .app-statusbar-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app .app-statusbar { position: relative; }
+.app-statusbar .subtitle-mcp-chat-anchor { position: absolute; left: 18px; bottom: 3px; } /* 하단 바 안에 고정: 「AutoSubtitle 준비 완료」 텍스트 바로 왼쪽 */
+/* 채팅창은 런처 위로 열리고, 런처는 열려 있어도 하단 왼쪽에 그대로 남는다(다시 누르면 닫힘). */
+.app-statusbar .subtitle-mcp-chat { position: absolute; left: 0; bottom: calc(100% + 8px); }
+.subtitle-mcp-chat-launch.is-open { background: #233138; border-color: rgba(6, 182, 212, 0.7); color: #fff; }
+.subtitle-mcp-chat-launch { gap: 6px; padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(6, 182, 212, 0.35); background: #1d262b;
+  color: #67e8f9; font-size: 11.5px; font-weight: 600; box-shadow: none; }
+.subtitle-mcp-chat-launch:hover { background: #233138; }
+.subtitle-mcp-chat-launch span { color: inherit; font-size: 12px; }
+
+/* ───────── 5. 시안과 같은 세부 요소 ───────── */
+/* 프리뷰: 안내 문구 · 영상 정보 칩 · 플레이어 바 */
+.app .video-drop-hint { font-size: 14px; color: var(--as-text); }
+.app .video-drop-formats { display: block; margin-top: 6px; font-size: 12px; color: var(--as-text-3); }
+.app .preview-frame-label { position: absolute; top: 14px; left: 14px; z-index: 3; padding: 4px 10px; border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55); font-size: 11.5px; color: var(--as-text-2); pointer-events: none; }
+.app .preview-controls--outside { gap: 12px; }
+.app .preview-play-btn { order: 0; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: #252a32; color: var(--as-text); }
+.app .preview-play-btn .preview-play-icon { width: 14px; height: 14px; }
+.app .preview-time { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 12px; color: var(--as-text-2); }
+.app .preview-time--current { order: 1; }
+.app .preview-time--total { order: 2; margin-left: -8px; }
+.app .preview-time--total::before { content: '/ '; }
+.app .preview-seek { order: 3; flex: 1; }
+.app .preview-seek::-webkit-slider-runnable-track { height: 5px; border-radius: 4px; background: #262b33; }
+.app .preview-seek::-webkit-slider-thumb { background: var(--as-cyan); border-color: #0b0d0f; }
+
+/* 자막 카드: 체크박스 + 시간 배지 + 입력칸 */
+.app .subtitle-row-kind { display: none; }
+.app .subtitle-card-head { margin-bottom: 6px; }
+.app .subtitle-card-times { display: inline-flex; margin-left: auto; padding: 3px 7px; gap: 5px; border-radius: 5px; background: rgba(6, 182, 212, 0.1);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: var(--as-cyan); }
+.app .subtitle-card-times .subtitle-time, .app .subtitle-card-times .subtitle-time-sep { color: var(--as-cyan); font-size: 11.5px; font-weight: 400; letter-spacing: 0; }
+.app .subtitle-card--active .subtitle-card-times { color: var(--as-cyan); }
+.app .subtitle-row-index { border-right: 0; background: transparent; }
+.app .subtitle-card--selected .subtitle-row-index { background: transparent; }
+.app .subtitle-card-textarea--virtual { background: #121519; border: 1px solid var(--as-border); border-radius: 6px; padding: 8px 10px; font-size: 13.5px; color: var(--as-text); }
+.app .subtitle-card-textarea:focus { border-color: var(--as-cyan); }
+
+/* 자막 디자인 탭 툴바 */
+.app .subtitle-format-toolbar { gap: 8px; }
+.app .subtitle-format-toolbar button, .app .subtitle-format-toolbar select { height: 36px; padding: 0 12px; border: 1px solid var(--as-border); border-radius: 8px;
+  background: #14171a; color: var(--as-text); font-size: 13px; font-weight: 500; transition: all 0.15s; }
+.app .subtitle-format-toolbar button:hover, .app .subtitle-format-toolbar select:hover { background: #1f2329; border-color: var(--as-border-strong); }
+.app .subtitle-format-toolbar button[aria-pressed='true'], .app .subtitle-format-toolbar button[aria-expanded='true'] { border-color: var(--as-cyan); background: rgba(6, 182, 212, 0.08); color: #fff; }
+.app .format-divider { height: 22px; width: 1px; margin: 0 2px; background: var(--as-border); }
+.app .format-scope { margin-left: 6px; font-size: 12px; color: var(--as-text-3); }
+.subtitle-format-popup { padding: 16px; border: 1px solid var(--as-border-strong); border-radius: 12px; background: #1a1d21; box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65); }
+.subtitle-format-popup .format-swatches { grid-template-columns: repeat(9, 24px); gap: 6px; }
+.subtitle-format-popup .format-swatches button { width: 24px; height: 24px; border-radius: 5px; border: 1px solid rgba(255, 255, 255, 0.14); }
+.subtitle-format-popup .format-swatches button[aria-pressed='true'] { outline: 2px solid var(--as-cyan); outline-offset: 1px; }
+
+/* ───────── 6. 프리뷰 틀(시안) · 자막은 영상 영역 안에서만 · 오른쪽 패널 상단 ───────── */
+/* 영상이 틀보다 작아 위아래(또는 좌우)에 공백이 남아도 틀 모양은 그대로 둔다. */
+.app .preview-drop--filled { padding: 0; border: 1.5px solid #232830; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(160deg, #0f172a 0%, #090c10 60%, #111827 100%); }
+.app .preview-video-stack { background: transparent; border-radius: 0; }
+/* 자막 오버레이는 실제 영상이 그려진 영역과 같은 크기라, 그 밖(검은/빈 공백)으로 나가는 부분은 그리지 않는다. */
+.app .preview-subtitle-overlay { overflow: hidden; }
+
+/* 오른쪽 패널: 「자막 추출·수정」 제목과 정밀 싱크 문구를 없애고 「전체 선택」 줄이 바로 나온다.
+   (줄바꿈·AI 교정 같은 기능 컨트롤은 자막이 있을 때만 그 줄 위에 그대로 나온다.) */
+.app .subtitle-panel-title, .app .subtitle-panel-sync-hint { display: none; }
+.app .subtitle-panel-head-top:not(:has(.subtitle-panel-actions)) { display: none; }
+.app .subtitle-panel-head-top { justify-content: flex-end; margin-bottom: 12px; }
+
+/* ───────── 7. 자막이 없을 때(빈 상태) — 시안 ───────── */
+.app .subtitle-empty-placeholder { flex-direction: column; gap: 14px; padding: 32px; text-align: center;
+  border: 1px dashed var(--as-border); border-radius: 12px; background: rgba(255, 255, 255, 0.01); }
+.app .subtitle-empty-hint-text { padding: 0; border: 0; background: none; font-size: 13px; line-height: 1.6; color: var(--as-text-2); }
+.app .subtitle-empty-hint-text strong { font-weight: 700; color: var(--as-text-2); }
+.app .subtitle-empty-cta { padding: 10px 20px; border: 0; border-radius: 8px; background: var(--as-cyan); color: #061317;
+  font-size: 13.5px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 14px rgba(6, 182, 212, 0.25); transition: background 0.15s; }
+.app .subtitle-empty-cta:hover:not(:disabled) { background: #22d3ee; }
+.app .subtitle-empty-cta:disabled { opacity: 0.45; cursor: default; }
+
+/* ───────── 8. 빈 프리뷰: 마우스를 올리면(또는 파일을 끌어오면) 끌어다 놓기 안내 ───────── */
+.app .preview-drop:not(.preview-drop--filled) { position: relative; }
+.app .video-drop-dnd-hint { display: block; margin-top: 14px; min-height: 18px; font-size: 13px; font-weight: 600; color: #67e8f9;
+  opacity: 0.85; transition: opacity 0.18s ease, font-size 0.18s ease; }
+.app .video-drop-dnd-active { display: none; }
+.app .preview-drop:hover:not(.video-drop--disabled) .video-drop-dnd-hint { opacity: 1; }
+.app .preview-drop:hover:not(.video-drop--disabled) { background: #0d1318; box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.25); }
+/* 파일을 끌어 프리뷰 위에 올렸을 때 */
+.app .split-preview.is-drag-over .video-drop-dnd-hint { opacity: 1; font-size: 15px; }
+.app .split-preview.is-drag-over .video-drop-dnd-idle { display: none; }
+.app .split-preview.is-drag-over .video-drop-dnd-active { display: inline; }
+.app .split-preview.is-drag-over .preview-drop:not(.preview-drop--filled) { border-color: var(--as-cyan); background: rgba(6, 182, 212, 0.08); }
+
+/* ───────── 9. 플레이어 바 오른쪽 볼륨 (시안의 「🔊 100%」) — 실제로 소리 크기를 조절한다 ───────── */
+.app .preview-volume { order: 5; display: flex; align-items: center; gap: 6px; color: var(--as-text-2); font-size: 12px; }
+.app .preview-volume-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+.app .preview-volume-btn:hover { background: #252a32; color: var(--as-text); }
+.app .preview-volume-btn .editor-tool-icon { width: 16px; height: 16px; }
+.app .preview-volume-range { width: 0; opacity: 0; margin: 0; padding: 0; height: 14px; accent-color: var(--as-cyan); cursor: pointer;
+  transition: width 0.18s ease, opacity 0.18s ease; }
+.app .preview-volume:hover .preview-volume-range, .app .preview-volume:focus-within .preview-volume-range { width: 80px; opacity: 1; }
+.app .preview-volume-pct { min-width: 34px; font-variant-numeric: tabular-nums; }
+.app .preview-controls--idle .preview-seek::-webkit-slider-thumb { opacity: 0; }
+.app .preview-controls--idle .preview-play-btn:disabled { opacity: 1; cursor: default; }
+
+/* ───────── 10. 프리뷰 틀은 패널 높이를 가득 채운다 (시안) — 영상이 작으면 틀 안에서 위아래 공백이 남는다 ───────── */
+.app .split-preview-top { flex: 1 1 auto; height: auto; min-height: 0; }
+.app .split-preview-top > .preview-drop, .app .preview-drop--filled { flex: 1 1 auto; aspect-ratio: auto; width: 100%; min-height: 0; }
+
+/* ───────── 11. 하단 상태 바: GPU 문구는 왼쪽, AI 설치 현황 위젯은 맨 오른쪽 끝 ───────── */
+.app .app-statusbar { justify-content: flex-start; gap: 14px; padding-right: 220px; }
+.app .app-statusbar-gpu { flex: 0 0 auto; white-space: nowrap; color: #6ee7b7; }
+.app .app-statusbar-gpu::before { content: '·'; margin-right: 14px; color: var(--as-text-3); }
+/* 공용 설치 현황 위젯(#itz-ai-setup)을 상태 바 높이의 작은 버튼으로 줄이고, 눌러서 펼치면 위로 열린다. */
+#itz-ai-setup.itz-setup { position: absolute; right: 14px; top: max(614px, calc(100vh - 26px)); bottom: auto; width: auto; z-index: 1300; border: 0; border-radius: 0; background: transparent; box-shadow: none; font-size: 11.5px; }
+#itz-ai-setup .itz-setup__head { width: auto; gap: 10px; padding: 2px 10px; border: 1px solid rgba(6, 182, 212, 0.35); border-radius: 12px; background: #1d262b; }
+#itz-ai-setup .itz-setup__head:hover { background: #233138; }
+#itz-ai-setup .itz-setup__title { font-size: 11.5px; font-weight: 600; color: #67e8f9; }
+#itz-ai-setup .itz-setup__summary { font-size: 11.5px; color: var(--as-text-2); }
+#itz-ai-setup .itz-setup__body { position: absolute; right: 0; bottom: calc(100% + 6px); width: min(390px, calc(100vw - 28px));
+  padding: 4px 14px 14px; border: 1px solid #485366; border-radius: 12px; background: #1c2230; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+
+/* ───────── 12. 저장하지 않고 나갈 때 「저장하시겠습니까?」 ───────── */
+.as-leave-backdrop { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; background: rgba(7, 10, 14, 0.7); backdrop-filter: blur(3px); }
+.as-leave-dialog { width: min(420px, calc(100vw - 32px)); padding: 22px 22px 18px; border: 1px solid var(--as-border-strong); border-radius: 14px; background: #1a1d21;
+  color: var(--as-text); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); }
+.as-leave-dialog h2 { margin: 0 0 8px; font-size: 17px; font-weight: 700; }
+.as-leave-dialog p { margin: 0 0 18px; font-size: 13px; line-height: 1.6; color: var(--as-text-2); }
+.as-leave-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.as-leave-actions button { height: 36px; padding: 0 16px; border: 1px solid var(--as-border); border-radius: 8px; background: #20242a; color: var(--as-text);
+  font-size: 13px; font-weight: 500; cursor: pointer; }
+.as-leave-actions button:hover:not(:disabled) { background: #282d35; }
+.as-leave-actions button:disabled { opacity: 0.5; cursor: default; }
+.as-leave-actions .as-leave-primary { border-color: var(--as-cyan); background: var(--as-cyan); color: #061317; font-weight: 700; }
+.as-leave-actions .as-leave-primary:hover:not(:disabled) { background: #22d3ee; }
+
+/* 원본 위치를 찾는 동안의 로딩 창 진행 바(끝을 알 수 없으므로 왔다 갔다 한다) */
+.extract-progress-fill--indeterminate { width: 32% !important; animation: as-extract-indeterminate 1.2s ease-in-out infinite; }
+@keyframes as-extract-indeterminate { 0% { transform: translateX(-110%); } 100% { transform: translateX(320%); } }
+
+/* ───────── 13. AI 교정·AI 설정은 툴바(단어 강조 오른쪽), 글자 수·자동 줄바꿈은 「선택 자막 숨기기」 왼쪽 ───────── */
+.app .editor-ai-tools { display: flex; align-items: center; gap: 4px; padding: 4px; background: #14171a; border: 1px solid var(--as-border); border-radius: 9px; }
+.app .editor-ai-tools .ai-proofread-btn { height: 44px; min-width: 68px; padding: 5px 12px; border: 1px solid transparent; border-radius: 6px; background: transparent;
+  color: var(--as-text-2); font-size: 12px; font-weight: 500; transition: all 0.15s; }
+.app .editor-ai-tools .ai-proofread-btn:hover:not(:disabled) { background: #22262c; color: var(--as-text); border-color: transparent; }
+.app .editor-ai-tools .ai-proofread-gear { width: 44px; height: 44px; margin: 0; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--as-text-2); font-size: 16px; }
+.app .editor-ai-tools .ai-proofread-gear:hover { background: #22262c; color: var(--as-text); border-color: transparent; }
+.app .editor-ai-tools .ai-marks { margin-left: 0; }
+.app .editor-ai-tools .ai-proofread-btn:disabled { opacity: 0.35; cursor: default; }
+.app .subtitle-selection-toolbar .subtitle-linebreak-ctl { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.app .subtitle-selection-toolbar .subtitle-linebreak-ctl input[type='number'] { width: 56px; height: 28px; padding: 0 8px; box-sizing: border-box; border: 1px solid var(--as-border);
+  border-radius: 6px; background: #121519; color: var(--as-text); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.app .subtitle-selection-toolbar .subtitle-linebreak-ctl input[type='number']:focus { outline: none; border-color: var(--as-cyan); }
+
+/* ───────── 14. 오른쪽 패널 위쪽 공백 최소화 ───────── */
+.app .subtitle-panel { padding-top: 4px; }
+.app .subtitle-panel-head { margin: 0; padding: 0; }
+.app .subtitle-panel-head-top { margin-bottom: 0; }
+.app .subtitle-panel-sub:has(> span:empty) { display: none; }
+.app .subtitle-panel-sub { margin: 0; }
+.app .subtitle-selection-toolbar { padding-top: 0; margin-bottom: 10px; }
+
+/* AI 수정 표시 버튼(「AI 수정 N · 확인 필요 M」): 「전체 선택」 줄에서 글자 수 입력칸 왼쪽 */
+.app .subtitle-selection-toolbar .ai-marks { margin: 0 8px 0 0; }
+.app .subtitle-selection-toolbar .ai-marks-toggle { height: 28px; padding: 0 10px; border-radius: 6px; font-size: 12px; }
+.app .subtitle-selection-toolbar .ai-marks-pop { z-index: 40; }

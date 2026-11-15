@@ -25,6 +25,12 @@ export class WebAudioMasterPlayback {
   setOnPlaybackError(callback: ((error: Error) => void) | null): void { this.onPlaybackError=callback }
   private ctx: AudioContext | null = null
   private gain: GainNode | null = null
+  /** 마스터 볼륨(0~1) — AudioContext 가 다시 만들어져도 유지한다. 모든 재생 소리가 이 게인을 지난다. */
+  private volume = 1
+  setVolume(value: number): void {
+    this.volume = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1
+    if (this.gain) this.gain.gain.value = this.volume
+  }
   private buffer: AudioBuffer | null = null
   private loadedFromUrl: string | null = null
   private activeSources: AudioBufferSourceNode[] = []
@@ -78,7 +84,7 @@ export class WebAudioMasterPlayback {
       this.ctx = new AudioContext()
       this.gain = this.ctx.createGain()
       this.gain.connect(this.ctx.destination)
-      this.gain.gain.value = 1
+      this.gain.gain.value = this.volume
     }
     return this.ctx
   }

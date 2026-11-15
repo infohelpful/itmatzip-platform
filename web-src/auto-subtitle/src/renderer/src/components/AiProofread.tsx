@@ -41,6 +41,56 @@ function clock(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** 「AI 수정 N · 확인 필요 M」 — AI 교정·AI 채팅으로 고친 곳을 보여 주고 누르면 그 자막으로 이동한다. */
+export function AiMarksButton({ onJump }: { onJump: (start: number) => void }): JSX.Element | null {
+  const marks = useAiMarks()
+  const [marksOpen, setMarksOpen] = useState(false)
+  useEffect(() => { setMarksOpen(!!marks && marks.uncertain.length > 0) }, [marks])
+  if (!marks || (marks.changes.length === 0 && marks.uncertain.length === 0)) return null
+  return (
+    <span className="ai-marks">
+      <button type="button" className="ai-marks-toggle" onClick={() => setMarksOpen(o => !o)}>
+        AI 수정 {marks.changes.length} · 확인 필요 {marks.uncertain.length} ▾
+      </button>
+      {marksOpen ? (
+        <div className="ai-marks-pop" role="dialog" aria-label="AI 교정 표시">
+          <p className="ai-marks-legend">
+            <span className="ai-legend-changed" /> AI가 고친 단어 <span className="ai-legend-unsure" /> 확인이 필요한 단어
+          </p>
+          {marks.changes.length ? (
+            <>
+              <h3 className="ai-sub">고친 단어</h3>
+              <ul className="ai-diff">
+                {marks.changes.map(c => (
+                  <li key={c.id}>
+                    <button type="button" onClick={() => onJump(c.start)}>
+                      <span className="ai-time">{clock(c.start)}</span> <del>{c.before}</del> → <ins>{c.after || '(앞 단어에 합침)'}</ins>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {marks.uncertain.length ? (
+            <ul className="ai-marks-list">
+              {marks.uncertain.map(u => (
+                <li key={u.id}>
+                  <button type="button" onClick={() => onJump(u.start)}>
+                    <span className="ai-time">{clock(u.start)}</span> <b>{u.text}</b> — {u.reason}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="ai-muted">확인이 필요한 단어가 없습니다.</p>}
+          <div className="ai-row-end">
+            <button type="button" className="ai-btn" onClick={() => { setAiMarks(null); setMarksOpen(false) }}>표시 지우기</button>
+          </div>
+        </div>
+      ) : null}
+    </span>
+  )
+}
+
 export function AiProofread(props: Props): JSX.Element {
   const { subtitles, measureMaxUnits, emphasisColor, disabled, onBeforeRun, onApply, onJump } = props
   const [settings, setSettings] = useState<AiSettings | null>(null)
@@ -52,7 +102,6 @@ export function AiProofread(props: Props): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [review, setReview] = useState<Review | null>(null)
   const marks = useAiMarks()
-  const [marksOpen, setMarksOpen] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
 
   const refresh = useCallback(async () => {
@@ -104,7 +153,6 @@ export function AiProofread(props: Props): JSX.Element {
     if (!review) return
     onApply(review.result.lines)
     setAiMarks({ changes: review.result.changes, uncertain: review.result.uncertain })
-    setMarksOpen(review.result.uncertain.length > 0)
     setReview(null)
     setRunOpen(false)
   }
@@ -121,8 +169,6 @@ export function AiProofread(props: Props): JSX.Element {
     return rules.join('\n')
   }, [marks])
 
-  const hasMarks = !!marks && (marks.changes.length > 0 || marks.uncertain.length > 0)
-
   return (
     <>
       <button type="button" className="app-topbar-gpu-btn preview-project-btn subtitle-panel-action-btn ai-proofread-btn"
@@ -134,48 +180,6 @@ export function AiProofread(props: Props): JSX.Element {
         onClick={() => { setError(null); setSettingsOpen(true) }}>
         ⚙
       </button>
-      {hasMarks ? (
-        <span className="ai-marks">
-          <button type="button" className="ai-marks-toggle" onClick={() => setMarksOpen(o => !o)}>
-            AI 수정 {marks!.changes.length} · 확인 필요 {marks!.uncertain.length} ▾
-          </button>
-          {marksOpen ? (
-            <div className="ai-marks-pop" role="dialog" aria-label="AI 교정 표시">
-              <p className="ai-marks-legend">
-                <span className="ai-legend-changed" /> AI가 고친 단어 <span className="ai-legend-unsure" /> 확인이 필요한 단어
-              </p>
-              {marks!.changes.length ? (
-                <>
-                  <h3 className="ai-sub">고친 단어</h3>
-                  <ul className="ai-diff">
-                    {marks!.changes.map(c => (
-                      <li key={c.id}>
-                        <button type="button" onClick={() => onJump(c.start)}>
-                          <span className="ai-time">{clock(c.start)}</span> <del>{c.before}</del> → <ins>{c.after || '(앞 단어에 합침)'}</ins>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : null}
-              {marks!.uncertain.length ? (
-                <ul className="ai-marks-list">
-                  {marks!.uncertain.map(u => (
-                    <li key={u.id}>
-                      <button type="button" onClick={() => onJump(u.start)}>
-                        <span className="ai-time">{clock(u.start)}</span> <b>{u.text}</b> — {u.reason}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="ai-muted">확인이 필요한 단어가 없습니다.</p>}
-              <div className="ai-row-end">
-                <button type="button" className="ai-btn" onClick={() => { setAiMarks(null); setMarksOpen(false) }}>표시 지우기</button>
-              </div>
-            </div>
-          ) : null}
-        </span>
-      ) : null}
       {markStyle ? <style>{markStyle}</style> : null}
 
       {settingsOpen && !runOpen ? (

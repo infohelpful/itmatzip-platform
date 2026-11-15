@@ -23,7 +23,7 @@ import { fillScheduleGaps } from '../../../shared/watermark'
 import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
 import { SubtitleFrameRenderer } from './subtitleFrameRenderer'
 import {
-  AgentUnavailable, agentFetch, api, apiBinary, localAwareFetch, controller, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
+  AgentUnavailable, agentFetch, api, apiBinary, localAwareFetch, controller, controllerOrigin, mediaFileUrl, pathFromMediaUrl, readError, sleep, toolApiBase
 } from './agentClient'
 import { downloadTextFile, openFile, saveTextAs, saveTextInPlace } from './localFiles'
 import {
@@ -302,6 +302,34 @@ export function createWebApi(): SidecarApi {
     },
     // Browsers never expose a dropped file's disk path; the drop handler then asks for the dialog.
     getPathForFile: () => '',
+    // 드롭한 파일: (1) 에이전트가 이름·크기·수정 시각으로 PC 에서 원본을 찾고(복사 없음),
+    // (2) 못 찾으면(이동식 저장장치 등) 에이전트 임시 폴더로 올린다. 두 엔드포인트는 Silence Detector 와 공용이다.
+    resolveDroppedMedia: async (file: File) => {
+      const base = () => `${controllerOrigin}/api/tools/silence-remover`
+      const outdated = '드래그 앤 드롭을 쓰려면 에이전트를 최신 버전으로 업데이트해 주세요.'
+      try {
+        const located = await agentFetch(`${base()}/locate-dropped`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: file.name, size: file.size, last_modified_ms: file.lastModified || null })
+        })
+        if (located.status === 404) return { ok: false as const, reason: outdated }
+        if (located.status === 415) return { ok: false as const, reason: await readError(located) }
+        if (located.ok) {
+          const found = (await located.json().catch(() => ({}))) as { found?: boolean; video_path?: string | null }
+          if (found.found && found.video_path) return { ok: true as const, path: await registerMedia(found.video_path) }
+        }
+        const uploaded = await agentFetch(`${base()}/drop-upload?filename=${encodeURIComponent(file.name)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file
+        })
+        if (uploaded.status === 404) return { ok: false as const, reason: outdated }
+        if (!uploaded.ok) return { ok: false as const, reason: await readError(uploaded) }
+        const data = (await uploaded.json().catch(() => ({}))) as { video_path?: string }
+        if (!data.video_path) return { ok: false as const, reason: '에이전트가 임시 파일 경로를 돌려주지 않았습니다.' }
+        return { ok: true as const, path: await registerMedia(data.video_path) }
+      } catch (error) {
+        return { ok: false as const, reason: errorText(error) }
+      }
+    },
     getMediaFileUrl: (absoluteFilePath: string) => mediaFileUrl(absoluteFilePath),
     readLocalMediaFileBuffer: async (absoluteFilePath: string) => {
       try {

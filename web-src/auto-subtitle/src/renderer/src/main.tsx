@@ -12,6 +12,7 @@ import './tailwind.css'
 import './App.css'
 import './editorChrome.css'
 import './platform/webAds.css'
+import './platform/redesign.css'
 
 // 내보내기 페이지(export.html)는 같은 번들로 진행 카드만 띄운다. 그 외에는 편집기.
 const isExportPage = document.documentElement.dataset.autosubPage === 'export'
