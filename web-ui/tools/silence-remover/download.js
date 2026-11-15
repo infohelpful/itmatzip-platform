@@ -3,7 +3,7 @@ import {
   configureBridge,
   requestAgent,
 } from "../common/bridge.js?v=lna28";
-import { showAdSense } from "../common/adsense.js?v=9";
+import { showAdSense } from "../common/adsense.js?v=10";
 import {
   buildFcpXmlViaAgent,
   canExportFromSession,

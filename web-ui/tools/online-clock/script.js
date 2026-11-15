@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=9";
+import { showAdSense } from "../common/adsense.js?v=10";
 import { LEGACY_IDS, PLACES } from "./countries.js";
 import {
   LOCALE_OPTIONS,

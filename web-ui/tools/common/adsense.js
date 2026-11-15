@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js?v=9";
+ *   import { showAdSense } from "../common/adsense.js?v=10";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
@@ -17,7 +17,7 @@ let _adsDisabled = false;
 /** @type {Promise<void> | null} */
 let _scriptLoadPromise = null;
 
-/** 광고 차단·네트워크 실패 등으로 스크립트를 더 이상 시도하지 않음 */
+/** 로드 실패 상태. 차단 확정이 아니며 재시도 가능. */
 let _scriptUnavailable = false;
 
 /** adsbygoogle.js 로드 성공 */
@@ -25,6 +25,9 @@ let _scriptLoaded = false;
 
 /** @type {boolean} */
 let _blockedLogged = false;
+
+let _lastScriptFailureAt = 0;
+const pendingSlots = new Map();
 
 const FILL_WATCH_MS = 18_000;
 
@@ -56,9 +59,6 @@ export function pageShowsAdCreative() {
 /** @param {string} unitKey */
 function notifyAdSlotFailed(unitKey) {
   if (pageShowsAdCreative()) return;
-  if (typeof window !== "undefined") {
-    window.__itmatzipAdSenseBlocked = true;
-  }
   document.dispatchEvent(
     new CustomEvent("itz:adsense-slot-failed", { detail: { unitKey } }),
   );
@@ -226,41 +226,71 @@ function applyRuntimeAdSense() {
 }
 
 /**
- * adsbygoogle.js 1회 로드
+ * adsbygoogle.js 로드 공유. 실패 시 짧은 쿨다운 뒤 재시도한다.
  * @returns {Promise<void>}
  */
 export function ensureAdSenseScript() {
-  if (_scriptUnavailable) {
-    return Promise.reject(new Error("AdSense script unavailable"));
-  }
+  if (_scriptLoaded) return Promise.resolve();
   if (_scriptLoadPromise) return _scriptLoadPromise;
-
-  _scriptLoadPromise = new Promise((resolve, reject) => {
-    const adSrc = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(_client)}`;
-    if (document.querySelector(`script[src*="adsbygoogle.js"]`)) {
+  if (_scriptUnavailable && Date.now() - _lastScriptFailureAt < 5000) {
+    return Promise.reject(new Error("AdSense retry cooldown"));
+  }
+  _scriptUnavailable = false;
+  const attempt = new Promise((resolve, reject) => {
+    let s = document.querySelector('script[src*="adsbygoogle.js"]');
+    // A command queue is not evidence that the library loaded.
+    if (window.adsbygoogle?.loaded === true) {
+      _scriptLoaded = true;
       resolve();
       return;
     }
-    const s = document.createElement("script");
-    s.async = true;
-    s.src = adSrc;
-    s.crossOrigin = "anonymous";
-    s.onload = () => {
+    const owned = !s;
+    if (!s) {
+      s = document.createElement("script");
+      s.async = true;
+      s.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=" + encodeURIComponent(_client);
+      s.crossOrigin = "anonymous";
+    }
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      s.removeEventListener("load", loaded);
+      s.removeEventListener("error", failed);
+    };
+    const loaded = () => {
+      cleanup();
       _scriptLoaded = true;
+      _scriptUnavailable = false;
+      window.__itmatzipAdSenseBlocked = false;
+      document.dispatchEvent(new CustomEvent("itz:adsense-script-state"));
       resolve();
     };
-    s.onerror = () => {
+    const failed = () => {
+      cleanup();
       _scriptUnavailable = true;
-      if (typeof window !== "undefined") {
-        window.__itmatzipAdSenseBlocked = true;
-      }
-      _scriptLoadPromise = null;
-      reject(new Error("AdSense script load failed"));
+      _lastScriptFailureAt = Date.now();
+      // A failed existing tag must not prevent the next attempt from creating a new one.
+      s.remove();
+      document.dispatchEvent(new CustomEvent("itz:adsense-script-state"));
+      reject(new Error("AdSense script unavailable (cause unknown)"));
     };
-    (document.head || document.documentElement).appendChild(s);
+    const timer = window.setTimeout(failed, 20000);
+    s.addEventListener("load", loaded, { once: true });
+    s.addEventListener("error", failed, { once: true });
+    if (owned) (document.head || document.documentElement).appendChild(s);
   });
-
+  _scriptLoadPromise = attempt.catch((error) => {
+    _scriptLoadPromise = null;
+    throw error;
+  });
   return _scriptLoadPromise;
+}
+
+function retryPendingSlots() {
+  if (document.hidden || navigator.onLine === false) return;
+  for (const [el, unitKey] of pendingSlots) {
+    if (!el.isConnected) pendingSlots.delete(el);
+    else void showAdSense(unitKey, el);
+  }
 }
 
 /**
@@ -346,6 +376,7 @@ export async function showAdSense(unitKey, container) {
 
   const resolved = resolveAdUnit(_siteCfg || { adsense: { enabled: !_adsDisabled, client: _client, units: {} }, tools: {} }, unitKey);
   if (resolved.off) {
+    pendingSlots.delete(el);
     markAdSlotOff(el);
     return false;
   }
@@ -395,10 +426,16 @@ export async function showAdSense(unitKey, container) {
     _scriptUnavailable = true;
     markAdSlotEmpty(el);
     logScriptUnavailableOnce(e);
+    const firstFailure = !pendingSlots.has(el);
+    pendingSlots.set(el, unitKey);
+    if (firstFailure) window.setTimeout(retryPendingSlots, 8000);
     notifyAdSlotFailed(unitKey);
     return false;
   }
 
+  pendingSlots.delete(el);
+  // Concurrent recovery events must not push the same slot twice.
+  if (el.querySelector("ins.adsbygoogle")) return true;
   el.innerHTML = "";
   el.removeAttribute("data-adsense-empty");
 
@@ -432,12 +469,16 @@ export async function showAdSense(unitKey, container) {
  */
 export function clearAdSense(container) {
   const el = resolveContainer(container);
-  if (el) el.innerHTML = "";
+  if (el) {
+    pendingSlots.delete(el);
+    el.innerHTML = "";
+  }
 }
 
 /**
  * site-guard 등: 광고 차단 오탐 방지용 스냅샷 (DOM + 내부 플래그)
  * @returns {{
+ *   adsDisabled: boolean,
  *   scriptLoaded: boolean,
  *   scriptUnavailable: boolean,
  *   liveInsCount: number,
@@ -459,6 +500,7 @@ export function getAdSenseGuardSnapshot() {
     else pendingInsCount += 1;
   }
   return {
+    adsDisabled: _adsDisabled,
     scriptLoaded: _scriptLoaded,
     scriptUnavailable: _scriptUnavailable,
     liveInsCount: slots.length,
@@ -470,6 +512,11 @@ export function getAdSenseGuardSnapshot() {
 }
 
 if (typeof window !== "undefined") {
+  window.addEventListener("online", retryPendingSlots);
+  window.addEventListener("focus", retryPendingSlots);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) retryPendingSlots();
+  });
   window.__itmatzipGetAdSenseGuardSnapshot = getAdSenseGuardSnapshot;
   window.__itmatzipPageShowsAdCreative = pageShowsAdCreative;
 }

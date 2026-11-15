@@ -94,15 +94,15 @@ const REWARDED_LOAD_TIMEOUT_MS = 12_000;
 /** @type {Record<RewardedFailureKind, { title: string, message: string, offerReload?: boolean }>} */
 const FAILURE_COPY = {
   blocked: {
-    title: "광고가 차단되었습니다",
+    title: "광고를 불러오지 못했습니다",
     message:
-      "광고가 차단되었습니다.\n광고 차단 확장 프로그램을 해제한 뒤 페이지를 새로고침해 주세요.",
+      "광고 로딩에 실패했습니다.\n네트워크 연결과 브라우저의 광고 차단 설정을 확인한 뒤 새로고침해 주세요.",
     offerReload: true,
   },
   "slot-missing": {
-    title: "광고가 차단되었습니다",
+    title: "광고를 불러오지 못했습니다",
     message:
-      "광고가 차단되었습니다.\n광고 차단 확장 프로그램을 해제한 뒤 페이지를 새로고침해 주세요.",
+      "광고 로딩에 실패했습니다.\n네트워크 연결과 브라우저의 광고 차단 설정을 확인한 뒤 새로고침해 주세요.",
     offerReload: true,
   },
   unsupported: {

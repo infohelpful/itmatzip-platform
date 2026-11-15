@@ -189,9 +189,8 @@
     window.addEventListener("resize", onResize, { passive: true });
   }
 
-  // ─── 3. 광고 차단 감지 (AdSense 실패 기준 — bait/네트워크 probe 제거) ─────
-  // 오탐 원인: ad-bait-test·adsbox 클래스(확장이 사이트 허용해도 숨김),
-  // no-cors fetch 실패, AdSense 로드 전 data-adsense-empty.
+  // ─── 3. 광고 차단 감지 (로드 실패와 독립적인 숨김 증거를 함께 확인) ─────
+  // 로드 실패, 광고 표식 숨김 어느 하나만으로 차단을 확정하지 않는다.
 
   const RECHECK_MIN_MS = 8000;
   const AD_BLOCK_GRACE_MS = 12_000;
@@ -202,6 +201,11 @@
 
   let adBlockLatched = false;
   let lastAdCheckAt = 0;
+  let evidenceSince = 0;
+  let probePair = null;
+  let adNotice = null;
+  let adNoticeDismissed = false;
+  try { adNoticeDismissed = sessionStorage.getItem("itz-ad-notice-dismissed") === "1"; } catch {}
   let adBlockDismissWatchUntil = 0;
   /** @type {MutationObserver | null} */
   let adsenseObserver = null;
@@ -222,33 +226,6 @@
       /* ignore */
     }
     return fallback;
-  }
-
-  function adBlockWallBodyHtml() {
-    const brave = isBraveBrowserSync();
-    const steps = brave
-      ? `
-          <li>${itzT("adblock.stepBrave1", "주소창 <strong>사자(Brave) 아이콘</strong> → <strong>Shields(보호) 끔</strong>")}</li>
-          <li>${itzT("adblock.stepBrave2", "또는 Shields 켠 채 <strong>고급</strong> → 이 사이트 <strong>광고·추적 허용</strong>")}</li>
-          <li>${itzT("adblock.stepBrave3", "<strong>F5</strong> 새로고침")}</li>
-        `
-      : `
-          <li>${itzT("adblock.stepChrome1", "광고 차단 <strong>확장</strong> → 이 사이트 <strong>허용</strong> 또는 <strong>일시 중지</strong>")}</li>
-          <li>${itzT("adblock.stepChrome2", "<strong>F5</strong> 새로고침")}</li>
-        `;
-    return `
-      <p class="itz-modal__msg" style="text-align:center;font-size:2rem;margin:0 0 0.5rem">📢</p>
-      <p class="itz-modal__msg">
-        ${itzT("adblock.lead", "이 사이트는 <strong>광고 수익</strong>으로 무료 운영됩니다. 지금 <strong>광고가 표시되지 않고</strong> 있습니다.")}
-      </p>
-      <p class="itz-modal__msg itz-modal__sub">
-        ${itzT("adblock.sub", "PC 프로그램(에이전트) 연결 문제와는 <strong>별개</strong>입니다. 아래는 <strong>광고 표시</strong>만 위한 안내입니다.")}
-      </p>
-      <div style="text-align:left;background:#0d1117;border-radius:8px;padding:16px 20px;margin-top:1rem;font-size:0.88rem;color:#8b9cb8">
-        <p style="margin:0 0 8px;color:#e6edf7"><strong>${itzT("adblock.how", "광고 허용 방법")}</strong></p>
-        <ol style="margin:0;padding-left:20px">${steps}</ol>
-      </div>
-    `;
   }
 
   function isAgentBlockDialogOpenSync() {
@@ -300,8 +277,7 @@
         clearAdBlockLatch();
         return;
       }
-      const snap = readAdSenseSnapshot();
-      if (snap && snap.filledCount > 0) {
+      if (!evaluateAdBlock()) {
         clearAdBlockLatch();
         return;
       }
@@ -321,37 +297,39 @@
     return /Chrome-Lighthouse|PageSpeed|PTST|GTmetrix|WebPageTest|HeadlessChrome/i.test(ua);
   }
 
+  // Detection must never obscure the tool or require a click to make the page usable.
   function showAdBlockWall() {
-    if (isLabAudit()) return;
-    if (adBlockLatched) return;
-    if (isAgentBlockDialogOpenSync()) return;
-    if (pageShowsAdCreative()) return;
+    if (isLabAudit() || adBlockLatched || adNoticeDismissed || !document.body) return;
+    if (isAgentBlockDialogOpenSync() || !evaluateAdBlock()) return;
 
-    const modal = window.ItzSiteModal;
-    if (!modal?.showSiteDialog) {
-      scheduler.setTimeout(() => showAdBlockWall(), 400);
-      return;
+    const notice = document.createElement("aside");
+    notice.id = "itz-ad-notice";
+    notice.setAttribute("role", "status");
+    notice.style.cssText = "position:fixed;bottom:16px;right:16px;z-index:1000;box-sizing:border-box;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:12px;padding:12px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#172033;box-shadow:0 4px 16px #0002;font:14px/1.5 system-ui;";
+    const label = document.createElement("span");
+    label.textContent = braveAdBlockTitle();
+    const reload = document.createElement("button");
+    reload.type = "button";
+    reload.textContent = itzT("modal.reload", "새로고침");
+    reload.addEventListener("click", () => location.reload());
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.setAttribute("aria-label", itzT("modal.close", "닫기"));
+    close.addEventListener("click", () => {
+      adNoticeDismissed = true;
+      try { sessionStorage.setItem("itz-ad-notice-dismissed", "1"); } catch {}
+      clearAdBlockLatch();
+    });
+    for (const button of [reload, close]) {
+      button.style.cssText = "flex-shrink:0;min-height:36px;padding:4px 10px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;color:#172033;cursor:pointer;font:inherit;";
     }
-
+    notice.append(label, reload, close);
+    document.body.appendChild(notice);
+    adNotice = notice;
     adBlockLatched = true;
     watchAdsenseSlot();
     startAdBlockDismissWatch();
-
-    const adBlockOptions = () => ({
-      title: braveAdBlockTitle(),
-      bodyHtml: adBlockWallBodyHtml(),
-      dialogKind: "ad-block",
-      buttons: [{ label: itzT("modal.reload", "새로고침"), primary: true, act: "reload" }],
-    });
-
-    void modal
-      .showSiteDialog({
-        ...adBlockOptions(),
-        rebuild: adBlockOptions,
-      })
-      .then((act) => {
-        if (act === "reload") location.reload();
-      });
   }
 
   function braveAdBlockTitle() {
@@ -361,7 +339,8 @@
   }
 
   function hideAdBlockWall() {
-    window.ItzSiteModal?.dismissActiveSiteModal?.();
+    adNotice?.remove();
+    adNotice = null;
   }
 
   function adBlockGraceExpired() {
@@ -386,14 +365,10 @@
       else if (st === "unfilled") unfilledCount += 1;
       else pendingInsCount += 1;
     }
-    const hasScript =
-      Boolean(document.querySelector('script[src*="adsbygoogle.js"]')) ||
-      typeof window.adsbygoogle !== "undefined";
-    const scriptUnavailable =
-      window.__itmatzipAdSenseBlocked === true ||
-      (hasScript && typeof window.adsbygoogle === "undefined" && filledCount === 0);
+    // Script presence or a command queue alone says nothing about load completion.
+    const scriptUnavailable = window.__itmatzipAdSenseBlocked === true;
     return {
-      scriptLoaded: hasScript && !scriptUnavailable,
+      scriptLoaded: window.adsbygoogle?.loaded === true,
       scriptUnavailable,
       liveInsCount: slots.length,
       filledCount,
@@ -403,32 +378,44 @@
     };
   }
 
-  /**
-   * 광고 "차단"은 adsbygoogle.js 를 실제로 불러오지 못한 경우(확장·Brave Shields 등의
-   * ERR_BLOCKED_BY_CLIENT)만 인정한다.
-   *
-   * 아래는 차단이 아니므로 판정하지 않는다 (애드블록 OFF 인데도 안내가 뜨던 오탐 원인):
-   *  - 광고가 채워지지 않음(no-fill / unfilled) — 광고 재고·승인 상태 문제
-   *  - adsbygoogle.push() 오류(TagError 등)
-   *  - Performance API 의 transferSize === 0 — 크로스 오리진(Timing-Allow-Origin 없음)이면
-   *    차단과 무관하게 항상 0 으로 보고된다
-   * @returns {boolean}
-   */
-  function evaluateAdBlock() {
-    if (pageShowsAdCreative()) return false;
-
-    const snap = readAdSenseSnapshot();
-    if (snap && snap.filledCount > 0) return false;
-
-    // adsense.js 가 스크립트 onerror 에서만 세팅하는 플래그
-    if (window.__itmatzipAdSenseBlocked === true) return true;
-
-    // adsense.js 가 없는 페이지용 폴백 스냅샷: 로딩 중 오탐을 피하려고 유예 시간 이후에만 판단
-    if (snap && snap.scriptUnavailable && snap.liveInsCount > 0 && adBlockGraceExpired()) {
-      return true;
+  function hasSelectiveAdHiding() {
+    if (!document.body || document.hidden) return false;
+    if (!probePair) {
+      probePair = ["itz-layout-check", "adsbox ad-banner ad-placement"].map((name) => {
+        const el = document.createElement("div");
+        el.className = name;
+        el.setAttribute("aria-hidden", "true");
+        el.style.cssText = "position:fixed;left:-10000px;top:0;width:10px;height:10px;pointer-events:none;";
+        document.body.appendChild(el);
+        return el;
+      });
     }
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return el.isConnected && style.display !== "none" && style.visibility !== "hidden" &&
+        style.visibility !== "collapse" && rect.width >= 10 && rect.height >= 10;
+    };
+    return visible(probePair[0]) && !visible(probePair[1]);
+  }
 
-    return false;
+  // Script errors cannot distinguish blockers from DNS/CSP/network failures.
+  // Require independent, repeated selective hiding; never lock out on network failure alone.
+  function evaluateAdBlock() {
+    const snap = readAdSenseSnapshot();
+    if (navigator.onLine === false || document.hidden || !adBlockGraceExpired() ||
+        snap?.adsDisabled || snap?.scriptLoaded || snap?.filledCount > 0 ||
+        snap?.unfilledCount > 0 || pageShowsAdCreative() ||
+        !snap?.scriptUnavailable || !hasSelectiveAdHiding()) {
+      evidenceSince = 0;
+      return false;
+    }
+    if (!evidenceSince) {
+      evidenceSince = Date.now();
+      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 1500);
+      return false;
+    }
+    return Date.now() - evidenceSince >= 1000;
   }
 
   function latchAdBlock() {
@@ -437,14 +424,16 @@
   }
 
   function clearAdBlockLatch() {
+    const wasLatched = adBlockLatched;
     adBlockLatched = false;
+    evidenceSince = 0;
     adBlockDismissWatchUntil = 0;
     try {
       window.__itmatzipAdSenseBlocked = false;
     } catch {
       /* ignore */
     }
-    hideAdBlockWall();
+    if (wasLatched) hideAdBlockWall();
   }
 
   /** @param {{ force?: boolean }} [opts] */
@@ -465,8 +454,7 @@
         latchAdBlock();
         return;
       }
-      const snap = readAdSenseSnapshot();
-      if (adBlockLatched && (snap?.filledCount > 0 || pageShowsAdCreative())) {
+      if (adBlockLatched && !blocked) {
         clearAdBlockLatch();
       }
     } catch (e) {
@@ -512,12 +500,15 @@
 
     try {
       document.addEventListener("itz:adsense-slot-failed", () => {
-        window.__itmatzipAdSenseBlocked = true;
         runAdBlockCheck({ force: true });
       });
     } catch (e) {
       console.warn("[site-guard] 광고 차단 감시 등록 실패", e);
     }
+
+    document.addEventListener("itz:adsense-script-state", () => runAdBlockCheck({ force: true }));
+    window.addEventListener("online", () => runAdBlockCheck({ force: true }));
+    window.addEventListener("focus", () => runAdBlockCheck({ force: true }));
 
     function bootstrap() {
       if (!document.body) return;

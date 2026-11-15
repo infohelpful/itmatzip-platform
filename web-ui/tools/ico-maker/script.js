@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=9";
+import { showAdSense } from "../common/adsense.js?v=10";
 
 function itzT(key, fallback) {
   return typeof window.itzT === "function" ? window.itzT(key, fallback) : fallback;
