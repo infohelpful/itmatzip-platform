@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=11";
+import { showAdSense } from "../common/adsense.js?v=12";
 import { loadSiteConfig, mergeSiteConfig, pickLang, pickLangFallback, langMapHasValue, uiLang } from "../common/site-config.js?v=8";
 import { TOOLS } from "./tools-registry.js?v=21";
 

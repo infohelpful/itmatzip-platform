@@ -189,8 +189,9 @@
     window.addEventListener("resize", onResize, { passive: true });
   }
 
-  // ─── 3. 광고 차단 감지 (로드 실패와 독립적인 숨김 증거를 함께 확인) ─────
-  // 로드 실패, 광고 표식 숨김 어느 하나만으로 차단을 확정하지 않는다.
+  // ─── 3. 광고 차단 감지 (AdSense 실패 기준 — bait/네트워크 probe 제거) ─────
+  // 오탐 원인: ad-bait-test·adsbox 클래스(확장이 사이트 허용해도 숨김),
+  // no-cors fetch 실패, AdSense 로드 전 data-adsense-empty.
 
   const RECHECK_MIN_MS = 8000;
   const AD_BLOCK_GRACE_MS = 12_000;
@@ -201,27 +202,11 @@
 
   let adBlockLatched = false;
   let lastAdCheckAt = 0;
-  let evidenceSince = 0;
-  let probePair = null;
-  const guardScriptUrl = document.currentScript?.src;
-  let networkProbeRunning = false;
-  let networkProbeAt = 0;
-  let selectiveNetworkFailures = 0;
-  let networkSuccesses = 0;
-  let latchedNetworkBlock = false;
-  let recoverySince = 0;
-  const policyBlockedUrls = new Set();
-  document.addEventListener("securitypolicyviolation", (event) => {
-    if (event.blockedURI) policyBlockedUrls.add(event.blockedURI);
-  });
   let adBlockDismissWatchUntil = 0;
   /** @type {MutationObserver | null} */
   let adsenseObserver = null;
   /** @type {MutationObserver | null} */
   let adsenseRootObserver = null;
-  /** @type {MutationObserver | null} */
-  let wallObserver = null;
-  let lastWallRestoreAt = 0;
 
   function isBraveBrowserSync() {
     return typeof navigator !== "undefined" && navigator.brave != null;
@@ -289,12 +274,17 @@
     }
     try {
       for (const ins of document.querySelectorAll("ins.adsbygoogle")) {
-        if (ins.getAttribute("data-ad-status") !== "filled") continue;
-        const rect = ins.getBoundingClientRect();
-        const style = getComputedStyle(ins);
-        if (rect.width >= 20 && rect.height >= 20 && style.visibility === "visible" &&
-            style.display !== "none" && Number(style.opacity) !== 0 &&
-            (!ins.checkVisibility || ins.checkVisibility({ opacityProperty: true, visibilityProperty: true }))) return true;
+        if (ins.getAttribute("data-ad-status") === "filled") return true;
+        for (const iframe of ins.querySelectorAll("iframe")) {
+          const r = iframe.getBoundingClientRect();
+          if (r.width >= 20 && r.height >= 20) return true;
+        }
+      }
+      for (const iframe of document.querySelectorAll(
+        'iframe[src*="googlesyndication"], iframe[src*="doubleclick.net"], iframe[id*="google_ads"]',
+      )) {
+        const r = iframe.getBoundingClientRect();
+        if (r.width >= 20 && r.height >= 20) return true;
       }
     } catch {
       /* ignore */
@@ -306,8 +296,15 @@
     adBlockDismissWatchUntil = Date.now() + AD_BLOCK_DISMISS_MAX_MS;
     const tick = () => {
       if (!adBlockLatched) return;
-      runAdBlockCheck({ force: true });
-      if (!adBlockLatched) return;
+      if (pageShowsAdCreative()) {
+        clearAdBlockLatch();
+        return;
+      }
+      const snap = readAdSenseSnapshot();
+      if (snap && snap.filledCount > 0) {
+        clearAdBlockLatch();
+        return;
+      }
       if (Date.now() >= adBlockDismissWatchUntil) return;
       scheduler.setTimeout(tick, AD_BLOCK_DISMISS_POLL_MS);
     };
@@ -328,7 +325,7 @@
     if (isLabAudit()) return;
     if (adBlockLatched) return;
     if (isAgentBlockDialogOpenSync()) return;
-    if (!evaluateAdBlock()) return;
+    if (pageShowsAdCreative()) return;
 
     const modal = window.ItzSiteModal;
     if (!modal?.showSiteDialog) {
@@ -337,73 +334,24 @@
     }
 
     adBlockLatched = true;
-    latchedNetworkBlock = selectiveNetworkFailures >= 2;
-    recoverySince = 0;
     watchAdsenseSlot();
     startAdBlockDismissWatch();
 
-    showAdBlockDialog();
-    watchWallTamper();
-  }
-
-  function adBlockOptions() {
-    return {
+    const adBlockOptions = () => ({
       title: braveAdBlockTitle(),
       bodyHtml: adBlockWallBodyHtml(),
       dialogKind: "ad-block",
-      persistent: true,
       buttons: [{ label: itzT("modal.reload", "새로고침"), primary: true, act: "reload" }],
-    };
-  }
+    });
 
-  function showAdBlockDialog() {
-    const modal = window.ItzSiteModal;
-    if (!modal?.showSiteDialog) return;
     void modal
-      .showSiteDialog({ ...adBlockOptions(), rebuild: adBlockOptions })
+      .showSiteDialog({
+        ...adBlockOptions(),
+        rebuild: adBlockOptions,
+      })
       .then((act) => {
         if (act === "reload") location.reload();
       });
-  }
-
-  /**
-   * 개발자 도구·확장으로 팝업 DOM 을 지우거나 숨기면, 차단이 계속되는 동안(adBlockLatched)
-   * 다시 띄운다. 정상화로 닫을 때는 clearAdBlockLatch 가 먼저 래치를 풀어 재생성되지 않는다.
-   */
-  function watchWallTamper() {
-    if (wallObserver || typeof MutationObserver !== "function" || !document.body) return;
-    let pending = false;
-    const check = () => {
-      pending = false;
-      if (!adBlockLatched) return;
-      const dlg = document.getElementById("itz-site-alert-dialog");
-      const kind = dlg?.dataset?.dialogKind;
-      if (kind === "agent-block") return;
-      const visible = dlg && dlg.isConnected && !dlg.hasAttribute("hidden") &&
-        kind === "ad-block" && getComputedStyle(dlg).display !== "none" &&
-        getComputedStyle(dlg).visibility !== "hidden";
-      if (visible) return;
-      // 복원 직후 연속 호출로 다이얼로그가 중복 생성되는 것을 막는다.
-      if (Date.now() - lastWallRestoreAt < 600) {
-        scheduler.setTimeout(check, 650);
-        return;
-      }
-      lastWallRestoreAt = Date.now();
-      window.ItzSiteModal?.dismissActiveSiteModal?.();
-      for (const stale of document.querySelectorAll("#itz-site-alert-dialog")) stale.remove();
-      showAdBlockDialog();
-    };
-    wallObserver = new MutationObserver(() => {
-      if (pending) return;
-      pending = true;
-      scheduler.setTimeout(check, 50);
-    });
-    wallObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["hidden", "style", "class", "data-dialog-kind"],
-    });
   }
 
   function braveAdBlockTitle() {
@@ -413,9 +361,7 @@
   }
 
   function hideAdBlockWall() {
-    if (window.ItzSiteModal?.isAdBlockDialogOpen?.()) {
-      window.ItzSiteModal.dismissActiveSiteModal?.();
-    }
+    window.ItzSiteModal?.dismissActiveSiteModal?.();
   }
 
   function adBlockGraceExpired() {
@@ -440,10 +386,14 @@
       else if (st === "unfilled") unfilledCount += 1;
       else pendingInsCount += 1;
     }
-    // Script presence or a command queue alone says nothing about load completion.
-    const scriptUnavailable = window.__itmatzipAdSenseBlocked === true;
+    const hasScript =
+      Boolean(document.querySelector('script[src*="adsbygoogle.js"]')) ||
+      typeof window.adsbygoogle !== "undefined";
+    const scriptUnavailable =
+      window.__itmatzipAdSenseBlocked === true ||
+      (hasScript && typeof window.adsbygoogle === "undefined" && filledCount === 0);
     return {
-      scriptLoaded: window.adsbygoogle?.loaded === true,
+      scriptLoaded: hasScript && !scriptUnavailable,
       scriptUnavailable,
       liveInsCount: slots.length,
       filledCount,
@@ -453,109 +403,89 @@
     };
   }
 
-  function hasSelectiveAdHiding() {
-    if (!document.body || document.hidden) return false;
-    if (!probePair) {
-      probePair = ["itz-layout-check", "adsbox ad-banner ad-placement pub_300x250 pub_300x250m pub_728x90 text-ad textAd text_ad text_ads text-ads ad-text"].map((name) => {
-        const el = document.createElement("div");
-        el.className = name;
-        el.setAttribute("aria-hidden", "true");
-        el.style.cssText = "position:fixed;left:-10000px;top:0;width:10px;height:10px;pointer-events:none;";
-        document.body.appendChild(el);
-        return el;
-      });
-    }
-    const visible = (el) => {
-      const style = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      return el.isConnected && style.display !== "none" && style.visibility !== "hidden" &&
-        style.visibility !== "collapse" && rect.width >= 10 && rect.height >= 10;
-    };
-    return visible(probePair[0]) && !visible(probePair[1]);
-  }
-
-  // Same-origin control and ad-pattern resource distinguish selective filtering from
-  // a disconnected server. HTTP errors, timeouts and CSP failures are inconclusive.
-  async function checkSelectiveNetworkBlocking() {
-    if (!guardScriptUrl || typeof fetch !== "function" || networkProbeRunning ||
-        document.hidden || navigator.onLine === false || !adBlockGraceExpired() ||
-        Date.now() - networkProbeAt < 8000) return;
-    const snap = readAdSenseSnapshot();
-    if (snap?.adsDisabled || pageShowsAdCreative() ||
-        (!adBlockLatched && !snap?.scriptUnavailable && !(snap?.pendingInsCount > 0))) return;
-    networkProbeRunning = true;
-    networkProbeAt = Date.now();
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), 5000);
-    const controlUrl = new URL("guard-check.js", guardScriptUrl).href;
-    const adUrl = new URL("ads/banner/ads.js", guardScriptUrl).href;
-    const request = async (url) => {
-      try {
-        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
-        if (!response.ok) return "unknown";
-        return (await response.text()).trim() === "/* itz-guard-check-v1 */" ? "ok" : "unknown";
-      } catch {
-        return controller.signal.aborted || policyBlockedUrls.has(url) ? "unknown" : "failed";
-      }
-    };
+  /** Brave Shields·확장 등이 Google 광고 URL을 막았는지 (Performance API) */
+  function wasAdResourceLikelyBlockedByClient() {
     try {
-      const [control, ad] = await Promise.all([request(controlUrl), request(adUrl)]);
-      const selective = control === "ok" && ad === "failed" && !policyBlockedUrls.has(adUrl);
-      selectiveNetworkFailures = selective ? selectiveNetworkFailures + 1 : 0;
-      networkSuccesses = control === "ok" && ad === "ok" ? networkSuccesses + 1 : 0;
-    } finally {
-      window.clearTimeout(timer);
-      networkProbeRunning = false;
+      const entries = performance.getEntriesByType("resource");
+      for (let i = entries.length - 1; i >= 0; i -= 1) {
+        const e = entries[i];
+        if (!e?.name) continue;
+        if (!/googlesyndication\.com|doubleclick\.net|googleadservices/i.test(e.name)) {
+          continue;
+        }
+        if (e.transferSize === 0 && e.encodedBodySize === 0 && e.duration > 0) {
+          return true;
+        }
+      }
+    } catch {
+      /* ignore */
     }
-    runAdBlockCheck({ force: true });
-    if (selectiveNetworkFailures > 0 || adBlockLatched) {
-      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 8000);
-    }
+    return false;
   }
 
-  // Script errors cannot distinguish blockers from DNS/CSP/network failures.
-  // Require repeated selective filtering or selective hiding plus a real load failure.
+  /**
+   * 실제 AdSense 시도 실패 + 스크립트 로드 불가·Brave Shields 등 클라이언트 차단
+   * @returns {boolean}
+   */
   function evaluateAdBlock() {
-    const snap = readAdSenseSnapshot();
-    if (navigator.onLine === false || document.hidden || !adBlockGraceExpired() ||
-        snap?.adsDisabled ||
-        snap?.unfilledCount > 0 || pageShowsAdCreative()) {
-      evidenceSince = 0;
-      return false;
-    }
-    if (selectiveNetworkFailures >= 2) return true;
-    if (snap?.scriptLoaded || !snap?.scriptUnavailable || !hasSelectiveAdHiding()) {
-      evidenceSince = 0;
-      return false;
-    }
-    if (!evidenceSince) {
-      evidenceSince = Date.now();
-      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 1500);
-      return false;
-    }
-    return Date.now() - evidenceSince >= 1000;
-  }
+    if (pageShowsAdCreative()) return false;
 
-  // Unknown/loading/offline is not recovery. Require positive evidence to remain stable.
-  function confirmAdRecovery() {
+    if (window.__itmatzipAdSenseBlocked === true) {
+      const snapEarly = readAdSenseSnapshot();
+      if (!snapEarly || snapEarly.filledCount === 0) {
+        if (!pageShowsAdCreative()) return true;
+      }
+    }
+
     const snap = readAdSenseSnapshot();
-    if (document.hidden || navigator.onLine === false) {
-      recoverySince = 0;
+    if (!snap) return false;
+
+    if (snap.filledCount > 0) return false;
+    if (pageShowsAdCreative()) return false;
+
+    const adWasRequested =
+      snap.emptyContainerCount > 0 || snap.liveInsCount > 0;
+    if (!adWasRequested) return false;
+
+    if (
+      snap.scriptUnavailable &&
+      (snap.emptyContainerCount > 0 || snap.liveInsCount > 0)
+    ) {
+      return true;
+    }
+
+    if (wasAdResourceLikelyBlockedByClient() && !pageShowsAdCreative()) return true;
+
+    if (!adBlockGraceExpired()) {
+      if (snap.pendingInsCount > 0) return false;
       return false;
     }
-    const recovered = snap?.adsDisabled || pageShowsAdCreative() ||
-      (snap?.scriptLoaded && !snap?.scriptUnavailable && !hasSelectiveAdHiding() &&
-        (!latchedNetworkBlock || networkSuccesses >= 2));
-    if (!recovered) {
-      recoverySince = 0;
-      return false;
+
+    if (snap.scriptUnavailable && snap.emptyContainerCount > 0) return true;
+
+    if (
+      snap.emptyContainerCount > 0 &&
+      snap.liveInsCount === 0 &&
+      !snap.scriptLoaded
+    ) {
+      return true;
     }
-    if (!recoverySince) {
-      recoverySince = Date.now();
-      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 3000);
-      return false;
+
+    if (snap.liveInsCount > 0 && snap.filledCount === 0 && !pageShowsAdCreative()) {
+      const triedCount = snap.unfilledCount + snap.pendingInsCount;
+      if (triedCount === snap.liveInsCount && snap.unfilledCount > 0) return true;
     }
-    return Date.now() - recoverySince >= 3000;
+
+    if (
+      snap.emptyContainerCount > 0 &&
+      snap.filledCount === 0 &&
+      !pageShowsAdCreative() &&
+      snap.pendingInsCount === 0
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   function latchAdBlock() {
@@ -564,20 +494,14 @@
   }
 
   function clearAdBlockLatch() {
-    const wasLatched = adBlockLatched;
     adBlockLatched = false;
-    latchedNetworkBlock = false;
-    recoverySince = 0;
-    selectiveNetworkFailures = 0;
-    networkSuccesses = 0;
-    evidenceSince = 0;
     adBlockDismissWatchUntil = 0;
     try {
       window.__itmatzipAdSenseBlocked = false;
     } catch {
       /* ignore */
     }
-    if (wasLatched) hideAdBlockWall();
+    hideAdBlockWall();
   }
 
   /** @param {{ force?: boolean }} [opts] */
@@ -587,13 +511,21 @@
       const now = Date.now();
       if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
       lastAdCheckAt = now;
-      void checkSelectiveNetworkBlocking();
 
-      if (adBlockLatched) {
-        if (confirmAdRecovery()) clearAdBlockLatch();
+      if (pageShowsAdCreative()) {
+        if (adBlockLatched) clearAdBlockLatch();
         return;
       }
-      if (evaluateAdBlock()) latchAdBlock();
+
+      const blocked = evaluateAdBlock();
+      if (blocked) {
+        latchAdBlock();
+        return;
+      }
+      const snap = readAdSenseSnapshot();
+      if (adBlockLatched && (snap?.filledCount > 0 || pageShowsAdCreative())) {
+        clearAdBlockLatch();
+      }
     } catch (e) {
       console.warn("[site-guard] 광고 차단 검사 오류", e);
     }
@@ -613,6 +545,15 @@
 
     adsenseObserver?.disconnect();
     adsenseObserver = new MutationObserver(() => {
+      if (pageShowsAdCreative()) {
+        clearAdBlockLatch();
+        return;
+      }
+      const snap = readAdSenseSnapshot();
+      if (snap && snap.filledCount > 0) {
+        clearAdBlockLatch();
+        return;
+      }
       runAdBlockCheck({ force: true });
     });
     for (const ins of slots) {
@@ -628,27 +569,12 @@
 
     try {
       document.addEventListener("itz:adsense-slot-failed", () => {
+        window.__itmatzipAdSenseBlocked = true;
         runAdBlockCheck({ force: true });
       });
     } catch (e) {
       console.warn("[site-guard] 광고 차단 감시 등록 실패", e);
     }
-
-    // The overlay blocks pointer input; also keep keyboard interaction inside the wall.
-    window.addEventListener("keydown", (event) => {
-      if (!adBlockLatched) return;
-      const dialog = document.getElementById("itz-site-alert-dialog");
-      if (!dialog || dialog.hasAttribute("hidden") || dialog.dataset.dialogKind !== "ad-block") return;
-      if (event.key === "Tab" || event.key === "Escape" || !dialog.contains(event.target)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        dialog.querySelector("button[data-act]")?.focus();
-      }
-    }, true);
-
-    document.addEventListener("itz:adsense-script-state", () => runAdBlockCheck({ force: true }));
-    window.addEventListener("online", () => runAdBlockCheck({ force: true }));
-    window.addEventListener("focus", () => runAdBlockCheck({ force: true }));
 
     function bootstrap() {
       if (!document.body) return;
