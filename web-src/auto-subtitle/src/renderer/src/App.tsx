@@ -6658,10 +6658,15 @@ export default function App(): ReactElement {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [leaveDialog])
-  const leaveTo = useCallback((href: string) => {
+  /** 이동을 잠깐만 허용한다. 이동이 일어나지 않았거나 취소돼도 저장 확인이 계속 꺼져 있지 않도록 곧 되돌린다. */
+  const allowUnloadBriefly = useCallback(() => {
     allowUnloadRef.current = true
-    window.location.href = href
+    window.setTimeout(() => { allowUnloadRef.current = false }, 2500)
   }, [])
+  const leaveTo = useCallback((target: { href: string }) => {
+    allowUnloadBriefly()
+    window.location.href = target.href
+  }, [allowUnloadBriefly])
 
   // 내보내기 페이지에서 돌아왔을 때 편집 상태를 되살린다. 에이전트 상태 확인이 끝난 뒤에 해야
   // 영상 경로 확인이 실패해 영상 연결이 끊기지 않는다.
@@ -8015,8 +8020,8 @@ export default function App(): ReactElement {
             <p id="as-leave-desc">저장하지 않은 자막 변경 사항이 있습니다. 저장하지 않고 나가면 작업 내용이 사라집니다.</p>
             <div className="as-leave-actions">
               <button type="button" className="as-leave-primary" disabled={projectIoBusy} autoFocus
-                onClick={() => { void (async () => { await saveProject(); if (!projectDirtyRef.current) leaveTo(leaveDialog.href) })() }}>저장</button>
-              <button type="button" disabled={projectIoBusy} onClick={() => leaveTo(leaveDialog.href)}>저장 안 함</button>
+                onClick={() => { void (async () => { await saveProject(); if (!projectDirtyRef.current) leaveTo(leaveDialog) })() }}>저장</button>
+              <button type="button" disabled={projectIoBusy} onClick={() => leaveTo(leaveDialog)}>저장 안 함</button>
               <button type="button" onClick={() => setLeaveDialog(null)}>취소</button>
             </div>
           </div>

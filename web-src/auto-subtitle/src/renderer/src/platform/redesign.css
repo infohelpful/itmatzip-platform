@@ -18,12 +18,12 @@
   /* 1층과 2층 사이 얇은 구분선(왼쪽 영역에만, 광고 칸 제외) */
   background: var(--as-bg-header) linear-gradient(rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)) 0 46px / calc(100% - clamp(336px, 38vw, 736px)) 1px no-repeat;
 }
-.app .app-title { grid-row: 1; grid-column: 2; margin: 0; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+.app .app-title { grid-row: 1; grid-column: 1; margin: 0; font-size: 16px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
 .app .app-title::before { width: 26px; height: 26px; font-size: 14px; font-weight: 800; border-radius: 7px;
   background: linear-gradient(135deg, #06b6d4, #0284c7); box-shadow: 0 2px 8px rgba(6, 182, 212, 0.35); }
 /* 대시보드 링크·에이전트 상태는 그리드 칸에 직접 놓는다 */
 .app .site-topbar-links { display: contents; }
-.app .site-topbar-dashboard { grid-row: 1; grid-column: 1; height: auto; padding: 5px 12px; border-radius: 20px;
+.app .site-topbar-dashboard { grid-row: 1; grid-column: 2; height: auto; padding: 5px 12px; border-radius: 20px;
   background: #202429; border-color: var(--as-border); color: var(--as-text-2); font-size: 12.5px; font-weight: 500; }
 .app .site-topbar-dashboard:hover { background: #282d34; color: var(--as-text); border-color: var(--as-border-strong); }
 .app .site-topbar-agent { grid-row: 1; grid-column: 3; justify-self: end; margin-right: 20px; padding: 4px 12px;

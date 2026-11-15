@@ -24,12 +24,17 @@ body.axp-page { margin: 0; font-family: Pretendard, system-ui, 'Segoe UI', sans-
 #axp-ad-top { margin: 0 auto 28px; max-width: 970px; }
 #axp-ad-bottom { margin: 36px auto 0; max-width: 970px; }
 
+/* 결과 카드와 안내 영역은 같은 너비(본문 전체 폭)에 같은 카드 모양으로 맞춘다. */
+#root.axp-root .axp-card { max-width: none; margin: 0; padding: 24px 26px; border: 1px solid #2d333f; border-radius: 16px; background: rgba(26, 29, 35, 0.72); box-shadow: none; }
 body.axp-page .tool-guide.axp-guide {
-  max-width: none !important; margin: 40px 0 0 !important; padding: 36px 0 0 !important; background: transparent !important;
-  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 0 40px; align-items: start;
-  border-top: 1px solid #262b31;
+  max-width: none !important; margin: 28px 0 0 !important; padding: 0 !important; background: transparent !important; border-top: 0;
+  display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: stretch;
 }
+/* 세 열을 같은 높이의 둥근 카드로 */
+.axp-guide-col { display: flex; flex-direction: column; padding: 24px 26px; border: 1px solid #2d333f; border-radius: 16px; background: rgba(26, 29, 35, 0.72); }
 .axp-guide-col > h3:first-child, .axp-guide-intro > .tool-guide-kicker:first-child { margin-top: 0; }
+.axp-guide-col ul, .axp-guide-col ol { margin: 0; padding: 0 0 0 20px; border: 0; border-radius: 0; background: none; }
+.axp-guide-col > :last-child { margin-bottom: 0; }
 .axp-guide code { padding: 1px 5px; border-radius: 4px; background: #1d2325; color: #dfe7e8; font-size: .92em; }
 .axp-faq { margin: 0; }
 .axp-faq dt { margin: 14px 0 4px; color: #e6ecee; font-weight: 700; font-size: 14px; }
@@ -37,10 +42,9 @@ body.axp-page .tool-guide.axp-guide {
 .axp-faq dd { margin: 0; color: #a9b6b9; font-size: 13.5px; line-height: 1.7; }
 @media (max-width: 1000px) {
   body.axp-page .tool-guide.axp-guide { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .axp-guide-intro { grid-column: 1 / -1; margin-bottom: 26px; }
+  .axp-guide-intro { grid-column: 1 / -1; }
 }
 @media (max-width: 680px) {
   .axp-main { padding: 20px 16px 40px; }
   body.axp-page .tool-guide.axp-guide { grid-template-columns: minmax(0, 1fr); }
-  .axp-guide-col + .axp-guide-col { margin-top: 22px; }
 }
