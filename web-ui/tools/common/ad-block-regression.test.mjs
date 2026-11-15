@@ -253,3 +253,18 @@ test('an inconclusive probe after confirmed blocking keeps the popup open', asyn
   h.advance(8000); await flushNetwork(); h.advance(4000);
   assert.equal(h.dismissed,0); assert.equal(h.shown,1);
 });
+
+test('hidden filled slots and empty iframe shells are not proof of recovery', () => {
+  const h=harness({loader:true});
+  const slot={className:'adsbygoogle',getAttribute:()=> 'filled',getBoundingClientRect:()=>({width:0,height:0})};
+  h.context.document.querySelectorAll=()=>[slot];
+  assert.equal(h.context.pageShowsAdCreative(),false);
+  slot.getBoundingClientRect=()=>({width:320,height:90});
+  assert.equal(h.context.pageShowsAdCreative(),true);
+  slot.getAttribute=()=>null;
+  assert.equal(h.context.pageShowsAdCreative(),false);
+});
+test('a hidden filled slot cannot override repeated blocker evidence', () => {
+  const h=harness(); h.state.hiding=true; h.state.snapshot.filledCount=1;
+  h.advance(14000); assert.equal(h.shown,1);
+});

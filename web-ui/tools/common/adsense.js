@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js?v=10";
+ *   import { showAdSense } from "../common/adsense.js?v=11";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
@@ -32,23 +32,18 @@ const pendingSlots = new Map();
 const FILL_WATCH_MS = 18_000;
 
 /**
- * data-ad-status 없이도 iframe이 보이면 광고가 뜬 것으로 봄 (Auto ads·느린 filled 대응)
+ * 실제로 보이는 filled 슬롯만 정상 광고 증거로 사용 (숨겨진 슬롯·빈 iframe 제외)
  * @returns {boolean}
  */
 export function pageShowsAdCreative() {
   try {
     for (const ins of document.querySelectorAll("ins.adsbygoogle")) {
-      if (ins.getAttribute("data-ad-status") === "filled") return true;
-      for (const iframe of ins.querySelectorAll("iframe")) {
-        const r = iframe.getBoundingClientRect();
-        if (r.width >= 20 && r.height >= 20) return true;
-      }
-    }
-    for (const iframe of document.querySelectorAll(
-      'iframe[src*="googlesyndication"], iframe[src*="doubleclick.net"], iframe[id*="google_ads"]',
-    )) {
-      const r = iframe.getBoundingClientRect();
-      if (r.width >= 20 && r.height >= 20) return true;
+      if (ins.getAttribute("data-ad-status") !== "filled") continue;
+      const rect = ins.getBoundingClientRect();
+      const style = getComputedStyle(ins);
+      if (rect.width >= 20 && rect.height >= 20 && style.visibility === "visible" &&
+          style.display !== "none" && Number(style.opacity) !== 0 &&
+          (!ins.checkVisibility || ins.checkVisibility({ opacityProperty: true, visibilityProperty: true }))) return true;
     }
   } catch {
     /* ignore */

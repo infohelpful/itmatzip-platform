@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=10";
+import { showAdSense } from "../common/adsense.js?v=11";
 import {
   defaultWidthMode,
   inspectImage,

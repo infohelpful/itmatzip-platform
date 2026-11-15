@@ -286,17 +286,12 @@
     }
     try {
       for (const ins of document.querySelectorAll("ins.adsbygoogle")) {
-        if (ins.getAttribute("data-ad-status") === "filled") return true;
-        for (const iframe of ins.querySelectorAll("iframe")) {
-          const r = iframe.getBoundingClientRect();
-          if (r.width >= 20 && r.height >= 20) return true;
-        }
-      }
-      for (const iframe of document.querySelectorAll(
-        'iframe[src*="googlesyndication"], iframe[src*="doubleclick.net"], iframe[id*="google_ads"]',
-      )) {
-        const r = iframe.getBoundingClientRect();
-        if (r.width >= 20 && r.height >= 20) return true;
+        if (ins.getAttribute("data-ad-status") !== "filled") continue;
+        const rect = ins.getBoundingClientRect();
+        const style = getComputedStyle(ins);
+        if (rect.width >= 20 && rect.height >= 20 && style.visibility === "visible" &&
+            style.display !== "none" && Number(style.opacity) !== 0 &&
+            (!ins.checkVisibility || ins.checkVisibility({ opacityProperty: true, visibilityProperty: true }))) return true;
       }
     } catch {
       /* ignore */
@@ -474,7 +469,7 @@
   function evaluateAdBlock() {
     const snap = readAdSenseSnapshot();
     if (navigator.onLine === false || document.hidden || !adBlockGraceExpired() ||
-        snap?.adsDisabled || snap?.filledCount > 0 ||
+        snap?.adsDisabled ||
         snap?.unfilledCount > 0 || pageShowsAdCreative()) {
       evidenceSince = 0;
       return false;
@@ -589,6 +584,18 @@
     } catch (e) {
       console.warn("[site-guard] 광고 차단 감시 등록 실패", e);
     }
+
+    // The overlay blocks pointer input; also keep keyboard interaction inside the wall.
+    window.addEventListener("keydown", (event) => {
+      if (!adBlockLatched) return;
+      const dialog = document.getElementById("itz-site-alert-dialog");
+      if (!dialog || dialog.hasAttribute("hidden") || dialog.dataset.dialogKind !== "ad-block") return;
+      if (event.key === "Tab" || event.key === "Escape" || !dialog.contains(event.target)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        dialog.querySelector("button[data-act]")?.focus();
+      }
+    }, true);
 
     document.addEventListener("itz:adsense-script-state", () => runAdBlockCheck({ force: true }));
     window.addEventListener("online", () => runAdBlockCheck({ force: true }));
