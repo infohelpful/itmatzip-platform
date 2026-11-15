@@ -1,4 +1,4 @@
-import { showAdSense } from "../common/adsense.js?v=7";
+import { showAdSense } from "../common/adsense.js?v=9";
 import {
   applyConnectionStatusDot,
   checkAgentConnection,

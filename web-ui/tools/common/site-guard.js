@@ -403,85 +403,28 @@
     };
   }
 
-  /** Brave Shields·확장 등이 Google 광고 URL을 막았는지 (Performance API) */
-  function wasAdResourceLikelyBlockedByClient() {
-    try {
-      const entries = performance.getEntriesByType("resource");
-      for (let i = entries.length - 1; i >= 0; i -= 1) {
-        const e = entries[i];
-        if (!e?.name) continue;
-        if (!/googlesyndication\.com|doubleclick\.net|googleadservices/i.test(e.name)) {
-          continue;
-        }
-        if (e.transferSize === 0 && e.encodedBodySize === 0 && e.duration > 0) {
-          return true;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return false;
-  }
-
   /**
-   * 실제 AdSense 시도 실패 + 스크립트 로드 불가·Brave Shields 등 클라이언트 차단
+   * 광고 "차단"은 adsbygoogle.js 를 실제로 불러오지 못한 경우(확장·Brave Shields 등의
+   * ERR_BLOCKED_BY_CLIENT)만 인정한다.
+   *
+   * 아래는 차단이 아니므로 판정하지 않는다 (애드블록 OFF 인데도 안내가 뜨던 오탐 원인):
+   *  - 광고가 채워지지 않음(no-fill / unfilled) — 광고 재고·승인 상태 문제
+   *  - adsbygoogle.push() 오류(TagError 등)
+   *  - Performance API 의 transferSize === 0 — 크로스 오리진(Timing-Allow-Origin 없음)이면
+   *    차단과 무관하게 항상 0 으로 보고된다
    * @returns {boolean}
    */
   function evaluateAdBlock() {
     if (pageShowsAdCreative()) return false;
 
-    if (window.__itmatzipAdSenseBlocked === true) {
-      const snapEarly = readAdSenseSnapshot();
-      if (!snapEarly || snapEarly.filledCount === 0) {
-        if (!pageShowsAdCreative()) return true;
-      }
-    }
-
     const snap = readAdSenseSnapshot();
-    if (!snap) return false;
+    if (snap && snap.filledCount > 0) return false;
 
-    if (snap.filledCount > 0) return false;
-    if (pageShowsAdCreative()) return false;
+    // adsense.js 가 스크립트 onerror 에서만 세팅하는 플래그
+    if (window.__itmatzipAdSenseBlocked === true) return true;
 
-    const adWasRequested =
-      snap.emptyContainerCount > 0 || snap.liveInsCount > 0;
-    if (!adWasRequested) return false;
-
-    if (
-      snap.scriptUnavailable &&
-      (snap.emptyContainerCount > 0 || snap.liveInsCount > 0)
-    ) {
-      return true;
-    }
-
-    if (wasAdResourceLikelyBlockedByClient() && !pageShowsAdCreative()) return true;
-
-    if (!adBlockGraceExpired()) {
-      if (snap.pendingInsCount > 0) return false;
-      return false;
-    }
-
-    if (snap.scriptUnavailable && snap.emptyContainerCount > 0) return true;
-
-    if (
-      snap.emptyContainerCount > 0 &&
-      snap.liveInsCount === 0 &&
-      !snap.scriptLoaded
-    ) {
-      return true;
-    }
-
-    if (snap.liveInsCount > 0 && snap.filledCount === 0 && !pageShowsAdCreative()) {
-      const triedCount = snap.unfilledCount + snap.pendingInsCount;
-      if (triedCount === snap.liveInsCount && snap.unfilledCount > 0) return true;
-    }
-
-    if (
-      snap.emptyContainerCount > 0 &&
-      snap.filledCount === 0 &&
-      !pageShowsAdCreative() &&
-      snap.pendingInsCount === 0
-    ) {
+    // adsense.js 가 없는 페이지용 폴백 스냅샷: 로딩 중 오탐을 피하려고 유예 시간 이후에만 판단
+    if (snap && snap.scriptUnavailable && snap.liveInsCount > 0 && adBlockGraceExpired()) {
       return true;
     }
 

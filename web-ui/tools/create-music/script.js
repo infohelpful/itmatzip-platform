@@ -4,7 +4,7 @@
  */
 import * as Bridge from "../common/bridge.js?v=lna28";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
-import { showAdSense } from "../common/adsense.js?v=6";
+import { showAdSense } from "../common/adsense.js?v=9";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import {
   GENRE_OPTIONS,

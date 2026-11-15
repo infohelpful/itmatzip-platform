@@ -2,7 +2,7 @@
  * Google AdSense — 스크립트는 최초 showAdSense() 호출 시 1회만 로드합니다.
  *
  * 사용 예:
- *   import { showAdSense } from "../common/adsense.js?v=7";
+ *   import { showAdSense } from "../common/adsense.js?v=9";
  *   await showAdSense("downloadTop", "#dl-ad-top");
  */
 
@@ -74,8 +74,8 @@ function scheduleFillWatch(ins, container, unitKey) {
     if (ins.getAttribute("data-ad-status") === "filled") return;
     if (pageShowsAdCreative()) return;
     if (container.getAttribute("data-adsense-empty") === "1") return;
+    // 미노출(no-fill)은 광고 차단이 아니다 — 안내 팝업을 띄우지 않고 빈 칸 표시만 한다.
     markAdSlotEmpty(container);
-    notifyAdSlotFailed(unitKey);
   }, FILL_WATCH_MS);
 }
 
@@ -416,9 +416,9 @@ export async function showAdSense(unitKey, container) {
   try {
     (window.adsbygoogle = window.adsbygoogle || []).push({});
   } catch (e) {
+    // push 오류(TagError 등)는 차단이 아니므로 차단 안내를 띄우지 않는다.
     console.warn("[adsense] push failed", e);
     markAdSlotEmpty(el);
-    notifyAdSlotFailed(unitKey);
     return false;
   }
 
