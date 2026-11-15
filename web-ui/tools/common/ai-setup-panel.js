@@ -90,7 +90,7 @@ export function mountAiSetupPanel(toolId) {
   function waitingLabel() { return running(job) ? '설치 대기' : autoStarted ? '미설치' : '대기'; }
   function renderGate() {
     const phase = setupGatePhase(toolId, { agentOk, apiStarting, readiness, job, optionalJobs: [optional.gpuJob, optional.alignmentJob] });
-    const blocked = phase !== 'ready';
+    const blocked = phase !== 'ready' && !(phase === 'setup' && window.__itzSuppressAiGate && readiness && config.ready(readiness));
     root.hidden = blocked;
     if (!blocked) { if (gate.open) gate.close(); return; }
     if (!gate.open) gate.showModal();

@@ -12,11 +12,11 @@ import { WaveformRenderer } from "../silence-remover/waveform-renderer.js";
 
 const MUSIC_COLORS = {
 
-  background: "#1e4d38",
+  background: "#090C10",
 
-  waveform: "rgba(120, 255, 190, 0.92)",
+  waveform: "rgba(139, 92, 246, 0.92)",
 
-  baseline: "rgba(200, 255, 230, 0.35)",
+  baseline: "rgba(167, 139, 250, 0.28)",
 
 };
 
@@ -24,17 +24,17 @@ const MUSIC_COLORS = {
 
 const VOCAL_COLORS = {
 
-  background: "#2d2858",
+  background: "#090C10",
 
-  waveform: "rgba(200, 170, 255, 0.92)",
+  waveform: "rgba(6, 182, 212, 0.92)",
 
-  baseline: "rgba(220, 210, 255, 0.35)",
+  baseline: "rgba(34, 211, 238, 0.28)",
 
 };
 
 
 
-const CANVAS_H = 132;
+const CANVAS_H = 104;
 
 const WAVEFORM_WIDTH_MAX = 34000;
 
@@ -230,9 +230,17 @@ export function createVocalDualPlayer(deps) {
 
   function canvasWidth() {
 
-    const w = stackEl?.clientWidth ?? canvasMusic?.parentElement?.clientWidth ?? 800;
+    const col = canvasMusic?.parentElement || canvasVocal?.parentElement;
 
-    return Math.max(320, w - 120);
+    if (col && col.clientWidth > 40) {
+
+      return Math.max(200, col.clientWidth);
+
+    }
+
+    const w = stackEl?.clientWidth ?? 800;
+
+    return Math.max(240, w - 280);
 
   }
 
@@ -446,9 +454,29 @@ export function createVocalDualPlayer(deps) {
 
   function waveAreaMetrics() {
 
-    const sideW = 108;
+    const col = canvasMusic?.parentElement || canvasVocal?.parentElement;
 
-    const gap = 12;
+    if (col && stackEl) {
+
+      const stackRect = stackEl.getBoundingClientRect();
+
+      const colRect = col.getBoundingClientRect();
+
+      if (colRect.width > 40) {
+
+        const waveLeft = Math.max(0, colRect.left - stackRect.left);
+
+        const waveWidth = Math.max(200, col.clientWidth);
+
+        return { sideW: waveLeft, gap: 0, waveLeft, waveWidth };
+
+      }
+
+    }
+
+    const sideW = 158;
+
+    const gap = 14;
 
     const w = canvasWidth();
 
@@ -669,6 +697,10 @@ export function createVocalDualPlayer(deps) {
 
     if (timeCurrent) timeCurrent.textContent = "0:00.0";
 
+    const metaDur = document.getElementById("meta-duration");
+
+    if (metaDur) metaDur.textContent = filePath ? "대기 중" : "-";
+
 
 
     redrawAll();
@@ -740,6 +772,10 @@ export function createVocalDualPlayer(deps) {
 
     if (timeTotal) timeTotal.textContent = formatClock(durationSec);
 
+    const metaDur = document.getElementById("meta-duration");
+
+    if (metaDur) metaDur.textContent = formatClock(durationSec);
+
     redrawAll();
 
   }
@@ -770,7 +806,21 @@ export function createVocalDualPlayer(deps) {
 
   stackEl?.addEventListener("click", (ev) => {
 
-    if (ev.target.closest(".vol-slider") || ev.target.closest("#btn-play-pause")) return;
+    if (
+
+      ev.target.closest(".vol-slider") ||
+
+      ev.target.closest(".sm-toggle") ||
+
+      ev.target.closest(".btn-stem-dl") ||
+
+      ev.target.closest("#btn-play-pause")
+
+    ) {
+
+      return;
+
+    }
 
     seekFromClientX(ev.clientX);
 

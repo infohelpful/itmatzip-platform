@@ -13,7 +13,7 @@ import {
 } from "../common/bridge.js?v=lna29";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";
-import { createVocalDualPlayer } from "./dual-player.js?v=dp3";
+import { createVocalDualPlayer } from "./dual-player.js?v=dp4";
 
 configureBridge({ healthPath: "/health" });
 
@@ -66,6 +66,23 @@ const summaryModel = document.getElementById("summary-model");
 const ensembleInputs = /** @type {HTMLInputElement[]} */ (
   Array.from(document.querySelectorAll('#ensemble-picks input[name="ensemble-model"]'))
 );
+const modelCards = /** @type {HTMLElement[]} */ (
+  Array.from(document.querySelectorAll("[data-model-card]"))
+);
+const formatButtons = /** @type {HTMLButtonElement[]} */ (
+  Array.from(document.querySelectorAll(".format-btn[data-format-val]"))
+);
+const formatBadgeEl = document.getElementById("format-badge");
+const btnBestPreset = document.getElementById("btn-best-preset");
+const dropzoneArea = document.getElementById("dropzone-area");
+const btnSoloVocal = document.getElementById("btn-solo-vocal");
+const btnMuteVocal = document.getElementById("btn-mute-vocal");
+const btnSoloMusic = document.getElementById("btn-solo-music");
+const btnMuteMusic = document.getElementById("btn-mute-music");
+const volVocalSlider = /** @type {HTMLInputElement | null} */ (document.getElementById("vol-vocal"));
+const volMusicSlider = /** @type {HTMLInputElement | null} */ (document.getElementById("vol-music"));
+const btnDlVocal = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-dl-vocal"));
+const btnDlMr = /** @type {HTMLButtonElement | null} */ (document.getElementById("btn-dl-mr"));
 
 const STORAGE_MODEL = "vocal-remover:model";
 const STORAGE_ENSEMBLE = "vocal-remover:ensemble-models";
@@ -142,8 +159,13 @@ function restoreModelSelection() {
 }
 
 function syncModelPickerUi() {
-  if (ensemblePicks) ensemblePicks.hidden = selectedModel() !== "ensemble";
+  const cur = selectedModel();
+  if (ensemblePicks) ensemblePicks.hidden = cur !== "ensemble";
   if (summaryModel) summaryModel.textContent = selectionLabel();
+  for (const card of modelCards) {
+    const val = card.getAttribute("data-model-card");
+    card.classList.toggle("active", val === cur);
+  }
 }
 
 /** readiness.selection 결과를 모델 카드 상태 문구에 반영 */
@@ -241,10 +263,11 @@ function applyPrepareStatusToOverlay(data) {
   });
 }
 
-function setSetupLoading(active, { title, message, step, progress } = {}) {
-  if (window.__itzSetupPanel) active = false;
+function setSetupLoading(active, { title, message, step, progress, initialCheck = false } = {}) {
+  if (initialCheck && window.__itzSetupPanel) active = false;
   if (!vocalSetupLoading) return;
   if (active) {
+    window.__itzSuppressAiGate = true;
     vocalSetupLoading.hidden = false;
     vocalSetupLoading.classList.add("is-active");
     vocalSetupLoading.setAttribute("aria-hidden", "false");
@@ -269,6 +292,7 @@ function setSetupLoading(active, { title, message, step, progress } = {}) {
     }
     return;
   }
+  window.__itzSuppressAiGate = false;
   vocalSetupLoading.hidden = true;
   vocalSetupLoading.classList.remove("is-active");
   vocalSetupLoading.setAttribute("aria-hidden", "true");
@@ -338,8 +362,17 @@ function stemsMessage() {
 }
 
 function syncSummaryFromDom() {
+  const fmtVal = (outputFormatSelect?.value || "wav").toLowerCase();
   if (summaryFormat && outputFormatSelect) {
-    summaryFormat.textContent = outputFormatSelect.selectedOptions[0]?.textContent || "WAV";
+    summaryFormat.textContent = outputFormatSelect.selectedOptions[0]?.textContent || fmtVal.toUpperCase();
+  }
+  for (const btn of formatButtons) {
+    const v = (btn.getAttribute("data-format-val") || "").toLowerCase();
+    const isAct = v === fmtVal;
+    btn.classList.toggle("active", isAct);
+    if (isAct && formatBadgeEl) {
+      formatBadgeEl.textContent = btn.getAttribute("data-format-label") || fmtVal.toUpperCase();
+    }
   }
   syncModelPickerUi();
 }
@@ -403,7 +436,176 @@ async function cleanupAgentWorkspace() {
   }
 }
 
+const DROP_UPLOAD_AUDIO_EXTENSIONS = new Set([
+  ".wav",
+  ".mp3",
+  ".flac",
+  ".m4a",
+  ".aac",
+  ".ogg",
+  ".wma",
+  ".opus",
+]);
+const DROP_UPLOAD_MAX_BYTES = 50 * 1024 * 1024 * 1024;
+let dropUploadController = /** @type {AbortController | null} */ (null);
+let activeDroppedPath = "";
+
+function normalizeDroppedMediaPath(rawPath) {
+  return String(rawPath || "").trim().replace(/^"(.*)"$/, "$1");
+}
+
+function droppedFileExtension(fileName) {
+  const dot = String(fileName || "").lastIndexOf(".");
+  return dot >= 0 ? String(fileName).slice(dot).toLowerCase() : "";
+}
+
+function cleanupDroppedUpload(filePath) {
+  if (!filePath) return;
+  const url = `${getAgentOrigin()}/api/tools/silence-remover/drop-upload?video_path=${encodeURIComponent(filePath)}`;
+  void fetchAgent(url, {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function setDropUploadBusy(busy) {
+  if (btnPickLocalFile && btnPickLocalFile.getAttribute("data-i18n-busy") !== "pick") {
+    btnPickLocalFile.disabled = busy || separationBusy;
+  }
+  if (audioPathInput) audioPathInput.readOnly = busy;
+  dropZoneEl?.classList.toggle("is-picking", busy);
+  vocalEditorShell?.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+async function applyResolvedAudioPath(resolvedPath) {
+  if (hadWorkspaceArtifacts) await cleanupAgentWorkspace();
+  clearDownloadResult();
+  if (audioPathInput) audioPathInput.value = resolvedPath;
+  applyDualPlayerFilePick(resolvedPath);
+  if (pathHint) {
+    pathHint.setAttribute("data-i18n-state", "pathAfterPick");
+    pathHint.textContent = window.itzT("pathAfterPick", "분석하기를 누르면 MR·보컬을 분리합니다.");
+  }
+  updateActionButtons();
+}
+
+async function uploadDroppedAudio(file) {
+  if (!file) return;
+  if (separationBusy) {
+    alert(window.itzT("pickBusy", "이전 분리 작업이 진행 중입니다. 완료 후 다시 시도해 주세요."));
+    return;
+  }
+  if (dropUploadController) return;
+  if (!DROP_UPLOAD_AUDIO_EXTENSIONS.has(droppedFileExtension(file.name))) {
+    alert(
+      window.itzT(
+        "unsupportedDropAudio",
+        "지원하지 않는 오디오 형식입니다. WAV, MP3, FLAC, M4A, AAC, OGG, WMA, OPUS 파일을 놓아 주세요.",
+      ),
+    );
+    return;
+  }
+  if (file.size > DROP_UPLOAD_MAX_BYTES) {
+    alert(window.itzT("uploadTooLarge", "파일 크기는 50GB 이하여야 합니다."));
+    return;
+  }
+
+  const agent = await checkAgentConnection();
+  if (!agent.ok) {
+    await showInstallAgentDialog(await installDialogOpts());
+    return;
+  }
+
+  const controller = new AbortController();
+  dropUploadController = controller;
+  setDropUploadBusy(true);
+
+  const previousPathValue = audioPathInput ? audioPathInput.value : "";
+  let pathApplied = false;
+  if (audioPathInput) {
+    audioPathInput.value = `파일 위치 확인 중: ${file.name}`;
+  }
+
+  try {
+    // 1) 브라우저는 원본 경로를 주지 않으므로, 에이전트가 이름·크기·수정 시각으로 PC에서 원본을 먼저 찾는다(복사 없음).
+    try {
+      const located = await fetchAgent(`${getAgentOrigin()}/api/tools/silence-remover/locate-dropped`, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: file.name,
+          size: file.size,
+          last_modified_ms: file.lastModified || null,
+        }),
+        signal: controller.signal,
+      });
+      const found = await located.json().catch(() => ({}));
+      const originalPath = located.ok && found?.found ? normalizeDroppedMediaPath(found.video_path) : "";
+      if (originalPath) {
+        if (activeDroppedPath && activeDroppedPath !== originalPath) {
+          cleanupDroppedUpload(activeDroppedPath);
+          activeDroppedPath = "";
+        }
+        pathApplied = true;
+        await applyResolvedAudioPath(originalPath);
+        return;
+      }
+    } catch (locateError) {
+      if (locateError && typeof locateError === "object" && locateError.name === "AbortError") {
+        throw locateError;
+      }
+    }
+
+    // 2) 원본 경로를 못 찾으면 에이전트 임시 폴더로 스트리밍 업로드한다.
+    if (audioPathInput) {
+      audioPathInput.value = `로컬 에이전트로 전송 중: ${file.name}`;
+    }
+    const uploadUrl = `${getAgentOrigin()}/api/tools/silence-remover/drop-upload?filename=${encodeURIComponent(file.name)}`;
+    const response = await fetchAgent(uploadUrl, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/octet-stream" },
+      body: file,
+      signal: controller.signal,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = data && typeof data.detail === "string" ? data.detail : response.statusText;
+      throw new Error(detail || "파일 업로드에 실패했습니다.");
+    }
+    const stagedPath = normalizeDroppedMediaPath(data?.video_path);
+    if (!stagedPath) {
+      throw new Error("에이전트가 임시 파일 경로를 반환하지 않았습니다.");
+    }
+    if (activeDroppedPath && activeDroppedPath !== stagedPath) {
+      cleanupDroppedUpload(activeDroppedPath);
+    }
+    activeDroppedPath = stagedPath;
+    pathApplied = true;
+    await applyResolvedAudioPath(stagedPath);
+  } catch (error) {
+    if (error && typeof error === "object" && error.name === "AbortError") return;
+    const message = formatAgentConnectionError(error) || (error instanceof Error ? error.message : String(error));
+    alert(`파일을 불러오지 못했습니다: ${message}`);
+  } finally {
+    if (!pathApplied && audioPathInput) {
+      audioPathInput.value = previousPathValue;
+    }
+    dropUploadController = null;
+    setDropUploadBusy(false);
+    updateActionButtons();
+  }
+}
+
 async function resetEditorState({ cleanupWorkspace = true } = {}) {
+  if (dropUploadController) {
+    dropUploadController.abort();
+    dropUploadController = null;
+  }
+  if (activeDroppedPath) {
+    cleanupDroppedUpload(activeDroppedPath);
+    activeDroppedPath = "";
+  }
   if (cleanupWorkspace) await cleanupAgentWorkspace();
   clearDownloadResult();
   if (audioPathInput) audioPathInput.value = "";
@@ -457,6 +659,20 @@ function hasAudioPath() {
   return !!(audioPathInput?.value.trim());
 }
 
+function syncWorkspaceViewState() {
+  const showMixer = hasAudioPath() || separationBusy || downloadReady;
+  if (dropzoneArea) {
+    dropzoneArea.hidden = showMixer;
+  }
+  if (dualWaveformSection) {
+    const wasEmpty = dualWaveformSection.classList.contains("is-empty");
+    dualWaveformSection.classList.toggle("is-empty", !showMixer);
+    if (showMixer && wasEmpty) {
+      requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+    }
+  }
+}
+
 function updateActionButtons() {
   if (btnPickLocalFile && btnPickLocalFile.getAttribute("data-i18n-busy") !== "pick") {
     btnPickLocalFile.disabled = separationBusy;
@@ -466,11 +682,22 @@ function updateActionButtons() {
     btnStartSeparation.disabled = separationBusy || !hasAudioPath() || !selectionIsValid();
   }
   if (modelSelect) modelSelect.disabled = separationBusy || legacyAgent;
-  for (const el of ensembleInputs) el.disabled = separationBusy || legacyAgent;
-  if (exportLink) {
-    exportLink.classList.toggle("is-disabled", !isExportEnabled());
+  for (const card of modelCards) {
+    card.classList.toggle("is-disabled", separationBusy || legacyAgent);
   }
+  if (btnBestPreset) {
+    btnBestPreset.disabled = separationBusy || legacyAgent;
+  }
+  for (const el of ensembleInputs) el.disabled = separationBusy || legacyAgent;
+  const expOk = isExportEnabled();
+  if (exportLink) {
+    exportLink.classList.toggle("is-disabled", !expOk);
+  }
+  if (btnDlVocal) btnDlVocal.disabled = !expOk;
+  if (btnDlMr) btnDlMr.disabled = !expOk;
+  if (typeof syncSoloMuteButtons === "function") syncSoloMuteButtons();
   syncNewJobButton();
+  syncWorkspaceViewState();
 }
 
 async function parseApiError(res) {
@@ -695,6 +922,7 @@ async function refreshToolStatus() {
     setModelReadySummary(toolReady);
     updateActionButtons();
     if (toolReady) {
+      setSetupLoading(false);
       return true;
     }
     await prepareModel();
@@ -745,6 +973,12 @@ async function runSeparationForFile(audioPath) {
     return;
   }
   if (!toolReady) {
+    setSetupLoading(true, {
+      title: window.itzT("setupTitle", "AI 환경 준비 중"),
+      step: window.itzT("envCheck", "환경 확인"),
+      message: `${selectionLabel()} 준비 상태를 확인하고 있습니다…`,
+      progress: 3,
+    });
     const ok = await refreshToolStatus();
     if (!ok) return;
   }
@@ -758,17 +992,17 @@ async function runSeparationForFile(audioPath) {
 
   separationBusy = true;
   lastDisplayedProgress = 0;
-  await cleanupAgentWorkspace();
-  clearDownloadResult();
-  updateActionButtons();
-
-  dualPlayer.prepareForSeparation(audioPath);
   setSeparationLoading(true, {
     title: window.itzT("ui.sepTitle", "보컬·MR 분리"),
     step: window.itzT("ui.sepStart", "분리 작업 시작"),
     message: stemsMessage(),
     progress: 3,
   });
+  await cleanupAgentWorkspace();
+  clearDownloadResult();
+  updateActionButtons();
+
+  dualPlayer.prepareForSeparation(audioPath);
 
   try {
     const startData = await requestAgent({
@@ -920,15 +1154,11 @@ async function pickLocalFile() {
       return;
     }
 
-    if (hadWorkspaceArtifacts) await cleanupAgentWorkspace();
-    clearDownloadResult();
-    audioPathInput.value = picked.trim();
-    applyDualPlayerFilePick(picked.trim());
-    if (pathHint) {
-      pathHint.setAttribute("data-i18n-state", "pathAfterPick");
-      pathHint.textContent = window.itzT("pathAfterPick", "분석하기를 누르면 MR·보컬을 분리합니다.");
+    if (activeDroppedPath && activeDroppedPath !== picked.trim()) {
+      cleanupDroppedUpload(activeDroppedPath);
+      activeDroppedPath = "";
     }
-    updateActionButtons();
+    await applyResolvedAudioPath(picked.trim());
   } catch (e) {
     const name = e && typeof e === "object" && "name" in e ? String(e.name) : "";
     if (name === "AbortError") {
@@ -1091,6 +1321,7 @@ async function checkVocalToolReadiness(knownOk) {
       setSetupLoading(true, {
         title: window.itzT("envCheck", "환경 확인"),
         message: window.itzT("envCheckMsg", "FFmpeg·AI 모델 설치 여부를 확인하고 있습니다…"),
+        initialCheck: true,
       });
     }
   }
@@ -1198,7 +1429,186 @@ function onModelSelectionChange() {
 
 modelSelect?.addEventListener("change", onModelSelectionChange);
 for (const el of ensembleInputs) el.addEventListener("change", onModelSelectionChange);
+for (const card of modelCards) {
+  const selectCardModel = () => {
+    if (separationBusy || legacyAgent || !modelSelect) return;
+    const val = card.getAttribute("data-model-card");
+    if (!val || modelSelect.value === val) return;
+    modelSelect.value = val;
+    onModelSelectionChange();
+  };
+  card.addEventListener("click", selectCardModel);
+  card.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" || ev.key === " ") {
+      ev.preventDefault();
+      selectCardModel();
+    }
+  });
+}
+for (const btn of formatButtons) {
+  btn.addEventListener("click", () => {
+    if (separationBusy || !outputFormatSelect) return;
+    const val = btn.getAttribute("data-format-val");
+    if (!val) return;
+    outputFormatSelect.value = val;
+    syncSummaryFromDom();
+  });
+}
+btnBestPreset?.addEventListener("click", () => {
+  if (separationBusy || legacyAgent) return;
+  if (modelSelect) {
+    modelSelect.value = "roformer";
+    onModelSelectionChange();
+  }
+  if (outputFormatSelect) {
+    outputFormatSelect.value = "wav";
+    syncSummaryFromDom();
+  }
+});
 restoreModelSelection();
+
+function syncSoloMuteButtons() {
+  const vVal = Number(volVocalSlider?.value ?? 0);
+  const mVal = Number(volMusicSlider?.value ?? 100);
+  btnMuteVocal?.classList.toggle("active", vVal === 0);
+  btnMuteMusic?.classList.toggle("active", mVal === 0);
+  btnSoloVocal?.classList.toggle("active", vVal > 0 && mVal === 0);
+  btnSoloMusic?.classList.toggle("active", mVal > 0 && vVal === 0);
+}
+
+function setSliderValue(slider, val) {
+  if (!slider) return;
+  slider.value = String(val);
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+volVocalSlider?.addEventListener("input", syncSoloMuteButtons);
+volMusicSlider?.addEventListener("input", syncSoloMuteButtons);
+
+btnSoloVocal?.addEventListener("click", () => {
+  const isSolo = btnSoloVocal.classList.contains("active");
+  if (isSolo) {
+    setSliderValue(volVocalSlider, 100);
+    setSliderValue(volMusicSlider, 100);
+  } else {
+    setSliderValue(volVocalSlider, 100);
+    setSliderValue(volMusicSlider, 0);
+  }
+  syncSoloMuteButtons();
+});
+
+btnMuteVocal?.addEventListener("click", () => {
+  const vVal = Number(volVocalSlider?.value ?? 0);
+  setSliderValue(volVocalSlider, vVal === 0 ? 100 : 0);
+  syncSoloMuteButtons();
+});
+
+btnSoloMusic?.addEventListener("click", () => {
+  const isSolo = btnSoloMusic.classList.contains("active");
+  if (isSolo) {
+    setSliderValue(volMusicSlider, 100);
+    setSliderValue(volVocalSlider, 100);
+  } else {
+    setSliderValue(volMusicSlider, 100);
+    setSliderValue(volVocalSlider, 0);
+  }
+  syncSoloMuteButtons();
+});
+
+btnMuteMusic?.addEventListener("click", () => {
+  const mVal = Number(volMusicSlider?.value ?? 100);
+  setSliderValue(volMusicSlider, mVal === 0 ? 100 : 0);
+  syncSoloMuteButtons();
+});
+
+function triggerDirectStemDownload(url) {
+  if (!isExportEnabled()) return;
+  if (!url) {
+    void navigateToDownloadPage(exportLink);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+btnDlVocal?.addEventListener("click", () => {
+  restoreDownloadUrlsFromSession();
+  triggerDirectStemDownload(lastVocalDownloadUrl);
+});
+
+btnDlMr?.addEventListener("click", () => {
+  restoreDownloadUrlsFromSession();
+  triggerDirectStemDownload(lastMrDownloadUrl);
+});
+
+dropzoneArea?.addEventListener("click", () => void pickLocalFile());
+dropzoneArea?.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" || ev.key === " ") {
+    ev.preventDefault();
+    void pickLocalFile();
+  }
+});
+
+function setDragOverActive(active) {
+  dropzoneArea?.classList.toggle("is-drag-over", active);
+  dropZoneEl?.classList.toggle("is-drag-over", active);
+  vocalEditorShell?.classList.toggle("is-drag-over", active);
+}
+
+function handleAudioDragOver(ev) {
+  if (!ev.dataTransfer?.types?.includes("Files")) return;
+  ev.preventDefault();
+  ev.dataTransfer.dropEffect = "copy";
+  setDragOverActive(true);
+}
+
+function handleAudioDragLeave(ev) {
+  if (ev.relatedTarget && ev.currentTarget instanceof Node && ev.currentTarget.contains(ev.relatedTarget)) {
+    return;
+  }
+  setDragOverActive(false);
+}
+
+function handleAudioDrop(ev) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  setDragOverActive(false);
+  if (dropUploadController) return;
+  const files = Array.from(ev.dataTransfer?.files || []);
+  if (files.length > 1) {
+    alert(window.itzT("multipleDrop", "한 번에 하나의 파일만 놓을 수 있습니다."));
+    return;
+  }
+  if (files.length === 1) {
+    void uploadDroppedAudio(files[0]);
+  }
+}
+
+[vocalEditorShell, dropzoneArea, dropZoneEl, dualWaveformSection]
+  .filter(Boolean)
+  .forEach((target) => {
+    target.addEventListener("dragover", handleAudioDragOver);
+    target.addEventListener("dragleave", handleAudioDragLeave);
+    target.addEventListener("drop", handleAudioDrop);
+  });
+
+window.addEventListener("dragover", (ev) => {
+  if (ev.dataTransfer?.types?.includes("Files")) ev.preventDefault();
+});
+window.addEventListener("drop", (ev) => {
+  if (ev.dataTransfer?.types?.includes("Files")) ev.preventDefault();
+});
+window.addEventListener("beforeunload", () => {
+  if (activeDroppedPath) {
+    cleanupDroppedUpload(activeDroppedPath);
+    activeDroppedPath = "";
+  }
+});
+syncSoloMuteButtons();
 
 btnPickLocalFile?.addEventListener("click", () => void pickLocalFile());
 btnNewJob?.addEventListener("click", () => {
