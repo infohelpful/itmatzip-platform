@@ -93,17 +93,19 @@ for (const [name, setup] of [
   test(`no wall: ${name}`, () => { const h=harness(); setup(h); h.advance(30000); assert.equal(h.shown,0); });
 }
 
-test('repeated selective hiding plus load failure shows blocking popup and OFF clears without filled ad', () => {
+test('repeated selective hiding plus load failure shows blocking popup and verified recovery clears without filled ad', () => {
   const h=harness(); h.state.hiding=true;
   h.advance(12000); assert.equal(h.shown,0);
   h.advance(1500); assert.equal(h.shown,1);
-  h.state.hiding=false; h.advance(1500);
+  h.state.hiding=false; h.state.snapshot.scriptLoaded=true; h.state.snapshot.scriptUnavailable=false;
+  h.advance(1500); assert.equal(h.dismissed,0); h.advance(3000);
   assert.equal(h.dismissed,1); assert.equal(h.active,null);
 });
 test('late library success clears popup without waiting for ad inventory', () => {
   const h=harness(); h.state.hiding=true; h.advance(14000);
-  h.state.snapshot.scriptLoaded=true;
+  h.state.snapshot.scriptLoaded=true; h.state.snapshot.scriptUnavailable=false; h.state.hiding=false;
   h.dispatchEvent({type:'itz:adsense-script-state'});
+  assert.equal(h.dismissed,0); h.advance(3000);
   assert.equal(h.dismissed,1);
 });
 test('clearing ad state never dismisses an agent dialog', () => {
@@ -186,7 +188,9 @@ test('network-only filtering triggers persistent popup after two selective failu
   h.advance(12000); await flushNetwork(); assert.equal(h.shown, 0);
   h.advance(8000); await flushNetwork(); assert.equal(h.shown, 1);
   assert.equal(h.modalOptions.persistent, true);
-  blocking = false; h.advance(8000); await flushNetwork();
+  blocking = false; h.state.snapshot.scriptLoaded = true; h.state.snapshot.scriptUnavailable = false;
+  h.advance(8000); await flushNetwork(); assert.equal(h.active, "ad-block");
+  h.advance(8000); await flushNetwork(); h.advance(3000);
   assert.equal(h.active, null);
 });
 test('both network probes failing does not imply ad blocking', async () => {
@@ -218,4 +222,34 @@ test('loaded library with pending ad requests still detects network-only filteri
   h.state.snapshot.pendingInsCount = 2;
   h.advance(12000); await flushNetwork(); h.advance(8000); await flushNetwork();
   assert.equal(h.shown, 1);
+});
+
+test('retry pending, hidden tab and offline never release a confirmed block', () => {
+  const h=harness(); h.state.hiding=true; h.advance(14000);
+  h.state.snapshot.scriptUnavailable=false;
+  h.recheck(); h.advance(3000); assert.equal(h.dismissed,0);
+  h.context.document.hidden=true; h.recheck(); assert.equal(h.dismissed,0);
+  h.context.document.hidden=false; h.context.navigator.onLine=false;
+  h.recheck(); assert.equal(h.dismissed,0);
+  h.context.navigator.onLine=true; h.state.snapshot.scriptUnavailable=true;
+  h.recheck(); assert.equal(h.shown,1);
+});
+test('brief healthy state cannot close and reopen the popup', () => {
+  const h=harness(); h.state.hiding=true; h.advance(14000);
+  h.state.hiding=false; h.state.snapshot.scriptLoaded=true; h.state.snapshot.scriptUnavailable=false;
+  h.recheck(); h.advance(1000);
+  h.state.hiding=true; h.state.snapshot.scriptLoaded=false; h.state.snapshot.scriptUnavailable=true;
+  h.recheck(); h.advance(4000);
+  assert.equal(h.dismissed,0); assert.equal(h.shown,1);
+});
+test('an inconclusive probe after confirmed blocking keeps the popup open', async () => {
+  let unknown=false;
+  const h=harness({network:async url => {
+    if (unknown || url.includes('/ads/banner/')) throw new TypeError('failed');
+    return probeResponse();
+  }});
+  h.advance(12000); await flushNetwork(); h.advance(8000); await flushNetwork();
+  assert.equal(h.shown,1); unknown=true;
+  h.advance(8000); await flushNetwork(); h.advance(4000);
+  assert.equal(h.dismissed,0); assert.equal(h.shown,1);
 });

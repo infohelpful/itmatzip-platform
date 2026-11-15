@@ -207,6 +207,9 @@
   let networkProbeRunning = false;
   let networkProbeAt = 0;
   let selectiveNetworkFailures = 0;
+  let networkSuccesses = 0;
+  let latchedNetworkBlock = false;
+  let recoverySince = 0;
   const policyBlockedUrls = new Set();
   document.addEventListener("securitypolicyviolation", (event) => {
     if (event.blockedURI) policyBlockedUrls.add(event.blockedURI);
@@ -305,14 +308,8 @@
     adBlockDismissWatchUntil = Date.now() + AD_BLOCK_DISMISS_MAX_MS;
     const tick = () => {
       if (!adBlockLatched) return;
-      if (pageShowsAdCreative()) {
-        clearAdBlockLatch();
-        return;
-      }
-      if (!evaluateAdBlock()) {
-        clearAdBlockLatch();
-        return;
-      }
+      runAdBlockCheck({ force: true });
+      if (!adBlockLatched) return;
       if (Date.now() >= adBlockDismissWatchUntil) return;
       scheduler.setTimeout(tick, AD_BLOCK_DISMISS_POLL_MS);
     };
@@ -342,6 +339,8 @@
     }
 
     adBlockLatched = true;
+    latchedNetworkBlock = selectiveNetworkFailures >= 2;
+    recoverySince = 0;
     watchAdsenseSlot();
     startAdBlockDismissWatch();
 
@@ -439,7 +438,7 @@
         Date.now() - networkProbeAt < 8000) return;
     const snap = readAdSenseSnapshot();
     if (snap?.adsDisabled || pageShowsAdCreative() ||
-        (!snap?.scriptUnavailable && !(snap?.pendingInsCount > 0))) return;
+        (!adBlockLatched && !snap?.scriptUnavailable && !(snap?.pendingInsCount > 0))) return;
     networkProbeRunning = true;
     networkProbeAt = Date.now();
     const controller = new AbortController();
@@ -459,12 +458,13 @@
       const [control, ad] = await Promise.all([request(controlUrl), request(adUrl)]);
       const selective = control === "ok" && ad === "failed" && !policyBlockedUrls.has(adUrl);
       selectiveNetworkFailures = selective ? selectiveNetworkFailures + 1 : 0;
+      networkSuccesses = control === "ok" && ad === "ok" ? networkSuccesses + 1 : 0;
     } finally {
       window.clearTimeout(timer);
       networkProbeRunning = false;
     }
     runAdBlockCheck({ force: true });
-    if (selectiveNetworkFailures > 0) {
+    if (selectiveNetworkFailures > 0 || adBlockLatched) {
       scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 8000);
     }
   }
@@ -492,6 +492,28 @@
     return Date.now() - evidenceSince >= 1000;
   }
 
+  // Unknown/loading/offline is not recovery. Require positive evidence to remain stable.
+  function confirmAdRecovery() {
+    const snap = readAdSenseSnapshot();
+    if (document.hidden || navigator.onLine === false) {
+      recoverySince = 0;
+      return false;
+    }
+    const recovered = snap?.adsDisabled || pageShowsAdCreative() ||
+      (snap?.scriptLoaded && !snap?.scriptUnavailable && !hasSelectiveAdHiding() &&
+        (!latchedNetworkBlock || networkSuccesses >= 2));
+    if (!recovered) {
+      recoverySince = 0;
+      return false;
+    }
+    if (!recoverySince) {
+      recoverySince = Date.now();
+      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 3000);
+      return false;
+    }
+    return Date.now() - recoverySince >= 3000;
+  }
+
   function latchAdBlock() {
     if (isAgentBlockDialogOpenSync()) return;
     showAdBlockWall();
@@ -500,6 +522,10 @@
   function clearAdBlockLatch() {
     const wasLatched = adBlockLatched;
     adBlockLatched = false;
+    latchedNetworkBlock = false;
+    recoverySince = 0;
+    selectiveNetworkFailures = 0;
+    networkSuccesses = 0;
     evidenceSince = 0;
     adBlockDismissWatchUntil = 0;
     try {
@@ -519,19 +545,11 @@
       lastAdCheckAt = now;
       void checkSelectiveNetworkBlocking();
 
-      if (pageShowsAdCreative()) {
-        if (adBlockLatched) clearAdBlockLatch();
+      if (adBlockLatched) {
+        if (confirmAdRecovery()) clearAdBlockLatch();
         return;
       }
-
-      const blocked = evaluateAdBlock();
-      if (blocked) {
-        latchAdBlock();
-        return;
-      }
-      if (adBlockLatched && !blocked) {
-        clearAdBlockLatch();
-      }
+      if (evaluateAdBlock()) latchAdBlock();
     } catch (e) {
       console.warn("[site-guard] 광고 차단 검사 오류", e);
     }
@@ -551,15 +569,6 @@
 
     adsenseObserver?.disconnect();
     adsenseObserver = new MutationObserver(() => {
-      if (pageShowsAdCreative()) {
-        clearAdBlockLatch();
-        return;
-      }
-      const snap = readAdSenseSnapshot();
-      if (snap && snap.filledCount > 0) {
-        clearAdBlockLatch();
-        return;
-      }
       runAdBlockCheck({ force: true });
     });
     for (const ins of slots) {
