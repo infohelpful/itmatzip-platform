@@ -219,6 +219,9 @@
   let adsenseObserver = null;
   /** @type {MutationObserver | null} */
   let adsenseRootObserver = null;
+  /** @type {MutationObserver | null} */
+  let wallObserver = null;
+  let lastWallRestoreAt = 0;
 
   function isBraveBrowserSync() {
     return typeof navigator !== "undefined" && navigator.brave != null;
@@ -339,22 +342,68 @@
     watchAdsenseSlot();
     startAdBlockDismissWatch();
 
-    const adBlockOptions = () => ({
+    showAdBlockDialog();
+    watchWallTamper();
+  }
+
+  function adBlockOptions() {
+    return {
       title: braveAdBlockTitle(),
       bodyHtml: adBlockWallBodyHtml(),
       dialogKind: "ad-block",
       persistent: true,
       buttons: [{ label: itzT("modal.reload", "새로고침"), primary: true, act: "reload" }],
-    });
+    };
+  }
 
+  function showAdBlockDialog() {
+    const modal = window.ItzSiteModal;
+    if (!modal?.showSiteDialog) return;
     void modal
-      .showSiteDialog({
-        ...adBlockOptions(),
-        rebuild: adBlockOptions,
-      })
+      .showSiteDialog({ ...adBlockOptions(), rebuild: adBlockOptions })
       .then((act) => {
         if (act === "reload") location.reload();
       });
+  }
+
+  /**
+   * 개발자 도구·확장으로 팝업 DOM 을 지우거나 숨기면, 차단이 계속되는 동안(adBlockLatched)
+   * 다시 띄운다. 정상화로 닫을 때는 clearAdBlockLatch 가 먼저 래치를 풀어 재생성되지 않는다.
+   */
+  function watchWallTamper() {
+    if (wallObserver || typeof MutationObserver !== "function" || !document.body) return;
+    let pending = false;
+    const check = () => {
+      pending = false;
+      if (!adBlockLatched) return;
+      const dlg = document.getElementById("itz-site-alert-dialog");
+      const kind = dlg?.dataset?.dialogKind;
+      if (kind === "agent-block") return;
+      const visible = dlg && dlg.isConnected && !dlg.hasAttribute("hidden") &&
+        kind === "ad-block" && getComputedStyle(dlg).display !== "none" &&
+        getComputedStyle(dlg).visibility !== "hidden";
+      if (visible) return;
+      // 복원 직후 연속 호출로 다이얼로그가 중복 생성되는 것을 막는다.
+      if (Date.now() - lastWallRestoreAt < 600) {
+        scheduler.setTimeout(check, 650);
+        return;
+      }
+      lastWallRestoreAt = Date.now();
+      window.ItzSiteModal?.dismissActiveSiteModal?.();
+      for (const stale of document.querySelectorAll("#itz-site-alert-dialog")) stale.remove();
+      showAdBlockDialog();
+    };
+    wallObserver = new MutationObserver(() => {
+      if (pending) return;
+      pending = true;
+      scheduler.setTimeout(check, 50);
+    });
+    wallObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["hidden", "style", "class", "data-dialog-kind"],
+    });
   }
 
   function braveAdBlockTitle() {
@@ -407,7 +456,7 @@
   function hasSelectiveAdHiding() {
     if (!document.body || document.hidden) return false;
     if (!probePair) {
-      probePair = ["itz-layout-check", "adsbox ad-banner ad-placement"].map((name) => {
+      probePair = ["itz-layout-check", "adsbox ad-banner ad-placement pub_300x250 pub_300x250m pub_728x90 text-ad textAd text_ad text_ads text-ads ad-text"].map((name) => {
         const el = document.createElement("div");
         el.className = name;
         el.setAttribute("aria-hidden", "true");
