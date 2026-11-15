@@ -27,3 +27,24 @@
   background: #171d1e;
 }
 .app:not(.is-playing) .subtitle-card:focus-within .subtitle-row-kind { color: #11b8d7; }
+
+/* ── 프로젝트 버튼(불러오기·다른 이름으로 저장·영상 교체·저장): 「영상 선택 · 자막 추출」 줄의 오른쪽 끝 ── */
+.app .subtitle-panel-head-top > .subtitle-panel-project-actions {
+  display: flex !important; /* 자막 디자인 탭에서도 항상 보인다 */
+  order: 99; margin-left: auto; flex-wrap: wrap; justify-content: flex-end;
+}
+
+/* ── 상단 바 광고 (web-ui/tools/auto-subtitle/site-glue.js 가 채운다) ── */
+.autosub-ad { box-sizing: border-box; min-width: 0; overflow: hidden; }
+.autosub-ad.is-ad-off { display: none !important; }
+/* 탭·링크 같은 조작 요소와 광고가 붙어 실수 클릭이 나지 않도록 왼쪽 여백과 구분선을 둔다. */
+.autosub-ad-wrap {
+  flex: 1 1 320px; min-width: 0; max-width: 760px; margin-left: auto; padding: 6px 0 6px 28px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.autosub-ad-wrap:has(.autosub-ad.is-ad-off) { display: none; }
+.autosub-ad-label { font-size: 10px; letter-spacing: .08em; color: #6f8084; line-height: 1; }
+.autosub-ad--topbar { width: 100%; height: 90px; border-radius: 4px; }
+@media (max-width: 1150px) {
+  .autosub-ad-wrap { flex-basis: 100%; max-width: none; padding-left: 0; }
+}

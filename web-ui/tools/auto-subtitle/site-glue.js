@@ -12,11 +12,31 @@ import {
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna29";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
+import { showAdSense } from "../common/adsense.js?v=12";
 
 const MIN_AGENT_VERSION = "1.7.12";
 const NOTICE_ID = "autosub-agent-update";
 
 configureBridge({ healthPath: "/health" });
+
+/** 상단 바 광고 칸은 React 에디터 안에 있으므로, 마운트되고 레이아웃이 잡힌 뒤 한 번 요청한다. */
+function requestTopbarAd() {
+  const selector = "#autosub-ad-topbar";
+  const tryShow = () => {
+    const el = document.querySelector(selector);
+    if (!el || el.clientWidth < 1 || el.clientHeight < 1) return false;
+    void showAdSense("autosubToolbar", el);
+    return true;
+  };
+  if (tryShow()) return;
+  const observer = new MutationObserver(() => {
+    if (tryShow()) observer.disconnect();
+  });
+  observer.observe(document.getElementById("root") || document.body, { childList: true, subtree: true });
+  window.setTimeout(() => observer.disconnect(), 60_000);
+}
+
+requestTopbarAd();
 
 function installDialogOpts() {
   return agentInstallDialogOptions(() => checkAgentConnection());

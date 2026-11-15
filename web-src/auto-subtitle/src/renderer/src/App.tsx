@@ -7008,48 +7008,6 @@ export default function App(): ReactElement {
             <span className="extraction-sync-mode" title="음성 인식 후 발화 구간 안에서 한글 음절과 단어 경계를 정렬합니다.">
               정밀 싱크 · 음절 경계 분석
             </span>
-            <div className="app-topbar-project-actions">
-              <button
-                type="button"
-                className="app-topbar-gpu-btn preview-project-btn"
-                disabled={projectFileUiDisabled}
-                onClick={openProjectFile}
-                title={
-                  !modelReady
-                    ? '엔진 준비 후 사용할 수 있습니다.'
-                    : '저장된 .autosub 프로젝트 열기'
-                }
-              >
-                불러오기
-              </button>
-              <button
-                type="button"
-                className="app-topbar-gpu-btn preview-project-btn"
-                disabled={projectFileUiDisabled}
-                onClick={saveProjectAs}
-                title="새 파일 이름으로 .autosub 저장"
-              >
-                다른 이름으로 저장
-              </button>
-              <button
-                type="button"
-                className="app-topbar-gpu-btn preview-project-btn"
-                disabled={projectFileUiDisabled || projectIoBusy || subtitles.length === 0}
-                onClick={replaceProjectMedia}
-                title="자막·타임스탬프는 그대로 두고 원본 영상만 다른 영상(효과를 넣은 영상 등)으로 바꿉니다. 영상 길이가 같아야 합니다."
-              >
-                영상 교체
-              </button>
-              <button
-                type="button"
-                className="app-topbar-gpu-btn preview-project-btn"
-                disabled={projectFileUiDisabled}
-                onClick={saveProject}
-                title="한 번이라도 저장했거나 .autosub를 연 상태면 탐색기 없이 같은 파일에 덮어씁니다. 처음 저장할 때만 탐색기가 열립니다. 다른 위치·파일 이름은 「다른 이름으로 저장」을 사용하세요."
-              >
-                저장
-              </button>
-            </div>
             {showGpuRuntimeControls && !setupPanelActive ? (
               <button
                 type="button"
@@ -7062,6 +7020,11 @@ export default function App(): ReactElement {
               </button>
             ) : null}
             {modelReady && !setupPanelActive ? <AlignmentRuntimeControl disabled={busy || isExtracting || realigning} /> : null}
+          </div>
+          {/* Web-only ad slot (filled by web-ui/tools/auto-subtitle/site-glue.js). 광고 표시 + 탭과 간격은 webAds.css */}
+          <div className="autosub-ad-wrap" aria-label="광고">
+            <span className="autosub-ad-label">ADVERTISEMENT</span>
+            <div id="autosub-ad-topbar" className="autosub-ad autosub-ad--topbar" />
           </div>
         </header>
 
@@ -7384,6 +7347,48 @@ export default function App(): ReactElement {
                     disabled={isExtracting || busy} onClick={() => void selectVideoForExtraction()}>
                     {isExtracting ? '자막 추출 중…' : '영상 선택 · 자막 추출'}
                   </button>
+                  <div className="app-topbar-project-actions subtitle-panel-project-actions">
+                      <button
+                        type="button"
+                        className="app-topbar-gpu-btn preview-project-btn"
+                        disabled={projectFileUiDisabled}
+                        onClick={openProjectFile}
+                        title={
+                          !modelReady
+                            ? '엔진 준비 후 사용할 수 있습니다.'
+                            : '저장된 .autosub 프로젝트 열기'
+                        }
+                      >
+                        불러오기
+                      </button>
+                      <button
+                        type="button"
+                        className="app-topbar-gpu-btn preview-project-btn"
+                        disabled={projectFileUiDisabled}
+                        onClick={saveProjectAs}
+                        title="새 파일 이름으로 .autosub 저장"
+                      >
+                        다른 이름으로 저장
+                      </button>
+                      <button
+                        type="button"
+                        className="app-topbar-gpu-btn preview-project-btn"
+                        disabled={projectFileUiDisabled || projectIoBusy || subtitles.length === 0}
+                        onClick={replaceProjectMedia}
+                        title="자막·타임스탬프는 그대로 두고 원본 영상만 다른 영상(효과를 넣은 영상 등)으로 바꿉니다. 영상 길이가 같아야 합니다."
+                      >
+                        영상 교체
+                      </button>
+                      <button
+                        type="button"
+                        className="app-topbar-gpu-btn preview-project-btn"
+                        disabled={projectFileUiDisabled}
+                        onClick={saveProject}
+                        title="한 번이라도 저장했거나 .autosub를 연 상태면 탐색기 없이 같은 파일에 덮어씁니다. 처음 저장할 때만 탐색기가 열립니다. 다른 위치·파일 이름은 「다른 이름으로 저장」을 사용하세요."
+                      >
+                        저장
+                      </button>
+                    </div>
                   {subtitles.length > 0 ? (
                     <div className="subtitle-panel-actions" role="group" aria-label="자막 일괄 편집">
                       <span className="subtitle-linebreak-ctl">
