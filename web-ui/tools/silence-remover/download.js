@@ -2,7 +2,7 @@ import {
   checkAgentConnection,
   configureBridge,
   requestAgent,
-} from "../common/bridge.js?v=lna28";
+} from "../common/bridge.js?v=lna29";
 import { showAdSense } from "../common/adsense.js?v=11";
 import {
   buildFcpXmlViaAgent,

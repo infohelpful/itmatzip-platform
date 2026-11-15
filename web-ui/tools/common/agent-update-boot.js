@@ -1,5 +1,5 @@
 /** Shared update prompt for pages that use the locally installed agent. */
-import { checkAgentConnection, fetchAgent, getAgentOrigin } from "./bridge.js?v=lna28";
+import { checkAgentConnection, fetchAgent, getAgentOrigin } from "./bridge.js?v=lna29";
 import { fetchAgentReleaseManifest } from "./agent-install-ui.js?v=lna22";
 
 const words = {

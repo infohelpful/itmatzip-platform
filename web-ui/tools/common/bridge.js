@@ -10,7 +10,7 @@
  *   Bridge.startConnectionMonitor({ onChange: (ok) => { ... } });
  */
 
-import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js?v=lna28";
+import { AGENT_ORIGIN_FALLBACKS, AGENT_PORT, agentWebSocketUrl, getPageLocalAgentOrigin, isPageServedFromLocalAgent } from "./agent-endpoints.js?v=lna29";
 import { agentAccessBlockedDialogOptions, agentInstallDialogOptions } from "./agent-install-ui.js?v=lna22";
 import {
   ensureSiteModalStyles,
@@ -1198,7 +1198,9 @@ export function startConnectionMonitor(opts = {}) {
       recordCircuitSuccess();
       disconnectDialogShown = false;
       _installAutoShowSuppressedUntil = 0;
-      dismissActiveSiteModal();
+      // 에이전트 연결 성공은 "에이전트 안내" 팝업만 닫는다. 광고 차단 팝업은 광고 정상화가
+      // 확인될 때 site-guard 가 닫으므로 여기서 닫으면 뜨자마자(≤5초) 사라진다.
+      if (!isAdBlockDialogOpenOnPage()) dismissActiveSiteModal();
       if (_installDialog && !_installDialog.hasAttribute("hidden") && _installDialogOptions?.closeOnConnection !== false) {
         dismissInstallAgentDialog();
       }
