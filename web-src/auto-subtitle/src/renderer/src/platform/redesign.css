@@ -283,3 +283,59 @@
 .app .subtitle-selection-toolbar .ai-marks { margin: 0 8px 0 0; }
 .app .subtitle-selection-toolbar .ai-marks-toggle { height: 28px; padding: 0 10px; border-radius: 6px; font-size: 12px; }
 .app .subtitle-selection-toolbar .ai-marks-pop { z-index: 40; }
+
+/* ───────── 15. AI 자막 채팅 창 (헤더 · 프리셋 칩 · 입력 박스) ───────── */
+.subtitle-mcp-chat { border: 1px solid var(--as-border-strong); border-radius: 16px; background: #14171a; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6); color: var(--as-text); }
+.subtitle-mcp-chat .subtitle-mcp-chat-head { align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--as-border); }
+.subtitle-mcp-chat-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.subtitle-mcp-chat-title b { font-size: 15px; font-weight: 700; white-space: nowrap; }
+.subtitle-mcp-chat-badge { padding: 2px 9px; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 999px; background: rgba(16, 185, 129, 0.12); color: #34d399; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.subtitle-mcp-chat .subtitle-mcp-chat-head button.subtitle-mcp-chat-help { width: 22px; height: 22px; padding: 0; border: 1px solid var(--as-border-strong); border-radius: 50%; background: #1a1e24; color: var(--as-text-2); font-size: 12px; font-weight: 700; cursor: pointer; }
+.subtitle-mcp-chat .subtitle-mcp-chat-head button.subtitle-mcp-chat-help:hover, .subtitle-mcp-chat .subtitle-mcp-chat-head button.subtitle-mcp-chat-help[aria-expanded='true'] { color: #fff; border-color: var(--as-cyan); }
+.subtitle-mcp-chat-head-controls { display: flex; align-items: center; gap: 8px; }
+.subtitle-mcp-chat-head-controls select { height: 32px; padding: 0 10px; border: 1px solid var(--as-border-strong); border-radius: 8px; background: #1a1e24; color: var(--as-text); font: inherit; font-size: 12.5px; font-weight: 600; }
+.subtitle-mcp-chat .subtitle-mcp-chat-head button.subtitle-mcp-chat-close { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--as-text-2); font-size: 22px; line-height: 1; cursor: pointer; }
+.subtitle-mcp-chat .subtitle-mcp-chat-head button.subtitle-mcp-chat-close:hover { color: #fff; }
+.subtitle-mcp-chat-notice { margin: 0; padding: 10px 16px; background: rgba(245, 197, 66, 0.08); color: #e5cf8f; font-size: 11.5px; line-height: 1.55; }
+
+/* 프리셋: 단일 캡슐 칩(한 번 클릭 = 시안 테두리 선택, 더블클릭 = 입력창에 넣기), 오른쪽 끝 「수정」 */
+.subtitle-mcp-chat .subtitle-mcp-chat-presets { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--as-border); background: transparent; }
+.subtitle-mcp-chat-preset-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset { display: inline-flex; align-items: center; height: 30px; padding: 0 14px; border: 1px solid var(--as-border-strong); border-radius: 999px; background: #1a1e24;
+  color: var(--as-text); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; transition: border-color 0.15s, background 0.15s; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset:hover { background: #20252c; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset.is-selected { border-color: var(--as-cyan); background: rgba(6, 182, 212, 0.1); color: #fff; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-add { height: 30px; padding: 0 12px; border: 1px dashed var(--as-border-strong); border-radius: 999px; background: transparent; color: var(--as-text-2); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-add:hover { color: #fff; border-color: var(--as-cyan); }
+.subtitle-mcp-chat .subtitle-mcp-chat-presets > .subtitle-mcp-chat-preset-edit-btn { flex: 0 0 auto; height: 30px; padding: 0 14px; border: 1px solid var(--as-border-strong); border-radius: 8px; background: #1a1e24; color: var(--as-text); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.subtitle-mcp-chat .subtitle-mcp-chat-presets > .subtitle-mcp-chat-preset-edit-btn:hover:not(:disabled) { background: #232830; }
+.subtitle-mcp-chat .subtitle-mcp-chat-presets > .subtitle-mcp-chat-preset-edit-btn:disabled { opacity: 0.4; cursor: default; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-edit-actions { display: flex; align-items: center; gap: 8px; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-edit-actions .subtitle-mcp-chat-preset-delete { margin-left: auto; border-color: rgba(239, 68, 68, 0.5); background: rgba(239, 68, 68, 0.1); color: #fca5a5; }
+
+/* 입력창: 한 개의 테두리 박스 안에 입력칸 + (대본 첨부 · 안내 · 보내기) */
+.subtitle-mcp-chat .subtitle-mcp-chat-form { display: block; margin: 0 16px 16px; padding: 10px 12px; border: 1px solid var(--as-border-strong); border-radius: 12px; background: #111315; transition: border-color 0.15s, box-shadow 0.15s; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form:focus-within { border-color: var(--as-cyan); box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.35); }
+.subtitle-mcp-chat .subtitle-mcp-chat-form textarea { display: block; width: 100%; min-height: 44px; max-height: 120px; padding: 0; border: 0; outline: none; background: transparent; resize: none; color: var(--as-text); font: inherit; font-size: 13.5px; line-height: 1.5; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form textarea::placeholder { color: var(--as-text-3); }
+.subtitle-mcp-chat-form-foot { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form .subtitle-mcp-chat-script { display: flex; align-items: center; gap: 6px; padding: 0; border: 0; min-width: 0; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form .subtitle-mcp-chat-script button { height: 30px; padding: 0 12px; border: 1px solid var(--as-border-strong); border-radius: 8px; background: #1a1e24; color: var(--as-text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form .subtitle-mcp-chat-script button:hover:not(:disabled) { background: #232830; }
+.subtitle-mcp-chat-hint { flex: 1; min-width: 0; color: var(--as-text-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form button.subtitle-mcp-chat-send { flex: 0 0 auto; height: 32px; padding: 0 18px; border: 0; border-radius: 8px; background: var(--as-cyan); color: #061317; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form button.subtitle-mcp-chat-send:hover:not(:disabled) { background: #22d3ee; }
+.subtitle-mcp-chat .subtitle-mcp-chat-form button.subtitle-mcp-chat-send:disabled { opacity: 0.5; cursor: default; }
+.subtitle-mcp-chat .subtitle-mcp-chat-head { flex-wrap: nowrap; }
+.subtitle-mcp-chat-title { flex: 1 1 auto; }
+.subtitle-mcp-chat-head-controls { flex: 0 0 auto; }
+/* 기존 규칙(.subtitle-mcp-chat-head div { display: grid })이 새 헤더 안쪽을 세로로 쌓지 않게 */
+.subtitle-mcp-chat .subtitle-mcp-chat-head .subtitle-mcp-chat-title, .subtitle-mcp-chat .subtitle-mcp-chat-head .subtitle-mcp-chat-head-controls { display: flex; flex-direction: row; gap: 8px; }
+
+/* 프리셋이 많으면 칩 영역만 가로로 스크롤한다(「수정」 버튼은 오른쪽 끝에 고정). */
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-chips { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding: 2px 0 6px; scrollbar-width: thin; scrollbar-color: #343940 transparent; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-chips::-webkit-scrollbar { height: 6px; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-chips::-webkit-scrollbar-thumb { border-radius: 3px; background: #343940; }
+.subtitle-mcp-chat .subtitle-mcp-chat-preset-chips > * { flex: 0 0 auto; }
+.subtitle-mcp-chat .subtitle-mcp-chat-presets { align-items: flex-start; }
+.subtitle-mcp-chat .subtitle-mcp-chat-presets > .subtitle-mcp-chat-preset-edit-btn { margin-top: 2px; }
