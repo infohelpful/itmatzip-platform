@@ -7,7 +7,7 @@ const guardSource = readFileSync(new URL('./site-guard.js', import.meta.url), 'u
 const adsSource = readFileSync(new URL('./adsense.js', import.meta.url), 'utf8')
   .replace(/^import .*;$/m, '').replaceAll('export ', '');
 
-function harness({ loader = false, existing = false } = {}) {
+function harness({ loader = false, existing = false, network = null } = {}) {
   let now = 100000, seq = 0, shown = 0, dismissed = 0, active = null, modalShown = 0, notice = null, modalOptions = null;
   const session = new Map();
   const timers = new Map(), listeners = new Map(), scripts = [];
@@ -33,7 +33,7 @@ function harness({ loader = false, existing = false } = {}) {
     return el;
   };
   if (existing) scripts.push(createElement('script'));
-  const document = { hidden: false, visibilityState: 'visible', readyState: 'complete',
+  const document = { currentScript: network ? { src: 'https://tools.itmatzip.com/common/site-guard.js?v=19' } : null, hidden: false, visibilityState: 'visible', readyState: 'complete',
     addEventListener, dispatchEvent, createElement,
     body: { appendChild(el) { if (el.tag === 'aside') { shown++; notice = el; } } }, head: { appendChild(el) { scripts.push(el); } },
     documentElement: { getAttribute() { return ''; } },
@@ -41,7 +41,8 @@ function harness({ loader = false, existing = false } = {}) {
     querySelector(selector) { return selector.startsWith('script') ? scripts[0] || null : null; },
     getElementById() { return null; },
   };
-  const context = vm.createContext({ document, console, URLSearchParams,
+  const context = vm.createContext({ document, console, URLSearchParams, URL, AbortController,
+    fetch: network ? (url) => network(url) : undefined,
     Date: { now: () => now }, navigator: { onLine: true, userAgent: 'Chrome' },
     location: { hostname: 'tools.itmatzip.com', search: '' },
     localStorage: { getItem() { return null; } },
@@ -172,4 +173,49 @@ test('confirmed blocking opens a persistent popup with reload as the only action
   h.advance(30000);
   assert.equal(h.active, 'ad-block');
   assert.equal(h.dismissed, 0);
+});
+
+async function flushNetwork() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
+function probeResponse(ok = true) { return { ok, text: async () => '/* itz-guard-check-v1 */' }; }
+test('network-only filtering triggers persistent popup after two selective failures and recovers', async () => {
+  let blocking = true;
+  const h = harness({ network: async url => {
+    if (blocking && url.includes('/ads/banner/')) throw new TypeError('Failed to fetch');
+    return probeResponse();
+  } });
+  h.advance(12000); await flushNetwork(); assert.equal(h.shown, 0);
+  h.advance(8000); await flushNetwork(); assert.equal(h.shown, 1);
+  assert.equal(h.modalOptions.persistent, true);
+  blocking = false; h.advance(8000); await flushNetwork();
+  assert.equal(h.active, null);
+});
+test('both network probes failing does not imply ad blocking', async () => {
+  const h = harness({ network: async () => { throw new TypeError('offline'); } });
+  h.advance(12000); await flushNetwork(); h.advance(10000); await flushNetwork();
+  assert.equal(h.shown, 0);
+});
+test('missing ad probe on server does not imply ad blocking', async () => {
+  const h = harness({ network: async url => probeResponse(!url.includes('/ads/banner/')) });
+  h.advance(12000); await flushNetwork(); h.advance(10000); await flushNetwork();
+  assert.equal(h.shown, 0);
+});
+test('CSP-blocked probe does not imply extension blocking', async () => {
+  const h = harness({ network: async url => {
+    if (url.includes('/ads/banner/')) throw new TypeError('CSP');
+    return probeResponse();
+  } });
+  h.dispatchEvent({ type: 'securitypolicyviolation', blockedURI: 'https://tools.itmatzip.com/common/ads/banner/ads.js' });
+  h.advance(12000); await flushNetwork(); h.advance(10000); await flushNetwork();
+  assert.equal(h.shown, 0);
+});
+test('loaded library with pending ad requests still detects network-only filtering', async () => {
+  const h = harness({ network: async url => {
+    if (url.includes('/ads/banner/')) throw new TypeError('blocked');
+    return probeResponse();
+  } });
+  h.state.snapshot.scriptLoaded = true;
+  h.state.snapshot.scriptUnavailable = false;
+  h.state.snapshot.pendingInsCount = 2;
+  h.advance(12000); await flushNetwork(); h.advance(8000); await flushNetwork();
+  assert.equal(h.shown, 1);
 });

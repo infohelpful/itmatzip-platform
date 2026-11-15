@@ -203,6 +203,14 @@
   let lastAdCheckAt = 0;
   let evidenceSince = 0;
   let probePair = null;
+  const guardScriptUrl = document.currentScript?.src;
+  let networkProbeRunning = false;
+  let networkProbeAt = 0;
+  let selectiveNetworkFailures = 0;
+  const policyBlockedUrls = new Set();
+  document.addEventListener("securitypolicyviolation", (event) => {
+    if (event.blockedURI) policyBlockedUrls.add(event.blockedURI);
+  });
   let adBlockDismissWatchUntil = 0;
   /** @type {MutationObserver | null} */
   let adsenseObserver = null;
@@ -423,14 +431,56 @@
     return visible(probePair[0]) && !visible(probePair[1]);
   }
 
+  // Same-origin control and ad-pattern resource distinguish selective filtering from
+  // a disconnected server. HTTP errors, timeouts and CSP failures are inconclusive.
+  async function checkSelectiveNetworkBlocking() {
+    if (!guardScriptUrl || typeof fetch !== "function" || networkProbeRunning ||
+        document.hidden || navigator.onLine === false || !adBlockGraceExpired() ||
+        Date.now() - networkProbeAt < 8000) return;
+    const snap = readAdSenseSnapshot();
+    if (snap?.adsDisabled || pageShowsAdCreative() ||
+        (!snap?.scriptUnavailable && !(snap?.pendingInsCount > 0))) return;
+    networkProbeRunning = true;
+    networkProbeAt = Date.now();
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 5000);
+    const controlUrl = new URL("guard-check.js", guardScriptUrl).href;
+    const adUrl = new URL("ads/banner/ads.js", guardScriptUrl).href;
+    const request = async (url) => {
+      try {
+        const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return "unknown";
+        return (await response.text()).trim() === "/* itz-guard-check-v1 */" ? "ok" : "unknown";
+      } catch {
+        return controller.signal.aborted || policyBlockedUrls.has(url) ? "unknown" : "failed";
+      }
+    };
+    try {
+      const [control, ad] = await Promise.all([request(controlUrl), request(adUrl)]);
+      const selective = control === "ok" && ad === "failed" && !policyBlockedUrls.has(adUrl);
+      selectiveNetworkFailures = selective ? selectiveNetworkFailures + 1 : 0;
+    } finally {
+      window.clearTimeout(timer);
+      networkProbeRunning = false;
+    }
+    runAdBlockCheck({ force: true });
+    if (selectiveNetworkFailures > 0) {
+      scheduler.setTimeout(() => runAdBlockCheck({ force: true }), 8000);
+    }
+  }
+
   // Script errors cannot distinguish blockers from DNS/CSP/network failures.
-  // Require independent, repeated selective hiding; never lock out on network failure alone.
+  // Require repeated selective filtering or selective hiding plus a real load failure.
   function evaluateAdBlock() {
     const snap = readAdSenseSnapshot();
     if (navigator.onLine === false || document.hidden || !adBlockGraceExpired() ||
-        snap?.adsDisabled || snap?.scriptLoaded || snap?.filledCount > 0 ||
-        snap?.unfilledCount > 0 || pageShowsAdCreative() ||
-        !snap?.scriptUnavailable || !hasSelectiveAdHiding()) {
+        snap?.adsDisabled || snap?.filledCount > 0 ||
+        snap?.unfilledCount > 0 || pageShowsAdCreative()) {
+      evidenceSince = 0;
+      return false;
+    }
+    if (selectiveNetworkFailures >= 2) return true;
+    if (snap?.scriptLoaded || !snap?.scriptUnavailable || !hasSelectiveAdHiding()) {
       evidenceSince = 0;
       return false;
     }
@@ -467,6 +517,7 @@
       const now = Date.now();
       if (!opts.force && now - lastAdCheckAt < RECHECK_MIN_MS) return;
       lastAdCheckAt = now;
+      void checkSelectiveNetworkBlocking();
 
       if (pageShowsAdCreative()) {
         if (adBlockLatched) clearAdBlockLatch();
