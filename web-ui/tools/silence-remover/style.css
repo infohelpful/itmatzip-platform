@@ -2154,3 +2154,6 @@ html[data-force-theme="dark"] :where(button, input, select, textarea) { font-fam
   html body .app-header .btn-to-dashboard::before { content: "←"; display: inline; font-size: calc(14 * var(--u)); opacity: .85; }
   html body .app-header .btn-to-dashboard:hover { border-color: rgba(59, 130, 246, .55); background: rgba(59, 130, 246, .12); color: #93c5fd; }
 }
+
+/* 우측 하단 "Silence Detector 준비 / 준비 완료" 설치 현황 위젯 숨김 (연결·설치 안내 다이얼로그는 그대로 동작) */
+#itz-ai-setup { display: none !important; }
