@@ -48,3 +48,11 @@
 @media (max-width: 1150px) {
   .autosub-ad-wrap { flex-basis: 100%; max-width: none; padding-left: 0; }
 }
+
+/* 상단 바: 항목은 왼쪽부터 차례로 놓고, 광고 칸(margin-left:auto)만 오른쪽 끝으로 보낸다.
+   (space-between 이면 「정밀 싱크 · 음절 경계 분석」 문구가 탭과 광고 사이 한가운데로 떠 있게 된다.) */
+.app .app-topbar { justify-content: flex-start; }
+.app .app-topbar .app-topbar-actions { margin-left: 14px; }
+
+/* 현재 환경 표시(정밀 싱크)는 프로젝트 버튼 줄에서 「불러오기」 왼쪽에 붙는다. */
+.subtitle-panel-project-actions .extraction-sync-mode { margin-right: 6px; white-space: nowrap; }

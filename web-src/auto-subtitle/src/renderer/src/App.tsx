@@ -1634,7 +1634,7 @@ export default function App(): ReactElement {
     setWatermarkSaveError(!saveWatermarkSettings(next))
   }, [])
   /** 영상 번인에서 현재 발화 단어를 강조 — 줄 단위 자막은 그대로 유지(기본 꺼짐) */
-  const [wordHighlightEnabled, setWordHighlightEnabled] = useState(true)
+  const [wordHighlightEnabled, setWordHighlightEnabled] = useState(false)
   const [wordHighlightColor, setWordHighlightColor] = useState('#ffd54a')
   /** AI 자막 채팅에 보내는 지금 서식(AI 가 현재 값을 알고 바꾼다) */
   const aiSubtitleStyle = useMemo<AiStylePatch>(() => ({
@@ -6565,7 +6565,7 @@ export default function App(): ReactElement {
     setSubtitleStrokeWidth(st.strokeWidth)
     setSubtitleX(st.x)
     setSubtitleY(clampSubtitleY(st.y))
-    setWordHighlightEnabled(st.wordHighlightEnabled ?? true)
+    setWordHighlightEnabled(st.wordHighlightEnabled ?? false)
     setWordHighlightColor(st.wordHighlightColor ?? '#ffff00')
     setCaptionEmphasisColor(st.emphasisColor ?? DEFAULT_EMPHASIS_COLOR)
     setSubtitleBoxStyle(st.boxStyle ?? 'classic')
@@ -7005,9 +7005,6 @@ export default function App(): ReactElement {
               <button key={tab} type="button" aria-pressed={editorTab === tab} onClick={() => setEditorTab(tab)}>{label}</button>)}
           </nav>
           <div className="app-topbar-actions">
-            <span className="extraction-sync-mode" title="음성 인식 후 발화 구간 안에서 한글 음절과 단어 경계를 정렬합니다.">
-              정밀 싱크 · 음절 경계 분석
-            </span>
             {showGpuRuntimeControls && !setupPanelActive ? (
               <button
                 type="button"
@@ -7348,6 +7345,9 @@ export default function App(): ReactElement {
                     {isExtracting ? '자막 추출 중…' : '영상 선택 · 자막 추출'}
                   </button>
                   <div className="app-topbar-project-actions subtitle-panel-project-actions">
+                    <span className="extraction-sync-mode" title="음성 인식 후 발화 구간 안에서 한글 음절과 단어 경계를 정렬합니다.">
+                      정밀 싱크 · 음절 경계 분석
+                    </span>
                       <button
                         type="button"
                         className="app-topbar-gpu-btn preview-project-btn"
@@ -7438,7 +7438,6 @@ export default function App(): ReactElement {
                 </div>
                 <p className="subtitle-panel-sub">
                   <span role="status">{alignmentNotice}</span>
-                  재생 중인 단어칩은 노란색으로 표시됩니다. 자막 문구와 싱크를 검토하고 필요하면 다시 정렬하세요.
                 </p>
                 {readingLineIndex !== null && subtitles[readingLineIndex] ? <WordReadingEditor
                   key={`${projectGenerationRef.current}:${readingLineIndex}`} line={subtitles[readingLineIndex]} lineIndex={readingLineIndex}
