@@ -79,6 +79,7 @@
   <link rel="stylesheet" href="style.css?v=58">
   <style>#itz-ai-setup { display: none !important; }</style>
   <link rel="stylesheet" href="mobile-only.css?v=3">
+  <link rel="stylesheet" href="cut-editor.css?v=5">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
   <link rel="stylesheet" href="../common/tool-guide.css?v=7">
 </head>
@@ -221,8 +222,50 @@
             <div class="editor-ad" id="editor-ad-above-workspace-2" aria-label="광고 2"></div>
           </div>
         </div>
+        <section class="drop-zone waveform-file-drop" id="media-drop-zone" aria-label="영상 파일 선택 영역">
+          <span id="video-path-label" class="file-tag" data-i18n="pathLabel">영상 파일 경로</span>
+          <p class="path-hint" id="path-hint" data-i18n="pathHint"></p>
+          <div class="path-row">
+            <input type="text" id="video-path" autocomplete="off" spellcheck="false">
+            <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
+          </div>
+          <p id="file-drop-status" class="file-drop-status" data-i18n="fileDropHint" role="status" aria-live="polite">또는 파형 영역에 파일을 끌어다 놓으세요.</p>
+          <button type="button" id="cancel-file-upload" class="cancel-file-upload" data-i18n="cancelUpload" hidden>업로드 취소</button>
+        </section>
+        <section id="cut-preview-panel" class="cut-preview-panel" aria-label="컷 미리보기" hidden>
+          <div class="cut-preview-video-wrap">
+            <video id="cut-preview-video" class="cut-preview-video" muted playsinline preload="auto"></video>
+            <div class="cut-preview-audio-only" aria-hidden="true">♪</div>
+            <p id="cut-preview-video-msg" class="cut-preview-video-msg" hidden></p>
+          </div>
+          <div class="cut-preview-side">
+            <div class="cut-transport">
+              <button type="button" id="cut-play" class="cut-play-btn" aria-label="재생" disabled>▶</button>
+              <div class="cut-time">
+                <span id="cut-time-src" class="cut-time-src">0:00.00</span>
+                <small id="cut-time-out" class="cut-time-out">결과 0:00.00</small>
+              </div>
+              <label class="cut-skip-toggle" for="cut-skip">
+                <input type="checkbox" id="cut-skip" checked>
+                <span data-i18n="cut.skip">무음 건너뛰기</span>
+              </label>
+              <div class="cut-export-group">
+                <select id="cut-quality" class="cut-quality-select" aria-label="화질" data-i18n-aria="cut.quality">
+                  <option value="high" data-i18n="cut.qualityHigh">고화질 (느림)</option>
+                  <option value="standard" data-i18n="cut.qualityStandard" selected>표준</option>
+                  <option value="fast" data-i18n="cut.qualityFast">빠르게 (용량 큼)</option>
+                </select>
+                <button type="button" id="cut-export" class="cut-export-btn" data-i18n="cut.export" disabled>MP4로 내보내기</button>
+              </div>
+            </div>
+            <p id="cut-stats" class="cut-stats"></p>
+            <p id="cut-hint" class="cut-hint"></p>
+          </div>
+          <audio id="cut-preview-audio" preload="auto"></audio>
+        </section>
         <section id="waveform-preview-section" class="waveform-preview-section" aria-label="오디오 파형 파일 놓기 영역">
-          <div class="waveform-preview-head">
+          <!-- 제목·범례는 편집 도구 줄로 대체 (script.js 가 id 로 글자를 넣으므로 요소는 남겨 둔다) -->
+          <div class="waveform-preview-head" hidden>
             <div class="waveform-heading">
               <div class="waveform-title-line">
                 <h3 id="waveform-preview-title" class="waveform-preview-title" data-i18n="waveform">오디오 파형 타임라인</h3>
@@ -234,6 +277,51 @@
                 <span id="waveform-legend-hint">· 파형 영역 클릭/드롭 = 파일 열기 · 마우스 휠 = 줌</span>
               </div>
             </div>
+          </div>
+          <p id="waveform-preview-status" class="waveform-preview-status" aria-live="polite"></p>
+          <div id="cut-toolbar" class="cut-toolbar" role="toolbar" aria-label="컷 편집 도구">
+            <span id="cut-tc" class="cut-tb-tc" title="결과 영상 길이 (제거 구간 제외)" data-i18n-title="cut.tcTitle">00:00:00:00</span>
+            <span class="cut-tb-sep" aria-hidden="true"></span>
+            <div class="cut-tb-group">
+              <button type="button" id="cut-tool-select" class="cut-tb-btn" aria-pressed="true" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2.5l10 7.2-4.6.9 2.6 5-2 1-2.6-5L5 14.8z" fill="currentColor"/></svg>
+              </button>
+              <button type="button" id="cut-tool-blade" class="cut-tb-btn" aria-pressed="false" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="6" width="15" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 10h6M10 2v3M10 15v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="cut-tool-range" class="cut-tb-btn" aria-pressed="false" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3H4v14h2M14 3h2v14h-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><rect x="7.5" y="7" width="5" height="6" rx="1" fill="currentColor" opacity=".65"/></svg>
+              </button>
+            </div>
+            <span class="cut-tb-sep" aria-hidden="true"></span>
+            <div class="cut-tb-group">
+              <button type="button" id="cut-split" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 6v12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M6 2h8l-4 4.5z" fill="currentColor"/><path d="M3 10h4M13 10h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity=".6"/></svg>
+              </button>
+              <button type="button" id="cut-lift" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5.5" cy="14.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="14.5" cy="14.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.3 12.6L15 3M12.7 12.6L5 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="cut-restore" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 9a6 6 0 1 1 1.6 5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2 5.5l2.6 4 3.6-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 7.5v5M8 10h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+            <span class="cut-tb-sep" aria-hidden="true"></span>
+            <button type="button" id="cut-snap" class="cut-tb-btn" aria-pressed="true" disabled>
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h4v7a2 2 0 0 0 4 0V3h4v7a6 6 0 0 1-12 0z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 6.5h4M12 6.5h4" stroke="currentColor" stroke-width="1.6"/></svg>
+            </button>
+            <span class="cut-tb-sep" aria-hidden="true"></span>
+            <div class="cut-tb-group">
+              <button type="button" id="cut-undo" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4L3 8l4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 8H12a5 5 0 0 1 0 10H8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="cut-redo" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M13 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M16.5 8H8a5 5 0 0 0 0 10h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+              </button>
+              <button type="button" id="cut-reset" class="cut-tb-btn" disabled>
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M15 2.5v3.8h-3.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <span class="cut-tb-spacer" aria-hidden="true"></span>
             <div class="waveform-zoom-controls">
               <button type="button" id="waveform-zoom-out" class="waveform-zoom-step" aria-label="축소">−</button>
               <span id="waveform-zoom-level" class="waveform-zoom-level" aria-live="polite">100%</span>
@@ -242,17 +330,6 @@
               <button type="button" id="waveform-zoom-reset" class="waveform-zoom-reset" data-i18n-title="zoomReset" title="">100%</button>
             </div>
           </div>
-          <p id="waveform-preview-status" class="waveform-preview-status" aria-live="polite"></p>
-          <section class="drop-zone waveform-file-drop" id="media-drop-zone" aria-label="영상 파일 선택 영역">
-            <span id="video-path-label" class="file-tag" data-i18n="pathLabel">영상 파일 경로</span>
-            <p class="path-hint" id="path-hint" data-i18n="pathHint"></p>
-            <div class="path-row">
-              <input type="text" id="video-path" autocomplete="off" spellcheck="false">
-              <button type="button" id="btn-pick-local-file" class="btn-pick-file" data-i18n="browse">찾아보기</button>
-            </div>
-            <p id="file-drop-status" class="file-drop-status" data-i18n="fileDropHint" role="status" aria-live="polite">또는 파형 영역에 파일을 끌어다 놓으세요.</p>
-            <button type="button" id="cancel-file-upload" class="cancel-file-upload" data-i18n="cancelUpload" hidden>업로드 취소</button>
-          </section>
           <div class="waveform-preview-scroll" id="waveform-preview-scroll">
             <div class="waveform-empty-drop" id="waveform-empty-drop">
               <span class="waveform-empty-icon" aria-hidden="true">⇧</span>
@@ -331,7 +408,7 @@
   <script type="module" src="../common/agent-update-boot.js?v=1-lna29"></script>
   <script src="../common/site-guard.js?v=23"></script>
   <script src="mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=lna67-lna29-adfix2"></script>
+  <script type="module" src="script.js?v=lna68-cut7"></script>
   <script type="module" src="sidebar-fit.js?v=3"></script>
 </body>
 </html>

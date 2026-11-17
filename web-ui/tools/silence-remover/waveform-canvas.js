@@ -3,7 +3,7 @@
  * 파형 본체는 waveform-renderer.js (시간축 재샘플링, CSS 스케일 줌 없음).
  */
 
-import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer, waveformUiScale } from "./waveform-renderer.js?v=5";
+import { DEFAULT_WAVEFORM_COLORS, WaveformRenderer, waveformUiScale } from "./waveform-renderer.js?v=7";
 
 /** @typedef {{ peaks: number[], peaks_db: number[], duration_sec: number, column_count: number, timeline_sec: number, mean_volume_db: number, max_volume_db?: number | null }} WaveformPeaksData */
 
@@ -442,6 +442,9 @@ function drawSilenceOverlayTimeBased(ctx, w, waveH, startTimeSec, pxPerSec, segm
  *   canvasWidth?: number,
  *   amplitudeSilenceThreshold?: number,
  *   renderer?: WaveformRenderer,
+ *   rulerPosition?: "top" | "bottom",
+ *   fps?: number,
+ *   clipLabel?: string,
  * }} opts
  */
 export function drawSilenceWaveform(canvas, data, opts) {
@@ -489,6 +492,9 @@ export function drawSilenceWaveform(canvas, data, opts) {
       silenceTimeSegments: opts.showSilenceOverlay ? timeSegments : undefined,
       rulerHeight: rulerH,
       showRuler: opts.showRuler !== false,
+      rulerPosition: opts.rulerPosition,
+      fps: opts.fps,
+      clipLabel: opts.clipLabel,
     },
     undefined,
   );
@@ -499,7 +505,9 @@ export function drawSilenceWaveform(canvas, data, opts) {
   if (!ctx) return viewResult;
 
   const dpr = window.devicePixelRatio || 1;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // 눈금자가 위에 있으면 파형 영역이 그만큼 아래에서 시작한다
+  const waveTop = viewResult.waveTop ?? 0;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, dpr * waveTop);
 
   drawSilenceOverlayTimeBased(
     ctx,
@@ -510,14 +518,17 @@ export function drawSilenceWaveform(canvas, data, opts) {
     timeSegments,
   );
 
-  WaveformRenderer.drawCenterBaseline(
-    ctx,
-    cssW,
-    waveH,
-    DEFAULT_WAVEFORM_COLORS.baseline,
-  );
+  if (opts.rulerPosition !== "top") {
+    WaveformRenderer.drawCenterBaseline(
+      ctx,
+      cssW,
+      waveH,
+      DEFAULT_WAVEFORM_COLORS.baseline,
+    );
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
   return viewResult;
 }
 
-export { WaveformRenderer } from "./waveform-renderer.js?v=5";
+export { WaveformRenderer } from "./waveform-renderer.js?v=7";

@@ -1,5 +1,6 @@
 import {
   applyConnectionStatusDot,
+  buildAgentResourceUrl,
   checkAgentConnection,
   configureBridge,
   fetchAgent,
@@ -7,6 +8,7 @@ import {
   getAgentOrigin,
   requestAgent,
   setAgentLongOperationActive,
+  setAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
 } from "../common/bridge.js?v=lna29";
@@ -53,6 +55,7 @@ import {
   hasRestorableEditorSession,
   loadStoredSilenceIntervals,
   loadStoredVocalIntervalsMs,
+  markEditorRestorePending,
   grantSilenceOverlayForPath,
   isSilenceOverlayGrantedForPath,
   revokeSilenceOverlay,
@@ -71,7 +74,8 @@ import {
   exportSilenceTimeSegments,
   drawSilenceWaveform,
   WaveformRenderer,
-} from "./waveform-canvas.js?v=5";
+} from "./waveform-canvas.js?v=7";
+import { createCutEditor } from "./cut-editor.js?v=7";
 
 const DOWNLOAD_PAGE = "download.html";
 function itzT(key, fallback) {
@@ -129,6 +133,21 @@ const ANALYZE_LOADING_MIN_MS = 900;
 
 // 브리지 설정 (로컬 에이전트 연결)
 configureBridge({ healthPath: "/health" });
+
+// 개발 테스트용: localhost 에서 연 페이지만 `?agent=http://127.0.0.1:19977` 로 소스 에이전트에 붙는다.
+(() => {
+  try {
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") return;
+    const agent = new URLSearchParams(window.location.search).get("agent") || sessionStorage.getItem("itz.devAgent");
+    if (!agent || !/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(agent)) return;
+    sessionStorage.setItem("itz.devAgent", agent);
+    setAgentOrigin(agent);
+    console.info("[silence-remover] dev agent:", agent);
+  } catch {
+    /* ignore */
+  }
+})();
 
 function installDialogOpts() {
   return agentInstallDialogOptions(() => checkAgentConnection());
@@ -847,6 +866,8 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function handleFileDragOver(event) {
+    // 파일이 아닌 것(파형 위에서 선택된 글자 등)을 끌 때는 "파일을 놓으면…" 안내를 띄우지 않는다.
+    if (!event.dataTransfer?.types?.includes("Files")) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
     if (waveformDropZone) waveformDropZone.classList.add("is-drag-over");
@@ -1156,6 +1177,28 @@ document.addEventListener("DOMContentLoaded", () => {
   /** @type {number | null} 마지막 파형 peaks 요청 pixels_per_second (편집 FPS 격자) */
   let lastWaveformPeaksPps = null;
 
+  /** 컷 편집 · 건너뛰기 재생 · MP4 내보내기 (cut-editor.js) */
+  const cutEditor = createCutEditor({
+    scrollEl: /** @type {HTMLElement} */ (waveformPreviewScroll),
+    canvas: /** @type {HTMLCanvasElement} */ (waveformPreviewCanvas),
+    getPeaks: () => waveformPeaksData,
+    getVideoPath: () => waveformLoadedPath || "",
+    getFpsRational: () => sessionStorage.getItem(STORAGE_FPS_RATIONAL),
+    getFpsFloat: () => getEditorFpsForExport(),
+    getDurationSec: () =>
+      Number(sessionStorage.getItem(STORAGE_DURATION)) || waveformPeaksData?.timeline_sec || 0,
+    canInteract: () => Boolean(canInteractWithWaveform()),
+    requestRedraw: () => scheduleWaveformRedraw(),
+    mediaUrl: (p) =>
+      buildAgentResourceUrl(`/api/tools/silence-remover/media?video_path=${encodeURIComponent(p)}`),
+    requestAgent,
+    setLongOperation: (on) => setAgentLongOperationActive(on),
+    t: itzT,
+    tf: itzTf,
+    // 내보내기 페이지에서 돌아오면(뒤로 가기 포함) 분석·편집 화면을 복원한다
+    onLeaveForExport: () => markEditorRestorePending(),
+  });
+
   function abortWaveformPreviewInFlight() {
     if (waveformPreviewFetchAbort) {
       waveformPreviewFetchAbort.abort();
@@ -1368,18 +1411,26 @@ document.addEventListener("DOMContentLoaded", () => {
     const scrollLeftPx = waveformPreviewScroll?.scrollLeft ?? 0;
     const canvasWidth = getViewportWaveformWidth();
 
-    const silenceTimeSegments = getAnalyzedSilenceTimeSegmentsForDraw();
-    const silenceColRanges = silencePreviewEnabled && !Array.isArray(silenceTimeSegments)
+    const analyzedSegments = getAnalyzedSilenceTimeSegmentsForDraw();
+    const silenceColRanges = silencePreviewEnabled && !Array.isArray(analyzedSegments)
       ? getPreviewSilenceColumnRangesForDraw()
       : undefined;
+    // 분석 결과가 유효하면 직접 편집한 컷을 그린다 (편집이 없으면 분석 결과와 같음).
+    const silenceTimeSegments =
+      cutEditor.syncFromDraw({ analyzed: analyzedSegments, previewColumnRanges: silenceColRanges })
+      ?? analyzedSegments;
 
-    drawSilenceWaveform(waveformPreviewCanvas, waveformPeaksData, {
+    const waveformView = drawSilenceWaveform(waveformPreviewCanvas, waveformPeaksData, {
       noiseDb: getNoiseDb(),
       minSilenceSec: getMinSilenceSec(),
       height: window.matchMedia("(min-width: 1100px)").matches
         ? Math.max(WAVEFORM_CANVAS_H, waveformPreviewScroll?.clientHeight ?? WAVEFORM_CANVAS_H)
         : WAVEFORM_CANVAS_H,
       showRuler: true,
+      // 다빈치식: 위쪽 타임코드 눈금자 + 남는 구간을 초록 클립으로
+      rulerPosition: "top",
+      fps: getEditorFpsForExport(),
+      clipLabel: clipNameFromVideoPath(waveformLoadedPath || ""),
       showSilenceOverlay: silencePreviewEnabled,
       silenceColumnRanges: silenceColRanges,
       silenceTimeSegments,
@@ -1389,6 +1440,7 @@ document.addEventListener("DOMContentLoaded", () => {
       flattenSilence: silencePreviewEnabled,
       renderer,
     });
+    cutEditor.drawOverlay(waveformPreviewCanvas, waveformView);
 
     updateWaveformScrollTrack();
     setWaveformCanvasHidden(false);
@@ -2114,6 +2166,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.button !== 0) return;
     const t = /** @type {HTMLElement} */ (e.target);
     if (t.closest(".waveform-zoom-reset")) return;
+    // 컷 경계 드래그 · Shift+드래그 컷 추가는 편집기가 처리하고, 그 외는 기존 팬
+    if (cutEditor.onPointerDown(e)) return;
 
     waveformPanPointerId = e.pointerId;
     waveformPanStartX = e.clientX;
@@ -2129,6 +2183,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /** @param {PointerEvent} e */
   function onWaveformPanPointerMove(e) {
+    if (cutEditor.onPointerMove(e)) return;
     if (!waveformPreviewScroll || e.pointerId !== waveformPanPointerId) return;
     const dx = e.clientX - waveformPanStartX;
     if (Math.abs(dx) > 3) waveformPanDidMove = true;
@@ -2139,6 +2194,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /** @param {PointerEvent} e */
   function onWaveformPanPointerUp(e) {
+    if (cutEditor.onPointerUp(e)) return;
     if (!waveformPreviewScroll || e.pointerId !== waveformPanPointerId) return;
     waveformPanPointerId = -1;
     waveformPanningActive = false;
@@ -2150,6 +2206,8 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {
       /* already released */
     }
+    // 끌지 않고 누른 것은 클릭: 재생 위치 이동 · 컷 선택
+    if (e.type === "pointerup" && !waveformPanDidMove) cutEditor.onClick(e);
   }
 
   if (waveformPreviewScroll) {
@@ -2157,6 +2215,8 @@ document.addEventListener("DOMContentLoaded", () => {
     waveformPreviewScroll.addEventListener("scroll", () => scheduleWaveformRedraw(), {
       passive: true,
     });
+    // 파형 영역 안에서 시작한 브라우저 기본 드래그(글자·이미지 끌기)는 막는다.
+    waveformPreviewScroll.addEventListener("dragstart", (e) => e.preventDefault());
     waveformPreviewScroll.addEventListener("pointerdown", onWaveformPanPointerDown);
     waveformPreviewScroll.addEventListener("pointermove", onWaveformPanPointerMove);
     waveformPreviewScroll.addEventListener("pointerup", onWaveformPanPointerUp);
@@ -2197,6 +2257,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.clearTimeout(waveformHighlightTimer);
     waveformPeaksData = null;
     waveformLoadedPath = null;
+    cutEditor.setMedia(null);
     lastWaveformPeaksPps = null;
     waveformRenderer = null;
     waveformRendererCacheKey = "";
@@ -2524,6 +2585,7 @@ document.addEventListener("DOMContentLoaded", () => {
       waveformLoadedPath = loadPath.trim();
       lastWaveformPeaksPps = pps;
       waveformRendererCacheKey = "";
+      cutEditor.setMedia(waveformLoadedPath);
 
       syncMediaSummaryDurationFromWaveform(timelineSec);
 
@@ -3020,6 +3082,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (optFps && !optFps.value.trim()) {
       optFps.value = String(truncTo2Decimals(fpsParsed));
     }
+    if (!cutEditor.confirmDiscardBeforeAnalyze()) return;
+    cutEditor.pause();
 
     const estDur =
       waveformPeaksData?.timeline_sec > 0
@@ -3453,6 +3517,7 @@ document.addEventListener("DOMContentLoaded", () => {
       skipPick: true,
     });
     applySummaryPanelLabels();
+    cutEditor.refreshLabels();
     setSilenceSummarySectionVisible(Boolean(silenceAnalysisDone));
     if (waveformPreviewTitle) {
       waveformPreviewTitle.textContent = silencePreviewEnabled

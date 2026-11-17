@@ -18,15 +18,25 @@ import time
 from pathlib import Path
 from typing import Annotated, Callable
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from common.async_io import run_sync
-from common.bin_manager import ensure_ffmpeg, get_bin_root, get_ffmpeg_exe, get_ffprobe_exe, is_ffmpeg_ready
+from common.bin_manager import (
+    ensure_ffmpeg,
+    get_bin_root,
+    get_ffmpeg_exe,
+    get_ffmpeg_executable,
+    get_ffprobe_exe,
+    get_ffprobe_executable,
+    is_ffmpeg_ready,
+)
 from common.pick_local_file import behind_go_proxy, run_media_pick_dialog
 from common.locate_dropped_file import find_dropped_file
 from common.media_paths import normalize_media_path, resolve_existing_file
 from engines import silence_remover
+from engines import silence_remover_render
 from engines.silence_remover_runtime import ensure_silence_remover_runtime
 from runtime_paths import pick_file_available
 
@@ -1107,3 +1117,92 @@ def post_build_fcp_xml(
         raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+# -- 컷 편집 미리보기 · MP4 내보내기 (docs/silence-remover-cut-editor-spec.md §7) ----------------
+_MEDIA_TYPES = {
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    ".mkv": "video/x-matroska", ".avi": "video/x-msvideo",
+    ".m4a": "audio/mp4", ".aac": "audio/aac", ".wav": "audio/wav", ".mp3": "audio/mpeg",
+    ".flac": "audio/flac", ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wma": "audio/x-ms-wma",
+}
+
+
+@router.get("/media")
+def get_media(video_path: str = Query(..., min_length=1, description="로컬 미디어 경로")) -> FileResponse:
+    """미리보기 재생용 원본 미디어 (Range 지원). 지원하는 미디어 확장자의 실제 파일만 내보낸다."""
+    path = _resolve_media_path(video_path)
+    suffix = path.suffix.lower()
+    if suffix not in _DROP_UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=415, detail="지원하지 않는 오디오/영상 파일 형식입니다.")
+    return FileResponse(path, media_type=_MEDIA_TYPES.get(suffix, "application/octet-stream"),
+                        headers={"Cache-Control": "no-store"})
+
+
+class KeepSegmentBody(BaseModel):
+    start_frame: int = Field(..., ge=0)
+    end_frame: int = Field(..., gt=0)
+
+
+class RenderStartBody(BaseModel):
+    video_path: str = Field(..., min_length=1)
+    fps_rational: str | None = Field(None, description="예: 30000/1001")
+    fps: float | None = Field(None, gt=0, le=240, description="fps_rational 이 없을 때 사용")
+    keeps: list[KeepSegmentBody] = Field(..., min_length=1, max_length=100000)
+    quality: str = Field("standard", pattern="^(high|standard|fast)$")
+
+
+class RenderJobBody(BaseModel):
+    job_id: str = Field(..., min_length=1, max_length=64)
+
+
+class RevealBody(BaseModel):
+    path: str = Field(..., min_length=1)
+
+
+@router.post("/render/start")
+def post_render_start(_: SilenceRemoverReady, body: RenderStartBody) -> dict[str, object]:
+    """유지 구간(프레임)만 이어 붙여 MP4(H.264 + AAC)로 인코딩을 시작한다. GET /render/status 로 폴링."""
+    path = _resolve_media_path(body.video_path)
+    fps_value = (body.fps_rational or "").strip() or body.fps
+    if fps_value is None:
+        raise HTTPException(status_code=400, detail="편집 FPS 가 필요합니다.")
+    try:
+        job = silence_remover_render.start_render(
+            ffmpeg=str(get_ffmpeg_executable()),
+            ffprobe=str(get_ffprobe_executable()),
+            source_path=path,
+            fps_value=fps_value,
+            keeps=[(k.start_frame, k.end_frame) for k in body.keeps],
+            quality=body.quality,
+            temp_root=_DROP_UPLOAD_ROOT,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except RuntimeError as e:
+        status = 409 if "진행 중" in str(e) else 422
+        raise HTTPException(status_code=status, detail=str(e)) from e
+    return job.snapshot()
+
+
+@router.get("/render/status")
+def get_render_status(job_id: str = Query(..., min_length=1, max_length=64)) -> dict[str, object]:
+    try:
+        return silence_remover_render.get_job(job_id).snapshot()
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.post("/render/cancel")
+def post_render_cancel(body: RenderJobBody) -> dict[str, bool]:
+    return {"canceled": silence_remover_render.cancel_job(body.job_id)}
+
+
+@router.post("/render/reveal")
+def post_render_reveal(body: RevealBody) -> dict[str, bool]:
+    """이 에이전트가 내보낸 파일만 탐색기에서 선택해 보여 준다."""
+    if not silence_remover_render.reveal_in_folder(body.path):
+        raise HTTPException(status_code=404, detail="내보낸 파일을 찾을 수 없습니다.")
+    return {"ok": True}

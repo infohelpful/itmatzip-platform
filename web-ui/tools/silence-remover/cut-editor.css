@@ -1,0 +1,151 @@
+/* 컷 미리보기 패널 · MP4 내보내기 (docs/silence-remover-cut-editor-spec.md §4–6) */
+
+.cut-preview-panel {
+  --cut-h: 200px;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  /* 행 높이를 확정해야 영상 칸의 height:100% 가 패널 높이를 따른다 (안 그러면 원본 해상도로 커진다) */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+  height: var(--cut-h);
+  padding: 12px 14px;
+  border: 1px solid #1e2433;
+  border-radius: 12px;
+  background: #0d1017;
+  box-sizing: border-box;
+  color: #e2e8f0;
+}
+.cut-preview-panel[hidden] { display: none !important; }
+
+.cut-preview-video-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: #000;
+}
+.cut-preview-video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.cut-preview-audio-only {
+  position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+  color: #38bdf8; font-size: 44px; background: radial-gradient(circle at center, rgba(56,189,248,.12), #05070b 70%);
+}
+.cut-preview-panel.is-audio-only .cut-preview-video,
+.cut-preview-panel.is-video-error .cut-preview-video { visibility: hidden; }
+.cut-preview-panel.is-audio-only .cut-preview-audio-only,
+.cut-preview-panel.is-video-error .cut-preview-audio-only { display: flex; }
+.cut-preview-video-msg {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0; padding: 6px 8px; border-radius: 6px;
+  background: rgba(15, 23, 42, .9); color: #fbbf24; font-size: 11.5px; line-height: 1.35;
+}
+.cut-preview-video-msg[hidden] { display: none; }
+
+.cut-preview-side { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+
+.cut-transport { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cut-play-btn {
+  flex: 0 0 auto; width: 42px; height: 42px; border: 1px solid #38bdf8; border-radius: 50%;
+  background: linear-gradient(180deg, #0284c7, #0369a1); color: #fff; font-size: 16px; line-height: 1; cursor: pointer;
+}
+.cut-play-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.cut-play-btn:disabled { opacity: .35; cursor: not-allowed; }
+.cut-play-btn.is-playing { font-size: 13px; letter-spacing: -2px; }
+.cut-time { display: flex; flex-direction: column; min-width: 0; font-variant-numeric: tabular-nums; }
+.cut-time-src { color: #f8fafc; font: 600 18px Consolas, "D2Coding", monospace; }
+.cut-time-out { color: #94a3b8; font-size: 12px; }
+.cut-skip-toggle {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 5px 10px;
+  border: 1px solid #263147; border-radius: 999px; background: #090c12; color: #cbd5e1; font-size: 12.5px; cursor: pointer;
+}
+.cut-skip-toggle input { accent-color: #f43f5e; }
+
+.cut-tool-btn {
+  padding: 5px 10px; border: 1px solid #334155; border-radius: 6px; background: #1e293b; color: #f1f5f9;
+  font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.cut-tool-btn:hover:not(:disabled) { border-color: #38bdf8; }
+.cut-tool-btn:disabled { opacity: .4; cursor: not-allowed; }
+.cut-tool-btn[hidden] { display: none; }
+
+.cut-stats { margin: 0; color: #e2e8f0; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.cut-hint { margin: 0; color: #64748b; font-size: 11.5px; line-height: 1.4; }
+.cut-stats-dirty { color: #facc15; }
+
+.cut-export-btn {
+  flex: 0 0 auto; padding: 8px 16px; border: 1px solid #34d399; border-radius: 8px;
+  background: linear-gradient(180deg, #10b981, #059669); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer;
+}
+.cut-export-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.cut-export-btn:disabled { background: rgba(16,185,129,.16); border-color: rgba(52,211,153,.25); color: rgba(255,255,255,.45); cursor: not-allowed; }
+.cut-export-btn[hidden] { display: none; }
+
+/* 파형: 드래그 중 글자 선택·브라우저 기본 드래그가 일어나지 않게 */
+.waveform-preview-scroll { -webkit-user-select: none; user-select: none; }
+/* 도구별 커서: 경계 위 = 트림(↔), 자르기 = 십자, 구간 = 셀 */
+.waveform-preview-scroll.is-cut-blade-tool,
+.waveform-preview-scroll.is-cut-blade-tool .waveform-preview-canvas { cursor: crosshair !important; }
+.waveform-preview-scroll.is-cut-range-tool,
+.waveform-preview-scroll.is-cut-range-tool .waveform-preview-canvas { cursor: cell !important; }
+.waveform-preview-scroll.is-cut-edge-hover,
+.waveform-preview-scroll.is-cut-edge-hover .waveform-preview-canvas { cursor: ew-resize !important; }
+
+/* 파형 위 제목·범례 대신 편집 도구 줄 */
+.waveform-preview-head[hidden] { display: none !important; }
+.cut-toolbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 6px;
+  border: 1px solid #1e2433; border-radius: 8px; background: #090c12;
+}
+.cut-tb-group { display: flex; align-items: center; gap: 2px; }
+.cut-tb-sep { flex: 0 0 auto; width: 1px; height: 20px; margin: 0 4px; background: #263147; }
+.cut-tb-spacer { flex: 1 1 auto; }
+/* 다빈치식 타임코드 (제거 구간을 뺀 결과 길이) */
+.cut-tb-tc {
+  flex: 0 0 auto; padding: 0 6px; color: #e5e7eb; font: 600 16px Consolas, "D2Coding", monospace;
+  letter-spacing: .5px; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: default;
+}
+.cut-tb-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 28px; padding: 0;
+  border: 1px solid transparent; border-radius: 5px; background: transparent; color: #cbd5e1; cursor: pointer;
+}
+.cut-tb-btn svg { width: 18px; height: 18px; }
+.cut-tb-btn:hover:not(:disabled) { background: #1e293b; color: #fff; }
+.cut-tb-btn:disabled { opacity: .3; cursor: not-allowed; }
+/* 켜진 도구 = 다빈치처럼 붉은 강조, 스냅 = 노란 강조 */
+.cut-tb-btn.is-active { border-color: rgba(244, 63, 94, .55); background: rgba(244, 63, 94, .16); color: #fb7185; }
+#cut-snap.is-active { border-color: rgba(250, 204, 21, .5); background: rgba(250, 204, 21, .12); color: #facc15; }
+.cut-toolbar .waveform-zoom-controls { margin-left: 0; }
+.media-workspace .waveform-file-drop { margin: 0; }
+
+/* 화질 + 내보내기 버튼 (인코딩은 export.html 에서) */
+.cut-export-group { display: inline-flex; align-items: stretch; gap: 6px; }
+.cut-quality-select {
+  padding: 0 8px; border: 1px solid #263147; border-radius: 8px; background: #090c12; color: #cbd5e1;
+  font-size: 12.5px; cursor: pointer;
+}
+.cut-quality-select:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
+
+@media (min-width: 1100px) {
+  .cut-preview-panel { --cut-h: calc(176 * var(--u)); gap: calc(14 * var(--u)); padding: calc(12 * var(--u)) calc(14 * var(--u)); }
+  .cut-preview-side { gap: calc(8 * var(--u)); }
+  .cut-play-btn { width: calc(42 * var(--u)); height: calc(42 * var(--u)); font-size: calc(16 * var(--u)); }
+  .cut-play-btn.is-playing { font-size: calc(13 * var(--u)); }
+  .cut-time-src { font-size: calc(18 * var(--u)); }
+  .cut-time-out { font-size: calc(12.5 * var(--u)); }
+  .cut-skip-toggle { font-size: calc(13 * var(--u)); padding: calc(5 * var(--u)) calc(10 * var(--u)); }
+  .cut-tool-btn { font-size: calc(12.5 * var(--u)); padding: calc(5 * var(--u)) calc(10 * var(--u)); }
+  .cut-tb-btn { width: calc(34 * var(--u)); height: calc(30 * var(--u)); }
+  .cut-tb-tc { font-size: calc(16 * var(--u)); }
+  .cut-tb-btn svg { width: calc(19 * var(--u)); height: calc(19 * var(--u)); }
+  .cut-stats { font-size: calc(13 * var(--u)); }
+  .cut-hint { font-size: calc(12 * var(--u)); }
+  .cut-export-btn { font-size: calc(13.5 * var(--u)); padding: calc(8 * var(--u)) calc(16 * var(--u)); }
+  .cut-quality-select { font-size: calc(12.5 * var(--u)); }
+}
+
+@media (max-width: 820px) {
+  .cut-preview-panel { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+  .cut-preview-video-wrap { width: 100%; height: auto; }
+}

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="silence-remover" data-force-theme="dark" data-theme="dark" style="color-scheme: dark;">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,follow">
+  <link rel="canonical" href="https://tools.itmatzip.com/silence-remover/">
+  <script src="../common/site-runtime.js?v=43"></script>
+  <title data-i18n="ex.docTitle">MP4 내보내기</title>
+  <link rel="stylesheet" href="download.css?v=7">
+  <link rel="stylesheet" href="mobile-only.css?v=3">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="download-skin.css?v=3">
+  <link rel="stylesheet" href="export.css?v=3">
+</head>
+<body>
+  <div class="dl-page">
+    <div class="dl-ad" id="dl-ad-top" aria-label="Advertisement"></div>
+    <div class="dl-card ex-card">
+      <h1 id="ex-title" data-i18n="cut.exportTitle">MP4로 내보내기</h1>
+      <p class="ex-file" id="ex-file"></p>
+      <p class="ex-summary" id="ex-summary"></p>
+
+      <div class="ex-progress is-hidden" id="ex-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="ex-progress-meta">
+          <span id="ex-label"></span>
+          <strong id="ex-percent">0%</strong>
+        </div>
+        <div class="ex-track"><div class="ex-bar" id="ex-bar"></div></div>
+        <p class="ex-keep-open" id="ex-keep-open" data-i18n="ex.keepOpen">인코딩이 끝날 때까지 이 페이지를 닫지 마세요.</p>
+      </div>
+
+      <p class="dl-status" id="ex-status" role="status" aria-live="polite"></p>
+
+      <div class="ex-result is-hidden" id="ex-result">
+        <span class="ex-result-label" data-i18n="ex.savedTo">저장 위치</span>
+        <code class="ex-result-path" id="ex-path"></code>
+      </div>
+
+      <div class="dl-actions">
+        <button type="button" class="dl-btn dl-btn-primary is-hidden" id="ex-reveal" data-i18n="ex.openFolder">폴더 열기</button>
+        <button type="button" class="dl-btn dl-btn-primary is-hidden" id="ex-retry" data-i18n="ex.retry">다시 시도</button>
+        <button type="button" class="dl-btn dl-btn-back is-hidden" id="ex-cancel" data-i18n="ex.cancel">인코딩 취소</button>
+        <button type="button" class="dl-btn dl-btn-back" id="ex-back" data-i18n="dl.back">편집 화면으로 돌아가기</button>
+      </div>
+    </div>
+
+    <section class="dl-guides" aria-label="MP4 내보내기 안내" data-i18n-aria="ex.guideAria">
+      <article class="dl-info-card">
+        <header class="dl-info-card__head">
+          <span class="dl-info-card__icon" aria-hidden="true">🎬</span>
+          <div>
+            <h2 class="dl-info-card__title" data-i18n="ex.guideTitle">컷 편집한 영상 (MP4)</h2>
+            <p class="dl-info-card__subtitle" data-i18n="ex.guideSub">편집 화면에서 남긴 구간만 이어 붙여 새 영상으로 저장합니다</p>
+          </div>
+        </header>
+        <aside class="dl-callout">
+          <span class="dl-callout__icon" aria-hidden="true">💾</span>
+          <p data-i18n="ex.guideWhere">파일은 <strong>원본 영상과 같은 폴더</strong>에 <code>원본이름_cut.mp4</code> 로 저장됩니다. 드래그로 올린 영상은 PC의 「다운로드」 폴더에 저장됩니다.</p>
+        </aside>
+        <aside class="dl-callout">
+          <span class="dl-callout__icon" aria-hidden="true">⚙️</span>
+          <p data-i18n="ex.guideCodec">H.264 영상 + AAC 오디오로 다시 인코딩합니다. 가변 프레임(VFR) 영상도 편집 화면의 FPS로 고정해 싱크가 밀리지 않습니다. 그래픽카드 인코더가 있으면 자동으로 사용합니다.</p>
+        </aside>
+        <aside class="dl-callout">
+          <span class="dl-callout__icon" aria-hidden="true">🔒</span>
+          <p data-i18n="ex.guideLocal">영상은 외부 서버로 올라가지 않고 이 PC의 에이전트에서만 만들어집니다.</p>
+        </aside>
+      </article>
+
+      <article class="dl-info-card">
+        <header class="dl-info-card__head">
+          <span class="dl-callout__icon" aria-hidden="true">❓</span>
+          <div>
+            <h2 class="dl-info-card__title" data-i18n="dlFaqTitle">팁 &amp; 자주 묻는 질문</h2>
+          </div>
+        </header>
+        <dl class="dl-faq">
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q" data-i18n="ex.faqQ1">Q. 얼마나 걸리나요?</dt>
+            <dd class="dl-faq__a" data-i18n="ex.faqA1">영상 길이와 PC 성능에 따라 다릅니다. NVIDIA·Intel·AMD 그래픽카드 인코더가 있으면 훨씬 빨리 끝납니다. 「빠르게」 화질을 고르면 더 빨라지는 대신 파일이 커집니다.</dd>
+          </div>
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q" data-i18n="ex.faqQ2">Q. 인코딩 중에 페이지를 닫아도 되나요?</dt>
+            <dd class="dl-faq__a" data-i18n="ex.faqA2">끝날 때까지 이 페이지에 머물러 주세요. 「편집 화면으로 돌아가기」를 누르면 인코딩을 취소하고 돌아갑니다.</dd>
+          </div>
+          <div class="dl-faq__item">
+            <dt class="dl-faq__q" data-i18n="dlFaqQ3">Q. 편집하던 데이터가 날아갔을까 봐 불안해요.</dt>
+            <dd class="dl-faq__a" data-i18n="dlFaqA3">걱정 마세요! <strong class="dl-faq__back-ref">[편집 화면으로 돌아가기]</strong>를 누르시면 안전하게 저장된 이전 작업 상태로 즉시 복원됩니다.</dd>
+          </div>
+        </dl>
+      </article>
+    </section>
+
+    <div class="dl-ad" id="dl-ad-bottom" aria-label="Advertisement"></div>
+  </div>
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="alertdialog" aria-modal="true" aria-labelledby="mobile-only-title">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 id="mobile-only-title" class="mobile-only-title" data-i18n="mobileTitle">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc" data-i18n="mobileDesc">Silence Detector는 데스크톱 PC와 로컬 에이전트가 필요한 도구입니다.<br>PC 브라우저로 접속해 주세요.</p>
+    </div>
+  </div>
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <script src="../common/site-guard.js?v=23"></script>
+  <script src="mobile-only.js?v=8"></script>
+  <script type="module" src="export.js?v=3"></script>
+</body>
+</html>

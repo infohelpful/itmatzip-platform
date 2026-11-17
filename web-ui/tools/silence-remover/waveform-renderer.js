@@ -40,6 +40,9 @@ export function formatWaveformTimeLabel(sec) {
  * @property {{ start_sec: number, end_sec: number }[]} [silenceTimeSegments] Exact cut ranges; [] preserves all peaks.
  * @property {number} [rulerHeight] 하단 룰러 높이
  * @property {boolean} [showRuler]
+ * @property {"top" | "bottom"} [rulerPosition] top = 다빈치식 위쪽 타임코드 눈금자 + 초록 클립
+ * @property {number} [fps] 타임코드 표기용 FPS
+ * @property {string} [clipLabel] 클립 아래쪽에 쓸 파일 이름
  */
 
 /**
@@ -49,6 +52,91 @@ export function formatWaveformTimeLabel(sec) {
  * @property {number} pxPerSec
  * @property {number} scrollLeftPx
  */
+
+/** 다빈치 타임라인 색 (오디오 클립 = 초록 상자 + 연한 파형) */
+const CLIP_COLORS = {
+  track: "#1c1d21",
+  grid: "rgba(255, 255, 255, 0.05)",
+  fill: "#3a6a4e",
+  border: "#244832",
+  wave: "rgba(220, 244, 229, 0.95)",
+  label: "rgba(240, 253, 244, 0.92)",
+  cutLine: "rgba(251, 113, 133, 0.75)",
+  ruler: "#232428",
+  rulerEdge: "#34363c",
+  tickMinor: "rgba(160, 163, 170, 0.55)",
+  tickMajor: "rgba(190, 193, 200, 0.85)",
+  rulerText: "rgba(214, 216, 222, 0.92)",
+};
+
+/** 표시용 정수 프레임레이트 (29.97 → 30, 23.976 → 24) — 비드롭 타임코드 */
+function nominalFps(fps) {
+  const f = Number(fps);
+  return f > 0 ? Math.max(1, Math.round(f)) : 30;
+}
+
+/**
+ * 프레임 수 → HH:MM:SS:FF (비드롭 타임코드, 다빈치 기본 표기)
+ * @param {number} frames
+ * @param {number} fps 실제 FPS (29.97 등)
+ */
+export function framesToTimecode(frames, fps) {
+  const n = nominalFps(fps);
+  const total = Math.max(0, Math.round(Number(frames) || 0));
+  const ff = total % n;
+  const secs = Math.floor(total / n);
+  const pad = (v) => String(v).padStart(2, "0");
+  return `${pad(Math.floor(secs / 3600))}:${pad(Math.floor((secs % 3600) / 60))}:${pad(secs % 60)}:${pad(ff)}`;
+}
+
+/** 초 → HH:MM:SS:FF @param {number} sec @param {number} fps */
+export function formatTimecode(sec, fps) {
+  const f = Number(fps) > 0 ? Number(fps) : 30;
+  return framesToTimecode(Math.round(Math.max(0, sec) * f), f);
+}
+
+/**
+ * 눈금 간격(타임코드 프레임 단위). 29.97 처럼 정수가 아닌 FPS 도 다빈치처럼 00:00:20:00 에 눈금이 서도록
+ * 프레임 번호(= 타임코드)로 고르고, 화면 위치는 실제 시간(프레임 / 실제 FPS)으로 계산한다.
+ * @returns {{ major: number, minor: number, fps: number }} major·minor = 프레임 수, fps = 실제 FPS
+ */
+function timecodeTicks(startSec, endSec, pxPerSec, fps) {
+  const ui = waveformUiScale();
+  const real = Number(fps) > 0 ? Number(fps) : 30;
+  const n = nominalFps(real);
+  const pxPerFrame = pxPerSec / real;
+  const secs = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200];
+  const steps = [1, 2, 5, 10, ...(n % 2 === 0 ? [n / 2] : []), ...secs.map((v) => v * n)];
+  const minLabelPx = 118 * ui;
+  const major = steps.find((f) => f * pxPerFrame >= minLabelPx) ?? steps[steps.length - 1];
+  let minor = major;
+  for (const div of [10, 5, 2]) {
+    if (major % div === 0 && (major / div) * pxPerFrame >= 6 * ui) {
+      minor = major / div;
+      break;
+    }
+  }
+  return { major, minor, fps: real };
+}
+
+/** 보이는 구간 안의 step(프레임) 배수 눈금을 [프레임, x] 로 돌려준다 */
+function tickPositions(startSec, endSec, pxPerSec, fps, step) {
+  /** @type {Array<[number, number]>} */
+  const out = [];
+  const f0 = Math.ceil((startSec * fps) / step - 1e-9) * step;
+  for (let f = f0; f / fps <= endSec + 1e-9; f += step) out.push([f, Math.round((f / fps - startSec) * pxPerSec) + 0.5]);
+  return out;
+}
+
+/** @param {CanvasRenderingContext2D} ctx */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, Math.max(0, w), Math.max(0, h), Math.max(0, r));
+    return;
+  }
+  ctx.rect(x, y, Math.max(0, w), Math.max(0, h));
+}
 
 /** CSS 의 --u 배율과 같은 계산(화면 폭·높이에 비례, 1배~2.4배). 눈금 글자·높이를 화면에 맞춰 키운다. */
 export function waveformUiScale() {
@@ -361,6 +449,21 @@ export class WaveformRenderer {
     }
     const peaks = this._smoothDisplayPeaks(rawPeaks, silent);
 
+    // 다빈치식: 위쪽 타임코드 눈금자 + 남는 구간을 초록 클립으로
+    if (view.rulerPosition === "top") {
+      const waveTop = rulerH;
+      ctx.fillStyle = CLIP_COLORS.track;
+      ctx.fillRect(0, 0, cssW, cssH);
+      const ticks = rulerH > 0 ? timecodeTicks(startTimeSec, endTimeSec, pxPerSec, view.fps) : null;
+      ctx.save();
+      ctx.translate(0, waveTop);
+      if (ticks) this._drawGrid(ctx, waveH, tickPositions(startTimeSec, endTimeSec, pxPerSec, ticks.fps, ticks.major));
+      this._drawClips(ctx, windowPx, waveH, startTimeSec, endTimeSec, pxPerSec, peaks, silent, view);
+      ctx.restore();
+      if (ticks) this._drawTimecodeRuler(ctx, cssW, rulerH, startTimeSec, endTimeSec, pxPerSec, view.fps, ticks);
+      return { startTimeSec, endTimeSec, pxPerSec, scrollLeftPx, waveTop, waveH, rulerH };
+    }
+
     ctx.fillStyle = colors.background ?? DEFAULT_WAVEFORM_COLORS.background;
     ctx.fillRect(0, 0, cssW, waveH);
     this._drawWaveform(ctx, windowPx, waveH, peaks, silent, colors);
@@ -378,7 +481,131 @@ export class WaveformRenderer {
       );
     }
 
-    return { startTimeSec, endTimeSec, pxPerSec, scrollLeftPx };
+    return { startTimeSec, endTimeSec, pxPerSec, scrollLeftPx, waveTop: 0, waveH, rulerH };
+  }
+
+  /**
+   * 남는 구간(무음 구간의 여집합)을 초록 클립 상자로, 그 안에 연한 파형과 파일 이름을 그린다.
+   * 잘린 구간은 어두운 트랙 위에 가는 선만 남긴다(빨간 표시는 waveform-canvas 가 덧그림).
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Float32Array} peaks
+   * @param {Uint8Array} silent
+   * @param {WaveformRenderView} view
+   */
+  _drawClips(ctx, windowPx, waveH, startSec, endSec, pxPerSec, peaks, silent, view) {
+    const ui = waveformUiScale();
+    const segs = Array.isArray(view.silenceTimeSegments) ? view.silenceTimeSegments : [];
+    /** @type {Array<[number, number]>} */
+    const keeps = [];
+    let cursor = 0;
+    for (const s of segs) {
+      const a = Number(s.start_sec) || 0;
+      const b = Number(s.end_sec) || 0;
+      if (a > cursor) keeps.push([cursor, a]);
+      cursor = Math.max(cursor, b);
+    }
+    if (cursor < this._durationSec) keeps.push([cursor, this._durationSec]);
+
+    const pad = Math.max(2, Math.round(3 * ui));
+    const y0 = pad;
+    const y1 = waveH - pad;
+    const labelH = waveH >= 90 ? Math.round(18 * ui) : 0;
+    const waveBottom = y1 - labelH;
+    const cy = (y0 + waveBottom) / 2;
+    // 다빈치처럼 위아래 여백을 남긴다
+    const halfMax = Math.max(2, ((waveBottom - y0) / 2) * 0.82);
+    const label = String(view.clipLabel || "");
+    ctx.font = `${Math.round(11.5 * ui)}px "Pretendard", system-ui, sans-serif`;
+
+    let mx = 1e-18;
+    for (let i = 0; i < peaks.length; i += 1) if (!silent[i] && peaks[i] > mx) mx = peaks[i];
+
+    for (const [a, b] of keeps) {
+      if (b <= startSec || a >= endSec) continue;
+      const x0 = Math.round((a - startSec) * pxPerSec);
+      const x1 = Math.round((b - startSec) * pxPerSec);
+      const cw = Math.max(1, x1 - x0);
+      ctx.fillStyle = CLIP_COLORS.fill;
+      roundRect(ctx, x0 + 0.5, y0 + 0.5, cw - 1, y1 - y0 - 1, Math.min(4, cw / 3));
+      ctx.fill();
+      ctx.strokeStyle = CLIP_COLORS.border;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0 + 1, y0 + 1, cw - 2, y1 - y0 - 2);
+      ctx.clip();
+      ctx.fillStyle = CLIP_COLORS.wave;
+      const pa = Math.max(0, x0);
+      const pb = Math.min(windowPx, x1);
+      for (let x = pa; x < pb; x += 1) {
+        if (silent[x]) continue;
+        const raw = peaks[x] ?? 0;
+        const amp = mx > 1e-18 ? Math.sqrt(Math.max(0, Math.min(1, raw / mx))) : 0;
+        const hh = Math.max(0.75, amp * halfMax);
+        ctx.fillRect(x, cy - hh, 1, hh * 2);
+      }
+      if (labelH && label && cw > 48 * ui) {
+        ctx.fillStyle = CLIP_COLORS.label;
+        ctx.textBaseline = "middle";
+        ctx.fillText(`⛓ ${label}`, Math.max(x0, 0) + 6 * ui, y1 - labelH / 2 - 1);
+        ctx.textBaseline = "alphabetic";
+      }
+      ctx.restore();
+    }
+
+    // 잘린 구간: 어두운 트랙 가운데 가는 선
+    ctx.fillStyle = CLIP_COLORS.cutLine;
+    for (let x = 0; x < windowPx; x += 1) if (silent[x]) ctx.fillRect(x, Math.round(cy) - 1, 1, 2);
+  }
+
+  /** 트랙 바탕의 세로 격자(큰 눈금 위치) @param {CanvasRenderingContext2D} ctx */
+  _drawGrid(ctx, waveH, positions) {
+    ctx.strokeStyle = CLIP_COLORS.grid;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const [, x] of positions) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, waveH);
+    }
+    ctx.stroke();
+  }
+
+  /**
+   * 다빈치식 위쪽 눈금자: 위에서 내려오는 작은 눈금 + 큰 눈금 옆 타임코드(HH:MM:SS:FF).
+   * @param {CanvasRenderingContext2D} ctx
+   */
+  _drawTimecodeRuler(ctx, w, rulerH, startSec, endSec, pxPerSec, fps, ticks) {
+    const ui = waveformUiScale();
+    ctx.fillStyle = CLIP_COLORS.ruler;
+    ctx.fillRect(0, 0, w, rulerH);
+    ctx.fillStyle = CLIP_COLORS.rulerEdge;
+    ctx.fillRect(0, rulerH - 1, w, 1);
+
+    const minorH = Math.round(5 * ui);
+    const majorH = Math.round(rulerH * 0.55);
+    ctx.strokeStyle = CLIP_COLORS.tickMinor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const [, x] of tickPositions(startSec, endSec, pxPerSec, ticks.fps, ticks.minor)) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, minorH);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = CLIP_COLORS.tickMajor;
+    ctx.fillStyle = CLIP_COLORS.rulerText;
+    ctx.font = `${Math.round(11.5 * ui)}px Consolas, "D2Coding", monospace`;
+    ctx.textBaseline = "middle";
+    ctx.beginPath();
+    for (const [f, x] of tickPositions(startSec, endSec, pxPerSec, ticks.fps, ticks.major)) {
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, majorH);
+      ctx.fillText(framesToTimecode(f, ticks.fps), x + 5 * ui, rulerH * 0.66);
+    }
+    ctx.stroke();
+    ctx.textBaseline = "alphabetic";
   }
 
   /**
