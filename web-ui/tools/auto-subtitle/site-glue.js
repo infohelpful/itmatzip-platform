@@ -10,7 +10,7 @@ import {
   getAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna29";
+} from "../common/bridge.js?v=lna30";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { showAdSense } from "../common/adsense.js?v=12";
 

@@ -11,7 +11,7 @@ import {
   setAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna29";
+} from "../common/bridge.js?v=lna30";
 import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=12";
 import { agentInstallDialogOptions, escHtml } from "../common/agent-install-ui.js?v=lna22";

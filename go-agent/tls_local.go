@@ -37,8 +37,12 @@ const (
 	certBundleURLEnv     = "ITMATZIP_AGENT_CERT_URL"
 	certRefreshInterval  = 24 * time.Hour
 	certRetryInterval    = 15 * time.Minute
-	certBundleMaxBytes   = 256 << 10
-	certMinRemaining     = 24 * time.Hour
+	// Fast retries while there is no certificate at all: the agent starts at logon, before a laptop's
+	// Wi-Fi is connected, so the first download usually fails there.
+	certFastRetryMin   = 5 * time.Second
+	certFastRetryMax   = 2 * time.Minute
+	certBundleMaxBytes = 256 << 10
+	certMinRemaining   = 24 * time.Hour
 )
 
 // localTLSPort is set from the -tls-port flag (0 disables the HTTPS listener).
@@ -119,6 +123,32 @@ func (h *localCertHolder) getCertificate(*tls.ClientHelloInfo) (*tls.Certificate
 
 func localCertPath() string {
 	return filepath.Join(settingsRootPath, "tls", localTLSHostname+".json")
+}
+
+// bundledCertPath is the certificate shipped inside the MSI (install dir), used when nothing is
+// cached yet so HTTPS works on first start even without network.
+func bundledCertPath() string {
+	if installRootPath == "" {
+		return ""
+	}
+	return filepath.Join(installRootPath, "tls", localTLSHostname+".json")
+}
+
+func loadBundledCert(h *localCertHolder, now time.Time) error {
+	path := bundledCertPath()
+	if path == "" {
+		return os.ErrNotExist
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	c, err := parseCertBundle(raw, now)
+	if err != nil {
+		return err
+	}
+	h.offer(c, now)
+	return nil
 }
 
 func loadCertFromDisk(h *localCertHolder, now time.Time) error {
@@ -215,6 +245,10 @@ func startLocalTLSServer(ctx context.Context, handler http.Handler, port int) {
 	if err := loadCertFromDisk(holder, time.Now()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Printf("tls: cached certificate unusable: %v", err)
 	}
+	// Bundled copy: offer() keeps whichever certificate lasts longer, so this never downgrades the cache.
+	if err := loadBundledCert(holder, time.Now()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Printf("tls: bundled certificate unusable: %v", err)
+	}
 
 	var startOnce sync.Once
 	startListener := func() {
@@ -250,13 +284,20 @@ func startLocalTLSServer(ctx context.Context, handler http.Handler, port int) {
 		})
 	}
 
+	if holder.get() != nil {
+		startListener() // serve immediately from cache/bundle; the refresh below runs in the background
+	}
 	go func() {
+		fastRetry := certFastRetryMin
 		for {
 			if refreshLocalCert(ctx, holder) || holder.get() != nil {
 				startListener()
 			}
 			wait := certRefreshInterval
-			if c := holder.get(); c == nil || time.Until(c.notAfter) < certMinRemaining {
+			if c := holder.get(); c == nil {
+				wait = fastRetry
+				fastRetry = min(fastRetry*2, certFastRetryMax)
+			} else if time.Until(c.notAfter) < certMinRemaining {
 				wait = certRetryInterval
 			}
 			select {

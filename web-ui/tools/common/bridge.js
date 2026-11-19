@@ -38,8 +38,15 @@ function isAdBlockDialogOpenOnPage() {
 
 /** @typedef {{ progress: number | null, phase: string, message?: string, raw?: unknown }} ProgressEvent */
 
+/** HTTPS 진입점 (https://local.itmatzip.com:19878) — https 페이지에서는 이 주소를 가장 먼저 쓴다. */
+const AGENT_TLS_ORIGIN = AGENT_ORIGIN_FALLBACKS.find((o) => o.startsWith("https://")) ?? null;
+
+function isHttpsPage() {
+  return typeof window !== "undefined" && window.location?.protocol === "https:";
+}
+
 /** @type {string} */
-let _origin = AGENT_ORIGIN_FALLBACKS[1];
+let _origin = (isHttpsPage() && AGENT_TLS_ORIGIN) || AGENT_ORIGIN_FALLBACKS[1];
 
 /** @type {string} */
 let _healthPath = "/health";
@@ -385,6 +392,16 @@ export async function startAgentEventStream(opts = {}) {
 const _originFallbacks = AGENT_ORIGIN_FALLBACKS;
 
 /**
+ * 연결 후보 순서. https 페이지(tools.itmatzip.com)에서는 local.itmatzip.com(HTTPS)을 맨 앞에 둔다 —
+ * 혼합 콘텐츠·광고 차단기의 127.0.0.1 차단을 피하는 정식 경로. 나머지는 기존 순서 그대로.
+ * @returns {string[]}
+ */
+function orderedOriginFallbacks() {
+  if (!isHttpsPage() || !AGENT_TLS_ORIGIN) return _originFallbacks;
+  return [AGENT_TLS_ORIGIN, ..._originFallbacks.filter((o) => o !== AGENT_TLS_ORIGIN)];
+}
+
+/**
  * @returns {string}
  */
 function defaultAgentOriginForPage() {
@@ -394,7 +411,7 @@ function defaultAgentOriginForPage() {
   const h = window.location.hostname;
   if (h === "localhost") return `http://localhost:${AGENT_PORT}`;
   if (h === "127.0.0.1" || h === "[::1]") return `http://127.0.0.1:${AGENT_PORT}`;
-  return _originFallbacks[0];
+  return orderedOriginFallbacks()[0];
 }
 
 /** @type {HTMLDialogElement | null} */
@@ -1011,8 +1028,8 @@ export async function checkAgentConnection(signal) {
   await primeLocalNetworkAccess();
   const pageOrigin = getPageLocalAgentOrigin();
   const candidates = pageOrigin
-    ? [...new Set([pageOrigin, _origin, ..._originFallbacks])]
-    : [...new Set([_origin, ..._originFallbacks])];
+    ? [...new Set([pageOrigin, _origin, ...orderedOriginFallbacks()])]
+    : [...new Set([_origin, ...orderedOriginFallbacks()])];
   /** @type {{ ok: boolean, status?: number, latencyMs?: number, error?: string, failureKind?: AgentFailureKind } | null} */
   let lastFail = null;
   /** 로컬 네트워크 차단처럼 보이는 첫 실패 — 전부 실패했을 때 사용자에게 보여줄 원인 */

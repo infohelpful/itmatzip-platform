@@ -26,16 +26,24 @@ _IMPORT_CHECK = ("import faster_whisper, av, huggingface_hub, tqdm; "
 _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
-def _sidecar_packages_ready() -> bool:
+def _sidecar_import_error() -> str | None:
+    """None when the sidecar packages import; otherwise the last line of the import error."""
     from .sidecar_client import python_command
 
     env = client()._env()  # same interpreter and sys.path as the sidecar itself
     try:
         proc = subprocess.run(python_command(code=_IMPORT_CHECK), env=env, capture_output=True,
                               timeout=120, creationflags=_NO_WINDOW)
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return proc.returncode == 0
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return str(error) or type(error).__name__
+    if proc.returncode == 0:
+        return None
+    lines = [ln.strip() for ln in proc.stderr.decode("utf-8", "replace").splitlines() if ln.strip()]
+    return lines[-1] if lines else f"exit {proc.returncode}"
+
+
+def _sidecar_packages_ready() -> bool:
+    return _sidecar_import_error() is None
 
 
 def _model_status() -> dict[str, Any]:
@@ -77,7 +85,9 @@ def _set_prepare(**kw: Any) -> None:
 def _run_pip(extra: list[str]) -> None:
     from common.runtime_site_packages import finalize_runtime_pip, pip_install_cmd, pip_subprocess_env
 
-    cmd = [*pip_install_cmd(paths.TOOL_ID), *extra]
+    # --upgrade: with --target, pip otherwise skips package dirs that already exist ("Target directory
+    # ... already exists"), so a broken earlier install would survive every retry.
+    cmd = [*pip_install_cmd(paths.TOOL_ID, upgrade=True), *extra]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
                             errors="replace", creationflags=_NO_WINDOW,
                             env=pip_subprocess_env({"ITMATZIP_RUNTIME_TOOL": paths.TOOL_ID}))
@@ -158,8 +168,13 @@ def _run_prepare() -> None:
             _set_prepare(step="Python 패키지 설치")
             client().stop("restarting after package install")
             _pip_install()
-            if not _sidecar_packages_ready():
-                raise RuntimeError("자막 엔진 패키지를 불러오지 못했습니다. 다시 시도해 주세요.")
+            import_error = _sidecar_import_error()
+            if import_error:
+                hint = ""
+                if "DLL load failed" in import_error:
+                    hint = (" Microsoft Visual C++ 재배포 패키지(x64)가 없는 PC 입니다."
+                            " 최신 버전 설치 프로그램으로 업데이트하거나 https://aka.ms/vs/17/release/vc_redist.x64.exe 를 설치하세요.")
+                raise RuntimeError(f"자막 엔진 패키지를 불러오지 못했습니다: {import_error[:200]}.{hint}")
         _set_prepare(percent=20.0, step="FFmpeg 준비", bytesDone=None, bytesTotal=None)
         if paths.ffmpeg_paths() is None:
             _ensure_ffmpeg()

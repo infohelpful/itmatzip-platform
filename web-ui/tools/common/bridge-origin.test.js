@@ -44,40 +44,42 @@ test('https origin turns into a wss websocket url', () => {
   );
 });
 
-test('connection check: one request when the preferred origin works, bypass origin when 127.0.0.1 is blocked', async () => {
+test('https page: starts with local.itmatzip.com, falls back to http hosts when https is down', async () => {
+  const httpsOrigin = `https://${AGENT_TLS_HOST}:${AGENT_TLS_PORT}`;
+  // tools.itmatzip.com(https) 페이지 → 처음부터 HTTPS 주소를 쓴다
+  assert.equal(getAgentOrigin(), httpsOrigin);
+
   // LNA 권한 확인용 1회성 요청을 먼저 소진
   stubFetch(() => true);
   await primeLocalNetworkAccess();
 
-  // 1) 정상: 요청 1건
+  // 1) 정상: HTTPS 로 요청 1건
   let calls = stubFetch(() => true);
   let result = await checkAgentConnection();
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1, 'healthy agent must cost exactly one request per check');
+  assert.equal(calls[0].origin, httpsOrigin);
   assert.ok(calls[0].space, 'targetAddressSpace must be declared');
 
-  // 2) 광고 차단기가 127.0.0.1 / localhost 만 막는 상황 → 우회 호스트 이름으로 연결
+  // 2) HTTPS 가 안 열려 있으면(인증서 없음) http 후보로 넘어간다 — 기존 순서상 127.0.0.1 우선
+  calls = stubFetch((origin) => origin !== httpsOrigin);
+  result = await checkAgentConnection();
+  assert.equal(result.ok, true);
+  assert.equal(result.origin, 'http://127.0.0.1:19876');
+
+  // 3) HTTPS 가 다시 열리면 다음 확인 때 HTTPS 로 돌아온다 (127.0.0.1 실패 시 HTTPS 가 1순위)
   const blocked = new Set(['http://127.0.0.1:19876', 'http://localhost:19876']);
   calls = stubFetch((origin) => !blocked.has(origin));
   result = await checkAgentConnection();
-  assert.equal(result.ok, true, 'must not give up after the first blocked origin');
-  assert.equal(result.origin, 'http://itmatzip.localhost:19876');
-  assert.equal(getAgentOrigin(), 'http://itmatzip.localhost:19876');
+  assert.equal(result.ok, true);
+  assert.equal(result.origin, httpsOrigin, 'https must win over other bypass hosts');
 
-  // 3) 다음 폴링은 성공했던 주소부터 → 요청 1건
+  // 4) 다음 폴링은 성공했던 주소부터 → 요청 1건
   calls = stubFetch((origin) => !blocked.has(origin));
   result = await checkAgentConnection();
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].origin, 'http://itmatzip.localhost:19876');
-
-  // 4) 그것도 막히면 마지막 후보(https local.itmatzip.com)까지 시도
-  const httpsOrigin = `https://${AGENT_TLS_HOST}:${AGENT_TLS_PORT}`;
-  calls = stubFetch((origin) => origin === httpsOrigin);
-  result = await checkAgentConnection();
-  assert.equal(result.ok, true);
-  assert.equal(result.origin, httpsOrigin);
-  assert.ok(calls.some((c) => c.origin === httpsOrigin));
+  assert.equal(calls[0].origin, httpsOrigin);
 
   // 5) 전부 실패하면 실패로 보고
   calls = stubFetch(() => false);

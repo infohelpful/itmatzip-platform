@@ -287,8 +287,62 @@ if ($SkipEngine) {
     }
 }
 
+function Copy-VCRuntime {
+    # App-local VC++ 2015-2022 x64 runtime next to engine\python.exe. The embeddable zip only ships
+    # vcruntime140*.dll; ctranslate2 / av / torch also need msvcp140*.dll, concrt140, vcomp140.
+    # Clean Windows (fresh VM) has none of these in System32 -> "DLL load failed" on import.
+    # Python 3.8+ resolves .pyd dependencies from the application (python.exe) directory.
+    param([string]$TargetDir)
+    $names = @(
+        "vcruntime140.dll", "vcruntime140_1.dll", "vcruntime140_threads.dll",
+        "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "msvcp140_atomic_wait.dll",
+        "msvcp140_codecvt_ids.dll", "concrt140.dll", "vcomp140.dll"
+    )
+    $sources = @()
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vsPath = & $vswhere -latest -products * -property installationPath 2>$null | Select-Object -First 1
+        if ($vsPath) {
+            $redist = Get-ChildItem (Join-Path $vsPath "VC\Redist\MSVC") -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^\d' } | Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+            if ($redist) {
+                $sources += Get-ChildItem (Join-Path $redist.FullName "x64") -Directory -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -match '^Microsoft\.VC\d+\.(CRT|OpenMP)$' } | ForEach-Object { $_.FullName }
+            }
+        }
+    }
+    $sources += (Join-Path $env:SystemRoot "System32")
+    $required = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll", "vcomp140.dll")
+    foreach ($name in $names) {
+        $src = $sources | ForEach-Object { Join-Path $_ $name } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $src) {
+            if ($required -contains $name) { throw "VC++ runtime $name not found (install VS C++ Build Tools or vc_redist.x64 on the build PC)" }
+            continue
+        }
+        Copy-Item -LiteralPath $src -Destination (Join-Path $TargetDir $name) -Force
+        Write-Host "  VC++ runtime: $name <- $src"
+    }
+}
+
+if (-not $SkipEngine -and (Test-Path (Join-Path $EngineDir "python.exe"))) {
+    Write-Step "Bundling VC++ runtime DLLs into engine"
+    Copy-VCRuntime -TargetDir $EngineDir
+}
+
 if (-not $SkipAgent) {
     Copy-AgentSource -RepoRoot $Root -TargetDir $AgentDst
+}
+
+# local.itmatzip.com 인증서를 설치 파일에 포함 — 첫 실행 때 네트워크(노트북 Wi-Fi 연결 전)가 없어도
+# HTTPS(19878)가 바로 열리게 한다. 이후 갱신은 에이전트가 서버에서 받아 덮어쓴다 (tls_local.go).
+$TlsDst = Join-Path $Staging "tls"
+New-Item -ItemType Directory -Force -Path $TlsDst | Out-Null
+$certDst = Join-Path $TlsDst "local.itmatzip.com.json"
+Write-Step "Bundling local.itmatzip.com certificate"
+Invoke-WebRequest -Uri "https://tools.itmatzip.com/agent-cert/bundle.json" -OutFile $certDst -UseBasicParsing
+$certJson = Get-Content $certDst -Raw | ConvertFrom-Json
+if ($certJson.hostname -ne "local.itmatzip.com" -or -not $certJson.cert_pem -or -not $certJson.key_pem) {
+    throw "Downloaded certificate bundle is invalid: $certDst"
 }
 
 function Copy-ToolsWebUI {

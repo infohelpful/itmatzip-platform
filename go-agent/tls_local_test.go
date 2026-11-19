@@ -9,8 +9,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -127,5 +130,31 @@ func TestAgentHTTPPortMapsTLSPortBackToHTTP(t *testing.T) {
 	r := httptest.NewRequest("GET", "http://local.itmatzip.com:19878/", nil)
 	if got := agentHTTPPortFromRequest(r); got != defaultPort {
 		t.Fatalf("got %d, want %d", got, defaultPort)
+	}
+}
+
+func TestLoadBundledCertFromInstallDir(t *testing.T) {
+	now := time.Now()
+	dir := t.TempDir()
+	old := installRootPath
+	installRootPath = dir
+	t.Cleanup(func() { installRootPath = old })
+
+	h := &localCertHolder{}
+	if err := loadBundledCert(h, now); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing bundle: want ErrNotExist, got %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "tls"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw := makeBundle(t, localTLSHostname, now.Add(-time.Hour), now.Add(30*24*time.Hour))
+	if err := os.WriteFile(bundledCertPath(), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadBundledCert(h, now); err != nil {
+		t.Fatalf("load bundled cert: %v", err)
+	}
+	if h.get() == nil {
+		t.Fatal("holder has no certificate after loading the bundled one")
 	}
 }

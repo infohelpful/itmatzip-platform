@@ -9,7 +9,7 @@ import {
   requestAgent,
   setAgentLongOperationActive,
   setAgentOrigin,
-} from "../common/bridge.js?v=lna29";
+} from "../common/bridge.js?v=lna30";
 import { showAdSense } from "../common/adsense.js?v=12";
 import { markEditorRestorePending } from "../common/edl-export.js?v=lna44";
 import { MSG_HELPER_NEED_APP } from "../common/local-helper-ui.js";

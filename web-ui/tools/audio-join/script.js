@@ -7,7 +7,7 @@ import {
   getAgentOrigin,
   showInstallAgentDialog,
   startConnectionMonitor,
-} from "../common/bridge.js?v=lna29";
+} from "../common/bridge.js?v=lna30";
 import { AGENT_PICK_AUDIO } from "../common/agent-pick-endpoints.js";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 
