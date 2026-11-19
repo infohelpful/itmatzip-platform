@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.46",
+    "version":  "1.7.47",
     "published_at":  "2026-11-19",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.46/itmatzip-agent.msi",
-    "sha256":  "c90ae77c13f1620db60189dcc9af74dd6de321f9ab5e0347df2f92f6577486a9",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.47/itmatzip-agent.msi",
+    "sha256":  "88f14c5eb96c9afb0c60fc71d6be17a7bef2e8209d61f3f3e8ca1572a6103897",
     "mandatory":  false,
-    "release_notes":  "새 PC·가상 머신·노트북(Wi-Fi) 설치 오류 수정: VC++ 런타임과 local.itmatzip.com 인증서를 설치 파일에 포함, HTTPS 연결 우선 사용, AutoSubtitle 재설치 시 깨진 패키지 덮어쓰기",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.46/itmatzip-agent.msi",
-    "msi_sha256":  "c90ae77c13f1620db60189dcc9af74dd6de321f9ab5e0347df2f92f6577486a9"
+    "release_notes":  "AI MCP 설정의 설치 버튼에서 Node.js 자동 설치 (Codex), Claude Code 는 Node.js 없이 공식 설치 프로그램으로 설치",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.47/itmatzip-agent.msi",
+    "msi_sha256":  "88f14c5eb96c9afb0c60fc71d6be17a7bef2e8209d61f3f3e8ca1572a6103897"
 }
