@@ -12,7 +12,7 @@ const words = {
     running: "최신 버전을 내려받고 설치하는 중입니다. Windows 관리자 권한 창이 뜨면 승인해 주세요. 창이 안 보이면 작업 표시줄에서 깜빡이는 방패 아이콘을 눌러 주세요.",
     downloading: (pct, done, total) => `최신 버전을 내려받는 중입니다… ${pct}% (${done} / ${total} MB)`,
     awaitingAdmin: "설치 승인 창을 띄웠습니다. [예]를 눌러 주세요. 화면에 안 보이면 아래 작업 표시줄에서 깜빡이는 방패(관리자) 아이콘을 눌러 승인해 주세요.",
-    restarting: "설치 중입니다. 에이전트가 다시 시작되기를 기다리는 중입니다…",
+    restarting: (sec) => `설치 중입니다… ${sec}초 경과 (보통 1~3분). 설치 진행 창이 끝나면 에이전트가 자동으로 다시 켜지고 이 화면이 새로고침됩니다. 이 창을 닫지 마세요.`,
     done: "업데이트가 완료되었습니다. 화면을 새로고침합니다…",
     legacy: "이 설치본은 웹에서 즉시 업데이트를 시작하는 기능이 없습니다. 자동 업데이트를 기다리거나 아래 설치 파일을 실행해 주세요.",
     download: "최신 설치 파일 받기",
@@ -25,7 +25,7 @@ const words = {
     running: "Downloading and installing the update. Approve the Windows administrator prompt if it appears (check the flashing shield icon in the taskbar).",
     downloading: (pct, done, total) => `Downloading the update… ${pct}% (${done} / ${total} MB)`,
     awaitingAdmin: "Approve the Windows administrator prompt. If you cannot see it, click the flashing shield icon in the taskbar.",
-    restarting: "Installing. Waiting for the agent to restart…",
+    restarting: (sec) => `Installing… ${sec}s (usually 1–3 min). The agent restarts automatically and this page reloads when the installer finishes. Keep this window open.`,
     done: "Update complete. Refreshing…",
     legacy: "This agent cannot start an update from the website. Wait for its automatic update or run the installer below.",
     download: "Download installer", failed: "Could not start the update. Please try again.",
@@ -37,7 +37,7 @@ const words = {
     running: "最新版をダウンロードしてインストールしています。Windows の管理者権限の確認が出たら承認してください（タスクバーで点滅する盾アイコンも確認してください）。",
     downloading: (pct, done, total) => `最新版をダウンロードしています… ${pct}% (${done} / ${total} MB)`,
     awaitingAdmin: "管理者権限の確認を承認してください。表示されない場合はタスクバーで点滅する盾アイコンをクリックしてください。",
-    restarting: "インストール中です。エージェントの再起動を待っています…",
+    restarting: (sec) => `インストール中です… ${sec}秒経過（通常1〜3分）。完了するとエージェントが自動で再起動し、この画面が再読み込みされます。`,
     done: "更新が完了しました。画面を再読み込みします…",
     legacy: "このバージョンは Web からの即時更新に対応していません。自動更新を待つか、以下のインストーラーを実行してください。",
     download: "インストーラーをダウンロード", failed: "更新を開始できませんでした。しばらくしてから再試行してください。",
@@ -49,7 +49,7 @@ const words = {
     running: "正在下载并安装更新。如出现 Windows 管理员权限提示，请批准（也请查看任务栏中闪烁的盾牌图标）。",
     downloading: (pct, done, total) => `正在下载更新… ${pct}% (${done} / ${total} MB)`,
     awaitingAdmin: "请批准 Windows 管理员权限提示。如果看不到，请点击任务栏中闪烁的盾牌图标。",
-    restarting: "正在安装，等待代理程序重新启动…",
+    restarting: (sec) => `正在安装… 已用 ${sec} 秒（通常 1~3 分钟）。安装完成后代理程序会自动重新启动并刷新此页面。`,
     done: "更新完成，正在刷新页面…",
     legacy: "此版本无法从网页启动即时更新。请等待自动更新，或运行下方安装程序。",
     download: "下载安装程序", failed: "无法开始更新，请稍后重试。",
@@ -160,6 +160,7 @@ function showUpdateDialog(installed, release, immediateSupported) {
       }
       if (!response.ok && response.status !== 409) throw new Error(`HTTP ${response.status}`);
       status.textContent = t.running;
+      let installStartedAt = 0;
       for (let attempt = 0; attempt < 240 && !closed; attempt += 1) {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         let health;
@@ -167,7 +168,9 @@ function showUpdateDialog(installed, release, immediateSupported) {
           const result = await fetchAgent(`${getAgentOrigin()}/health`, { cache: "no-store" });
           health = await result.json();
         } catch {
-          status.textContent = t.restarting;
+          // The installer stops the agent while it replaces files: count up so it does not look frozen.
+          installStartedAt ||= Date.now();
+          status.textContent = t.restarting(Math.round((Date.now() - installStartedAt) / 1000));
           continue;
         }
         if (!olderThan(health.agent_version || "0", release.version)) {

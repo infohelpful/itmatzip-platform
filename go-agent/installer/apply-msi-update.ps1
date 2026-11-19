@@ -69,7 +69,7 @@ try {
   Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue
   Start-Sleep -Seconds 1
 
-  $exit = Invoke-MsiExecElevated -Arguments @("/i", $MsiPath, "/qn", "/norestart", "/L*v", $LogPath)
+  $exit = Invoke-MsiExecElevated -Arguments @("/i", $MsiPath, "/passive", "/norestart", "/L*v", $LogPath)
   if ($exit -eq 3010) {
     Write-UpdateLog "msiexec completed; Windows restart required to finish replacing in-use files"
     exit 3010

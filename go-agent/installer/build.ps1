@@ -122,7 +122,7 @@ Rebuild with: powershell -File installer\build.ps1 -UseEmbeddable
         "-var", "var.StagingDir",
         "-srd",
         "-sreg",
-        "-gg", "-g1",
+        "-ag",
         "-out", (Join-Path $OutDir "staging.wxs")
     )
     Write-Host "Harvesting staged files with heat.exe..." -ForegroundColor Cyan
