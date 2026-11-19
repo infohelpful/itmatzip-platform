@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -339,21 +340,21 @@ func launchAIMCPAction(id, action string) error {
 			return startPackageInstall("@openai/codex")
 		}
 		if action == "login" {
-			return startAICommandHidden("codex", "login")
+			return startAICommandInTerminal("Codex 로그인", "codex", "login")
 		}
 	case "claude":
 		if action == "install" {
 			return startClaudeCodeInstall()
 		}
 		if action == "login" {
-			return startAICommandHidden("claude", "auth", "login")
+			return startAICommandInTerminal("Claude 로그인", "claude", "auth", "login")
 		}
 	case "antigravity":
 		if action == "install" {
 			return startAntigravityCLIInstall()
 		}
 		if action == "login" {
-			return startAICommandHidden("agy")
+			return startAICommandInTerminal("Antigravity 로그인", "agy")
 		}
 	}
 	return fmt.Errorf("알 수 없는 작업입니다")
@@ -396,18 +397,44 @@ func startAntigravityCLIInstall() error {
 	}
 	return nil
 }
-func startAICommandHidden(name string, args ...string) error {
-	cmd, err := newAICommand(name, args...)
+
+// startAICommandInTerminal runs an interactive CLI command (login) in a new, visible console window.
+// A hidden process gave users nothing to see when the CLI could not open the browser by itself; in a
+// window they get the login URL (Ctrl+click) and any prompt. The window stays open (/k) afterwards.
+func startAICommandInTerminal(title, name string, args ...string) error {
+	path := aiToolPath(name)
+	if path == "" {
+		return fmt.Errorf("%s CLI를 찾을 수 없습니다", name)
+	}
+	base, err := newAICommand(name, args...) // same PATH/HOME environment as every other CLI call
 	if err != nil {
 		return err
 	}
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmdExe := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	line := fmt.Sprintf(`"%s" /d /k title ItMatZip - %s&call %s`, cmdExe, title, windowsQuoteArg(path))
+	for _, a := range args {
+		line += " " + windowsQuoteArg(a)
+	}
+	cmd := exec.Command(cmdExe)
+	cmd.Env = base.Env
+	if home := os.Getenv("USERPROFILE"); home != "" {
+		cmd.Dir = home
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: line, CreationFlags: createNewConsole}
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("로그인 창을 열지 못했습니다: %w", err)
 	}
 	return cmd.Process.Release()
+}
+
+const createNewConsole = 0x00000010
+
+// windowsQuoteArg quotes for cmd.exe: CLI paths and our fixed arguments never contain quotes.
+func windowsQuoteArg(s string) string {
+	if s != "" && !strings.ContainsAny(s, " \t&()^%!\"") {
+		return s
+	}
+	return `"` + s + `"`
 }
 
 func mountAIMCPSettings(mux *http.ServeMux) {
@@ -462,6 +489,6 @@ func allowLocalAIMCPOrigin(origin string) bool {
 
 const aiMCPSettingsHTML = `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AI MCP 설정</title><style>body{font:15px Segoe UI,sans-serif;background:#111827;color:#f3f4f6;margin:0;padding:32px}main{max-width:820px;margin:auto}h1{font-size:25px}.sub{color:#9ca3af}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:24px}.card{background:#1f2937;border:1px solid #374151;border-radius:12px;padding:18px}.row{display:flex;justify-content:space-between;align-items:center}button{background:#2563eb;color:white;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;margin:8px 5px 0 0}button.secondary{background:#374151}.state{color:#a7f3d0}.note{min-height:38px;color:#9ca3af;font-size:13px}.msg{margin-top:20px;color:#fde68a}</style><main><h1>AI MCP 설정</h1><p class="sub">각 AI 앱의 설치, 로그인, ItMatZip MCP 연결을 설정합니다. 로그인은 새 터미널 또는 앱에서 직접 완료하세요.</p><div id="cards" class="grid"></div><div id="msg" class="msg"></div></main><script>
 async function refresh(){let d=await fetch('/api/agent/ai-mcp').then(r=>r.json());document.querySelector('#cards').innerHTML=d.clients.map(c=>'<section class="card"><div class="row"><b>'+c.name+'</b><span class="state">'+(c.installed?'설치됨':'미설치')+'</span></div><p class="note">'+c.note+'</p><div>'+(c.installed?'':'<button onclick="act(\''+c.id+'\',\'install\')">설치</button>')+(c.installed&&(!c.loginKnown||!c.loggedIn)?'<button class="secondary" onclick="act(\''+c.id+'\',\'login\')">로그인</button>':'')+(c.installed?'<button onclick="act(\''+c.id+'\',\'configure\')">'+(c.configured?'MCP 다시 설정':'MCP 설정')+'</button>':'')+'</div><p class="note">로그인: '+(c.loginKnown?(c.loggedIn?'로그인됨':'로그인 안 됨'):'CLI에서 확인 불가')+'</p><p class="note">MCP: '+(c.configured?'연결 설정됨':'설정되지 않음')+'</p></section>').join('')}
-async function act(id,action){let m=document.querySelector('#msg');m.textContent=action==='install'?'설치 중입니다. 처음 설치는 필요한 프로그램(Node.js 등)까지 받느라 몇 분 걸릴 수 있습니다…':'처리 중…';try{let r=await fetch('/api/agent/ai-mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})}),d=await r.json();if(!r.ok)throw Error(d.error||'작업 실패');m.textContent=action==='install'?'설치를 완료했습니다.':action==='login'?'브라우저에서 로그인을 완료하세요.':'MCP 등록을 설치된 에이전트 경로로 갱신했습니다. AI 앱을 완전히 종료한 뒤 다시 켜세요.';await refresh()}catch(e){m.textContent=e.message}}
+async function act(id,action){let m=document.querySelector('#msg');m.textContent=action==='install'?'설치 중입니다. 처음 설치는 필요한 프로그램(Node.js 등)까지 받느라 몇 분 걸릴 수 있습니다…':'처리 중…';try{let r=await fetch('/api/agent/ai-mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})}),d=await r.json();if(!r.ok)throw Error(d.error||'작업 실패');m.textContent=action==='install'?'설치를 완료했습니다.':action==='login'?'로그인 창(검은 터미널 창)을 열었습니다. 브라우저가 자동으로 열리지 않으면 창에 나온 주소를 Ctrl+클릭하세요. 로그인이 끝나면 그 창은 닫아도 됩니다.':'MCP 등록을 설치된 에이전트 경로로 갱신했습니다. AI 앱을 완전히 종료한 뒤 다시 켜세요.';await refresh()}catch(e){m.textContent=e.message}}
 refresh();setInterval(refresh,15000);
 </script></html>`

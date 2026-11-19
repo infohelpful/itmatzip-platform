@@ -68,6 +68,11 @@ type updateSnapshot struct {
 	Applying        bool       `json:"applying"`
 	LocalVersion    string     `json:"local_version,omitempty"`
 	UpdateChannel   string     `json:"update_channel,omitempty"`
+	// Phase: "downloading" -> "awaiting_admin" (UAC prompt; may sit flashing in the taskbar) -> MSI
+	// replaces and restarts the agent. Empty when idle.
+	Phase         string `json:"phase,omitempty"`
+	DownloadBytes int64  `json:"download_bytes,omitempty"`
+	DownloadTotal int64  `json:"download_total,omitempty"`
 }
 
 type updateManager struct {
@@ -252,7 +257,11 @@ func (u *updateManager) downloadMSI(ctx context.Context, manifest *UpdateManifes
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(out, resp.Body)
+	u.setState(func(s *updateSnapshot) {
+		s.DownloadBytes = 0
+		s.DownloadTotal = resp.ContentLength
+	})
+	_, copyErr := io.Copy(out, &updateProgressReader{r: resp.Body, u: u})
 	closeErr := out.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmp)
@@ -309,7 +318,61 @@ func (u *updateManager) spawnMSIUpdater(msiPath string) error {
 	)
 	hideExec(cmd)
 	cmd.Dir = u.updatesRoot
-	return cmd.Start()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	// On success msiexec replaces and restarts this agent, so normally this goroutine never sees the
+	// exit. If it does, the install did not happen: tell the page instead of leaving it waiting.
+	go func() {
+		err := cmd.Wait()
+		code := 0
+		if cmd.ProcessState != nil {
+			code = cmd.ProcessState.ExitCode()
+		}
+		if err == nil && code == 0 {
+			return
+		}
+		msg := msiUpdaterErrorMessage(code, logPath)
+		u.appendUpdateLog(fmt.Sprintf("MSI updater exited with %d: %s", code, msg))
+		u.setState(func(s *updateSnapshot) {
+			s.Applying = false
+			s.Phase = ""
+			s.LastError = msg
+		})
+	}()
+	return nil
+}
+
+// msiUpdaterErrorMessage turns apply-msi-update.ps1 / msiexec exit codes into a message for users.
+func msiUpdaterErrorMessage(code int, logPath string) string {
+	switch code {
+	case 1223:
+		return "관리자 권한 승인이 취소되었습니다. 다시 '즉시 업데이트'를 누르고 승인해 주세요."
+	case 1618:
+		return "다른 프로그램이 설치 중입니다. 그 설치가 끝난 뒤 다시 시도해 주세요."
+	case 3010:
+		return "업데이트가 설치되었습니다. 완료하려면 Windows 를 다시 시작해 주세요."
+	default:
+		return fmt.Sprintf("업데이트 설치에 실패했습니다 (코드 %d). 로그: %s", code, logPath)
+	}
+}
+
+type updateProgressReader struct {
+	r    io.Reader
+	u    *updateManager
+	done int64
+	last time.Time
+}
+
+func (p *updateProgressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.done += int64(n)
+	if now := time.Now(); err != nil || now.Sub(p.last) >= 300*time.Millisecond {
+		p.last = now
+		done := p.done
+		p.u.setState(func(s *updateSnapshot) { s.DownloadBytes = done })
+	}
+	return n, err
 }
 
 func (u *updateManager) appendUpdateLog(line string) {
@@ -337,6 +400,9 @@ func (u *updateManager) startUpdateNow() bool {
 	u.setState(func(s *updateSnapshot) {
 		s.Checking = true
 		s.LastError = ""
+		s.Phase = ""
+		s.Applying = false
+		s.DownloadBytes, s.DownloadTotal = 0, 0
 	})
 	go func() {
 		defer u.runMu.Unlock()
@@ -405,7 +471,10 @@ func (u *updateManager) check(apply bool) updateSnapshot {
 	}
 
 	dest := filepath.Join(u.updatesRoot, fmt.Sprintf("itmatzip-agent-%s.msi", manifest.Version))
-	u.setState(func(s *updateSnapshot) { s.Downloading = true })
+	u.setState(func(s *updateSnapshot) {
+		s.Downloading = true
+		s.Phase = "downloading"
+	})
 	u.appendUpdateLog("downloading " + manifest.MSIURL())
 
 	downloadCtx, downloadCancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -413,19 +482,24 @@ func (u *updateManager) check(apply bool) updateSnapshot {
 	if err := u.downloadMSI(downloadCtx, manifest, dest); err != nil {
 		u.setState(func(s *updateSnapshot) {
 			s.Downloading = false
-			s.LastError = err.Error()
+			s.Phase = ""
+			s.LastError = "업데이트 파일을 내려받지 못했습니다: " + err.Error()
 		})
 		u.appendUpdateLog("download failed: " + err.Error())
 		return u.snapshot()
 	}
 	u.setState(func(s *updateSnapshot) { s.Downloading = false })
 
-	u.setState(func(s *updateSnapshot) { s.Applying = true })
+	u.setState(func(s *updateSnapshot) {
+		s.Applying = true
+		s.Phase = "awaiting_admin"
+	})
 	u.appendUpdateLog("spawning MSI updater for " + dest)
 	if err := u.spawnMSIUpdater(dest); err != nil {
 		u.setState(func(s *updateSnapshot) {
 			s.Applying = false
-			s.LastError = err.Error()
+			s.Phase = ""
+			s.LastError = "업데이트 설치를 시작하지 못했습니다: " + err.Error()
 		})
 		u.appendUpdateLog("apply spawn failed: " + err.Error())
 		return u.snapshot()
@@ -486,6 +560,13 @@ func mergeUpdateHealth(payload map[string]any) {
 		payload["remote_version"] = snap.RemoteVersion
 	}
 	payload["update_channel"] = snap.UpdateChannel
+	if snap.Phase != "" {
+		payload["update_phase"] = snap.Phase
+	}
+	if snap.DownloadTotal > 0 || snap.DownloadBytes > 0 {
+		payload["update_download_bytes"] = snap.DownloadBytes
+		payload["update_download_total"] = snap.DownloadTotal
+	}
 	if snap.LastError != "" {
 		payload["update_error"] = snap.LastError
 	}

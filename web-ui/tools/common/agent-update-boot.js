@@ -9,7 +9,9 @@ const words = {
     start: "즉시 업데이트",
     close: "나중에",
     starting: "업데이트를 시작하는 중입니다…",
-    running: "최신 버전을 내려받고 설치하는 중입니다. Windows 관리자 권한 창이 뜨면 승인해 주세요.",
+    running: "최신 버전을 내려받고 설치하는 중입니다. Windows 관리자 권한 창이 뜨면 승인해 주세요. 창이 안 보이면 작업 표시줄에서 깜빡이는 방패 아이콘을 눌러 주세요.",
+    downloading: (pct, done, total) => `최신 버전을 내려받는 중입니다… ${pct}% (${done} / ${total} MB)`,
+    awaitingAdmin: "설치 승인 창을 띄웠습니다. [예]를 눌러 주세요. 화면에 안 보이면 아래 작업 표시줄에서 깜빡이는 방패(관리자) 아이콘을 눌러 승인해 주세요.",
     restarting: "설치 중입니다. 에이전트가 다시 시작되기를 기다리는 중입니다…",
     done: "업데이트가 완료되었습니다. 화면을 새로고침합니다…",
     legacy: "이 설치본은 웹에서 즉시 업데이트를 시작하는 기능이 없습니다. 자동 업데이트를 기다리거나 아래 설치 파일을 실행해 주세요.",
@@ -20,7 +22,9 @@ const words = {
     title: "Agent update",
     detail: (current, latest) => `Installed: ${current}. Latest: ${latest}.`,
     start: "Update now", close: "Later", starting: "Starting update…",
-    running: "Downloading and installing the update. Approve the Windows administrator prompt if it appears.",
+    running: "Downloading and installing the update. Approve the Windows administrator prompt if it appears (check the flashing shield icon in the taskbar).",
+    downloading: (pct, done, total) => `Downloading the update… ${pct}% (${done} / ${total} MB)`,
+    awaitingAdmin: "Approve the Windows administrator prompt. If you cannot see it, click the flashing shield icon in the taskbar.",
     restarting: "Installing. Waiting for the agent to restart…",
     done: "Update complete. Refreshing…",
     legacy: "This agent cannot start an update from the website. Wait for its automatic update or run the installer below.",
@@ -30,7 +34,9 @@ const words = {
     title: "エージェントの更新",
     detail: (current, latest) => `インストール済み: ${current}。最新版: ${latest}。`,
     start: "今すぐ更新", close: "後で", starting: "更新を開始しています…",
-    running: "最新版をダウンロードしてインストールしています。Windows の管理者権限の確認が出たら承認してください。",
+    running: "最新版をダウンロードしてインストールしています。Windows の管理者権限の確認が出たら承認してください（タスクバーで点滅する盾アイコンも確認してください）。",
+    downloading: (pct, done, total) => `最新版をダウンロードしています… ${pct}% (${done} / ${total} MB)`,
+    awaitingAdmin: "管理者権限の確認を承認してください。表示されない場合はタスクバーで点滅する盾アイコンをクリックしてください。",
     restarting: "インストール中です。エージェントの再起動を待っています…",
     done: "更新が完了しました。画面を再読み込みします…",
     legacy: "このバージョンは Web からの即時更新に対応していません。自動更新を待つか、以下のインストーラーを実行してください。",
@@ -40,7 +46,9 @@ const words = {
     title: "更新代理程序",
     detail: (current, latest) => `已安装版本：${current}。最新版本：${latest}。`,
     start: "立即更新", close: "稍后", starting: "正在开始更新…",
-    running: "正在下载并安装更新。如出现 Windows 管理员权限提示，请批准。",
+    running: "正在下载并安装更新。如出现 Windows 管理员权限提示，请批准（也请查看任务栏中闪烁的盾牌图标）。",
+    downloading: (pct, done, total) => `正在下载更新… ${pct}% (${done} / ${total} MB)`,
+    awaitingAdmin: "请批准 Windows 管理员权限提示。如果看不到，请点击任务栏中闪烁的盾牌图标。",
     restarting: "正在安装，等待代理程序重新启动…",
     done: "更新完成，正在刷新页面…",
     legacy: "此版本无法从网页启动即时更新。请等待自动更新，或运行下方安装程序。",
@@ -55,6 +63,18 @@ function olderThan(installed, latest) {
     if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
   }
   return false;
+}
+
+/** Progress text from the agent's /health (1.7.48+); older agents only get the generic text. */
+function runningText(t, health) {
+  const total = Number(health.update_download_total) || 0;
+  const done = Number(health.update_download_bytes) || 0;
+  if (health.update_phase === "downloading" && total > 0) {
+    const mb = (n) => (n / 1048576).toFixed(0);
+    return t.downloading(Math.min(100, Math.floor((done / total) * 100)), mb(done), mb(total));
+  }
+  if (health.update_phase === "awaiting_admin") return t.awaitingAdmin;
+  return t.running;
 }
 
 function copy() {
@@ -155,8 +175,12 @@ function showUpdateDialog(installed, release, immediateSupported) {
           window.location.reload();
           return;
         }
-        if (health.update_error) throw new Error(health.update_error);
-        status.textContent = t.running;
+        if (health.update_error) {
+          // The agent already phrases these for users (UAC canceled, download failed, ...).
+          status.textContent = String(health.update_error);
+          return;
+        }
+        status.textContent = runningText(t, health);
       }
       if (!closed) throw new Error("timeout");
     } catch (error) {
