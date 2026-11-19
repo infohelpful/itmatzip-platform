@@ -16,15 +16,25 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-# Engines from an older MSI may lack these: only AI proofreading is then unavailable.
-try:
-    import anthropic
-except ImportError:
-    anthropic = None  # type: ignore[assignment]
-try:
-    import openai
-except ImportError:
-    openai = None  # type: ignore[assignment]
+# The SDKs are imported on first use, not at module import: together they take ~3.5 s to import and
+# this module is loaded when the FastAPI sidecar starts, delaying every tool until they finish.
+# Engines from an older MSI may lack them: only AI proofreading is then unavailable.
+_sdk_cache: dict[str, Any] = {}
+_sdk_lock = threading.Lock()
+
+
+def _import_sdk(name: str) -> Any:
+    with _sdk_lock:
+        if name not in _sdk_cache:
+            try:
+                _sdk_cache[name] = __import__(name)
+            except ImportError:
+                _sdk_cache[name] = None
+        return _sdk_cache[name]
+
+
+def _loaded_sdks() -> tuple[Any, ...]:
+    return tuple(sdk for sdk in (_import_sdk("anthropic"), _import_sdk("openai")) if sdk is not None)
 
 from engines.autosub import ai_settings
 
@@ -236,7 +246,7 @@ _OUTDATED = "AI 교정을 쓰려면 ItMatZip 에이전트를 최신 버전으로
 
 
 def _sdk(provider: str) -> Any:
-    sdk = anthropic if provider == "claude" else openai
+    sdk = _import_sdk("anthropic" if provider == "claude" else "openai")
     if sdk is None:
         raise ProofreadError(_OUTDATED)
     return sdk
@@ -244,8 +254,8 @@ def _sdk(provider: str) -> Any:
 
 def explain_api_error(error: Exception) -> str:
     """Same wording for both SDKs; they share the error class names."""
-    for sdk in (anthropic, openai):
-        if sdk is None or not isinstance(error, sdk.APIError):
+    for sdk in _loaded_sdks():
+        if not isinstance(error, sdk.APIError):
             continue
         if isinstance(error, sdk.AuthenticationError):
             return "API 키가 올바르지 않습니다. 키를 다시 확인해 주세요."
@@ -271,7 +281,7 @@ def explain_api_error(error: Exception) -> str:
 
 
 def _api_errors() -> tuple[type[BaseException], ...]:
-    return tuple(sdk.APIError for sdk in (anthropic, openai) if sdk is not None)
+    return tuple(sdk.APIError for sdk in _loaded_sdks())
 
 
 def _client(provider: str, key: str) -> Any:

@@ -215,18 +215,48 @@ func isPortListening(port int) bool {
 	return true
 }
 
-func attachSidecarProcessLog(cmd *exec.Cmd) {
+// sidecarLogTail returns the last n non-empty lines of fastapi-sidecar.log (the Python traceback).
+func sidecarLogTail(n int) string {
+	data, err := os.ReadFile(filepath.Join(logsRootPath, "fastapi-sidecar.log"))
+	if err != nil {
+		return ""
+	}
+	if len(data) > 16<<10 {
+		data = data[len(data)-16<<10:]
+	}
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " | ")
+}
+
+// attachSidecarProcessLog sends the sidecar's output to fastapi-sidecar.log and returns the file,
+// which the caller closes once the process has exited (it used to leak one handle per start).
+func attachSidecarProcessLog(cmd *exec.Cmd) *os.File {
 	if cmd == nil {
-		return
+		return nil
 	}
 	logPath := filepath.Join(logsRootPath, "fastapi-sidecar.log")
 	fh, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		log.Printf("fastapi sidecar log open failed: %v", err)
-		return
+		return nil
 	}
 	cmd.Stdout = fh
 	cmd.Stderr = fh
+	return fh
+}
+
+func closeSidecarLog(fh *os.File) {
+	if fh != nil {
+		_ = fh.Close()
+	}
 }
 
 func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
@@ -260,6 +290,9 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	pythonPath := resolveFastAPIPython(agentDir)
 	s.mu.Unlock()
 
+	// A leftover sidecar (earlier run / interrupted update) on the port makes uvicorn exit at once.
+	freeSidecarPort(s.port, pythonPath)
+
 	s.mu.Lock()
 	ctx, cancel := context.WithCancel(ctx)
 	cmd := exec.CommandContext(
@@ -286,9 +319,10 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	if isMSIInstallLayout() {
 		cmd.Env = append(cmd.Env, "ITMATZIP_DISABLE_AUTO_UPDATE=1")
 	}
-	attachSidecarProcessLog(cmd)
+	logFile := attachSidecarProcessLog(cmd)
 
 	if err := cmd.Start(); err != nil {
+		closeSidecarLog(logFile)
 		cancel()
 		s.setStartErrorLocked(fmt.Sprintf("start uvicorn: %v", err))
 		s.mu.Unlock()
@@ -300,8 +334,11 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	wm.upsertWorker("fastapi", "python-fastapi", cmd.Process.Pid, "running", "")
 	log.Printf("fastapi sidecar starting pid=%d port=%d python=%s", cmd.Process.Pid, s.port, pythonPath)
 
+	exited := make(chan struct{})
 	go func() {
 		err := cmd.Wait()
+		closeSidecarLog(logFile)
+		defer close(exited)
 		status := "stopped"
 		lastError := ""
 		if err != nil {
@@ -328,6 +365,21 @@ func (s *fastapiSidecar) Start(ctx context.Context, wm *workerManager) error {
 	for time.Now().Before(deadline) {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		select {
+		case <-exited:
+			// Died during startup: report now so the retry starts at once, instead of pinging a dead
+			// process until the 180 s deadline (which also blocked the watchdog's restart).
+			tail := sidecarLogTail(4)
+			msg := "fastapi sidecar exited during startup"
+			if tail != "" {
+				msg += ": " + tail
+			}
+			s.mu.Lock()
+			s.setStartErrorLocked(msg)
+			s.mu.Unlock()
+			return fmt.Errorf("%s", msg)
+		default:
 		}
 		if s.pingHealth(sidecarStartupPingTimeout) {
 			s.mu.Lock()
@@ -499,7 +551,7 @@ func startFastAPISidecarWatchdog(ctx context.Context, sidecar *fastapiSidecar, w
 
 func startFastAPISidecarWithRetry(ctx context.Context, sidecar *fastapiSidecar, wm *workerManager) {
 	go func() {
-		delay := 1 * time.Second
+		delay := 500 * time.Millisecond
 		for {
 			select {
 			case <-ctx.Done():
@@ -516,8 +568,8 @@ func startFastAPISidecarWithRetry(ctx context.Context, sidecar *fastapiSidecar, 
 					return
 				case <-time.After(delay):
 				}
-				if delay < 15*time.Second {
-					delay += 1 * time.Second
+				if delay < 5*time.Second {
+					delay += 500 * time.Millisecond
 				}
 				continue
 			}
