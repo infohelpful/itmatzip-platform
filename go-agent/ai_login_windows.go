@@ -11,9 +11,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -37,6 +42,22 @@ var (
 type aiLoginSession struct {
 	url  string
 	done chan struct{}
+	stop func()
+}
+
+// stopAILogin ends a login that is still waiting for its browser callback.
+func stopAILogin(name string) {
+	aiLoginMu.Lock()
+	s := aiLoginRunning[name]
+	aiLoginMu.Unlock()
+	if s == nil || s.stop == nil {
+		return
+	}
+	s.stop()
+	select {
+	case <-s.done:
+	case <-time.After(5 * time.Second):
+	}
 }
 
 // startAILogin starts `name args...`, waits for the login URL it prints, opens it in the browser and
@@ -69,7 +90,7 @@ func startAILogin(name string, args ...string) (string, error) {
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("로그인을 시작하지 못했습니다: %w", err)
 	}
-	session := &aiLoginSession{done: make(chan struct{})}
+	session := &aiLoginSession{done: make(chan struct{}), stop: func() { killProcessTree(cmd.Process.Pid) }}
 	aiLoginMu.Lock()
 	aiLoginRunning[name] = session
 	aiLoginMu.Unlock()
@@ -102,7 +123,7 @@ func startAILogin(name string, args ...string) (string, error) {
 		}
 	}()
 	go func() {
-		timer := time.AfterFunc(aiLoginMaxLifetime, func() { _ = cmd.Process.Kill() })
+		timer := time.AfterFunc(aiLoginMaxLifetime, func() { killProcessTree(cmd.Process.Pid) })
 		err := cmd.Wait()
 		timer.Stop()
 		_ = pw.Close()
@@ -162,4 +183,40 @@ func aiClientLoggedInByName(name string) (bool, bool) {
 		return aiClientLoggedIn("claude")
 	}
 	return false, false
+}
+
+// killProcessTree ends pid and its children: an npm CLI runs as cmd.exe -> node -> native binary,
+// and killing only cmd.exe would leave the login server running.
+func killProcessTree(pid int) {
+	cmd := exec.Command("taskkill.exe", "/T", "/F", "/PID", strconv.Itoa(pid))
+	hideExec(cmd)
+	_ = cmd.Run()
+}
+
+// startAntigravityLoginWindow opens Antigravity's own sign-in screen in a visible console window.
+// agy has no login subcommand and prints nothing without a terminal, so the URL-capture flow used for
+// Codex/Claude cannot work. agy is a native .exe (no npm cmd-shim), so the /k window stays open.
+func startAntigravityLoginWindow() error {
+	path := aiToolPath("agy")
+	if path == "" {
+		return fmt.Errorf("Antigravity CLI를 찾을 수 없습니다")
+	}
+	base, err := newAICommand("agy")
+	if err != nil {
+		return err
+	}
+	cmdExe := filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe")
+	cmd := exec.Command(cmdExe)
+	cmd.Env = base.Env
+	if home := os.Getenv("USERPROFILE"); home != "" {
+		cmd.Dir = home
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		CmdLine:       fmt.Sprintf(`"%s" /d /k title ItMatZip - Antigravity 로그인&"%s"`, cmdExe, path),
+		CreationFlags: 0x00000010, // CREATE_NEW_CONSOLE
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("Antigravity 창을 열지 못했습니다: %w", err)
+	}
+	return cmd.Process.Release()
 }
