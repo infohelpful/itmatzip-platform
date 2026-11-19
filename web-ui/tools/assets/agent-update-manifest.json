@@ -1,11 +1,11 @@
 {
-    "version":  "1.7.49",
+    "version":  "1.7.50",
     "published_at":  "2026-11-19",
     "package_type":  "msi",
-    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.49/itmatzip-agent.msi",
-    "sha256":  "fc83e61ae7808ce928b56729c0ab296f6ffb45db635bd5799020af1d7256a2d2",
+    "download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.50/itmatzip-agent.msi",
+    "sha256":  "c423eb7818276c03466498312d27ccb61a44f742ad0e2a7ef36821ba0a1c8e78",
     "mandatory":  false,
-    "release_notes":  "자막 엔진 연결 속도·안정성 개선(시작 중 죽으면 즉시 재시작), AI 로그인 주소를 브라우저로 바로 열기",
-    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.49/itmatzip-agent.msi",
-    "msi_sha256":  "fc83e61ae7808ce928b56729c0ab296f6ffb45db635bd5799020af1d7256a2d2"
+    "release_notes":  "업데이트 설치 진행 막대·경과 시간 표시, 설치 시간 단축",
+    "msi_download_url":  "https://github.com/infohelpful/itmatzip-platform/releases/download/v1.7.50/itmatzip-agent.msi",
+    "msi_sha256":  "c423eb7818276c03466498312d27ccb61a44f742ad0e2a7ef36821ba0a1c8e78"
 }
