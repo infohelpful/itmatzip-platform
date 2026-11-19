@@ -80,7 +80,7 @@ func aiToolPath(name string) string {
 	local := os.Getenv("LOCALAPPDATA")
 	appData := os.Getenv("APPDATA")
 	var candidates []string
-	for _, dir := range []string{filepath.Join(profile, ".local", "bin"), filepath.Join(appData, "npm"), filepath.Join(local, "agy", "bin"), filepath.Join(local, "Programs", "OpenAI", "Codex", "bin"), filepath.Join(os.Getenv("ProgramFiles"), "nodejs")} {
+	for _, dir := range []string{filepath.Join(profile, ".local", "bin"), filepath.Join(appData, "npm"), filepath.Join(local, "agy", "bin"), filepath.Join(local, "Programs", "OpenAI", "Codex", "bin"), filepath.Join(os.Getenv("ProgramFiles"), "nodejs"), portableNodeDir()} {
 		for _, filename := range filenames {
 			candidates = append(candidates, filepath.Join(dir, filename))
 		}
@@ -129,13 +129,20 @@ func newAICommand(name string, args ...string) (*exec.Cmd, error) {
 	} else {
 		cmd = exec.Command(path, args...)
 	}
-	// Codex CLI needs an explicit home in GUI-launched processes that lack HOME.
-	cmd.Env = append(os.Environ(), "PATH="+filepath.Dir(path)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if name == "npm" {
+	// npm and npm-installed CLIs (codex.cmd) run through node — put node's folder on PATH too,
+	// including the portable Node.js the agent may have installed (ai_node_runtime_windows.go).
+	pathEnv := filepath.Dir(path) + string(os.PathListSeparator) + os.Getenv("PATH")
+	if name != "node" {
 		if node := aiToolPath("node"); node != "" {
-			cmd.Env = append(cmd.Env, "PATH="+filepath.Dir(node)+string(os.PathListSeparator)+filepath.Dir(path)+string(os.PathListSeparator)+os.Getenv("PATH"))
+			pathEnv = filepath.Dir(node) + string(os.PathListSeparator) + pathEnv
 		}
 	}
+	cmd.Env = append(os.Environ(), "PATH="+pathEnv)
+	if name == "npm" && isPortableNode(path) {
+		// Portable node's default global prefix is its own folder; use the standard per-user one.
+		cmd.Env = append(cmd.Env, "NPM_CONFIG_PREFIX="+userNpmPrefix())
+	}
+	// Codex CLI needs an explicit home in GUI-launched processes that lack HOME.
 	if home := os.Getenv("USERPROFILE"); home != "" && name == "codex" {
 		cmd.Env = append(cmd.Env, "HOME="+home, "CODEX_HOME="+filepath.Join(home, ".codex"))
 	}
@@ -336,7 +343,7 @@ func launchAIMCPAction(id, action string) error {
 		}
 	case "claude":
 		if action == "install" {
-			return startPackageInstall("@anthropic-ai/claude-code")
+			return startClaudeCodeInstall()
 		}
 		if action == "login" {
 			return startAICommandHidden("claude", "auth", "login")
@@ -353,12 +360,28 @@ func launchAIMCPAction(id, action string) error {
 }
 
 func startPackageInstall(pkg string) error {
-	if aiToolPath("npm") == "" {
-		return fmt.Errorf("Node.js와 npm을 먼저 설치한 뒤 다시 눌러주세요")
+	if err := ensureNodeRuntime(); err != nil {
+		return err
 	}
 	out, err := runAICommand("npm", "install", "-g", pkg)
 	if err != nil {
 		return fmt.Errorf("설치 실패: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// startClaudeCodeInstall uses Anthropic's native installer (no Node.js needed; installs
+// %USERPROFILE%\.local\bin\claude.exe). Falls back to npm (with auto-installed Node.js) if it fails.
+func startClaudeCodeInstall() error {
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-Command", "irm https://claude.ai/install.ps1 | iex")
+	hideExec(cmd)
+	out, nativeErr := cmd.CombinedOutput()
+	if nativeErr == nil && aiToolPath("claude") != "" {
+		return nil
+	}
+	if err := startPackageInstall("@anthropic-ai/claude-code"); err != nil {
+		return fmt.Errorf("Claude Code 설치 실패: %s / %v", strings.TrimSpace(string(out)), err)
 	}
 	return nil
 }
@@ -439,6 +462,6 @@ func allowLocalAIMCPOrigin(origin string) bool {
 
 const aiMCPSettingsHTML = `<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>AI MCP 설정</title><style>body{font:15px Segoe UI,sans-serif;background:#111827;color:#f3f4f6;margin:0;padding:32px}main{max-width:820px;margin:auto}h1{font-size:25px}.sub{color:#9ca3af}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:24px}.card{background:#1f2937;border:1px solid #374151;border-radius:12px;padding:18px}.row{display:flex;justify-content:space-between;align-items:center}button{background:#2563eb;color:white;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;margin:8px 5px 0 0}button.secondary{background:#374151}.state{color:#a7f3d0}.note{min-height:38px;color:#9ca3af;font-size:13px}.msg{margin-top:20px;color:#fde68a}</style><main><h1>AI MCP 설정</h1><p class="sub">각 AI 앱의 설치, 로그인, ItMatZip MCP 연결을 설정합니다. 로그인은 새 터미널 또는 앱에서 직접 완료하세요.</p><div id="cards" class="grid"></div><div id="msg" class="msg"></div></main><script>
 async function refresh(){let d=await fetch('/api/agent/ai-mcp').then(r=>r.json());document.querySelector('#cards').innerHTML=d.clients.map(c=>'<section class="card"><div class="row"><b>'+c.name+'</b><span class="state">'+(c.installed?'설치됨':'미설치')+'</span></div><p class="note">'+c.note+'</p><div>'+(c.installed?'':'<button onclick="act(\''+c.id+'\',\'install\')">설치</button>')+(c.installed&&(!c.loginKnown||!c.loggedIn)?'<button class="secondary" onclick="act(\''+c.id+'\',\'login\')">로그인</button>':'')+(c.installed?'<button onclick="act(\''+c.id+'\',\'configure\')">'+(c.configured?'MCP 다시 설정':'MCP 설정')+'</button>':'')+'</div><p class="note">로그인: '+(c.loginKnown?(c.loggedIn?'로그인됨':'로그인 안 됨'):'CLI에서 확인 불가')+'</p><p class="note">MCP: '+(c.configured?'연결 설정됨':'설정되지 않음')+'</p></section>').join('')}
-async function act(id,action){let m=document.querySelector('#msg');m.textContent='처리 중…';try{let r=await fetch('/api/agent/ai-mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})}),d=await r.json();if(!r.ok)throw Error(d.error||'작업 실패');m.textContent=action==='install'?'설치를 완료했습니다.':action==='login'?'브라우저에서 로그인을 완료하세요.':'MCP 등록을 설치된 에이전트 경로로 갱신했습니다. AI 앱을 완전히 종료한 뒤 다시 켜세요.';await refresh()}catch(e){m.textContent=e.message}}
+async function act(id,action){let m=document.querySelector('#msg');m.textContent=action==='install'?'설치 중입니다. 처음 설치는 필요한 프로그램(Node.js 등)까지 받느라 몇 분 걸릴 수 있습니다…':'처리 중…';try{let r=await fetch('/api/agent/ai-mcp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,action})}),d=await r.json();if(!r.ok)throw Error(d.error||'작업 실패');m.textContent=action==='install'?'설치를 완료했습니다.':action==='login'?'브라우저에서 로그인을 완료하세요.':'MCP 등록을 설치된 에이전트 경로로 갱신했습니다. AI 앱을 완전히 종료한 뒤 다시 켜세요.';await refresh()}catch(e){m.textContent=e.message}}
 refresh();setInterval(refresh,15000);
 </script></html>`
