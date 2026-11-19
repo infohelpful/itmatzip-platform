@@ -10,13 +10,16 @@
  * origin is really unreachable, requests fail over to the next candidate below (see failoverOrigin).
  */
 const LOCAL_TLS_HOST = 'local.itmatzip.com'
-/** Same order as web-ui/tools/common/agent-endpoints.js AGENT_ORIGIN_FALLBACKS. */
-const AGENT_ORIGIN_CANDIDATES = [
-  'http://127.0.0.1:19876',
-  'http://localhost:19876',
-  'http://itmatzip.localhost:19876',
-  `https://${LOCAL_TLS_HOST}:19878`
-]
+const LOCAL_TLS_ORIGIN = `https://${LOCAL_TLS_HOST}:19878`
+const HTTP_AGENT_ORIGINS = ['http://127.0.0.1:19876', 'http://localhost:19876', 'http://itmatzip.localhost:19876']
+const httpsPage = typeof window !== 'undefined' && window.location.protocol === 'https:'
+/**
+ * Same candidates as web-ui/tools/common/bridge.js (orderedOriginFallbacks): on the https site
+ * (tools.itmatzip.com) the HTTPS local domain comes first and the http hosts are fallbacks.
+ */
+const AGENT_ORIGIN_CANDIDATES = httpsPage
+  ? [LOCAL_TLS_ORIGIN, ...HTTP_AGENT_ORIGINS]
+  : [...HTTP_AGENT_ORIGINS, LOCAL_TLS_ORIGIN]
 const pageServedFromAgent = typeof window !== 'undefined' &&
   /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(window.location.hostname) && window.location.port === '19876'
 const DEFAULT_AGENT_ORIGIN = pageServedFromAgent ? window.location.origin : AGENT_ORIGIN_CANDIDATES[0]

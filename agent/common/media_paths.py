@@ -18,7 +18,7 @@ def normalize_media_path(raw: str) -> str:
 
 
 def resolve_existing_file(p: str) -> Path | None:
-    """The file itself, or its \\?\ long-path form on Windows; None when missing."""
+    r"""The file itself, or its \\?\ long-path form on Windows; None when missing."""
     if os.path.isfile(p):
         return Path(p)
     if os.name == "nt":

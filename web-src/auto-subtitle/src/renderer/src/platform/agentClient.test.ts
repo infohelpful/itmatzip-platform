@@ -38,7 +38,7 @@ describe('agent origin failover (ad blockers that block 127.0.0.1)', () => {
     vi.stubGlobal('window', {
       location: {
         href: 'https://tools.itmatzip.com/kr/auto-subtitle/', origin: 'https://tools.itmatzip.com',
-        hostname: 'tools.itmatzip.com', port: '', search: ''
+        hostname: 'tools.itmatzip.com', port: '', search: '', protocol: 'https:'
       }
     })
     vi.resetModules()
@@ -47,16 +47,24 @@ describe('agent origin failover (ad blockers that block 127.0.0.1)', () => {
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it('does not probe anything while the default origin works', async () => {
+  it('uses https local.itmatzip.com first on the https site, without probing', async () => {
     const calls = stubFetch(() => true)
     const client = await freshClient()
     await client.api('/ping')
-    expect(calls).toEqual(['http://127.0.0.1:19876/api/tools/auto-subtitle/v2/ping'])
-    expect(client.toolApiBase).toBe('http://127.0.0.1:19876/api/tools/auto-subtitle/v2')
+    expect(calls).toEqual(['https://local.itmatzip.com:19878/api/tools/auto-subtitle/v2/ping'])
+    expect(client.toolApiBase).toBe('https://local.itmatzip.com:19878/api/tools/auto-subtitle/v2')
   })
 
-  it('moves to a reachable host name when 127.0.0.1 and localhost are blocked, and sticks to it', async () => {
-    const blocked = new Set(['http://127.0.0.1:19876', 'http://localhost:19876'])
+  it('falls back to 127.0.0.1 when the https listener is not up', async () => {
+    const calls = stubFetch((origin) => origin !== 'https://local.itmatzip.com:19878')
+    const client = await freshClient()
+    await client.api('/ping')
+    expect(client.controllerOrigin).toBe('http://127.0.0.1:19876')
+    expect(calls.at(-1)).toBe('http://127.0.0.1:19876/api/tools/auto-subtitle/v2/ping')
+  })
+
+  it('moves to a reachable host name when https, 127.0.0.1 and localhost are blocked, and sticks to it', async () => {
+    const blocked = new Set(['https://local.itmatzip.com:19878', 'http://127.0.0.1:19876', 'http://localhost:19876'])
     const calls = stubFetch((origin) => !blocked.has(origin))
     const client = await freshClient()
 
@@ -70,12 +78,18 @@ describe('agent origin failover (ad blockers that block 127.0.0.1)', () => {
     expect(calls).toEqual(['http://itmatzip.localhost:19876/api/tools/auto-subtitle/v2/again'])
   })
 
-  it('falls through to the https local.itmatzip.com origin as the last candidate', async () => {
-    const calls = stubFetch((origin) => origin === 'https://local.itmatzip.com:19878')
-    const client = await freshClient()
+  it('keeps http first when the page itself is http (dev)', async () => {
+    vi.stubGlobal('window', {
+      location: {
+        href: 'http://localhost:5173/', origin: 'http://localhost:5173',
+        hostname: 'localhost', port: '5173', search: '', protocol: 'http:'
+      }
+    })
+    vi.resetModules()
+    const calls = stubFetch(() => true)
+    const client = await import('./agentClient')
     await client.api('/ping')
-    expect(client.controllerOrigin).toBe('https://local.itmatzip.com:19878')
-    expect(calls.at(-1)).toBe('https://local.itmatzip.com:19878/api/tools/auto-subtitle/v2/ping')
+    expect(calls).toEqual(['http://127.0.0.1:19876/api/tools/auto-subtitle/v2/ping'])
   })
 
   it('rewrites media URLs that were built with the old origin', async () => {
