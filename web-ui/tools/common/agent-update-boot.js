@@ -173,7 +173,9 @@ function showUpdateDialog(installed, release, immediateSupported) {
           status.textContent = t.restarting(Math.round((Date.now() - installStartedAt) / 1000));
           continue;
         }
-        if (!olderThan(health.agent_version || "0", release.version)) {
+        // Reload on any newer agent, not only the latest: an old agent may update through an
+        // intermediate version first, and the reloaded page offers the next step.
+        if (olderThan(installed, health.agent_version || "0")) {
           status.textContent = t.done;
           window.location.reload();
           return;
