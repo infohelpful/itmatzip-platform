@@ -255,6 +255,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | `background-remover` | Background Remover | BiRefNet 배경제거 | Engine-runtime (Python 3.12) |
 | `magic-eraser` | MagicEraser | IOPaint LaMa 객체 지우기 | Engine-runtime (Python 3.12) |
 | `create-music` | Create Music | ACE-Step 1.5, LoRA | Engine-runtime (Python 3.12) |
+| `motion-graphic` | 모션그래픽도구 | MCP 큐시트 + Remotion(premotion-core), FFmpeg 합성 | Engine-runtime (Node.js 포터블) |
 
 ### 툴별 상세 문서
 
@@ -265,6 +266,7 @@ FastAPI 기반 API 서버. Go 사이드카로 `:19877` 에서 실행됩니다.
 | Image Enhancer | `web-ui/tools/image-enhancer/IMAGE-ENHANCER.MD` |
 | Background Remover | `web-ui/tools/background-remover/BACKGROUND-REMOVER.MD` |
 | MagicEraser | `web-ui/tools/magic-eraser/MAGIC-ERASER.MD` |
+| 모션그래픽도구 | `docs/motion-graphic-spec.md` |
 
 ---
 

@@ -1,7 +1,9 @@
 User-agent: Googlebot
 Allow: /
+Disallow: /motion-graphic/
 
 User-agent: *
 Disallow: /admin/
+Disallow: /motion-graphic/
 
 Sitemap: https://tools.itmatzip.com/sitemap.xml

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="ko" data-tool-id="motion-graphic">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="../common/site-runtime.js?v=43"></script>
+  <meta http-equiv="Permissions-Policy" content="local-network-access=*">
+  <title>AI 모션그래픽 - 모션그래픽도구 | ItMatZip</title>
+  <meta name="description" content="영상과 SRT 자막을 Claude·Codex·Antigravity MCP로 분석해 모션그래픽 설계서를 만들고, 로컬 Remotion 엔진으로 바로 적용·MP4 렌더링합니다. 영상은 업로드되지 않습니다.">
+  <meta name="keywords" content="모션그래픽, 모션그래픽 자동, Remotion, MCP, Claude, 유튜브 편집, 키네틱 타이포, 자막 모션">
+  <meta name="robots" content="noindex,nofollow"> <!-- 개발 중: 공개 전까지 검색 제외 -->
+  <link rel="canonical" href="https://tools.itmatzip.com/motion-graphic/">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="og:site_name" content="ItMatZip Tools">
+  <meta property="og:title" content="AI 모션그래픽 - 모션그래픽도구 | ItMatZip">
+  <meta property="og:description" content="영상과 SRT 자막으로 AI가 모션그래픽을 설계하고, 로컬 엔진이 바로 적용·렌더링합니다.">
+  <meta property="og:url" content="https://tools.itmatzip.com/motion-graphic/">
+  <meta property="og:image" content="https://tools.itmatzip.com/assets/og/motion-graphic.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="ItMatZip Tools">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AI 모션그래픽 - 모션그래픽도구 | ItMatZip">
+  <meta name="twitter:description" content="영상과 SRT 자막으로 AI가 모션그래픽을 설계하고, 로컬 엔진이 바로 적용·렌더링합니다.">
+  <meta name="twitter:image" content="https://tools.itmatzip.com/assets/og/motion-graphic.png">
+  <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebApplication",
+      "name": "모션그래픽도구",
+      "alternateName": "Motion Graphic Tool",
+      "url": "https://tools.itmatzip.com/motion-graphic/",
+      "description": "영상과 SRT 자막으로 AI가 모션그래픽을 설계하고, 로컬 Remotion 엔진이 바로 적용·렌더링합니다.",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Windows",
+      "inLanguage": "ko",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "KRW" },
+      "publisher": { "@type": "Organization", "name": "ItMatZip", "url": "https://tools.itmatzip.com/" },
+      "isPartOf": { "@type": "WebSite", "name": "ItMatZip Tools", "url": "https://tools.itmatzip.com/" }
+    },
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "ItMatZip Tools", "item": "https://tools.itmatzip.com/" },
+        { "@type": "ListItem", "position": 2, "name": "모션그래픽도구", "item": "https://tools.itmatzip.com/motion-graphic/" }
+      ]
+    }
+  ]
+}
+  </script>
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="../favicon-16x16.ico">
+  <link rel="icon" type="image/x-icon" sizes="32x32" href="../favicon-32x32.ico">
+  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="../silence-remover/mobile-only.css?v=3">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+  <link rel="stylesheet" href="../common/tool-guide.css?v=7">
+</head>
+<body class="mg-app-body">
+  <div class="mg-app" id="mg-app">
+    <!-- 상단 바 -->
+    <header class="mg-top">
+      <div class="mg-brand">
+        <span class="mg-brand__badge">AI</span>
+        <h1 data-i18n="ldName">모션그래픽도구</h1>
+        <a href="../index.html" class="mg-top__link" data-i18n="toDashboard">← 대시보드</a>
+      </div>
+      <div class="mg-top__right">
+        <div id="connection-status" class="mg-chip" role="status">에이전트 연결 확인 중…</div>
+        <div id="bin-readiness" class="mg-chip">Premotion · 준비 확인 중</div>
+        <button type="button" id="btn-prepare" class="mg-btn mg-btn--ghost mg-btn--sm" data-i18n="prepare">환경 준비</button>
+      </div>
+    </header>
+
+    <div class="mg-body">
+      <!-- 왼쪽 사이드바 -->
+      <aside class="mg-side">
+        <div class="mg-side__scroll">
+          <section class="mg-side__sec mg-side__sec--ai">
+            <div class="mg-side__h"><span data-i18n="aiPickTitle">설계할 AI 선택</span></div>
+            <div class="mg-ai" id="ai-clients" role="radiogroup"></div>
+            <p class="mg-note" id="ai-hint" data-i18n="aiHint">내 PC에 로그인된 AI CLI를 씁니다.</p>
+          </section>
+
+          <section class="mg-side__sec">
+            <div class="mg-side__h"><span data-i18n="styleTitle">디자인 스타일</span></div>
+            <div class="mg-styles" id="style-list" role="radiogroup"></div>
+            <p class="mg-note" id="style-hint" data-i18n="styleHint">기본은 「새 디자인」: 영상 내용에 맞게 AI 가 색·배경·움직임을 새로 만듭니다. 이전 작업과 결이 비슷하면 아래 버튼으로 그 디자인을 골라 같은 분위기로 만드세요.</p>
+          </section>
+
+          <section class="mg-side__sec">
+            <div class="mg-side__h"><span data-i18n="mediaTitle">소재 (이미지·아이콘)</span></div>
+            <div class="mg-media" id="media-opts" role="radiogroup">
+              <label class="mg-radio"><input type="radio" name="media" value="photo" checked><span><b data-i18n="mediaPhoto">실사 사진 + 로고</b><small data-i18n="mediaPhotoNote">웹에서 사진·로고·스크린샷을 검색해 받아 씁니다 (출처·라이선스는 credits.json 에 기록)</small></span></label>
+              <label class="mg-radio"><input type="radio" name="media" value="logo"><span><b data-i18n="mediaLogo">로고만</b><small data-i18n="mediaLogoNote">회사·제품 로고만 받고, 사진 자리는 영상 화면 캡처로 채웁니다</small></span></label>
+              <label class="mg-radio"><input type="radio" name="media" value="emoji"><span><b data-i18n="mediaEmoji">이모지 · 글자만</b><small data-i18n="mediaEmojiNote">웹에서 아무것도 받지 않습니다. 아이콘은 이모지, 사진 자리는 영상 화면 캡처</small></span></label>
+              <label class="mg-radio is-off"><input type="checkbox" disabled><span><b data-i18n="mediaVideo">움직이는 영상 (GIF·클립)</b><small data-i18n="mediaVideoNote">준비 중 — 화면에서 영상을 재생하는 기능이 아직 없습니다</small></span></label>
+            </div>
+          </section>
+
+          <section class="mg-side__sec">
+            <div class="mg-side__h"><span data-i18n="uimgTitle">내 이미지</span></div>
+            <input type="file" id="uimg-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+            <button type="button" id="btn-uimg" class="mg-btn mg-btn--ghost mg-btn--sm" disabled data-i18n="uimgAdd">＋ 이미지 올리기</button>
+            <ul class="mg-uimg" id="uimg-list"></ul>
+            <p class="mg-note" data-i18n="uimgHint">가지고 있는 사진·캡처를 올려 두고, 「자막에 넣기」로 원하는 자막 구간에 크게 보여줄 수 있습니다. (PNG·JPG·WEBP·GIF, 한 장 10MB까지)</p>
+          </section>
+
+          <section class="mg-side__sec">
+            <div class="mg-side__h"><span data-i18n="paramTitle">설계 파라미터</span></div>
+            <div class="mg-param">
+              <label class="mg-param__row"><span data-i18n="gapLabel">효과 최소 간격</span><b id="gap-value">3.0s</b></label>
+              <input type="range" id="gap" min="1" max="8" step="0.5" value="3">
+              <label class="mg-check"><input type="checkbox" id="opt-still" checked> <span data-i18n="optStill">정지 화면 구간은 FULL 자동 전환</span></label>
+              <label class="mg-check"><input type="checkbox" checked disabled> <span data-i18n="optSafe">하단 자막 영역 자동 회피</span></label>
+            </div>
+            <details class="mg-dir">
+              <summary><span data-i18n="dirTitle">구간 지시</span> <small data-i18n="optional">(선택)</small></summary>
+              <textarea id="directives" rows="7" maxlength="20000" data-i18n-placeholder="dirPh" placeholder="0 ~ 41초 오프닝 배경 제거하고 전면 모션그래픽&#10;41~45초 로고 — 효과 금지&#10;45초~2분6초 설명 — 확대·하이라이트만, 메일 주소 블러"></textarea>
+              <div class="mg-dir__row">
+                <label class="mg-btn mg-btn--ghost mg-btn--sm" for="dir-file" data-i18n="dirLoad">.txt 불러오기</label>
+                <input type="file" id="dir-file" accept=".txt,.md" hidden>
+              </div>
+            </details>
+          </section>
+
+          <section class="mg-side__sec">
+            <div class="mg-side__h"><span data-i18n="statusTitle">미디어 · 설계 상태</span></div>
+            <dl class="mg-stat" id="stat-grid">
+              <div><dt data-i18n="stDuration">영상 길이</dt><dd id="st-duration">-</dd></div>
+              <div><dt data-i18n="stSubs">SRT 자막</dt><dd id="st-subs">-</dd></div>
+              <div><dt data-i18n="stSegs">설계 구간</dt><dd id="st-segs">0개</dd></div>
+              <div><dt data-i18n="stRes">해상도 / FPS</dt><dd id="st-res">-</dd></div>
+              <div><dt data-i18n="stDesign">설계서 상태</dt><dd id="st-design">대기</dd></div>
+              <div><dt data-i18n="stApply">모션 적용</dt><dd id="st-apply">미적용</dd></div>
+            </dl>
+          </section>
+        </div>
+
+        <div class="mg-steps">
+          <button type="button" id="btn-design" class="mg-step" disabled><b>①</b> <span data-i18n="stepDesign">AI 모션 설계서 생성</span></button>
+          <button type="button" id="btn-apply" class="mg-step" disabled><b>②</b> <span data-i18n="stepApply">설계대로 모션그래픽 적용</span></button>
+          <button type="button" id="btn-render" class="mg-step" disabled><b>③</b> <span data-i18n="stepRender">MP4 영상 내보내기</span></button>
+          <button type="button" id="btn-open-dir" class="mg-step mg-step--sub" disabled data-i18n-title="openDirTip" title="설계서·받은 이미지·분석 파일이 있는 프로젝트 폴더를 탐색기로 엽니다">📁 <span data-i18n="openDir">프로젝트 폴더 열기</span></button>
+        </div>
+      </aside>
+
+      <!-- 메인 -->
+      <main class="mg-main">
+        <div class="mg-ads">
+          <div class="editor-ad mg-ad" id="editor-ad-above-path" aria-label="광고"></div>
+          <div class="editor-ad mg-ad" id="editor-ad-below-export" aria-label="광고"></div>
+        </div>
+
+        <div class="mg-paths">
+          <div class="mg-path">
+            <span class="mg-path__tag" data-i18n="videoTag">영상 파일</span>
+            <input type="text" id="video-path" spellcheck="false" autocomplete="off" data-i18n-placeholder="videoPh" placeholder="MP4 / MOV 파일 경로 — 찾아보기로 선택">
+            <button type="button" id="btn-pick-video" class="mg-btn mg-btn--ghost mg-btn--sm" data-i18n="browse">찾아보기</button>
+          </div>
+          <div class="mg-path">
+            <span class="mg-path__tag mg-path__tag--srt" data-i18n="srtTag">SRT 자막</span>
+            <input type="text" id="srt-name" readonly data-i18n-placeholder="srtPh" placeholder="같은 이름의 .srt 는 자동 인식 · 또는 직접 선택">
+            <label class="mg-btn mg-btn--ghost mg-btn--sm" for="srt-file" data-i18n="browse">찾아보기</label>
+            <input type="file" id="srt-file" accept=".srt" hidden>
+          </div>
+          <button type="button" id="btn-load" class="mg-btn mg-btn--primary mg-btn--sm" data-i18n="load">불러오기</button>
+          <select id="recent" class="mg-select" aria-label="최근 프로젝트"><option value="" data-i18n="recent">최근 프로젝트</option></select>
+        </div>
+
+        <div class="mg-bar">
+          <span class="mg-tc" id="tc">00:00:00:00</span>
+          <span class="mg-bar__sep">|</span>
+          <span class="mg-bar__msg" id="step-msg">1단계: 영상(MP4)과 자막(SRT)을 불러오세요.</span>
+          <span class="mg-bar__job" id="job-msg"></span>
+          <button type="button" id="btn-job-cancel" class="mg-btn mg-btn--danger mg-btn--sm" hidden data-i18n="cancel">중지</button>
+          <div class="mg-view" role="tablist">
+            <button type="button" class="mg-view__btn is-on" data-view="design" data-i18n="viewDesign">설계서 보기</button>
+            <button type="button" class="mg-view__btn" data-view="preview" data-i18n="viewPreview">모션 적용 미리보기</button>
+          </div>
+        </div>
+
+        <div class="mg-work" id="work">
+          <!-- 비어 있을 때 -->
+          <button type="button" class="mg-drop" id="drop">
+            <span class="mg-drop__icon">↑</span>
+            <b data-i18n="dropTitle">영상(MP4)과 자막(SRT)을 불러오세요</b>
+            <span data-i18n="dropSub">클릭하면 영상 파일을 고릅니다. 같은 이름의 .srt 는 자동으로 찾고, 영상은 서버로 올라가지 않습니다.</span>
+          </button>
+          <div class="mg-jobpanel" id="job-panel" hidden role="status" aria-live="polite">
+            <div class="mg-jobpanel__card">
+              <div class="mg-jobpanel__spin" aria-hidden="true"></div>
+              <h3 id="job-title">AI 가 설계서를 쓰는 중입니다</h3>
+              <p class="mg-jobpanel__sub" id="job-sub"></p>
+              <ol class="mg-jobpanel__steps" id="job-steps"></ol>
+              <p class="mg-jobpanel__hint" id="job-hint"></p>
+              <button type="button" id="btn-job-stop" class="mg-btn mg-btn--danger mg-btn--sm" data-i18n="cancel">중지</button>
+            </div>
+          </div>
+          <div class="mg-progress" id="init-progress" hidden>
+            <div class="mg-progress__bar"><i id="init-bar"></i></div>
+            <p id="init-text"></p>
+          </div>
+
+          <!-- 설계서 -->
+          <section class="mg-doc" id="doc" hidden>
+            <div class="mg-doc__summary">
+              <div class="mg-doc__stats" id="doc-stats"></div>
+              <div class="mg-doc__bar" id="doc-bar"></div>
+              <div class="mg-doc__legend">
+                <span><i class="is-FULL"></i>FULL <small data-i18n="legFull">배경 제거 → 전면 MG</small></span>
+                <span><i class="is-OVERLAY"></i>OVERLAY <small data-i18n="legOver">원본 + 확대·하이라이트</small></span>
+                <span><i class="is-NONE"></i>NONE <small data-i18n="legNone">손대지 않음</small></span>
+              </div>
+            </div>
+            <ol class="mg-doc__list" id="doc-list"></ol>
+          </section>
+
+          <!-- 미리보기 -->
+          <section class="mg-pv" id="preview" hidden>
+            <div class="mg-pv__stage-wrap">
+              <div class="mg-stage" id="stage">
+                <div class="mg-zoom" id="zoom-box">
+                  <video id="video" playsinline preload="auto"></video>
+                  <div class="mg-layer" id="fx-root"></div>
+                </div>
+                <div class="mg-layer" id="full-root"></div>
+                <div class="mg-pv__off" id="pv-off" hidden data-i18n="pvOff">아직 적용 전 — 원본만 보입니다. 「② 설계대로 모션그래픽 적용」을 누르세요.</div>
+              </div>
+            </div>
+            <div class="mg-pv__nav">
+              <button type="button" id="btn-play" class="mg-btn mg-btn--ghost mg-btn--sm" aria-label="재생">▶</button>
+              <button type="button" id="seg-prev" class="mg-btn mg-btn--ghost mg-btn--sm"></button>
+              <span class="mg-pv__cur" id="seg-cur"></span>
+              <button type="button" id="seg-next" class="mg-btn mg-btn--ghost mg-btn--sm"></button>
+              <span class="mg-pv__sub" id="sub-now"></span>
+            </div>
+            <div class="mg-tl" id="tl" title="드래그: 시간 범위 선택 · 양쪽 손잡이: 조정 · Esc: 해제">
+              <canvas id="tl-canvas"></canvas>
+            </div>
+          </section>
+        </div>
+
+        <div class="mg-edit">
+          <span class="mg-edit__target" id="edit-target" data-i18n="editNone">선택 대상: 없음</span>
+          <label class="mg-check mg-edit__fetch" data-i18n-title="fetchMoreTip" title="이미지·로고가 부실하면 웹에서 더 받아 보강합니다 (소재 방식 설정과 상관없이)"><input type="checkbox" id="edit-fetch"> <span data-i18n="fetchMore">자료 더 받기</span></label>
+          <input type="text" id="edit-input" maxlength="1000" data-i18n-placeholder="editPh" placeholder="미리보기 타임라인을 드래그해 시간 범위를 고른 뒤 요청을 적으세요 (예: 이 부분은 풀 모션으로 / 설정창을 확대하고 다음 항목으로 이동)" disabled>
+          <button type="button" id="btn-edit" class="mg-btn mg-btn--primary mg-btn--sm" disabled data-i18n="editBtn">이 구간만 수정</button>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="style-dialog" class="mg-dialog">
+    <div class="mg-dialog__head">
+      <b data-i18n="styleDialogTitle">이전 작업에서 디자인 선택</b>
+      <button type="button" id="style-dialog-close" class="mg-btn mg-btn--ghost mg-btn--sm" data-i18n="close">닫기</button>
+    </div>
+    <p class="mg-note" data-i18n="styleDialogNote">지금까지 만든 작업입니다. 왼쪽 색이 그 작업의 디자인이고, 고르면 이번 영상도 그 디자인으로 만듭니다.</p>
+    <ul class="mg-dialog__list" id="style-history"></ul>
+  </dialog>
+  <dialog id="uimg-dialog" class="mg-dialog">
+    <div class="mg-dialog__head">
+      <b data-i18n="uimgDialogTitle">이 이미지를 넣을 자막</b>
+      <button type="button" id="uimg-close" class="mg-btn mg-btn--ghost mg-btn--sm" data-i18n="close">닫기</button>
+    </div>
+    <div class="mg-uimg-place">
+      <img id="uimg-preview" alt="">
+      <label class="mg-field"><span data-i18n="uimgFrom">시작 자막</span><select id="uimg-from"></select></label>
+      <label class="mg-field"><span data-i18n="uimgTo">끝 자막 (같은 자막이면 그대로)</span><select id="uimg-to"></select></label>
+      <label class="mg-field"><span data-i18n="uimgCaption">화면에 쓸 설명 (비우면 자막 문장)</span><input type="text" id="uimg-caption" maxlength="30"></label>
+      <p class="mg-note" data-i18n="uimgPlaceNote">그 자막이 나오는 동안 이 이미지가 풀 화면 장면으로 바뀝니다. 비율은 그대로 유지되고, 앞뒤 구간은 건드리지 않습니다.</p>
+      <button type="button" id="uimg-place" class="mg-btn" data-i18n="uimgPlace">이 자막에 넣기</button>
+    </div>
+  </dialog>
+  <div id="render-loading" class="mg-busy" hidden aria-hidden="true">
+    <div class="mg-busy__panel" role="status" aria-live="polite">
+      <h3 data-i18n="renderTitle">모션그래픽 MP4 렌더링</h3>
+      <p id="render-step" class="mg-busy__step"></p>
+      <p id="render-percent" class="mg-busy__pct">0%</p>
+      <div class="mg-progress__bar"><i id="render-bar"></i></div>
+      <button type="button" id="btn-render-cancel" class="mg-btn mg-btn--ghost mg-btn--sm" data-i18n="cancel">취소</button>
+    </div>
+  </div>
+
+  <section class="tool-guide mg-guide" aria-label="모션그래픽도구 안내">
+    <p class="tool-guide-kicker">Motion Graphic</p>
+    <h2 data-i18n="guide.h2">영상과 자막만 넣으면, 설계부터 MP4 까지 한 화면에서</h2>
+    <p class="tool-guide-lead" data-i18n="guide.lead">내 PC의 에이전트가 영상의 화면 움직임을 재고, 내 PC의 AI(Claude Code·Codex·Antigravity)가 고른 스타일 프리셋으로 구간별 모션그래픽 설계서를 씁니다. 설계서는 고정된 장면 템플릿에 문구와 타이밍만 채우는 방식이라 빠르고, 미리보기와 최종 MP4 가 같은 코드로 그려집니다.</p>
+    <ol>
+      <li data-i18n="guide.how1"><strong>불러오기.</strong> 영상과 SRT 를 고르면 정지 구간·화면 급변·로고 위치를 분석합니다.</li>
+      <li data-i18n="guide.how2"><strong>설계.</strong> 스타일 프리셋과 AI 를 고르고 ①을 누르면 FULL / OVERLAY / NONE 구간과 장면·문구·타이밍이 담긴 설계서가 나옵니다.</li>
+      <li data-i18n="guide.how3"><strong>수정.</strong> 마음에 안 드는 구간을 고르거나 미리보기에서 그 시점으로 가서 「타이밍 0.5초 당겨줘」처럼 적으면 그 구간만 고칩니다.</li>
+      <li data-i18n="guide.how4"><strong>적용 · 내보내기.</strong> ②로 미리보기를 확인하고 ③을 누르면 렌더가 끝날 때 알림이 뜹니다.</li>
+    </ol>
+  </section>
+
+  <div id="mobile-only-overlay" class="mobile-only-overlay is-hidden" role="dialog" aria-modal="true">
+    <div class="mobile-only-card">
+      <div class="mobile-only-icon" aria-hidden="true">🖥️</div>
+      <h2 class="mobile-only-title" data-i18n="mobileTitle">PC에서만 이용할 수 있습니다</h2>
+      <p class="mobile-only-desc" data-i18n="mobileDesc">모션그래픽도구는 PC와 로컬 에이전트가 필요한 도구입니다.</p>
+    </div>
+  </div>
+
+  <script type="module" src="../common/site-modal-boot.js?v=4"></script>
+  <link rel="stylesheet" href="../common/ai-setup-panel.css?v=4">
+  <script type="module" src="../common/ai-setup-panel.js?v=10-lna29"></script>
+  <script type="module" src="../common/agent-update-boot.js?v=4-lna29"></script>
+  <script src="../common/site-guard.js?v=23"></script>
+  <script src="../silence-remover/mobile-only.js?v=8"></script>
+  <script type="module" src="script.js?v=17"></script>
+</body>
+</html>

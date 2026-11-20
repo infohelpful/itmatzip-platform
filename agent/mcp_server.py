@@ -229,7 +229,76 @@ def _autosub_proofread(args: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("AI 자막 교정 시간이 초과되었습니다. 다시 시도해 주세요.")
 
 
+# ── 모션그래픽도구 — 페이지에서 만든 설계서(design.json)를 읽고, 구간 하나씩 고친다 ──
+MG_API = "/api/tools/motion-graphic"
+MOTION_PROMPT_NAME = "itmatzip-MotionGraphic"
+MOTION_PROMPT_TEXT = (
+    "현재 열려 있는 ItMatZip 모션그래픽도구 프로젝트의 설계서를 다듬어 주세요. "
+    "1) motion_get_design 으로 설계서(구간: type FULL/OVERLAY/NONE, FULL 은 template·vars·beats, OVERLAY 는 beats 의 fx·target)와 "
+    "자막(번호·프레임·문장), 사용할 수 있는 템플릿·효과 목록을 읽으세요. "
+    "2) 고칠 구간만 motion_save_segment 로 저장하세요(구간 하나 단위, 같은 형식). 장면 연출·좌표 계산은 템플릿 코드가 하므로 "
+    "TSX/CSS 를 만들지 말고 template·vars·beats(자막 번호 또는 frame)만 바꿉니다. "
+    "저장하면 브라우저 미리보기에 바로 반영되고, MP4 내보내기는 사용자가 화면에서 직접 누릅니다."
+)
+
+
+def _mg_project(args: dict[str, Any]) -> str:
+    pid = args.get("project_id")
+    if isinstance(pid, str) and pid.strip():
+        if len(pid) > 40:
+            raise ValueError("project_id 형식이 올바르지 않습니다.")
+        return pid.strip()
+    active = _request(f"{MG_API}/projects?limit=1").get("active")
+    if not active:
+        raise ValueError("열린 모션그래픽 프로젝트가 없습니다. 웹 화면에서 영상과 SRT 를 먼저 불러오세요.")
+    return active
+
+
+def _motion_get_design(args: dict[str, Any]) -> dict[str, Any]:
+    pid = _mg_project(args)
+    data = _request(f"{MG_API}/project/{urllib.parse.quote(pid)}?include=subs")
+    catalog = _request(f"{MG_API}/catalog")
+    subs = data.get("subs") or {}
+    return {
+        "project_id": pid,
+        "design": data.get("design"),
+        "subs": [[int(n), s.get("s"), s.get("t")] for n, s in sorted(subs.items(), key=lambda kv: int(kv[0]))],
+        "templates": [{"id": t["id"], "desc": t["desc"], "vars": t["max"], "slots": t["slots"]} for t in catalog.get("templates", [])],
+        "overlay_fx": catalog.get("overlay_fx"),
+        "styles": {k: v.get("label") for k, v in (catalog.get("styles") or {}).items()},
+    }
+
+
+def _motion_save_segment(args: dict[str, Any]) -> dict[str, Any]:
+    pid = _mg_project(args)
+    sid = args.get("segment_id")
+    if not isinstance(sid, str) or not sid.isalnum():
+        raise ValueError("segment_id 가 필요합니다.")
+    seg = args.get("segment_json")
+    if isinstance(seg, str):
+        seg = json.loads(seg)
+    if not isinstance(seg, dict):
+        raise ValueError("segment_json 은 구간 객체여야 합니다.")
+    res = _request(f"{MG_API}/project/{urllib.parse.quote(pid)}/design/segment/{urllib.parse.quote(sid)}", "POST", {"segment": seg}, timeout=300)
+    saved = next((x for x in res["design"]["segments"] if x["id"] == sid), None)
+    return {"saved": True, "revision": res["design"]["revision"], "segment": saved}
+
+
 TOOLS = {
+    "motion_get_design": {
+        "description": "열린 모션그래픽도구 프로젝트의 설계서(구간·템플릿·문구·비트·OVERLAY 효과)와 자막, 사용할 수 있는 템플릿·효과 목록을 가져옵니다. project_id 를 생략하면 웹에서 열린 프로젝트입니다.",
+        "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string", "maxLength": 40}}, "additionalProperties": False},
+        "run": _motion_get_design,
+    },
+    "motion_save_segment": {
+        "description": "설계서의 구간 하나를 고쳐 저장합니다 (type, template, vars, beats[{sub|frame, fx, target, zoom}]). 저장하면 미리보기에 바로 반영됩니다.",
+        "inputSchema": {"type": "object", "properties": {
+            "project_id": {"type": "string", "maxLength": 40},
+            "segment_id": {"type": "string", "maxLength": 12},
+            "segment_json": {"description": "고친 구간 객체 또는 JSON 문자열", "anyOf": [{"type": "object"}, {"type": "string"}]},
+        }, "required": ["segment_id", "segment_json"], "additionalProperties": False},
+        "run": _motion_save_segment,
+    },
     "itmatzip_agent_status": {
         "description": "ItMatZip 로컬 에이전트 연결 상태를 확인합니다.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -325,6 +394,14 @@ def _tool_result(call: dict[str, Any]) -> dict[str, Any]:
     if tool is None:
         raise ValueError(f"알 수 없는 도구입니다: {name}")
     data = tool["run"](call.get("arguments") or {})
+    if isinstance(data, dict) and isinstance(data.get("_images"), list):
+        images = data.pop("_images")
+        b64 = __import__("base64").b64encode
+        return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}] + [
+            item for img in images for item in (
+                {"type": "text", "text": f"키프레임 {img['name']}"},
+                {"type": "image", "data": b64(img["data"]).decode("ascii"), "mimeType": img["mimeType"]},
+            )], "isError": False}
     if isinstance(data, dict) and isinstance(data.get("audio"), bytes):
         return {"content": [
             {"type": "text", "text": f"AutoSubtitle 영상의 {data['startSec']:.3f}초부터 {data['endSec']:.3f}초까지 실제 오디오입니다. 자막과 발음을 대조해 주세요."},
@@ -363,15 +440,23 @@ def main() -> None:
                     "name": AUTOSUB_PROMPT_NAME,
                     "title": "ItMatZip AutoSubtitle",
                     "description": "현재 열린 자막을 음성과 문맥에 맞춰 교정하고 편집기에 전달합니다.",
+                }, {
+                    "name": MOTION_PROMPT_NAME,
+                    "title": "ItMatZip 모션그래픽도구",
+                    "description": "열린 모션그래픽 설계서를 읽고 구간별로 다듬어 미리보기에 바로 반영합니다.",
                 }]}
             elif method == "prompts/get":
                 prompt_name = (message.get("params") or {}).get("name")
-                if prompt_name != AUTOSUB_PROMPT_NAME:
+                if prompt_name == MOTION_PROMPT_NAME:
+                    result = {"description": "ItMatZip 모션그래픽 설계·적용",
+                              "messages": [{"role": "user", "content": {"type": "text", "text": MOTION_PROMPT_TEXT}}]}
+                elif prompt_name != AUTOSUB_PROMPT_NAME:
                     _send({"jsonrpc": "2.0", "id": request_id,
                            "error": {"code": -32602, "message": f"Unknown prompt: {prompt_name}"}})
                     continue
-                result = {"description": "ItMatZip AutoSubtitle 자막 교정",
-                          "messages": [{"role": "user", "content": {"type": "text", "text": AUTOSUB_PROMPT_TEXT}}]}
+                else:
+                    result = {"description": "ItMatZip AutoSubtitle 자막 교정",
+                              "messages": [{"role": "user", "content": {"type": "text", "text": AUTOSUB_PROMPT_TEXT}}]}
             elif method == "tools/call":
                 result = _tool_result(message.get("params") or {})
             else:

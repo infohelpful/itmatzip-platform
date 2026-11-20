@@ -65,7 +65,27 @@ $files = @(
     @{ Src = Join-Path $AgentSrc "routers\watermark_remover.py"; Dst = Join-Path $AgentDst "routers\watermark_remover.py" },
     @{ Src = Join-Path $AgentSrc "routers\create_music.py"; Dst = Join-Path $AgentDst "routers\create_music.py" },
     @{ Src = Join-Path $AgentSrc "engines\audio_join.py"; Dst = Join-Path $AgentDst "engines\audio_join.py" },
-    @{ Src = Join-Path $AgentSrc "routers\audio_join.py"; Dst = Join-Path $AgentDst "routers\audio_join.py" }
+    @{ Src = Join-Path $AgentSrc "routers\audio_join.py"; Dst = Join-Path $AgentDst "routers\audio_join.py" },
+    # 모션그래픽도구 — premotion-core 템플릿은 /prepare 때 %APPDATA% engine-runtime 으로 배포된다
+    @{ Src = Join-Path $AgentSrc "mcp_server.py"; Dst = Join-Path $AgentDst "mcp_server.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic.py"; Dst = Join-Path $AgentDst "engines\motion_graphic.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_ctx.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_ctx.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_ai.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_ai.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_analyze.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_analyze.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_design.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_design.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_assets.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_assets.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_styles.py"; Dst = Join-Path $AgentDst "engines\motion_graphic_styles.py" },
+    @{ Src = Join-Path $AgentSrc "routers\motion_graphic.py"; Dst = Join-Path $AgentDst "routers\motion_graphic.py" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\package.json"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\package.json" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\package-lock.json"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\package-lock.json" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\render.mjs"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\render.mjs" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\catalog.json"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\catalog.json" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\track.mjs"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\track.mjs" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\src\index.ts"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\src\index.ts" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\src\Root.tsx"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\src\Root.tsx" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\src\Main.tsx"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\src\Main.tsx" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\src\mg-core.js"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\src\mg-core.js" },
+    @{ Src = Join-Path $AgentSrc "engines\motion_graphic_core\src\components\NodeTree.tsx"; Dst = Join-Path $AgentDst "engines\motion_graphic_core\src\components\NodeTree.tsx" }
 )
 
 foreach ($f in $files) {

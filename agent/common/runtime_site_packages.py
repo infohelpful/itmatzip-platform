@@ -26,6 +26,7 @@ TOOL_BACKGROUND_REMOVER = "background-remover"
 TOOL_MAGIC_ERASER = "magic-eraser"
 TOOL_VOICE_CHANGER = "voice-changer"
 TOOL_WATERMARK_REMOVER = "watermark-remover"
+TOOL_MOTION_GRAPHIC = "motion-graphic"
 
 # MSI embeddable Python(3.12) — pip --target per tool
 ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
@@ -38,6 +39,8 @@ ENGINE_RUNTIME_TOOL_IDS: tuple[str, ...] = (
     TOOL_MAGIC_ERASER,
     TOOL_VOICE_CHANGER,
     TOOL_WATERMARK_REMOVER,
+    # Node.js 포터블 + premotion-core(Remotion) — Python 패키지는 없지만 ACL·디렉터리 관리 대상
+    TOOL_MOTION_GRAPHIC,
 )
 
 # Dedicated venv per tool — same 3.12 major, isolated env.
