@@ -18,8 +18,8 @@ import { AGENT_PICK_VIDEO } from "../common/agent-pick-endpoints.js";
 import { showAdSense } from "../common/adsense.js?v=12";
 import { agentInstallDialogOptions } from "../common/agent-install-ui.js?v=lna22";
 import { AGENT_PORT } from "../common/agent-endpoints.js";
-import { TEMPLATE_META, findSegment, resolveStyle } from "./mg-core.js?v=7";
-import { DesignRenderer } from "./mg-renderer.js?v=4";
+import { TEMPLATE_META, findSegment, resolveStyle } from "./mg-core.js?v=8";
+import { DesignRenderer } from "./mg-renderer.js?v=5";
 
 configureBridge({
   origin:
@@ -73,7 +73,7 @@ const els = {
 const st = {
   agentOk: false,
   ready: false,
-  media: ["photo", "logo", "emoji"].includes(lsGet(LS.media)) ? lsGet(LS.media) : "photo",
+  media: ["photo", "logo", "emoji", "video"].includes(lsGet(LS.media)) ? lsGet(LS.media) : "photo",
   styleRef: lsGet(LS.style) || null, // 보관함 디자인 id (없으면 새 디자인)
   styles: [],
   aiClients: [],
@@ -437,7 +437,7 @@ async function reloadDesign() {
 
 /* ── AI 작업 (설계 · 수정) ─────────────────────────────────────────── */
 
-const STEP_LABEL = { analyze: "화면 분석", design: "AI 설계 (구간 · 장면)", assets: "웹 이미지 받기", locate: "하이라이트 위치 측정", edit: "구간 수정" };
+const STEP_LABEL = { analyze: "화면 분석", design: "AI 설계 (구간 · 장면)", assets: "웹 자료 받기", locate: "하이라이트 위치 측정", edit: "구간 재설계" };
 
 function applyJob(job) {
   st.job = job;
@@ -461,8 +461,8 @@ function applyJob(job) {
 /* 설계·수정이 도는 동안 작업 영역 가운데에 크게 보여 준다 (상태 바 한 줄로는 안 보인다) */
 function renderJobPanel(job) {
   const running = job?.state === "running";
-  els.jobPanel.hidden = !running;
-  if (!running) return;
+  els.jobPanel.hidden = !running || (job.kind === "edit" && job.preview_ready);
+  if (!running || (job.kind === "edit" && job.preview_ready)) return;
   const now = Date.now() / 1000;
   const total = Math.max(0, Math.round(now - (job.created || now)));
   els.jobTitle.textContent = job.kind === "edit" ? t("jobEdit", "AI 가 구간을 고치는 중입니다") : t("jobDesign", "AI 가 설계서를 쓰는 중입니다");
@@ -472,7 +472,7 @@ function renderJobPanel(job) {
     ...(job.steps || []).map((s) => {
       const li = document.createElement("li");
       li.className = `is-${s.state}`;
-      const sec = s.state === "running" ? `${Math.round(now - (s.started || now))}초` : s.state === "done" ? `✓ ${s.message || ""}` : s.state === "failed" ? "✗" : "대기";
+      const sec = s.state === "running" ? `${Math.round(now - (s.started || now))}초` : s.state === "done" ? `✓ ${s.elapsed ?? ""}초 ${s.message || ""}` : s.state === "failed" ? "✗" : "대기";
       li.innerHTML = "<span></span><span></span>";
       li.firstChild.textContent = STEP_LABEL[s.key] || s.key;
       li.lastChild.textContent = sec;
@@ -489,7 +489,12 @@ async function pollJob(jobId) {
   clearTimeout(st.jobTimer);
   try {
     const job = await requestAgent({ method: "GET", path: `${API}/design/${jobId}` });
+    const previewJustReady = job.kind === "edit" && job.preview_ready && !st.job?.preview_ready;
     applyJob(job);
+    if (previewJustReady) {
+      await reloadDesign();
+      setView("design");
+    }
     if (job.state === "running") {
       st.jobTimer = setTimeout(() => void pollJob(jobId), 1000);
       return;
@@ -497,13 +502,18 @@ async function pollJob(jobId) {
     setAgentLongOperationActive(false);
     await reloadDesign();
     if (job.state === "done") {
-      // 완료 → 설계서 화면을 바로 보여 준다 (수정이면 고친 구간으로)
-      setView("design");
+      // 품질 검사를 통과해 자동 적용된 설계는 바로 미리보기로 연다.
+      setView(st.design?.applied ? "preview" : "design");
       const edited = job.kind === "edit" ? job.steps?.[0]?.segments?.[0] : null;
       if (edited) {
         st.sel = edited;
         renderDoc();
-        $(`seg-${edited}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (st.design?.applied) {
+          const seg = st.design.segments.find((s) => s.id === edited);
+          if (seg) seekFrame(seg.from);
+        } else {
+          $(`seg-${edited}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
       } else {
         els.doc.scrollTop = 0;
       }
@@ -817,9 +827,10 @@ function renderDoc() {
           const imgs = box.querySelector(".mg-sc__imgs");
           const vb = box.querySelector(".mg-scene__vars");
           for (const [key, v] of Object.entries(sc.vars || {})) {
-            if (/\.(png|jpe?g|webp|gif|svg|avif)$/i.test(String(v))) {
-              const im = document.createElement("img");
+            if (/\.(png|jpe?g|webp|gif|svg|avif|mp4)$/i.test(String(v))) {
+              const im = document.createElement(/\.mp4$/i.test(String(v)) ? "video" : "img");
               im.src = `${getAgentOrigin()}${API}/assets/${encodeURIComponent(st.pid)}/${String(v).split("/").map(encodeURIComponent).join("/")}`;
+              if (im instanceof HTMLVideoElement) { im.controls = true; im.muted = true; im.preload = "metadata"; }
               im.title = `${key}: ${v}`;
               im.alt = "";
               imgs.appendChild(im);
@@ -906,7 +917,7 @@ function tick() {
   const on = Boolean(st.design?.applied);
   els.pvOff.hidden = on || !st.design;
   renderer.enabled = on;
-  renderer.render(on ? st.design : null, frame, `${st.design?.revision || 0}`);
+  renderer.render(on ? st.design : null, frame, `${st.design?.revision || 0}`, !els.video.paused);
   if (frame === lastFrame) return;
   lastFrame = frame;
   const segs = st.design?.segments || [];

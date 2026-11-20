@@ -97,7 +97,7 @@
               <label class="mg-radio"><input type="radio" name="media" value="photo" checked><span><b data-i18n="mediaPhoto">실사 사진 + 로고</b><small data-i18n="mediaPhotoNote">웹에서 사진·로고·스크린샷을 검색해 받아 씁니다 (출처·라이선스는 credits.json 에 기록)</small></span></label>
               <label class="mg-radio"><input type="radio" name="media" value="logo"><span><b data-i18n="mediaLogo">로고만</b><small data-i18n="mediaLogoNote">회사·제품 로고만 받고, 사진 자리는 영상 화면 캡처로 채웁니다</small></span></label>
               <label class="mg-radio"><input type="radio" name="media" value="emoji"><span><b data-i18n="mediaEmoji">이모지 · 글자만</b><small data-i18n="mediaEmojiNote">웹에서 아무것도 받지 않습니다. 아이콘은 이모지, 사진 자리는 영상 화면 캡처</small></span></label>
-              <label class="mg-radio is-off"><input type="checkbox" disabled><span><b data-i18n="mediaVideo">움직이는 영상 (GIF·클립)</b><small data-i18n="mediaVideoNote">준비 중 — 화면에서 영상을 재생하는 기능이 아직 없습니다</small></span></label>
+              <label class="mg-radio"><input type="radio" name="media" value="video"><span><b data-i18n="mediaVideo">사진 + 짧은 영상</b><small data-i18n="mediaVideoNote">Commons 영상과 Pexels 클립을 검색하고, 없으면 사진·원본 화면으로 대체합니다</small></span></label>
             </div>
           </section>
 
@@ -142,7 +142,7 @@
 
         <div class="mg-steps">
           <button type="button" id="btn-design" class="mg-step" disabled><b>①</b> <span data-i18n="stepDesign">AI 모션 설계서 생성</span></button>
-          <button type="button" id="btn-apply" class="mg-step" disabled><b>②</b> <span data-i18n="stepApply">설계대로 모션그래픽 적용</span></button>
+          <button type="button" id="btn-apply" class="mg-step" disabled><b>②</b> <span data-i18n="stepApply">설계 확인 · 미리보기 열기</span></button>
           <button type="button" id="btn-render" class="mg-step" disabled><b>③</b> <span data-i18n="stepRender">MP4 영상 내보내기</span></button>
           <button type="button" id="btn-open-dir" class="mg-step mg-step--sub" disabled data-i18n-title="openDirTip" title="설계서·받은 이미지·분석 파일이 있는 프로젝트 폴더를 탐색기로 엽니다">📁 <span data-i18n="openDir">프로젝트 폴더 열기</span></button>
         </div>
@@ -312,6 +312,6 @@
   <script type="module" src="../common/agent-update-boot.js?v=4-lna29"></script>
   <script src="../common/site-guard.js?v=23"></script>
   <script src="../silence-remover/mobile-only.js?v=8"></script>
-  <script type="module" src="script.js?v=17"></script>
+  <script type="module" src="script.js?v=18"></script>
 </body>
 </html>

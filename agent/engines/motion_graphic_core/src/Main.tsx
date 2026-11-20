@@ -29,11 +29,11 @@ export const Main: React.FC<MainProps> = ({ design, mediaUrl, startFrame }) => {
         {st.freeze !== null ? <Freeze frame={Math.max(0, st.freeze - startFrame)}>{video}</Freeze> : video}
         <div style={{ position: "absolute", inset: 0 }}>
           {st.fx.map((n, i) => (
-            <NodeTree key={i} node={n} />
+            <NodeTree key={i} node={n} compositionStart={startFrame} />
           ))}
         </div>
       </div>
-      {st.full ? <NodeTree node={st.full} /> : null}
+      {st.full ? <NodeTree node={st.full} compositionStart={startFrame} /> : null}
       <Audio src={mediaUrl} startFrom={startFrame} />
     </AbsoluteFill>
   );

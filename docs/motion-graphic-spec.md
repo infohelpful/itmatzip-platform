@@ -1,7 +1,7 @@
 # 모션그래픽도구 (Motion Graphic Tool) — 명세 v2
 
 - 웹: `web-ui/tools/motion-graphic/` (`tools.itmatzip.com/motion-graphic/`) · 툴 ID `motion-graphic`
-- 사용 흐름: **영상 + SRT → 스타일 프리셋 → ① AI 설계서 → (수정 요청) → ② 설계대로 적용(미리보기) → ③ MP4 내보내기**
+- 사용 흐름: **영상 + SRT → 스타일 프리셋 → ① AI 설계서·자동 품질 검사·미리보기 적용 → (구간 수정) → ③ MP4 내보내기**. ② 버튼은 저장된 설계를 다시 검사하고 미리보기를 연다.
 - 기준 품질: 사용자의 `motion-graphics` 스킬(FULL / OVERLAY / NONE 분석 + 문장별 비트). 사각형에 글자만 띄우는 PPT식 연출 금지.
 
 ## 1. 원칙
@@ -24,7 +24,8 @@
 | Remotion | `src/Main.tsx`, `src/Root.tsx`, `src/components/NodeTree.tsx`, `render.mjs` | 원본(OffthreadVideo) + MG + 오디오를 한 번에 H.264 MP4 로. OVERLAY→FULL 전환 16f 동안 원본 Freeze |
 | 추적 | `agent/engines/motion_graphic_core/track.mjs` | 320×180·10fps 템플릿 매칭(위치 ±28px, 크기 0.9~1.1배), 의존성 없음 |
 | 분석 | `agent/engines/motion_graphic_analyze.py` | 2fps·160×90 프레임 차이 모션, 정지 구간, 화면 급변, 로고 후보, 지시문 파싱·경계 후보 |
-| 설계 | `agent/engines/motion_graphic_design.py` | 설계(AI 1회) · 정규화 · 하이라이트 위치 · 추적 · 수정 요청 · 적용 |
+| 설계 | `agent/engines/motion_graphic_design.py` | 설계(AI 1회) · 정규화 · 하이라이트 위치 · 추적 · 수정 요청 · 적용 · 단계별 소요 시간 |
+| 웹 소재 | `agent/engines/motion_graphic_assets.py` | 장면 맥락별 로고·사진·짧은 영상 후보 검색, 라이선스 검사, 중복 회피, 제한된 병렬 다운로드 |
 | 엔진 | `agent/engines/motion_graphic.py` | `/prepare`(포터블 Node + npm ci + Chrome), 전처리, 렌더 워커(길이 검증 후 `<영상>_모션그래픽_최종.mp4` 복사) |
 | 라우터 | `agent/routers/motion_graphic.py` | `/api/tools/motion-graphic/*` |
 | MCP | `agent/mcp_server.py` | `motion_get_design`, `motion_save_segment`, 프롬프트 `itmatzip-MotionGraphic` |
@@ -92,7 +93,11 @@ cd agent && python -m unittest engines.test_motion_graphic_analyze engines.test_
 ## 8. 남은 것
 
 - 템플릿이 쓰는 글꼴: 미리보기는 Pretendard(웹 폰트), 렌더는 맑은 고딕 — 엔진에 Pretendard 를 넣어 맞춰야 한다.
-- 아이콘은 이모지 1글자 — 스킬의 Phosphor 듀오톤 아이콘·실제 제품 로고(에셋 수집)는 아직 없다.
+- 소재 모드는 사진·로고·이모지·사진+짧은 영상. 영상은 Wikimedia Commons(WebM/Ogg를 12초 이하 무음 MP4로 변환)와 Pexels(기존 API 키가 있을 때)를 검색해 PHOTO_POINTS·IMAGE_CARDS·SHOWCASE에 넣고, 없으면 같은 주제의 사진을 찾는다. 외부 MP4의 오디오는 사용하지 않는다.
+- 설계 저장·적용 전에 구간 연속성, FULL 장면 시작, 자막별 키워드, 이미지 파일 존재 여부를 검사한다. 소재를 못 받은 사진 장면은 내용이 남는 COMPARE·CHECKLIST·STATEMENT 그래픽으로 바꾼다. 원본 영상의 해당 장면에 실제 움직임이 있을 때만 화면 캡처를 소재로 쓴다. 고정 배경화면 캡처는 제거한다.
+- 구간 재설계는 AI 초안을 먼저 저장해 설계서 화면에 보여주고, 웹 소재 다운로드와 하이라이트 추적을 완료한 뒤 최종 설계서를 다시 저장한다. 작업 상태에 AI·소재·추적 소요 시간을 각각 기록한다.
+- 웹 검색 결과의 시각적 적합성은 현재 제목·태그·장면 맥락·출처·해상도로 평가한다. 실제 픽셀의 의미를 판별하는 모델은 아직 연결되지 않았으므로 자동 선택 결과는 사용자가 설계서에서 확인해야 한다.
+- 아이콘은 이모지 1글자 — 스킬의 Phosphor 듀오톤 아이콘은 아직 없다.
 - 14분 영상 전체는 이 구조로 아직 돌려 보지 않았다 (지시대로 30초 샘플로 먼저 관통).
 - Remotion 은 회사·단체 사용 시 유료 라이선스가 필요할 수 있다 (`ITMATZIP_REMOTION_LICENSE_KEY`).
 

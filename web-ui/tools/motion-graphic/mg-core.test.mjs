@@ -153,6 +153,16 @@ test("이미지는 비율을 지킨다: 사진·스크린샷은 contain (cover �
   assert.ok(/"objectFit":"contain"[^}]*"transform"/.test(j) === false, "원본 이미지(contain)에는 확대 변형이 없다");
 });
 
+test("영상 소재는 장면 시작에 맞춘 무음 영상 노드로 나온다", () => {
+  const d = design([{ id: "X", type: "FULL", from: 90, durationInFrames: 210, template: "SHOWCASE",
+    vars: { img: "web/scene.mp4", caption: "움직임" }, beats: [{ frame: 90 }] }]);
+  const j = JSON.stringify(composeFrame(d, 120).full);
+  assert.ok(j.includes('"t":"video"'));
+  assert.ok(j.includes('"asset":"web/scene.mp4"'));
+  assert.ok(j.includes('"startFrame":90'));
+  assert.ok(!j.includes('"t":"img"'), "같은 영상을 배경에 중복 재생하지 않는다");
+});
+
 test("디자인(style)은 문자열(예전 설계서)과 AI 가 만든 객체 모두 해석되고, 잘못된 색은 기본값으로 대체된다", () => {
   const a = resolveStyle("MINT_WAVE");
   assert.equal(a.name, "민트 웨이브");

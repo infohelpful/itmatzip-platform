@@ -257,6 +257,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .mg-sc__imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 5px; }
 .mg-sc__imgs:empty { display: none; }
 .mg-sc__imgs img { height: 46px; max-width: 120px; object-fit: contain; background: #fff; border-radius: 5px; padding: 3px; }
+.mg-sc__imgs video { width: 160px; height: 90px; object-fit: contain; background: #000; border-radius: 5px; }
 
 .mg-tl { cursor: crosshair; touch-action: none; user-select: none; }
 

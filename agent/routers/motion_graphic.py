@@ -224,7 +224,7 @@ def get_ai_clients() -> dict[str, Any]:
 class DesignBody(BaseModel):
     client: str
     style: str | None = None   # 보관함 디자인 id. 없으면 새 디자인
-    media: str = "photo"        # 소재 방식: photo(실사 사진+로고) | logo(로고만) | emoji(웹 다운로드 없음)
+    media: str = "photo"        # 소재 방식: photo | logo | emoji | video(사진+짧은 클립)
     directives: str = Field("", max_length=20000)
     instruction: str = Field("", max_length=2000)
 
@@ -361,18 +361,21 @@ def post_design_cancel(job_id: str) -> dict[str, Any]:
 
 
 _ASSET_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
-                ".svg": "image/svg+xml", ".avif": "image/avif"}
+                ".svg": "image/svg+xml", ".avif": "image/avif", ".mp4": "video/mp4"}
 
 
 @router.get("/assets/{pid}/{name:path}")
 def get_asset(pid: str, name: str) -> FileResponse:
-    """웹에서 받은 로고·사진 (프로젝트 assets 폴더 안의 이미지 파일만)."""
+    """프로젝트 assets 폴더의 이미지·짧은 MP4 소재를 제공한다."""
     _project_or_404(pid)
     root = (mg.project_dir(pid) / "assets").resolve()
     path = (root / name).resolve()
     if root not in path.parents or not path.is_file() or path.suffix.lower() not in _ASSET_TYPES:
         raise HTTPException(status_code=404, detail="에셋을 찾을 수 없습니다.")
-    return FileResponse(path, media_type=_ASSET_TYPES[path.suffix.lower()], headers={"Cache-Control": "max-age=3600"})
+    headers = {"Cache-Control": "max-age=3600", "X-Content-Type-Options": "nosniff"}
+    if path.suffix.lower() == ".svg":
+        headers["Content-Security-Policy"] = "sandbox"
+    return FileResponse(path, media_type=_ASSET_TYPES[path.suffix.lower()], headers=headers)
 
 
 @router.get("/media/{pid}")

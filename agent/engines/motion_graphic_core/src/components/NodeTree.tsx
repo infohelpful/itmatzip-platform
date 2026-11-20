@@ -1,5 +1,5 @@
 import React from "react";
-import { Img, staticFile } from "remotion";
+import { Img, OffthreadVideo, Sequence, staticFile } from "remotion";
 
 /** mg-core.js 가 만든 선언적 노드 {t, s, a, c} 를 React 요소로 바꾼다. */
 export type MgNode = {
@@ -15,11 +15,15 @@ function resolveAsset(src: unknown): string {
   return staticFile(name);
 }
 
-function renderNode(node: MgNode | null, key: string): React.ReactNode {
+function renderNode(node: MgNode | null, key: string, compositionStart: number): React.ReactNode {
   if (!node) return null;
   const style = (node.s || {}) as React.CSSProperties;
   if (node.t === "img") {
     return <Img key={key} style={style} src={resolveAsset(node.a?.src)} />;
+  }
+  if (node.t === "video") {
+    const from = Number(node.a?.startFrame || 0) - compositionStart;
+    return <Sequence key={key} from={from} layout="none"><OffthreadVideo muted src={resolveAsset(node.a?.src)} style={style} /></Sequence>;
   }
   const props: Record<string, unknown> = { key, style };
   if (node.a) {
@@ -33,9 +37,9 @@ function renderNode(node: MgNode | null, key: string): React.ReactNode {
     typeof node.c === "string"
       ? node.c
       : Array.isArray(node.c)
-        ? node.c.map((child, i) => renderNode(child, `${key}.${i}`))
+        ? node.c.map((child, i) => renderNode(child, `${key}.${i}`, compositionStart))
         : undefined;
   return React.createElement(node.t, props, children);
 }
 
-export const NodeTree: React.FC<{ node: MgNode | null }> = ({ node }) => <>{renderNode(node, "n")}</>;
+export const NodeTree: React.FC<{ node: MgNode | null; compositionStart?: number }> = ({ node, compositionStart = 0 }) => <>{renderNode(node, "n", compositionStart)}</>;

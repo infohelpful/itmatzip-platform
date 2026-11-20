@@ -223,16 +223,23 @@ export function isAsset(v) {
   return typeof v === "string" && /\.(png|jpe?g|webp|gif|svg|avif)$/i.test(v.trim());
 }
 
+export function isVideoAsset(v) {
+  return typeof v === "string" && /\.mp4$/i.test(v.trim());
+}
+
 /** 에셋 이미지 노드. 렌더러가 {asset} 을 미리보기 URL / Remotion staticFile 로 바꾼다. */
-function pic(name, style) {
-  return h("img", { display: "block", objectFit: "contain", ...style }, undefined, { src: { asset: String(name).trim() } });
+function pic(name, style, startFrame = 0) {
+  const src = { asset: String(name).trim() };
+  if (isVideoAsset(name)) return h("video", { display: "block", objectFit: "contain", ...style }, undefined, { src, startFrame });
+  return h("img", { display: "block", objectFit: "contain", ...style }, undefined, { src });
 }
 
 /**
  * 비율을 지키는 이미지 칸: 원본 비율 그대로 contain(잘림·왜곡 없음) + 남는 여백은 같은 이미지를 흐리게 깐 배경으로 채운다.
  * 부모는 position:absolute/relative 여야 한다.
  */
-function framedPic(name, local, dur) {
+function framedPic(name, local, dur, startFrame = 0) {
+  if (isVideoAsset(name)) return [pic(name, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "contain" }, startFrame)];
   const k = interpolate(local, [0, Math.max(30, dur)], [1.12, 1.22], { easing: Easing.inOutCubic });
   return [
     pic(name, { position: "absolute", left: 0, top: 0, width: "100%", height: "100%", objectFit: "cover", filter: "blur(28px) brightness(0.55)", transform: `scale(${k})` }),
@@ -538,7 +545,7 @@ T.PHOTO_POINTS = {
       out.push(h("div", abs(160 * u, 230 * u, 760 * u, 600 * u, {
         borderRadius: 26 * u, overflow: "hidden", border: `${1.5 * u}px solid rgba(255,255,255,0.22)`, boxShadow: `0 ${24 * u}px ${60 * u}px rgba(0,0,0,0.5)`,
         opacity: a.o * c.out, transform: `translateX(${(1 - a.p) * -40 * u}px)`,
-      }), framedPic(v.img, c.sl(0), c.dur)));
+      }), framedPic(v.img, c.sl(0), c.dur, c.t - c.sl(0))));
     }
     [1, 2, 3].filter((i) => v[`p${i}`]).forEach((i, k) => {
       out.push(glass(c, 980 * u, (250 + k * 196) * u, 780 * u, 172 * u, c.sl(k + 1), [
@@ -575,7 +582,7 @@ T.IMAGE_CARDS = {
         opacity: a.o * c.out * (on ? 1 : 0.6), transform: `translateY(${(1 - a.p) * 40 * u}px) scale(${on ? 1.03 : 0.97})`,
         display: "flex", flexDirection: "column",
       }), [
-        h("div", { flex: 1, overflow: "hidden", background: "#0b1220", position: "relative" }, v[`img${i}`] ? framedPic(v[`img${i}`], local, 240) : []),
+        h("div", { flex: 1, overflow: "hidden", background: "#0b1220", position: "relative" }, v[`img${i}`] ? framedPic(v[`img${i}`], local, 240, c.t - local) : []),
         h("div", { padding: `${16 * u}px ${20 * u}px`, display: "flex", flexDirection: "column", gap: 4 * u }, [title(c, v[`t${i}`], 32, 16), sub(c, v[`s${i}`], 22, 24)]),
       ]));
     });
@@ -658,7 +665,7 @@ T.SHOWCASE = {
       v.img ? h("div", abs((W - iw) / 2, 220 * u, iw, ih, {
         borderRadius: 20 * u, overflow: "hidden", border: `${1.5 * u}px solid ${C.accent}66`, boxShadow: `0 ${30 * u}px ${80 * u}px rgba(0,0,0,0.6), 0 0 ${50 * u}px ${C.sky}44`,
         opacity: a.o * c.out, transform: `perspective(1600px) rotateX(${tilt}deg) scale(${0.92 + a.p * 0.08})`, background: "#0b1220",
-      }), framedPic(v.img, c.sl(0), c.dur)) : null,
+      }), framedPic(v.img, c.sl(0), c.dur, c.t - c.sl(0))) : null,
       kinetic(c, v.caption, c.sl(1), { y: 830, size: 40 }),
       chip(c, v.chip, W / 2, 140 * u, c.sl(2))];
   },

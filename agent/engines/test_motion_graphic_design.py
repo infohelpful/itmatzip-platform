@@ -16,6 +16,13 @@ def design(segments):
 
 
 class DesignTests(unittest.TestCase):
+    def test_full_with_no_valid_beats_still_gets_a_scene(self):
+        seg = {"id": "A", "type": "FULL", "from": 0, "durationInFrames": 270, "title": "설명"}
+        out = mgd.normalize_segment({"scenes": [{"template": "PHOTO_POINTS", "beats": [], "vars": {}}]},
+                                    seg, subs(), mgd.catalog())
+        self.assertEqual(out["scenes"][0]["template"], "STATEMENT")
+        self.assertEqual(out["scenes"][0]["beats"][0]["frame"], 0)
+
     def test_overlay_beat_until_is_sentence_end(self):
         seg = {"id": "C", "type": "OVERLAY", "from": 0, "durationInFrames": 270}
         out = mgd.normalize_segment({"beats": [{"sub": 2, "fx": "zoom", "target": [10, 10, 50, 20]}, {"sub": 3, "fx": "ring", "target": [1, 1, 5, 5]}]},
@@ -109,11 +116,18 @@ class HistoryTests(unittest.TestCase):
 
 
 class MediaTests(unittest.TestCase):
+    def test_unused_asset_requests_are_skipped(self):
+        d = {"segments": [{"scenes": [{"vars": {"img": "asset:used"}}]}]}
+        wanted = [{"id": "used", "q": "RAM"}, {"id": "unused", "q": "screen"}]
+        self.assertEqual(mgd._referenced_assets(d, wanted), wanted[:1])
+
     def test_media_modes_filter_downloads_in_code(self):
-        wanted = [{"id": "a", "q": "Windows 11 logo", "kind": "logo"}, {"id": "b", "q": "laptop desk", "kind": "photo"}, {"id": "c", "q": "ui", "kind": "screenshot"}]
+        wanted = [{"id": "a", "q": "Windows 11 logo", "kind": "logo"}, {"id": "b", "q": "laptop desk", "kind": "photo"},
+                  {"id": "c", "q": "ui", "kind": "screenshot"}, {"id": "d", "q": "laptop motion", "kind": "video"}]
         self.assertEqual(len(mgd.filter_assets(wanted, "photo")), 3)
         self.assertEqual([a["id"] for a in mgd.filter_assets(wanted, "logo")], ["a"])
         self.assertEqual(mgd.filter_assets(wanted, "emoji"), [])  # 웹에서 아무것도 받지 않는다
+        self.assertEqual(len(mgd.filter_assets(wanted, "video")), 4)
 
     def test_unfetched_assets_fall_back_sensibly(self):
         d = {"segments": [{"scenes": [{"vars": {"logo1": "asset:a", "i1": "asset:b", "img": "asset:c", "logo2": "asset:d"}}]}]}
@@ -129,6 +143,7 @@ class MediaTests(unittest.TestCase):
         self.assertIn("웹에서 이미지를 받지 않습니다", mgd.design_prompt(an, None, "", "", "emoji"))
         self.assertIn("kind 가 logo 인 것만", mgd.design_prompt(an, None, "", "", "logo"))
         self.assertNotIn("소재 규칙", mgd.design_prompt(an, None, "", "", "photo"))
+        self.assertIn("kind=video", mgd.design_prompt(an, None, "", "", "video"))
         d = design([{"id": "A", "type": "FULL", "from": 0, "durationInFrames": 300, "beats": []}])
         base = mgd.edit_prompt(d, d["segments"], subs(), "문구 바꿔줘", 0, 300, None)
         more = mgd.edit_prompt(d, d["segments"], subs(), "문구 바꿔줘", 0, 300, None, True)
@@ -137,6 +152,10 @@ class MediaTests(unittest.TestCase):
 
 
 class RedesignTests(unittest.TestCase):
+    def test_tracking_stops_at_sentence_or_next_beat(self):
+        self.assertEqual(mgd._tracking_end({"frame": 100, "until": 160, "fx": "zoom"}, 300, 900), 174)
+        self.assertEqual(mgd._tracking_end({"frame": 100, "until": 200, "fx": "zoom"}, 130, 900), 130)
+
     def test_detail_mode_prompt(self):
         d = design([{"id": "A", "type": "FULL", "from": 0, "durationInFrames": 300, "beats": []}])
         base = mgd.edit_prompt(d, d["segments"], subs(), "다시", 0, 300, None)
@@ -145,6 +164,108 @@ class RedesignTests(unittest.TestCase):
         self.assertIn("디테일 재설계", det)
         self.assertIn("keys", det)      # 장면마다 문장별 키워드
         self.assertIn("zoom 비트를 연달아", det)  # OVERLAY 연속 확대
+
+    def test_edit_prompt_omits_old_tracking_path(self):
+        d = design([{"id": "C", "type": "OVERLAY", "from": 0, "durationInFrames": 300,
+                    "beats": [{"frame": 10, "fx": "zoom", "target": [10, 10, 40, 30], "track": [[10, 10, 10, 40, 30]] * 100}]}])
+        prompt = mgd.edit_prompt(d, d["segments"], subs(), "다시", 0, 300, None)
+        self.assertIn('"target": [10, 10, 40, 30]', prompt)
+        self.assertNotIn('"track"', prompt)
+
+
+class QualityGateTests(unittest.TestCase):
+    def test_initial_design_is_checked_and_applied_automatically(self):
+        import json
+        import os
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+        from engines import motion_graphic as mg
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.environ.get("ITMATZIP_MOTION_PROJECTS")
+            os.environ["ITMATZIP_MOTION_PROJECTS"] = tmp
+            try:
+                pid = "mg_20261121_000001_abcd"
+                root = Path(tmp) / pid
+                root.mkdir()
+                (root / "project.json").write_text(json.dumps({"id": pid, "video_path": "unused.mp4"}), encoding="utf-8")
+                an = {"duration_sec": 9, "duration_frames": 270, "fps": {"num": 30, "den": 1, "value": 30.0},
+                      "width": 1920, "height": 1080, "static_runs": [],
+                      "subs": {str(n): {**s, "mean": .01, "moving": 0} for n, s in subs().items()}}
+                (root / "analysis.json").write_text(json.dumps(an), encoding="utf-8")
+                answer = {"segments": [{"id": "A", "type": "FULL", "start_sec": 0, "title": "램 선택",
+                             "scenes": [{"template": "SHOWCASE", "vars": {"header": "램 선택", "caption": "16GB", "img": "asset:missing"},
+                                         "beats": [1]}]}],
+                          "assets": [{"id": "missing", "q": "DDR5 RAM", "kind": "photo"}]}
+                job = "quality-test"
+                mgd._jobs[job] = {"cancel": False, "steps": [{"key": k, "state": "queued"}
+                    for k in ("analyze", "design", "assets", "locate")]}
+                with mock.patch.object(mgd, "_cli", return_value=answer), \
+                     mock.patch.object(mgd.mgassets, "fetch", side_effect=RuntimeError("offline")), \
+                     mock.patch.object(mgd, "locate_targets", return_value=0), \
+                     mock.patch.object(mgd, "track_targets", return_value=0), \
+                     mock.patch.object(mgd, "_thumbs"):
+                    mgd._run_design(job, pid, "codex", None, "", "")
+                saved = mgd.load_design(pid)
+                self.assertTrue(saved["applied"])
+                self.assertEqual(saved["segments"][0]["scenes"][0]["template"], "STATEMENT")
+                self.assertEqual(saved["quality"]["graphic_fallbacks"], 1)
+                mgd.validate_design(saved)
+            finally:
+                mgd._jobs.pop("quality-test", None)
+                if old is None:
+                    os.environ.pop("ITMATZIP_MOTION_PROJECTS", None)
+                else:
+                    os.environ["ITMATZIP_MOTION_PROJECTS"] = old
+
+    def test_static_source_frames_become_content_graphics_and_keys_are_filled(self):
+        scene = {"template": "IMAGE_CARDS", "vars": {"header": "램 선택", "t1": "용량표", "t2": "후기",
+                 "s1": "어려운 사양", "s2": "제각각인 의견", "img1": "frames/one.jpg", "img2": "frames/two.jpg"},
+                 "beats": [{"sub": 1, "frame": 0}], "keys": [{"sub": 1, "frame": 0, "text": "램 선택"}]}
+        d = design([{"id": "A", "type": "FULL", "from": 0, "durationInFrames": 270, "title": "램 선택",
+                     "scenes": [scene], "beats": scene["beats"]}])
+        d["durationInFrames"] = 270
+        an = {"subs": {str(n): {**s, "mean": .04, "moving": 0.0} for n, s in subs().items()}}
+        report = mgd.finalize_design(d, an)
+        self.assertEqual(report["stale_frames_removed"], 2)
+        self.assertEqual(report["graphic_fallbacks"], 1)
+        self.assertEqual(report["keys_added"], 2)
+        self.assertEqual(scene["template"], "COMPARE")
+        self.assertEqual(scene["vars"]["left"], "용량표")
+        self.assertEqual([k["sub"] for k in scene["keys"]], [1, 2, 3])
+        mgd.validate_design(d)
+
+    def test_apply_repairs_existing_static_project_without_video_capture(self):
+        import json
+        import os
+        import tempfile
+        from pathlib import Path
+        from engines import motion_graphic as mg
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.environ.get("ITMATZIP_MOTION_PROJECTS")
+            os.environ["ITMATZIP_MOTION_PROJECTS"] = tmp
+            try:
+                pid = "mg_20261121_000000_abcd"
+                root = Path(tmp) / pid
+                root.mkdir()
+                (root / "project.json").write_text(json.dumps({"id": pid, "video_path": "unused.mp4"}), encoding="utf-8")
+                an = {"subs": {str(n): {**s, "mean": .01, "moving": 0} for n, s in subs().items()}}
+                (root / "analysis.json").write_text(json.dumps(an), encoding="utf-8")
+                sc = {"template": "SHOWCASE", "vars": {"header": "RAM", "caption": "16GB", "img": "frames/missing.jpg"},
+                      "beats": [{"sub": 1, "frame": 0}]}
+                d = design([{"id": "A", "type": "FULL", "from": 0, "durationInFrames": 270,
+                             "scenes": [sc], "beats": sc["beats"]}])
+                d["durationInFrames"] = 270
+                mg._write_json(root / "design.json", d)
+                got = mgd.apply(pid)
+                self.assertTrue(got["applied"])
+                self.assertEqual(got["segments"][0]["scenes"][0]["template"], "STATEMENT")
+                self.assertEqual(got["quality"]["graphic_fallbacks"], 1)
+            finally:
+                if old is None:
+                    os.environ.pop("ITMATZIP_MOTION_PROJECTS", None)
+                else:
+                    os.environ["ITMATZIP_MOTION_PROJECTS"] = old
 
 
 class FetchRetryTests(unittest.TestCase):

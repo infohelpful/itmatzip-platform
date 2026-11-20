@@ -4,6 +4,7 @@
   1. 영상 + SRT 업로드 → 전처리(motion_graphic.py): 화면 움직임·정지 구간·로고 후보 (토큰 0)
   2. 스타일 프리셋 선택 (mg-core.js STYLES)
   3. 설계하기: AI CLI 1회 호출 → 구간 FULL/OVERLAY/NONE + FULL 템플릿·문구 + 비트(자막 번호) + OVERLAY 효과 종류
+     → 자막·장면·소재 품질 검사와 자동 보정
      · 카메라·좌표는 AI 가 정하지 않는다. FULL 은 템플릿 코드가, OVERLAY 하이라이트 위치는 화면 변화 측정(로컬)이 정한다.
   4. 수정 요청: 「이 구간/지금 시점 ○○ 해줘」 → 그 구간 JSON 만 AI 가 고침 (전체 재실행 없음)
   5. 설계대로 적용 → 미리보기 (mg-core.js composeFrame, 렌더와 같은 코드)
@@ -35,20 +36,24 @@ from engines import motion_graphic_ctx as mgx
 TYPES = ("FULL", "OVERLAY", "NONE")
 
 # 소재 방식 — 이미지·아이콘을 어떻게 구하나. 프롬프트로 부탁하는 것에 더해 코드가 다운로드를 직접 걸러낸다.
-MEDIA_MODES = ("photo", "logo", "emoji")
-QUERY_RULES = ("검색어 규칙(중요): q 는 자막에 나온 구체적인 고유명사의 정확한 영문 이름 1~4단어입니다(예: 「Corsair logo」, 「DDR5 SDRAM」, "
-                "「Apollo Guidance Computer」, 「Windows 11 Start menu」). 설명문·형용사·사양표·표·차트·포럼 댓글·데이터센터 같은 추상 장면은 "
-                "웹에 맞는 사진이 없으니 요청하지 마세요 — 그런 자리는 STATEMENT·NUMBER·COMPARE·CHECKLIST 같은 글자 템플릿으로 만드세요. "
-                "받은 이미지는 코드가 제목으로 검증해 맞지 않으면 버립니다.\n")
+MEDIA_MODES = ("photo", "logo", "emoji", "video")
+QUERY_RULES = ("검색어 규칙(중요): 로고·제품·앱 화면의 q 는 정확한 영문 고유명사 1~4단어(예: 「Corsair logo」, 「Windows 11 Start menu」). "
+                "사진·영상의 q 는 실제 화면에 보일 대상과 행동을 2~5단어로(예: 「server rack closeup」, 「person using laptop」). "
+                "context 에는 이 장면에서 보여줘야 할 구체적 시각 요소를 영문으로 적습니다. 추상적인 사양표·차트·포럼 댓글은 "
+                "억지 스톡 사진으로 채우지 말고 NUMBER·COMPARE·CHECKLIST 같은 그래픽 템플릿을 쓰세요. "
+                "사진·영상은 장면 내용과 직접 맞을 때만 요청하고, 같은 이미지를 반복 요청하지 마세요.\n")
 
 
 MEDIA_RULES = {
     "photo": "",
+    "video": "소재 규칙: 로고·사진·스크린샷을 기본으로 쓰되, 움직임 자체가 설명에 도움이 되는 FULL 장면 1~3곳에만 "
+             "kind=video 를 요청하세요. 영상은 PHOTO_POINTS·IMAGE_CARDS·SHOWCASE 의 img 자리에만 넣고 아이콘·로고 자리에는 넣지 마세요. "
+             "영상 후보가 없으면 같은 주제의 사진으로 대체됩니다.\n\n",
     "logo": "소재 규칙(위 이미지 지침보다 우선): assets 에는 kind 가 logo 인 것만 적으세요(회사·제품·앱 로고). 사진·스크린샷은 요청하지 마세요 — "
-            "사진 자리는 영상 화면 캡처가 자동으로 채웁니다. 아이콘 변수는 이모지로 채워도 됩니다.\n\n",
+            "사진 자리는 원본 화면에 실제 조작이 있을 때만 캡처하고, 그 밖에는 그래픽 장면으로 바뀝니다. 아이콘 변수는 이모지로 채워도 됩니다.\n\n",
     "emoji": "소재 규칙(위 이미지 지침보다 우선): 웹에서 이미지를 받지 않습니다. assets 는 빈 배열 [] 로 두고 vars 에 asset: 을 쓰지 마세요. "
             "아이콘 변수(i1, left_icon 등)는 이모지 1개로, 로고 자리(logo1…)에는 회사·제품 이름 글자를 넣으세요. "
-            "사진이 필요한 자리는 영상 화면 캡처가 자동으로 채웁니다.\n\n",
+            "사진이 필요한 자리는 원본 화면에 실제 조작이 있을 때만 캡처하고, 그 밖에는 그래픽 장면으로 바뀝니다.\n\n",
 }
 
 
@@ -58,6 +63,8 @@ def filter_assets(wanted: list[dict[str, Any]], media: str) -> list[dict[str, An
         return []
     if media == "logo":
         return [a for a in wanted if str(a.get("kind") or "").lower() == "logo"]
+    if media == "photo":
+        return [a for a in wanted if str(a.get("kind") or "").lower() != "video"]
     return wanted
 LEAD_FRAMES = 3
 _CALL_TIMEOUT = 600
@@ -166,9 +173,11 @@ def design_prompt(analysis: dict[str, Any], style_ref: dict[str, Any] | None, di
         "화면이 반응하도록 설계하세요.\n"
         "   실제 이미지를 적극 쓰세요: 회사·제품·앱 이름이 나오면 로고(LOGO_SLAM, COMPARE·HUB·STEPS 의 아이콘 자리), "
         "상황 설명은 사진(PHOTO_POINTS), 기능 소개는 스크린샷(IMAGE_CARDS, SHOWCASE). 필요한 이미지는 맨 위 assets 에 "
-        "{\"id\": \"영문_소문자\", \"q\": \"영문 검색어\", \"kind\": \"logo|photo|screenshot\"} 로 적고(최대 16개, 로고는 "
+        "{\"id\": \"영문_소문자\", \"q\": \"영문 검색어\", \"kind\": \"logo|photo|screenshot|video\", \"context\": \"장면에 필요한 구체적 시각 요소(영문)\"} 로 적고(최대 16개, 로고는 "
         "「Windows 11 logo」처럼 정확한 이름), vars 에는 \"asset:id\" 로 넣습니다. 아이콘 변수는 이모지 1개 또는 asset:id. "
         "설정·레지스트리·앱 화면 설명은 APP_WINDOW 로 창을 재현합니다.\n"
+        "   이미지 템플릿을 고를 때는 반드시 해당 장면 자막에 직접 맞는 소재를 assets 에 요청하세요. 원본이 고정 배경화면이면 사진 대용으로 쓸 수 없습니다. "
+        "확실한 소재를 구하기 어려운 추상적인 설명은 처음부터 NUMBER·COMPARE·CHECKLIST 같은 그래픽 템플릿으로 설계하세요.\n"
         "3) OVERLAY 구간: beats = [{\"sub\": 자막번호, \"fx\": overlay_fx 중 하나}] — 조작·클릭·중요 UI 가 나오는 문장에만. "
         "위치는 프로그램이 화면 변화로 찾으니 적지 않습니다. 메일 주소 등 개인정보가 나온다는 지시가 있으면 blur.\n"
         "4) NONE: beats 없음.\n\n"
@@ -177,7 +186,7 @@ def design_prompt(analysis: dict[str, Any], style_ref: dict[str, Any] | None, di
         + (f"사용자 추가 요청: {instruction}\n\n" if instruction else "")
         + "답 형식:\n"
         '{"style": {"name": "…", "colors": {…}, "bg": "grid", "energy": 1.0, "reason": "…"} (보관함 디자인이 고정이면 생략),\n'
-        ' "assets": [{"id": "win11_logo", "q": "Windows 11 logo", "kind": "logo"}, {"id": "desk", "q": "laptop desk working", "kind": "photo"}],\n'
+        ' "assets": [{"id": "win11_logo", "q": "Windows 11 logo", "kind": "logo", "context": "Windows search interface"}, {"id": "desk", "q": "laptop desk working", "kind": "photo", "context": "slow computer at desk"}],\n'
         ' "segments": [\n'
         ' {"id": "A", "type": "FULL", "chapter": "오프닝", "title": "검색창 개편 소개", "start_sec": 0, "reason": "…", "scenes": [\n'
         '   {"template": "PHOTO_POINTS", "vars": {"img": "asset:desk", "p1": "느린 반응 속도", "i1": "⏳", "p2": "불필요한 웹 검색", "i2": "asset:bing_logo", "p3": "광고 노출", "i3": "📢"}, "beats": [1, 1, 2, 3], "keys": [{"sub": 1, "text": "검색창 불편"}, {"sub": 2, "text": "느린 반응"}, {"sub": 3, "text": "광고"}]},\n'
@@ -295,7 +304,7 @@ def _scene(raw: dict[str, Any], seg: dict[str, Any], subs: dict[int, dict[str, A
 
 
 def resolve_assets(design: dict[str, Any], found: dict[str, str], queries: dict[str, str] | None = None) -> int:
-    """vars 의 asset:id 를 받은 파일 경로(web/…)로 바꾼다. 못 받은 로고는 브랜드 이름 글자로, 사진은 비워 두어 영상 화면 캡처로 채운다."""
+    """vars 의 asset:id 를 받은 파일 경로(web/…)로 바꾼다. 못 받은 사진은 비워 두고 장면 품질 검사에서 처리한다."""
     n = 0
     for seg in design["segments"]:
         for sc in seg.get("scenes") or []:
@@ -330,7 +339,9 @@ def normalize_segment(raw: dict[str, Any], seg: dict[str, Any], subs: dict[int, 
             [{"template": raw.get("template"), "vars": raw.get("vars"), "beats": raw.get("beats")}]
         scenes = [sc for sc in (_scene(r, seg, subs, cat) for r in raw_scenes if isinstance(r, dict)) if sc]
         if not scenes:
-            scenes = [_scene({"template": "STATEMENT", "vars": {"text": out["title"]}}, seg, subs, cat)]
+            first_sub = next((n for n, sub in sorted(subs.items()) if seg["from"] <= sub["s"] < seg["from"] + seg["durationInFrames"]), None)
+            scenes = [{"template": "STATEMENT", "vars": {"text": out["title"] or "핵심 내용"},
+                       "beats": [{"sub": first_sub, "frame": seg["from"]}]}]
         scenes.sort(key=lambda sc: sc["beats"][0]["frame"])
         scenes[0]["beats"][0]["frame"] = seg["from"]  # 첫 장면은 구간 시작부터
         # 장면 시작이 겹치면 뒤 장면을 버린다 (같은 프레임에 두 장면 금지)
@@ -440,6 +451,12 @@ def locate_targets(pid: str, design: dict[str, Any], only: set[str] | None = Non
     return found
 
 
+def _tracking_end(beat: dict[str, Any], next_frame: int, segment_end: int) -> int:
+    """다음 비트나 현재 문장 종료 뒤에는 이 대상의 추적이 필요하지 않다."""
+    visual_end = int(beat.get("until") or next_frame) + (14 if beat.get("fx") == "zoom" else 0)
+    return min(segment_end, max(beat["frame"] + 15, min(visual_end, next_frame)))
+
+
 def track_targets(pid: str, design: dict[str, Any], only: set[str] | None = None) -> int:
     """대상이 정해진 OVERLAY 비트마다 원본 화면 움직임을 따라가는 경로를 만든다 (Node track.mjs, 의존성 없음)."""
     node = mg.node_exe()
@@ -457,9 +474,12 @@ def track_targets(pid: str, design: dict[str, Any], only: set[str] | None = None
             if not b.get("target"):
                 continue
             nxt = next((x["frame"] for x in beats[i + 1:] if x["frame"] > b["frame"]), end_seg)
-            end = end_seg if b["fx"] == "zoom" else min(end_seg, max(nxt, b["frame"] + 30), b["frame"] + 150)
+            # 효과가 끝난 뒤까지 추적하면 긴 구간의 확대 비트마다 영상을 반복 디코딩한다.
+            end = _tracking_end(b, nxt, end_seg)
             key = f"{seg['id']}:{i}"
             start = min(b["frame"], int(b.get("target_frame", b["frame"])))  # 위치를 잰 프레임부터 따라간다
+            if end <= start or b.get("track"):
+                continue
             items.append({"key": key, "start": round(start / fps, 3), "end": round(end / fps, 3), "box": b["target"]})
             refs[key] = b
     if not items:
@@ -640,15 +660,146 @@ def save_segment(pid: str, sid: str, raw: dict[str, Any]) -> dict[str, Any]:
 _IMG_VARS = {"PHOTO_POINTS": ["img"], "IMAGE_CARDS": ["img1", "img2", "img3"], "SHOWCASE": ["img"]}
 
 
-def fill_missing_images(pid: str, design: dict[str, Any]) -> int:
-    """사진·스크린샷 자리가 비었으면(웹에서 못 받음) 원본 영상의 그 장면 화면을 캡처해 채운다 — 영상 내용과 항상 맞는다."""
+def _scene_subtitles(subs: dict[int, dict[str, Any]], start: int, end: int) -> list[tuple[int, dict[str, Any]]]:
+    return [(n, sub) for n, sub in sorted(subs.items()) if start <= int(sub["s"]) < end]
+
+
+def _source_frame_useful(subs: dict[int, dict[str, Any]], start: int, end: int) -> bool:
+    """고정 배경화면 같은 원본을 소재로 재사용하지 않는다."""
+    relevant = _scene_subtitles(subs, start, end)
+    return any(float(s.get("mean") or 0) >= 1 and float(s.get("moving") or 0) >= .1 for _, s in relevant)
+
+
+def _graphic_fallback(scene: dict[str, Any], seg: dict[str, Any], cat: dict[str, Any]) -> None:
+    """사진을 구하지 못한 장면을 같은 메시지의 그래픽 장면으로 바꾼다."""
+    old = scene["vars"]
+    typ = scene["template"]
+    if typ == "PHOTO_POINTS" and any(old.get(f"p{i}") for i in range(1, 4)):
+        new_type = "CHECKLIST"
+        new_vars = {"header": (scene.get("keys") or [{}])[0].get("text") or seg.get("title") or "핵심 내용"}
+        new_vars.update({f"c{i}": " · ".join(filter(None, (old.get(f"p{i}"), old.get(f"d{i}"))))
+                         for i in range(1, 4) if old.get(f"p{i}") or old.get(f"d{i}")})
+    elif typ == "IMAGE_CARDS" and old.get("t1") and old.get("t2"):
+        new_type = "COMPARE"
+        new_vars = {"header": old.get("header") or seg.get("title") or "비교", "left": old["t1"],
+                    "left_sub": old.get("s1", ""), "right": old["t2"], "right_sub": old.get("s2", ""),
+                    "verdict": old.get("t3", "")}
+    else:
+        new_type = "STATEMENT"
+        new_vars = {"header": old.get("header") or seg.get("title") or "핵심 내용",
+                    "text": old.get("caption") or old.get("t1") or (scene.get("keys") or [{}])[0].get("text") or seg.get("title") or "핵심 내용",
+                    "chip": old.get("chip") or old.get("s1") or ""}
+    meta = next(t for t in cat["templates"] if t["id"] == new_type)
+    scene["template"] = new_type
+    scene["vars"] = {k: str(v)[:meta["max"][k]] for k, v in new_vars.items() if k in meta["vars"] and v}
+    scene["beats"] = scene["beats"][:len(meta["slots"])]
+
+
+def finalize_design(design: dict[str, Any], analysis: dict[str, Any]) -> dict[str, int]:
+    """설계 저장·적용 전에 자막 반응과 소재를 보정하고 결과를 기록한다."""
+    subs = _subs(analysis)
+    cat = catalog()
+    report = {"keys_added": 0, "graphic_fallbacks": 0, "stale_frames_removed": 0}
+    for seg in design["segments"]:
+        if seg["type"] != "FULL":
+            continue
+        scenes = [sc for sc in seg.get("scenes") or [] if sc.get("beats") and
+                  isinstance(sc["beats"][0].get("frame"), int) and
+                  seg["from"] <= sc["beats"][0]["frame"] < seg["from"] + seg["durationInFrames"]]
+        scenes.sort(key=lambda sc: sc["beats"][0]["frame"])
+        scenes = [sc for i, sc in enumerate(scenes) if i == 0 or sc["beats"][0]["frame"] > scenes[i - 1]["beats"][0]["frame"]]
+        if not scenes:
+            first = _scene_subtitles(subs, seg["from"], seg["from"] + seg["durationInFrames"])
+            scenes = [{"template": "STATEMENT", "vars": {"text": seg.get("title") or "핵심 내용"},
+                       "beats": [{"sub": first[0][0] if first else None, "frame": seg["from"]}]}]
+        scenes[0]["beats"][0]["frame"] = seg["from"]
+        seg["scenes"] = scenes
+        for i, scene in enumerate(scenes):
+            start = scene["beats"][0]["frame"]
+            end = scenes[i + 1]["beats"][0]["frame"] if i + 1 < len(scenes) else seg["from"] + seg["durationInFrames"]
+            relevant = _scene_subtitles(subs, start, end)
+            existing = {k.get("sub") for k in scene.get("keys") or []}
+            for n, sub in relevant:
+                if n not in existing:
+                    text = re.sub(r"\s+", " ", str(sub.get("t") or "")).strip(" .,!?…")[:14]
+                    scene.setdefault("keys", []).append({"sub": n, "frame": max(start, int(sub["s"]) - LEAD_FRAMES),
+                                                         "text": text or seg.get("title") or "핵심 내용"})
+                    report["keys_added"] += 1
+            if scene.get("keys"):
+                scene["keys"].sort(key=lambda k: k["frame"])
+            names = _IMG_VARS.get(scene["template"])
+            if not names:
+                continue
+            useful = _source_frame_useful(subs, start, end)
+            for name in names:
+                value = scene["vars"].get(name)
+                if isinstance(value, str) and value.startswith("frames/") and not useful:
+                    del scene["vars"][name]
+                    report["stale_frames_removed"] += 1
+            required = [name for name in names if scene["template"] != "IMAGE_CARDS" or scene["vars"].get("t" + name[-1])]
+            if not required or any(not scene["vars"].get(name) for name in required):
+                _graphic_fallback(scene, seg, cat)
+                report["graphic_fallbacks"] += 1
+        seg["beats"] = [b for sc in scenes for b in sc["beats"]]
+    design["quality"] = report
+    return report
+
+
+def _referenced_assets(design: dict[str, Any], wanted: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    used = {v[6:] for seg in design["segments"] for sc in seg.get("scenes") or []
+            for v in sc.get("vars", {}).values() if isinstance(v, str) and v.startswith("asset:")}
+    return [item for item in wanted if str(item.get("id") or "") in used]
+
+
+def discard_missing_media(pid: str, design: dict[str, Any]) -> int:
+    """파일이 없거나 프로젝트 밖을 가리키는 이미지 참조를 제거한다."""
+    root = (mg.project_dir(pid) / "assets").resolve()
+    removed = 0
+    for seg in design["segments"]:
+        for scene in seg.get("scenes") or []:
+            for name, value in list(scene.get("vars", {}).items()):
+                if not isinstance(value, str) or not value.startswith(("web/", "frames/", "user/")):
+                    continue
+                path = (root / value).resolve()
+                if not path.is_relative_to(root) or not path.is_file():
+                    del scene["vars"][name]
+                    removed += 1
+    return removed
+
+
+def validate_design(design: dict[str, Any]) -> None:
+    """적용 가능한 타임라인인지 확인한다. 자동 보정 후에도 남은 오류는 적용을 막는다."""
+    end = 0
+    for seg in design["segments"]:
+        start = int(seg["from"])
+        stop = start + int(seg["durationInFrames"])
+        if start != end or stop <= start:
+            raise ValueError("설계 구간이 비거나 겹칩니다.")
+        end = stop
+        if seg["type"] == "FULL":
+            scenes = seg.get("scenes") or []
+            if not scenes or scenes[0]["beats"][0]["frame"] != start:
+                raise ValueError(f"{seg['id']} 구간에 시작 장면이 없습니다.")
+            if any(not sc.get("beats") or not start <= sc["beats"][0]["frame"] < stop for sc in scenes):
+                raise ValueError(f"{seg['id']} 구간의 장면 시간이 잘못됐습니다.")
+        if any(isinstance(v, str) and v.startswith("asset:") for sc in seg.get("scenes") or [] for v in sc.get("vars", {}).values()):
+            raise ValueError(f"{seg['id']} 구간에 받지 못한 이미지 참조가 남아 있습니다.")
+    if end != int(design["durationInFrames"]):
+        raise ValueError("설계가 영상 끝까지 이어지지 않습니다.")
+
+
+def fill_missing_images(pid: str, design: dict[str, Any], analysis: dict[str, Any] | None = None) -> int:
+    """장면에 실제 움직임이 있는 경우에만 원본 화면을 소재로 캡처한다."""
+    analysis = analysis or ensure_analysis(pid)
+    subs = _subs(analysis)
     video = Path(mg.load_project(pid)["video_path"])
     fps = float(Fraction(design["fps"]["num"], design["fps"]["den"]))
     out_dir = mg.project_dir(pid) / "assets" / "frames"
     out_dir.mkdir(parents=True, exist_ok=True)
     filled = 0
     for seg in design["segments"]:
-        for sc in seg.get("scenes") or []:
+        scenes = seg.get("scenes") or []
+        for i, sc in enumerate(scenes):
             names = _IMG_VARS.get(sc["template"])
             if not names:
                 continue
@@ -659,8 +810,10 @@ def fill_missing_images(pid: str, design: dict[str, Any]) -> int:
             if not want:
                 continue
             start = sc["beats"][0]["frame"]
-            end = seg["from"] + seg["durationInFrames"]
-            span = max(30, min(end - start, 300))
+            end = scenes[i + 1]["beats"][0]["frame"] if i + 1 < len(scenes) else seg["from"] + seg["durationInFrames"]
+            if not _source_frame_useful(subs, start, end):
+                continue
+            span = max(1, min(end - start, 300))
             for k, name in enumerate(want):
                 t = (start + span * (k + 1) / (len(want) + 1)) / fps
                 path = out_dir / f"f_{int(round(t * 100)):07d}.jpg"
@@ -679,7 +832,11 @@ def apply(pid: str, value: bool = True) -> dict[str, Any]:
     if not design:
         raise ValueError("설계서가 없습니다. 먼저 「설계하기」를 실행하세요.")
     if value:
-        fill_missing_images(pid, design)
+        analysis = ensure_analysis(pid)
+        discard_missing_media(pid, design)
+        fill_missing_images(pid, design, analysis)
+        finalize_design(design, analysis)
+        validate_design(design)
     design["applied"] = bool(value)
     return save_design(pid, design)
 
@@ -752,6 +909,8 @@ def _step(job_id: str, key: str, **fields: Any) -> None:
     with _lock:
         for st in _jobs[job_id]["steps"]:
             if st["key"] == key:
+                if fields.get("state") == "done" and st.get("started"):
+                    fields.setdefault("elapsed", round(time.time() - st["started"], 2))
                 st.update(fields)
 
 
@@ -778,23 +937,34 @@ def _run_design(job_id: str, pid: str, client: str, style_id: str | None, direct
     n_scenes = sum(len(s.get("scenes") or []) for s in design["segments"])
     _step(job_id, "design", state="done", message=f"구간 {len(segs)}개 · FULL {counts['FULL']}(장면 {n_scenes}) · OVERLAY {counts['OVERLAY']} · NONE {counts['NONE']}")
     _step(job_id, "assets", state="running", started=time.time())
-    wanted = filter_assets([a for a in (answer.get("assets") or []) if isinstance(a, dict)], media)
+    wanted = _referenced_assets(design, filter_assets([a for a in (answer.get("assets") or []) if isinstance(a, dict)], media))
     missed_d: list[str] = []
-    found = mgassets.fetch(mg.project_dir(pid) / "assets", wanted, failed=missed_d,
-                           on_progress=lambda i, n, q: _step(job_id, "assets", message=f"{i + 1}/{n} {q}")) if wanted else {}
-    used = resolve_assets(design, found, {str(a.get("id")): str(a.get("q") or "") for a in wanted})
-    captured = fill_missing_images(pid, design)
-    _step(job_id, "assets", state="done", message=f"웹 이미지 {len(found)}/{len(wanted)}개 받음" + (f" (못 받음: {', '.join(missed_d)[:70]})" if missed_d else "") + f" · 영상 화면 캡처 {captured}곳")
+    try:
+        found = mgassets.fetch(mg.project_dir(pid) / "assets", wanted, failed=missed_d,
+                               on_progress=lambda i, n, q: _step(job_id, "assets", message=f"{i + 1}/{n} {q}")) if wanted else {}
+    except (OSError, ValueError, RuntimeError) as exc:
+        found = {}
+        missed_d = [str(exc)[:70]]
+    resolve_assets(design, found, {str(a.get("id")): str(a.get("q") or "") for a in wanted})
+    discard_missing_media(pid, design)
+    captured = fill_missing_images(pid, design, analysis)
+    quality = finalize_design(design, analysis)
+    validate_design(design)
+    _step(job_id, "assets", state="done", message=(f"웹 이미지 {len(found)}/{len(wanted)}개 받음"
+          + (f" (못 받음: {', '.join(missed_d)[:70]})" if missed_d else "")
+          + f" · 영상 화면 캡처 {captured}곳 · 부적합 캡처 제거 {quality['stale_frames_removed']}곳"
+          + f" · 그래픽 대체 {quality['graphic_fallbacks']}곳 · 자막 보정 {quality['keys_added']}곳"))
     _step(job_id, "locate", state="running", started=time.time())
     found = locate_targets(pid, design)
     tracked = track_targets(pid, design)
+    design["applied"] = True
     save_design(pid, design)
     _step(job_id, "locate", state="done", message=f"하이라이트 위치 {found}곳 · 화면 따라가기 {tracked}곳")
     try:
         _thumbs(pid, design)
     except Exception:  # noqa: BLE001
         pass
-    return "설계서가 나왔습니다. 확인하고 「설계대로 적용」을 누르세요."
+    return "설계 품질 검사와 자동 적용이 끝났습니다. 미리보기에서 확인할 수 있습니다."
 
 
 def edit_prompt(design: dict[str, Any], segs: list[dict[str, Any]], subs: dict[int, dict[str, Any]], request: str,
@@ -806,6 +976,7 @@ def edit_prompt(design: dict[str, Any], segs: list[dict[str, Any]], subs: dict[i
     return (
         "모션그래픽 설계서에서 사용자가 고른 시간 범위의 구간들을 요청대로 고치세요. 도구를 쓰지 말고 JSON 하나만 답합니다.\n"
         f"영상 {design['width']}×{design['height']}, {fps}fps (프레임 = 초 × {fps}). "
+        f"소재 모드: {design.get('media') or 'photo'}. "
         f"사용자가 고른 범위: {_ts(a / fps)} ~ {_ts(b / fps)} (프레임 {a}~{b - 1}). 이 범위 밖으로 비트를 옮기거나 다른 구간을 건드리지 마세요.\n"
         + where
         + "- 타이밍 요청(「0.5초 당겨」 등)은 해당 비트의 frame 을 초×fps 만큼 바꿉니다. 위치 요청(「왼쪽으로」, 「링크 부분 확대」)은 OVERLAY 비트 "
@@ -813,7 +984,8 @@ def edit_prompt(design: dict[str, Any], segs: list[dict[str, Any]], subs: dict[i
         "960×540)로 주세요. zoom 은 1.1~2.6. 비트가 없으면 sub(자막 번호)와 fx 로 새로 만듭니다. 가까운 곳을 이어서 보여줘야 하면 문장마다 "
         "zoom 비트를 연달아 넣으세요(코드가 확대한 채로 이동시키고, 문장이 끝나면 원래 크기로 돌립니다). 효과 종료 시각(until)은 쓰지 않습니다.\n"
         "- FULL 은 scenes(장면 목록: template · vars · beats=자막 번호)로 고칩니다. 장면을 나누거나 합치고 템플릿·문구를 바꿀 수 있습니다. "
-        "새 이미지가 필요하면 답 맨 위 assets 에 {id, q(영문 검색어), kind(logo|photo|screenshot)} 를 적고 vars 에 asset:id 로 넣습니다.\n"
+        "새 소재가 필요하면 답 맨 위 assets 에 {id, q(영문 검색어), kind(logo|photo|screenshot|video), context(그 장면에 필요한 시각 요소·영문)} 를 적고 vars 에 asset:id 로 넣습니다. "
+        "kind=video 는 설계서의 media 가 video 일 때만 사용하고 사진 프레임의 img 자리에만 넣습니다.\n"
         + QUERY_RULES
         + "- 종류를 바꾸라는 요청(「이 부분은 풀 모션으로」 「오버레이로」)이면 해당 구간의 type 을 바꾸고 그 종류에 맞는 scenes/beats 를 만듭니다.\n"
         "- OVERLAY 에는 문장을 그대로 옮긴 글자나 도형 카드를 넣지 않습니다. 요청과 관계없는 부분은 그대로 둡니다.\n"
@@ -826,7 +998,11 @@ def edit_prompt(design: dict[str, Any], segs: list[dict[str, Any]], subs: dict[i
         "답 형식: {\"assets\": [], \"segments\": [{\"id\": \"C2\", \"type\": …, \"scenes\": [{\"template\": …, \"vars\": {…}, \"beats\": [17, 18]}], "
         "\"beats\": [{\"sub\": 17, \"frame\": 1663, \"fx\": \"zoom\", \"target\": [x,y,w,h], \"zoom\": 1.6}]}], \"change\": \"…\"}  "
         "(FULL 은 scenes, OVERLAY 는 beats)\n\n"
-        "현재 구간들:\n" + json.dumps([{k: sg.get(k) for k in ("id", "type", "from", "durationInFrames", "chapter", "title", "scenes", "beats")} for sg in segs], ensure_ascii=False)
+        "현재 구간들:\n" + json.dumps([{
+            **{k: sg.get(k) for k in ("id", "type", "from", "durationInFrames", "chapter", "title", "scenes")},
+            "beats": [{k: bt.get(k) for k in ("sub", "frame", "fx", "target", "zoom", "until") if k in bt}
+                      for bt in sg.get("beats") or []],
+        } for sg in segs], ensure_ascii=False)
         + "\n\n이 범위 자막 [번호, 시작프레임, 시작초, 문장]:\n" + json.dumps(seg_subs, ensure_ascii=False)
         + "\n\nFULL 템플릿:\n" + json.dumps(_template_brief(cat), ensure_ascii=False)
         + "\n\nOVERLAY 효과:\n" + json.dumps(cat["overlay_fx"], ensure_ascii=False)
@@ -895,27 +1071,56 @@ def _run_edit(job_id: str, pid: str, client: str, request: str, sid: str | None,
                 bt["target_frame"] = capture_frame
         typ = str(raw.get("type") or sg["type"]).upper()
         new = normalize_segment({**sg, **raw}, {**sg, "type": typ if typ in TYPES else sg["type"]}, subs, catalog())
+        if new["type"] == "OVERLAY":
+            old_beats = {(b.get("frame"), b.get("fx"), tuple(b.get("target") or []), b.get("until")): b
+                         for b in sg.get("beats") or [] if b.get("track")}
+            for beat in new["beats"]:
+                old = old_beats.get((beat.get("frame"), beat.get("fx"), tuple(beat.get("target") or []), beat.get("until")))
+                if old:
+                    beat["track"] = old["track"]
         new["reason"] = sg.get("reason", "")
         hist = list(sg.get("edits") or [])
         hist.append({"request": request[:300], "change": str(answer.get("change") or "")[:300], "at": time.strftime("%H:%M:%S")})
         new["edits"] = hist[-10:]
         news[sg["id"]] = new
-    wanted = filter_assets([x for x in (answer.get("assets") or []) if isinstance(x, dict)], "photo" if fetch_more else str(design.get("media") or "photo"))  # 「자료 더 받기」는 소재 방식 설정과 상관없이 받는다
+    # AI 설계가 나온 즉시 미리보기 가능한 초안을 저장한다. 느린 웹 검색·추적은 뒤에서 보강한다.
+    preview_news = copy.deepcopy(news)
+    resolve_assets({"segments": list(preview_news.values())}, {}, {})
+    preview = load_design(pid) or design
+    preview["segments"] = [preview_news.get(x["id"], x) for x in preview["segments"]]
+    save_design(pid, preview)
+    with _lock:
+        _jobs[job_id]["preview_ready"] = True
+    _step(job_id, "edit", state="done", message="장면 설계 완료 · 미리보기 가능")
+    _step(job_id, "assets", state="running", started=time.time())
+    media_mode = str(design.get("media") or "photo")
+    wanted = _referenced_assets({"segments": list(news.values())}, filter_assets([x for x in (answer.get("assets") or []) if isinstance(x, dict)],
+                           media_mode if media_mode == "video" else "photo" if fetch_more else media_mode))
     missed: list[str] = []
-    found = mgassets.fetch(mg.project_dir(pid) / "assets", wanted, failed=missed) if wanted else {}
+    try:
+        found = mgassets.fetch(mg.project_dir(pid) / "assets", wanted, failed=missed) if wanted else {}
+    except (OSError, ValueError, RuntimeError) as exc:
+        found = {}
+        missed = [str(exc)[:90]]
     resolve_assets({"segments": list(news.values())}, found, {str(x.get("id")): str(x.get("q") or "") for x in wanted})
+    _step(job_id, "assets", state="done", message=f"웹 자료 {len(found)}/{len(wanted)}개")
+    _step(job_id, "locate", state="running", started=time.time())
     latest = load_design(pid) or design
     latest["segments"] = [news.get(x["id"], x) for x in latest["segments"]]
     locate_targets(pid, latest, set(news))
     track_targets(pid, latest, set(news))
-    fill_missing_images(pid, latest)
+    analysis = ensure_analysis(pid)
+    discard_missing_media(pid, latest)
+    fill_missing_images(pid, latest, analysis)
+    finalize_design(latest, analysis)
+    validate_design(latest)
     save_design(pid, latest)
+    _step(job_id, "locate", state="done", message="화면 위치·추적 완료")
     msg = str(answer.get("change") or "수정했습니다")
     if wanted:
         msg += f" · 웹 이미지 {len(found)}/{len(wanted)}개 받음" + (f" (못 받음: {', '.join(missed)[:90]})" if missed else "")
     elif fetch_more:
         msg += " · AI 가 받을 자료를 요청하지 않아 새로 받은 이미지가 없습니다. 어떤 자료가 필요한지 요청에 구체적으로 적어 보세요"
-    _step(job_id, "edit", state="done", message=msg[:300])
     return f"{_ts(a / fps)}~{_ts(b / fps)} 범위를 고쳤습니다: {msg[:300]}"
 
 
@@ -931,7 +1136,12 @@ def _worker(job_id: str, kind: str, args: tuple) -> None:
         job = _jobs[job_id]
         if job.get("cancel"):
             state, msg = "cancelled", "중지했습니다."
-        job.update(state=state, message=msg, finished=time.time())
+        finished = time.time()
+        if state == "done":
+            timings = " · ".join(f"{st['key']} {st['elapsed']:.1f}초" for st in job["steps"] if "elapsed" in st)
+            if timings:
+                msg += f" ({timings})"
+        job.update(state=state, message=msg, finished=finished, elapsed=round(finished - job["created"], 2))
         for st in job["steps"]:
             if st.get("state") == "running":
                 st["state"] = "failed" if state == "failed" else "cancelled"
@@ -1089,7 +1299,8 @@ def start_edit(pid: str, client: str, request: str, sid: str | None = None, at_f
         if b - a < 15:
             raise ValueError("시간 범위가 너무 짧습니다 (0.5초 이상 고르세요).")
         rng = (a, b)
-    return _start(pid, client, "edit", ["edit"], (pid, client, request, sid, at_frame, rng, bool(fetch_more), bool(detail)))
+    return _start(pid, client, "edit", ["edit", "assets", "locate"],
+                  (pid, client, request, sid, at_frame, rng, bool(fetch_more), bool(detail)))
 
 
 def status(job_id: str) -> dict[str, Any]:

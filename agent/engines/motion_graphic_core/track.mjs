@@ -5,15 +5,15 @@
  *   job: { ffmpeg, video, w, h, items: [{ key, start, end, box: [x, y, w, h] }] }   (start/end 초, box 원본 픽셀)
  *   stdout: 한 줄에 하나 {"key", "track": [[초, x, y, w, h], ...]}  마지막에 {"done": true}
  *
- * 방법: 320×180 그레이 프레임(10fps)에서 대상 영역을 템플릿으로 잡고, 다음 프레임마다 직전 위치 주변(±18px)과
- * 크기 변화(0.9~1.1배)를 ±28px 범위에서 훑어 차이(SAD)가 가장 작은 곳을 고른다. 놓치면(차이가 너무 크면) 직전 위치를 유지한다.
+ * 방법: 320×180 그레이 프레임(8fps)에서 대상 영역을 템플릿으로 잡고, 다음 프레임마다 직전 위치 주변의
+ * 위치·배율 후보를 작은 샘플로 거칠게 찾은 뒤 선택 영역만 전체 샘플로 다듬는다. 놓치면 직전 위치를 유지한다.
  */
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 
 const GW = 320;
 const GH = 180;
-const RATE = 10;
+const RATE = 8;
 
 function frames(job, start, end) {
   const out = spawnSync(job.ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", String(Math.max(0, start)), "-i", job.video,
@@ -52,41 +52,45 @@ function track(job, item) {
     }
   }
   const out = [[item.start, item.box[0], item.box[1], item.box[2], item.box[3]]];
-  const sad = (f, px, py, sc) => {
+  const coarsePts = pts.filter((_, i) => i % 4 === 0);
+  const sad = (f, px, py, sc, samples = pts) => {
     let sum = 0;
     let n = 0;
-    for (const [ox, oy, v] of pts) {
+    for (const [ox, oy, v] of samples) {
       const x = Math.round(px + ox * sc);
       const y = Math.round(py + oy * sc);
       if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
       sum += Math.abs(f[y * GW + x] - v);
       n += 1;
     }
-    return n > pts.length * 0.6 ? sum / n : Infinity;
+    return n > samples.length * 0.6 ? sum / n : Infinity;
   };
   for (let k = 1; k < fr.length; k++) {
     const f = fr[k];
-    let best = { e: sad(f, cx, cy, s), x: cx, y: cy, s };
+    let best = { e: sad(f, cx, cy, s, coarsePts), x: cx, y: cy, s };
     for (const ds of [0.9, 0.95, 1, 1.05, 1.1]) {
       const sc = Math.min(4, Math.max(0.4, s * ds));
-      for (let dy = -28; dy <= 28; dy += 2) {
-        for (let dx = -28; dx <= 28; dx += 2) {
-          const e = sad(f, cx + dx, cy + dy, sc);
+      for (let dy = -28; dy <= 28; dy += 4) {
+        for (let dx = -28; dx <= 28; dx += 4) {
+          const e = sad(f, cx + dx, cy + dy, sc, coarsePts);
           if (e < best.e) best = { e, x: cx + dx, y: cy + dy, s: sc };
         }
       }
     }
-    // 2px 격자 결과를 1px 로 다듬기
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const e = sad(f, best.x + dx, best.y + dy, best.s);
-        if (e < best.e) best = { e, x: best.x + dx, y: best.y + dy, s: best.s };
+    // 좁은 영역만 전체 샘플로 재검증한다. 큰 격자에서 놓친 1px 이동도 여기서 복구한다.
+    const bx = best.x;
+    const by = best.y;
+    let refined = { e: Infinity, x: cx, y: cy, s };
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const e = sad(f, bx + dx, by + dy, best.s);
+        if (e < refined.e) refined = { e, x: bx + dx, y: by + dy, s: best.s };
       }
     }
-    if (best.e < 30) {
-      cx = best.x;
-      cy = best.y;
-      s = best.s;
+    if (refined.e < 30) {
+      cx = refined.x;
+      cy = refined.y;
+      s = refined.s;
     }
     const w = (bw * s) / sx;
     const hh = (bh * s) / sy;

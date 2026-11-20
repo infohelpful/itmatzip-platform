@@ -4,7 +4,7 @@
  *  - zoom 은 원본 영상 + 효과 레이어를 담은 박스에 transform (translate(-ox,-oy) scale(s), origin 0 0)
  *  - full(FULL 장면)은 그 위에 원본 해상도 좌표로 그리고 CSS scale 로 화면에 맞춘다
  */
-import { composeFrame, UNITLESS } from "./mg-core.js?v=7";
+import { composeFrame, UNITLESS } from "./mg-core.js?v=8";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const SVG_TAGS = new Set(["svg", "path", "circle", "rect", "line", "polyline", "polygon", "g", "defs", "linearGradient", "stop"]);
@@ -24,7 +24,7 @@ function applyStyle(el, style) {
 
 let assetUrl = (name) => name;
 
-function build(node) {
+function build(node, ctx) {
   if (!node) return null;
   if (node.t === "img") {
     const img = document.createElement("img");
@@ -35,6 +35,30 @@ function build(node) {
     applyStyle(img, node.s);
     return img;
   }
+  if (node.t === "video") {
+    const raw = node.a?.src;
+    const name = typeof raw === "object" && raw ? raw.asset : String(raw || "");
+    const startFrame = Number(node.a?.startFrame || 0);
+    const key = `${name}|${startFrame}`;
+    let video = ctx.videoPool.get(key);
+    if (!video) {
+      video = document.createElement("video");
+      video.src = /^https?:\/\//i.test(name) ? name : assetUrl(name);
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      ctx.videoPool.set(key, video);
+    }
+    ctx.used.add(key);
+    const elapsed = Math.max(0, (ctx.frame - startFrame) / ctx.fps);
+    const target = Number.isFinite(video.duration) ? Math.min(elapsed, Math.max(0, video.duration - 0.05)) : elapsed;
+    if (video.readyState >= 1 && Math.abs(video.currentTime - target) > 0.2) video.currentTime = target;
+    if (ctx.playing && (!Number.isFinite(video.duration) || elapsed < video.duration)) {
+      if (video.paused) void video.play().catch(() => {});
+    } else if (!video.paused) video.pause();
+    applyStyle(video, node.s);
+    return video;
+  }
   const isSvg = SVG_TAGS.has(node.t);
   const el = isSvg ? document.createElementNS(SVG_NS, node.t) : document.createElement(node.t);
   applyStyle(el, node.s);
@@ -42,7 +66,7 @@ function build(node) {
   if (typeof node.c === "string") el.textContent = node.c;
   else if (Array.isArray(node.c)) {
     for (const child of node.c) {
-      const c = build(child);
+      const c = build(child, ctx);
       if (c) el.appendChild(c);
     }
   }
@@ -59,29 +83,37 @@ export class DesignRenderer {
     if (assetUrlFn) assetUrl = assetUrlFn;
     this.lastKey = "";
     this.enabled = true;
+    this.videoPool = new Map();
   }
 
-  render(design, frame, revisionKey = "") {
+  render(design, frame, revisionKey = "", playing = false) {
     if (!design || !this.enabled) {
       if (this.lastKey !== "off") this.clear();
       this.lastKey = "off";
       return null;
     }
-    const key = `${revisionKey}|${frame}`;
+    const key = `${revisionKey}|${frame}|${playing}`;
     if (key === this.lastKey) return this.lastState;
     this.lastKey = key;
     const W = design.width || 1920;
     const H = design.height || 1080;
     const state = composeFrame(design, frame, { w: W, h: H });
+    const ctx = { frame, fps: design.fps?.value || 30, playing, videoPool: this.videoPool, used: new Set() };
     const { s, ox, oy } = state.zoom;
     this.zoomBox.style.transform = s === 1 && !ox && !oy ? "" : `translate(${(-ox / W) * 100}%, ${(-oy / H) * 100}%) scale(${s})`;
-    this.fxRoot.replaceChildren(...state.fx.map(build).filter(Boolean));
-    this.fullRoot.replaceChildren(...(state.full ? [build(state.full)] : []));
+    this.fxRoot.replaceChildren(...state.fx.map((node) => build(node, ctx)).filter(Boolean));
+    this.fullRoot.replaceChildren(...(state.full ? [build(state.full, ctx)] : []));
+    for (const [id, video] of this.videoPool) if (!ctx.used.has(id)) {
+      video.pause();
+      this.videoPool.delete(id);
+    }
     this.lastState = state;
     return state;
   }
 
   clear() {
+    for (const video of this.videoPool.values()) video.pause();
+    this.videoPool.clear();
     this.zoomBox.style.transform = "";
     this.fxRoot.replaceChildren();
     this.fullRoot.replaceChildren();
