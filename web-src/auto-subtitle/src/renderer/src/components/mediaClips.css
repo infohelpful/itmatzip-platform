@@ -3,10 +3,11 @@
 .media-overlay-item { position: absolute; inset: 0; }
 .media-overlay-item img { width: 100%; height: 100%; display: block; }
 .media-insert-layer {
-  position: absolute; z-index: 1; overflow: hidden; background: #000; pointer-events: none;
+  position: absolute; z-index: 1; overflow: hidden; background: transparent; pointer-events: none;
   display: flex; align-items: center; justify-content: center;
 }
 .media-insert-layer img, .media-insert-layer video { width: 100%; height: 100%; display: block; }
+.media-insert-layer.is-shown { background: #000; }
 .media-insert-missing { color: #9fb1c2; font-size: 13px; }
 
 /* ---- list: add bar between rows ---- */
@@ -129,3 +130,33 @@
 .subtitle-virtual-row:has(.clip-add-bar:hover),
 .subtitle-virtual-row:has(.clip-add-bar.is-open),
 .subtitle-virtual-row:has(.overlay-menu) { z-index: 50; overflow: visible !important; }
+
+/* ---- inserted clip as its own numbered row (Vrew style): 영상편집 + [??] chips, caption line below ---- */
+.app .subtitle-card--virtual.inserted-clip-row { overflow: visible; margin: 0 0 var(--sv-gap, 10px); gap: 0; padding-top: 6px; padding-bottom: 6px; }
+.inserted-clip-row .clip-row-line { display: flex; align-items: center; gap: 12px; min-height: 40px; min-width: 0; }
+.inserted-clip-row .clip-row-line--caption { border-top: 1px solid #2b3335; min-height: 40px; margin-top: 6px; padding-top: 6px; }
+.clip-row-kind { flex: none; width: 104px; display: inline-flex; align-items: center; gap: 7px; color: #c9d4d6; font-size: 12px; font-weight: 700; }
+.clip-row-kind svg { width: 17px; height: 17px; fill: #9aa9ac; stroke: none; }
+.subtitle-card--active .clip-row-kind, .subtitle-card--selected .clip-row-kind { color: #e6f6fa; }
+.inserted-clip-chips { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 2px; }
+.app .subtitle-word-chip.inserted-clip-chip { flex: none; min-width: 52px; padding: 6px 10px; font-size: 13px; color: #9aaaae; letter-spacing: .5px; }
+.app .subtitle-word-chip.inserted-clip-chip.is-picked { background: #1d4a66; border-color: #5ec8f8; color: #fff; }
+.clip-row-times { margin-left: auto; flex: none; }
+.clip-row-caption-icon { flex: none; width: 104px; display: flex; justify-content: flex-end; padding-right: 14px; box-sizing: border-box; }
+.clip-row-caption-icon svg { width: 20px; height: 20px; fill: #7f8f93; stroke: #171b1c; stroke-width: 1.6; stroke-linecap: round; }
+.clip-row-file { flex: 1; min-width: 0; color: #5d6f73; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inserted-clip-row .inserted-clip-thumb { width: 64px; height: 36px; border-radius: 4px; flex: none; }
+.inserted-clip-row .inserted-clip-missing { margin: 6px 0 0 104px; }
+
+/* Toolbar above a ticked clip row */
+.clip-row-toolbar {
+  position: absolute; top: -44px; left: 40px; z-index: 30; display: flex; align-items: center; gap: 2px; padding: 5px 8px;
+  border-radius: 8px; border: 1px solid #3d4547; background: #1b1f20; box-shadow: 0 6px 18px rgba(0, 0, 0, .5); white-space: nowrap;
+}
+.clip-row-toolbar > button { height: 28px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent; color: #d5e0e2; font: inherit; font-size: 12px; cursor: pointer; }
+.clip-row-toolbar > button:hover { background: #2a3335; }
+.clip-row-toolbar > button.is-on { color: #5ec8f8; }
+.clip-row-toolbar > button.is-danger:hover { color: #ffb1ba; }
+.clip-row-toolbar-sep { width: 1px; height: 18px; margin: 0 5px; background: #3d4547; }
+.clip-row-toolbar .clip-fit button { height: 26px; }
+.subtitle-virtual-row:has(.clip-row-toolbar) { z-index: 50; overflow: visible !important; }

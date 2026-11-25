@@ -104,6 +104,8 @@ export type SubtitleVirtualListProps = {
   onAddClip?: (row: number, kind: ClipAddKind, where: 'before' | 'after') => void
   /** Reserve the left gutter for image overlay range lines. */
   mediaGutter?: boolean
+  /** Inserted clips are numbered rows: added to each caption row's shown number. */
+  rowNumberShift?: readonly number[]
   onEditWordTiming?: (lineIndex: number, wordIndex: number) => void
   selectedRows: ReadonlySet<number>
   onSelectRow: (index: number, checked: boolean) => void
@@ -164,6 +166,7 @@ export type SubtitleListRowProps = {
   timingEditor?: SubtitleVirtualListProps['timingEditor']
   rowMedia?: SubtitleVirtualListProps['rowMedia']
   onAddClip?: SubtitleVirtualListProps['onAddClip']
+  rowNumberShift?: SubtitleVirtualListProps['rowNumberShift']
   onEditWordTiming?: SubtitleVirtualListProps['onEditWordTiming']
   selectedRows: ReadonlySet<number>
   onSelectRow: SubtitleVirtualListProps['onSelectRow']
@@ -236,6 +239,7 @@ function markUserClickPause(): void {
 
 function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) {
   const media = props.rowMedia?.get(props.index)
+  const shownNumber = props.rowNumbers[props.index] + (props.rowNumberShift?.[props.index] ?? 0)
   const firstVisibleRow = props.rowNumbers[props.index] === 1 && (props.index === 0 || props.rowNumbers[props.index - 1] === 0)
   const {
     index,
@@ -1816,8 +1820,8 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         }}
       >
         <div className="subtitle-row-index" onKeyDown={e => e.stopPropagation()}>
-          <span aria-label={`자막 ${props.rowNumbers[index]}번`}>{props.rowNumbers[index]}</span>
-          <input type="checkbox" aria-label={`${props.rowNumbers[index]}번 자막 선택`}
+          <span aria-label={`자막 ${shownNumber}번`}>{shownNumber}</span>
+          <input type="checkbox" aria-label={`${shownNumber}번 자막 선택`}
             checked={props.selectedRows.has(index)}
             onClick={e => e.stopPropagation()}
             onMouseDown={e => e.stopPropagation()}
@@ -1837,7 +1841,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             <span className="subtitle-time">{formatTimecode(effectiveCardEndSec, 'end')}</span>
           </div>
           {onDisplayTiming ? (
-            <SubtitleDisplayTimingControl lines={subtitles} index={index} rowNumber={props.rowNumbers[index]}
+            <SubtitleDisplayTimingControl lines={subtitles} index={index} rowNumber={shownNumber}
               formatTimecode={formatTimecode} playheadSecRef={playheadSecRef}
               onEdit={onDisplayTiming} onTogglePlayback={onTogglePlayback} />
           ) : null}
@@ -2213,6 +2217,7 @@ const subtitleVirtualRowAreEqual = (
   if ((prev.timingEditor?.lineIndex === prev.index || next.timingEditor?.lineIndex === next.index) &&
       prev.timingEditor !== next.timingEditor) return false
   if (prev.rowMedia?.get(prev.index) !== next.rowMedia?.get(next.index)) return false
+  if (prev.rowNumberShift?.[prev.index] !== next.rowNumberShift?.[next.index]) return false
   // 자기 row 의 핵심 데이터 비교
   if (prev.subtitles[prev.index] !== next.subtitles[next.index]) return false
   const prevVrew = prev.vrewRows?.[prev.index]
@@ -2234,6 +2239,7 @@ const subtitleVirtualRowAreEqual = (
     if (
       key === 'timingEditor' ||
       key === 'rowMedia' ||
+      key === 'rowNumberShift' ||
       key === 'subtitles' ||
       key === 'vrewRows' ||
       key === 'index' ||
@@ -2416,6 +2422,7 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       timingEditor: props.timingEditor,
       rowMedia: props.rowMedia,
       onAddClip: props.onAddClip,
+      rowNumberShift: props.rowNumberShift,
       onEditWordTiming: props.onEditWordTiming,
       selectedRows: props.selectedRows,
       onSelectRow: props.onSelectRow,
@@ -2470,6 +2477,7 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       props.timingEditor,
       props.rowMedia,
       props.onAddClip,
+      props.rowNumberShift,
       props.onEditWordTiming,
       props.onSelectRow,
       searchHitLine,

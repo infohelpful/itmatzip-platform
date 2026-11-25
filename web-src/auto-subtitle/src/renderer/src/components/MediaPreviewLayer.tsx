@@ -105,6 +105,11 @@ function InsertPlayer({ session, assetsById, readyAssets, volume, box, onTime, o
     return 0
   }
   const [index, setIndex] = useState(() => indexAt(session.offset))
+  /**
+   * Until the clip's first frame is on screen the layer stays see-through, so the original's held frame
+   * shows instead of a black flash; after that it is opaque (black bars around a contained clip).
+   */
+  const [shown, setShown] = useState(false)
   const indexRef = useRef(index)
   const offsetRef = useRef(session.offset)
   const readyRef = useRef(false)
@@ -131,6 +136,7 @@ function InsertPlayer({ session, assetsById, readyAssets, volume, box, onTime, o
     const target = (clip.kind === 'video' ? clip.sourceStart : 0) + Math.min(local, clip.duration)
     const markReady = () => {
       readyRef.current = true
+      setShown(true)
       if (session.playing && !doneRef.current) void video.play().catch(() => undefined)
     }
     const onLoaded = () => {
@@ -200,10 +206,18 @@ function InsertPlayer({ session, assetsById, readyAssets, volume, box, onTime, o
   }, [session.playing, group, starts])
 
   const fit = { objectFit: clip.fit } as const
-  return <div className="media-insert-layer" style={boxStyle(box)} aria-label={`삽입 ${clip.kind === 'image' ? '이미지' : '영상'}: ${asset?.name ?? ''}`}>
+  // A missing file never loads: show the black frame with its message after a moment.
+  useEffect(() => {
+    if (url) return
+    const timer = window.setTimeout(() => setShown(true), 300)
+    return () => window.clearTimeout(timer)
+  }, [url])
+
+  return <div className={`media-insert-layer${shown ? ' is-shown' : ''}`} style={boxStyle(box)} aria-label={`삽입 ${clip.kind === 'image' ? '이미지' : '영상'}: ${asset?.name ?? ''}`}>
     {url ? (isVideo
       ? <video key={clip.id} ref={videoRef} src={url} playsInline preload="auto" style={fit} />
-      : <img key={clip.id} src={url} alt="" draggable={false} style={fit} />)
+      : <img key={clip.id} src={url} alt="" draggable={false} style={fit} onLoad={() => setShown(true)}
+        ref={img => { if (img?.complete && img.naturalWidth > 0) setShown(true) }} />)
       : <span className="media-insert-missing">{asset ? '파일을 불러오는 중이거나 찾을 수 없습니다' : '파일 정보 없음'}</span>}
   </div>
 }

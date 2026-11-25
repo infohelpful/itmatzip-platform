@@ -60,86 +60,124 @@ export function AssetThumb(props: { asset: MediaAsset | undefined; ready: boolea
     : <video className={cls} src={`${url}#t=0.1`} muted playsInline preload="metadata" />
 }
 
-/** Number field that commits once (blur or Enter), so one change is one undo step. */
-function SecondsField(props: { label: string; value: number; min: number; max: number; onCommit: (v: number) => void }) {
-  const [draft, setDraft] = useState<string | null>(null)
-  const commit = () => {
-    if (draft === null) return
-    const v = Number(draft)
-    setDraft(null)
-    if (Number.isFinite(v)) props.onCommit(Math.max(props.min, Math.min(props.max, Math.round(v * 100) / 100)))
-  }
-  return <label className="clip-field">
-    <span>{props.label}</span>
-    <input type="number" step={0.1} min={props.min} max={props.max} value={draft ?? props.value.toFixed(2)}
-      onChange={e => setDraft(e.target.value)} onBlur={commit}
-      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } }} />
-    <span>초</span>
-  </label>
-}
-
 function FitToggle(props: { value: MediaFit; onChange: (fit: MediaFit) => void }) {
   return <div className="clip-fit" role="radiogroup" aria-label="화면 맞춤">
     {([['contain', '맞추기'], ['cover', '채우기']] as const).map(([fit, label]) =>
       <button key={fit} type="button" role="radio" aria-checked={props.value === fit}
-        title={fit === 'contain' ? '이미지 전체가 보이게 (남는 곳은 검은색/투명)' : '화면을 가득 채우게 (넘치는 곳은 잘림)'}
+        title={fit === 'contain' ? '전체가 보이게 (남는 곳은 검은색/투명)' : '화면을 가득 채우게 (넘치는 곳은 잘림)'}
         onClick={() => props.onChange(fit)}>{label}</button>)}
   </div>
 }
 
-export type InsertedClipCardProps = {
+/** One chip per second of an inserted clip (the last one holds the remainder), as in Vrew. */
+export function clipSecondChips(duration: number): number[] {
+  const out: number[] = []
+  for (let t = 0; t < duration - 1e-6; t += 1) out.push(Math.min(1, duration - t))
+  return out
+}
+
+export type InsertedClipRowProps = {
   insertion: MediaInsertion
   asset: MediaAsset | undefined
   ready: boolean
   missing: boolean
-  /** Where the clip starts in the finished video (shown as the card time). */
+  /** Row number in the list (inserted clips are numbered like caption rows). */
+  number: number
+  /** Where the clip starts in the finished video. */
   programStart: number | null
   active: boolean
+  selected: boolean
   formatTime: (sec: number) => string
   canMoveUp: boolean
   canMoveDown: boolean
+  onSelect: (checked: boolean) => void
   onChange: (patch: Partial<MediaInsertion>) => void
+  /** Removes these one-second chips (by index); a video keeps the remaining parts in order. */
+  onDeleteSeconds: (indices: number[]) => void
+  onExtend: () => void
   onMove: (step: -1 | 1) => void
   onRemove: () => void
   onReplace: () => void
   onPlay: () => void
 }
 
-export function InsertedClipCard(p: InsertedClipCardProps) {
+/**
+ * An inserted image/video clip listed as its own numbered row, like a caption row: `[??]` chips per
+ * second (select and press Delete to cut seconds), and — when its checkbox is ticked — a toolbar above
+ * it with play, mute, fit, replace, order and delete.
+ */
+export function InsertedClipRow(p: InsertedClipRowProps) {
   const { insertion: c, asset } = p
   const isVideo = asset?.kind === 'video'
-  const videoLength = asset?.duration ?? c.sourceStart + c.duration
-  return <div className={`inserted-clip-card${p.active ? ' is-active' : ''}`} data-waveform-no-dismiss="1"
-    onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-    <button type="button" className="inserted-clip-thumb" onClick={p.onPlay} title="이 클립부터 재생">
-      <AssetThumb asset={asset} ready={p.ready} />
-      <span className="inserted-clip-play" aria-hidden="true">▶</span>
-    </button>
-    <div className="inserted-clip-body">
-      <div className="inserted-clip-head">
-        <span className="inserted-clip-kind"><ClipIcon kind={isVideo ? 'video' : 'image'} />{isVideo ? '비디오 클립' : '이미지 클립'}</span>
-        <span className="inserted-clip-name" title={asset?.path}>{asset?.name ?? '알 수 없는 파일'}</span>
-        {p.programStart !== null ? <span className="inserted-clip-time">{p.formatTime(p.programStart)} → {p.formatTime(p.programStart + c.duration)}</span> : null}
-      </div>
-      {p.missing ? <p className="inserted-clip-missing" role="alert">파일을 찾을 수 없습니다. 「교체」로 다시 연결해 주세요.</p> : null}
-      <div className="inserted-clip-controls">
-        {isVideo ? <>
-          <SecondsField label="시작" value={c.sourceStart} min={0} max={Math.max(0, videoLength - 0.1)}
-            onCommit={v => p.onChange({ sourceStart: v, duration: Math.min(c.duration, Math.max(0.1, videoLength - v)) })} />
-          <SecondsField label="길이" value={c.duration} min={0.1} max={Math.max(0.1, videoLength - c.sourceStart)}
-            onCommit={v => p.onChange({ duration: v })} />
-          <label className="clip-check"><input type="checkbox" checked={c.muted} onChange={e => p.onChange({ muted: e.target.checked })} />소리 끄기</label>
-        </> : <SecondsField label="길이" value={c.duration} min={0.1} max={600} onCommit={v => p.onChange({ duration: v })} />}
-        <FitToggle value={c.fit} onChange={fit => p.onChange({ fit })} />
-      </div>
-    </div>
-    <div className="inserted-clip-actions">
-      {p.canMoveUp ? <button type="button" title="앞 클립과 순서 바꾸기" aria-label="앞으로" onClick={() => p.onMove(-1)}>↑</button> : null}
-      {p.canMoveDown ? <button type="button" title="뒤 클립과 순서 바꾸기" aria-label="뒤로" onClick={() => p.onMove(1)}>↓</button> : null}
+  const chips = clipSecondChips(c.duration)
+  const [picked, setPicked] = useState<ReadonlySet<number>>(() => new Set())
+  useEffect(() => setPicked(new Set()), [c.duration, c.sourceStart])
+  const toggleChip = (i: number) => setPicked(prev => {
+    const next = new Set(prev)
+    if (next.has(i)) next.delete(i)
+    else next.add(i)
+    return next
+  })
+  const deletePicked = (fallback?: number) => {
+    const indices = picked.size ? [...picked] : fallback !== undefined ? [fallback] : []
+    if (!indices.length) return
+    setPicked(new Set())
+    p.onDeleteSeconds(indices)
+  }
+  const picks = [...picked].reduce((sum, i) => sum + (chips[i] ?? 0), 0)
+  return <article className={`subtitle-card subtitle-card--virtual inserted-clip-row${p.selected ? ' subtitle-card--selected' : ''}${p.active ? ' subtitle-card--active' : ''}`}
+    data-waveform-no-dismiss="1" aria-label={`${p.number}번 ${isVideo ? '비디오' : '이미지'} 클립`}
+    onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+    onKeyDown={e => {
+      e.stopPropagation()
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const focused = (e.target as HTMLElement).dataset?.clipSecond
+        e.preventDefault()
+        deletePicked(focused !== undefined ? Number(focused) : undefined)
+      } else if (e.key === 'Escape') setPicked(new Set())
+    }}>
+    {p.selected ? <div className="clip-row-toolbar" role="toolbar" aria-label="클립 편집">
+      <button type="button" onClick={p.onPlay} title="이 클립부터 재생">▶ 재생</button>
+      {isVideo ? <button type="button" aria-pressed={c.muted} className={c.muted ? 'is-on' : ''}
+        onClick={() => p.onChange({ muted: !c.muted })} title="클립 소리 끄기/켜기">{c.muted ? '🔇 음소거됨' : '🔊 음소거'}</button> : null}
+      <span className="clip-row-toolbar-sep" />
+      <FitToggle value={c.fit} onChange={fit => p.onChange({ fit })} />
+      <span className="clip-row-toolbar-sep" />
+      {!isVideo ? <button type="button" onClick={p.onExtend} title="1초 늘리기">＋1초</button> : null}
+      {picked.size ? <button type="button" onClick={() => deletePicked()} title="선택한 칩 구간 지우기">선택 {picks.toFixed(1)}초 삭제</button> : null}
       <button type="button" onClick={p.onReplace}>교체</button>
+      {p.canMoveUp ? <button type="button" aria-label="앞 클립과 순서 바꾸기" onClick={() => p.onMove(-1)}>↑</button> : null}
+      {p.canMoveDown ? <button type="button" aria-label="뒤 클립과 순서 바꾸기" onClick={() => p.onMove(1)}>↓</button> : null}
       <button type="button" className="is-danger" onClick={p.onRemove}>삭제</button>
+    </div> : null}
+    <div className="subtitle-row-index" onKeyDown={e => e.stopPropagation()}>
+      <span>{p.number}</span>
+      <input type="checkbox" aria-label={`${p.number}번 클립 선택`} checked={p.selected} onChange={e => p.onSelect(e.target.checked)} />
     </div>
-  </div>
+    {/* Top line: 영상편집 + one chip per second (Vrew). */}
+    <div className="clip-row-line">
+      <span className="clip-row-kind"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h13v12H3zM16 10.5l5-3v9l-5-3" /></svg>영상편집</span>
+      <div className="inserted-clip-chips" role="group" aria-label="1초 단위 칩 (선택 후 Delete로 지우기)">
+        {chips.map((len, i) => <button key={i} type="button" data-clip-second={i}
+          className={`subtitle-word-chip inserted-clip-chip${picked.has(i) ? ' is-picked' : ''}`}
+          title={`${i}~${(i + len).toFixed(1)}초`} onClick={() => toggleChip(i)}>{len >= 0.95 ? '[ ?? ]' : '[ ? ]'}</button>)}
+      </div>
+      {p.programStart !== null ? <div className="subtitle-card-times clip-row-times" aria-label="클립 구간">
+        <span className="subtitle-time">{p.formatTime(p.programStart)}</span>
+        <span className="subtitle-time-sep">→</span>
+        <span className="subtitle-time">{p.formatTime(p.programStart + c.duration)}</span>
+      </div> : null}
+    </div>
+    {/* Bottom line: caption icon and an empty caption (inserted clips carry no original caption). */}
+    <div className="clip-row-line clip-row-line--caption">
+      <span className="clip-row-caption-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M7 11h6M15 11h2M7 14.5h3M12 14.5h5" /></svg></span>
+      <span className="clip-row-file" title={asset?.path}>{isVideo ? '비디오' : '이미지'} · {asset?.name ?? '알 수 없는 파일'}</span>
+      <button type="button" className="inserted-clip-thumb" onClick={p.onPlay} title="이 클립부터 재생">
+        <AssetThumb asset={asset} ready={p.ready} />
+      </button>
+    </div>
+    {p.missing ? <p className="inserted-clip-missing" role="alert">파일을 찾을 수 없습니다. 체크 후 「교체」로 다시 연결해 주세요.</p> : null}
+  </article>
 }
 
 export type OverlayBadgeProps = {

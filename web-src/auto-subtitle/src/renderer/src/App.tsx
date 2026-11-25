@@ -69,7 +69,7 @@ import {
 import { insertionRows, moveOverlayEdge, overlayRowSpan, rowEndAnchor, rowStartAnchor } from '../../shared/mediaEditOps'
 import { pickCompositionAsset, registerCompositionAsset } from './platform/compositionClient'
 import { MediaPreviewLayer, type InsertSession } from './components/MediaPreviewLayer'
-import { InsertedClipCard, OverlayGutter, type ClipAddKind, type OverlayLane } from './components/MediaClipCards'
+import { InsertedClipRow, OverlayGutter, clipSecondChips, type ClipAddKind, type OverlayLane } from './components/MediaClipCards'
 import type { SubtitleRowMedia } from './SubtitleVirtualList'
 import { isRemovedSubtitleRow } from '../../shared/editorPlayback'
 import type { PointerEvent as ReactPointerEvent } from 'react'
@@ -1651,6 +1651,8 @@ export default function App(): ReactElement {
     insertSessionRef.current = next
     setInsertSessionState(next)
   }, [])
+  /** The original picture is held on its last frame this long before an inserted clip (it runs ahead of the sound). */
+  const INSERT_PICTURE_HOLD_SEC = 0.05
   /** Continuous playback stops at this group's boundary and plays it (set when the schedule is armed). */
   const insertStopRef = useRef<InsertionGroup | null>(null)
   const insertOffsetRef = useRef(0)
@@ -5272,7 +5274,10 @@ export default function App(): ReactElement {
     pendingPlayIntentRef.current = false
     // The original parks exactly where it stopped for this group (not wherever its clock last read).
     clearOneShotSession('insert-clip')
-    finalizePlaybackStop('insert-clip', { mediaSec: group.stopSource, markUserPause: true })
+    finalizePlaybackStop('insert-clip', {
+      mediaSec: group.stopSource > INSERT_PICTURE_HOLD_SEC ? group.stopSource - INSERT_PICTURE_HOLD_SEC : group.stopSource,
+      markUserPause: true
+    })
     insertOffsetRef.current = clamped
     setInsertSession(next)
     commitEditSecToUi(playheadEditSecRef.current)
@@ -5305,14 +5310,32 @@ export default function App(): ReactElement {
   const finishInsertSession = useCallback(() => {
     const cur = insertSessionRef.current
     if (!cur) return
-    setInsertSession(null)
     const resume = cur.group.resumeSource
     if (resume === null || !cur.playing) {
+      setInsertSession(null)
       commitEditSecToUi(playheadEditSecRef.current)
       if (resume === null) paintProgramTime(cur.group.programStart + cur.group.duration)
       return
     }
-    dispatchSeekAndPlayIntent(resume, 'media')
+    // The clip's last frame stays up until the original picture has moved to where it resumes; otherwise the
+    // frame the original was parked on would flash between the clip and the continuing original.
+    const el = videoRef.current
+    let switched = false
+    const switchBack = () => {
+      if (switched) return
+      switched = true
+      el?.removeEventListener('seeked', switchBack)
+      if (insertSessionRef.current !== cur) return
+      setInsertSession(null)
+      dispatchSeekAndPlayIntent(resume, 'media')
+    }
+    if (el && Math.abs(el.currentTime - resume) > 0.001) {
+      el.addEventListener('seeked', switchBack)
+      el.currentTime = resume
+      window.setTimeout(switchBack, 400)
+    } else {
+      switchBack()
+    }
   }, [setInsertSession, commitEditSecToUi, paintProgramTime, dispatchSeekAndPlayIntent])
 
   insertControlRef.current = {
@@ -5444,6 +5467,55 @@ export default function App(): ReactElement {
 
   const updateInsertion = useCallback((id: string, patch: Partial<MediaInsertion>) => {
     runMediaChange(prev => ({ ...prev, insertions: prev.insertions.map(c => (c.id === id ? { ...c, ...patch } : c)) }))
+  }, [runMediaChange])
+  /** Ticked inserted-clip rows (their toolbar is shown). */
+  const [selectedClipIds, setSelectedClipIds] = useState<ReadonlySet<string>>(() => new Set())
+  const selectClip = useCallback((id: string, checked: boolean) => {
+    setSelectedClipIds(prev => {
+      const next = new Set(prev)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }, [])
+  /**
+   * Cuts one-second chips out of an inserted clip. An image just gets shorter; a video keeps the parts
+   * that remain, in order, as consecutive clips at the same point. Removing every chip removes the clip.
+   */
+  const deleteClipSeconds = useCallback((id: string, indices: number[]) => {
+    runMediaChange(prev => {
+      const at = prev.insertions.findIndex(c => c.id === id)
+      const clip = prev.insertions[at]
+      if (!clip) return prev
+      const chips = clipSecondChips(clip.duration)
+      const gone = new Set(indices)
+      const kept: Array<[number, number]> = []
+      chips.forEach((len, i) => {
+        if (gone.has(i)) return
+        const a = i, b = i + len
+        const last = kept[kept.length - 1]
+        if (last && Math.abs(last[1] - a) < 1e-6) last[1] = b
+        else kept.push([a, b])
+      })
+      const parts = kept.filter(([a, b]) => b - a >= 0.05)
+      const insertions = [...prev.insertions]
+      if (!parts.length) {
+        insertions.splice(at, 1)
+        return { ...prev, insertions }
+      }
+      const isVideo = prev.assets.find(a => a.id === clip.assetId)?.kind === 'video'
+      if (!isVideo) {
+        insertions[at] = { ...clip, duration: Math.round(parts.reduce((sum, [a, b]) => sum + b - a, 0) * 1000) / 1000 }
+        return { ...prev, insertions }
+      }
+      const pieces = parts.map(([a, b], k) => ({ ...clip, id: k === 0 ? clip.id : `clip-${crypto.randomUUID()}`,
+        sourceStart: Math.round((clip.sourceStart + a) * 1000) / 1000, duration: Math.round((b - a) * 1000) / 1000 }))
+      insertions.splice(at, 1, ...pieces)
+      return { ...prev, insertions }
+    })
+  }, [runMediaChange])
+  const extendImageClip = useCallback((id: string) => {
+    runMediaChange(prev => ({ ...prev, insertions: prev.insertions.map(c => (c.id === id ? { ...c, duration: Math.min(600, c.duration + 1) } : c)) }))
   }, [runMediaChange])
   const removeInsertion = useCallback((id: string) => {
     closeInsertSession()
@@ -5997,6 +6069,13 @@ export default function App(): ReactElement {
           rafPlayheadRef.current = null
           return
         }
+        // The picture runs slightly ahead of the sound: hold it on its last frame before an inserted clip so
+        // no frame of what follows the boundary shows before the clip (the sound still plays to the boundary).
+        if (stopGroup && !el.paused && el.currentTime >= stopGroup.stopSource - INSERT_PICTURE_HOLD_SEC) {
+          el.pause()
+          rafPlayheadRef.current = window.requestAnimationFrame(tick)
+          return
+        }
         const previewEndWa = previewEndMediaSecRef.current
         if (wm != null && previewEndWa != null && wm >= previewEndWa - 0.01) {
           const oneShot = oneShotSessionRef.current
@@ -6141,6 +6220,10 @@ export default function App(): ReactElement {
         return
       }
       tMedia = el.currentTime
+      {
+        const holdGroup = insertStopRef.current
+        if (holdGroup && !el.paused && tMedia >= holdGroup.stopSource - INSERT_PICTURE_HOLD_SEC) el.pause()
+      }
 
       /** 클립 꼬리 → 다음 클립 mediaStart 로 Jump-Cut (가상 시간 단절 보정) */
       {
@@ -7236,6 +7319,27 @@ export default function App(): ReactElement {
     () => new Set([...mediaAssetState].flatMap(([id, state]) => (state === 'ok' ? [id] : []))),
     [mediaAssetState]
   )
+  /** Caption row numbers as the list counts them (removed rows keep the previous number). */
+  const rowBaseNumbers = useMemo(() => subtitlesForSubtitleVirtualList.reduce<number[]>((numbers, line) => {
+    const last = numbers.at(-1) ?? 0
+    numbers.push(isRemovedSubtitleRow(line) ? last : last + 1)
+    return numbers
+  }, []), [subtitlesForSubtitleVirtualList])
+  /** Inserted clips are numbered rows too: each caption row's number moves down by the clips listed above it. */
+  const rowNumberShift = useMemo(() => {
+    const lines = subtitlesForSubtitleVirtualList
+    const shift = new Array<number>(lines.length).fill(0)
+    if (!mediaEdits.insertions.length || !(mediaSourceDurationSec > 0)) return shift
+    const slots = insertionRows(lines, mediaEdits, mediaSourceDurationSec)
+    let running = 0
+    for (let i = 0; i < lines.length; i++) {
+      const slot = slots.get(i)
+      running += slot?.before.length ?? 0
+      shift[i] = running
+      running += slot?.after.length ?? 0
+    }
+    return shift
+  }, [subtitlesForSubtitleVirtualList, mediaEdits, mediaSourceDurationSec])
   const rowMedia = useMemo(() => {
     const map = new Map<number, SubtitleRowMedia>()
     const lines = subtitlesForSubtitleVirtualList
@@ -7246,21 +7350,26 @@ export default function App(): ReactElement {
     const programStarts = new Map((mediaComposition?.clips ?? []).flatMap(c =>
       c.kind === 'source' ? [] : [[c.id.slice('insert:'.length), c.programStart] as const]))
     const timeOf = (id: string) => resolveMediaAnchor(clips.get(id)!.at, lines, duration)
-    const cards = (ids: string[]) => ids.length ? <div className="media-row-slot">{ids.map((id, i) => {
+    const cards = (ids: string[], firstNumber: number) => ids.length ? <div className="media-row-slot">{ids.map((id, i) => {
       const c = clips.get(id)!
       const prevId = ids[i - 1], nextId = ids[i + 1]
       const same = (other: string | undefined) => !!other && Math.abs(timeOf(other) - timeOf(id)) < 1e-6
-      return <InsertedClipCard key={id} insertion={c} asset={assets.get(c.assetId)}
+      return <InsertedClipRow key={id} insertion={c} asset={assets.get(c.assetId)} number={firstNumber + i}
         ready={readyMediaAssets.has(c.assetId)} missing={mediaAssetState.get(c.assetId) === 'missing'}
         programStart={programStarts.get(id) ?? null} active={activeInsertIds.has(id)} formatTime={formatTimecode}
+        selected={selectedClipIds.has(id)} onSelect={checked => selectClip(id, checked)}
         canMoveUp={same(prevId)} canMoveDown={same(nextId)}
         onChange={patch => updateInsertion(id, patch)}
+        onDeleteSeconds={indices => deleteClipSeconds(id, indices)} onExtend={() => extendImageClip(id)}
         onMove={step => { const other = step < 0 ? prevId : nextId; if (other) moveInsertion(id, other) }}
         onRemove={() => removeInsertion(id)} onReplace={() => void replaceMediaFile({ insertion: id })}
         onPlay={() => playInsertedClip(id)} />
     })}</div> : undefined
-    for (const [row, slot] of insertionRows(lines, mediaEdits, duration)) {
-      map.set(row, { before: cards(slot.before), after: cards(slot.after) })
+    const slots = insertionRows(lines, mediaEdits, duration)
+    for (const [row, slot] of slots) {
+      // Caption row `row` shows as base + shift; clips listed before it come just above that number.
+      const captionNumber = (rowBaseNumbers[row] ?? 0) + (rowNumberShift[row] ?? 0)
+      map.set(row, { before: cards(slot.before, captionNumber - slot.before.length), after: cards(slot.after, captionNumber + 1) })
     }
     // Image overlays: a range line in the left gutter over the rows they cover (Vrew style).
     const lanesByRow = new Map<number, OverlayLane[]>()
@@ -7303,7 +7412,8 @@ export default function App(): ReactElement {
     return map
   }, [subtitlesForSubtitleVirtualList, mediaSourceDurationSec, mediaEdits, mediaComposition, readyMediaAssets, mediaAssetState,
     activeInsertIds, formatTimecode, updateInsertion, moveInsertion, removeInsertion, replaceMediaFile, playInsertedClip,
-    updateOverlay, moveOverlayRange, reorderOverlay, removeOverlay, overlayDrag, overlayWithEdgeAtRow, startOverlayDrag])
+    updateOverlay, moveOverlayRange, reorderOverlay, removeOverlay, overlayDrag, overlayWithEdgeAtRow, startOverlayDrag,
+    rowBaseNumbers, rowNumberShift, selectedClipIds, selectClip, deleteClipSeconds, extendImageClip])
   const onAddMediaClip = useCallback((row: number, kind: ClipAddKind, where: 'before' | 'after') => {
     void addMediaClip(row, kind, where)
   }, [addMediaClip])
@@ -8392,6 +8502,7 @@ export default function App(): ReactElement {
                           timingEditor={timingEditor}
                           rowMedia={rowMedia}
                           mediaGutter={mediaEdits.overlays.length > 0}
+                          rowNumberShift={mediaEdits.insertions.length ? rowNumberShift : undefined}
                           onAddClip={preparedMedia ? onAddMediaClip : undefined}
                           onEditWordTiming={openWordTiming}
                           waveformEnabled={false}
