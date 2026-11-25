@@ -491,11 +491,14 @@ export function unflattenAndSync(
 
     const first = activeWords[0]!
     const last = activeWords[activeWords.length - 1]!
+    // An edited caption (typed or AI-corrected, `captionText === text`) is the row's text and outlives
+    // timing changes, exactly as in the word timing editor; otherwise the text follows the chips.
+    const captionOverride = line.captionText !== undefined && line.captionText === line.text
     return {
       ...line,
       start: first.start,
       end: last.end,
-      text: joinWords(activeWords.filter(w => !w.isSilence).map((w) => w.word)),
+      text: captionOverride ? line.text : joinWords(activeWords.filter(w => !w.isSilence).map((w) => w.word)),
       words: newWords,
       isDeleted: false
     }

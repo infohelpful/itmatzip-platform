@@ -258,7 +258,9 @@ export function mergeConsecutiveSilenceWordsInLine(line: SubtitleLine): Subtitle
     start,
     end: Math.max(start + 0.01, end),
     words: merged,
-    text: displayTextFromSubtitleWords(merged) || line.text
+    // Silence chips do not change what is said: an edited/AI-corrected caption stays.
+    text: line.captionText !== undefined && line.captionText === line.text
+      ? line.text : displayTextFromSubtitleWords(merged) || line.text
   }
 }
 

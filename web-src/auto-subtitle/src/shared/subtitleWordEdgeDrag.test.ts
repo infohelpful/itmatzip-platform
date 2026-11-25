@@ -740,3 +740,22 @@ describe('subtitleWordEdgeDrag — unflattenAndSync direct usage', () => {
     expect(next[0]!.isDeleted).toBe(false)
   })
 })
+
+describe('AI-corrected captions survive a word edge drag', () => {
+  const caption = '나만의 개인 클라우드 Umbrel OS'
+  const other = '매달 나가는 구글 드라이브'
+  const lines: SubtitleLine[] = [
+    { start: 0, end: 4, text: caption, captionText: caption, words: [
+      { start: 0, end: 1, word: '나만의' }, { start: 1, end: 2, word: '개인' }, { start: 2, end: 3, word: '엄브렐' }, { start: 3, end: 4, word: 'OS' }] },
+    { start: 4, end: 6, text: other, captionText: other, words: [
+      { start: 4, end: 5, word: '매달라가는' }, { start: 5, end: 6, word: '구글' }] }
+  ]
+  it('keeps the caption of the dragged row and leaves the other rows untouched', () => {
+    const result = applyWordEdgeDrag({ subtitles: lines, target: { lineIndex: 0, wordIndex: 2 }, edge: 'end', newSec: 2.8 })
+    expect(result.subtitles[0]!.words![2]!.end).toBeCloseTo(2.8, 6)
+    expect(result.subtitles[0]!.text).toBe(caption)
+    expect(result.subtitles[0]!.captionText).toBe(caption)
+    expect(result.subtitles[1]!.text).toBe(other)
+    expect(result.subtitles[1]!.captionText).toBe(other)
+  })
+})

@@ -4012,8 +4012,9 @@ export default function App(): ReactElement {
         const updated: SubtitleLine = {
           ...line,
           words: nextWords,
-          /** 글자 분할로 라인 text 도 재계산 — sentenceTokenTimeline 동기화 시 일관성 유지. */
-          text: displayTextFromSubtitleWords(nextWords),
+          /** 글자 분할로 라인 text 도 재계산 — 편집·AI 교정된 자막 문구(captionText)가 있으면 그대로 둔다. */
+          text: line.captionText !== undefined && line.captionText === line.text
+            ? line.text : displayTextFromSubtitleWords(nextWords),
         }
         return [...prev.slice(0, lineIndex), updated, ...prev.slice(lineIndex + 1)]
       })
