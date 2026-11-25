@@ -4385,16 +4385,7 @@ export default function App(): ReactElement {
   const mergeSubtitleWithNext = useCallback((index: number) => {
     applySubtitleChange((prev) => {
       if (index < 0 || index >= prev.length - 1) return prev
-      const cur = prev[index]
-      const next = prev[index + 1]
-      const mergedWords = [...(cur.words ?? []), ...(next.words ?? [])]
-      const merged: SubtitleLine = {
-        start: cur.start,
-        end: next.end,
-        text: textFromWords(mergedWords, `${cur.text} ${next.text}`.trim()),
-        words: mergedWords
-      }
-      return [...prev.slice(0, index), mergedDisplayTiming(merged, cur, next), ...prev.slice(index + 2)]
+      return mergeSubtitleIntoPrevious(prev, index + 1) ?? prev
     })
   }, [applySubtitleChange])
 
@@ -4453,15 +4444,7 @@ export default function App(): ReactElement {
 
         // 2) 카드 끝(caretIndex===words.length)에서 Delete: 다음 카드와 병합 (리플 없음)
         if (caretIndex === words.length && cardIndex < prev.length - 1) {
-          const next = prev[cardIndex + 1]
-          const mergedWords = [...words, ...(next.words ?? [])]
-          const merged: SubtitleLine = {
-            ...cur,
-            end: next.end,
-            words: mergedWords,
-            text: textFromWords(mergedWords, `${cur.text} ${next.text}`.trim())
-          }
-          return [...prev.slice(0, cardIndex), merged, ...prev.slice(cardIndex + 2)]
+          return mergeSubtitleIntoPrevious(prev, cardIndex + 1) ?? prev
         }
 
         // 3) 그 외 — 카드 통째 제거(예: 단일 단어·커서 끝, 다음 카드 없음). 마지막 카드도 허용.

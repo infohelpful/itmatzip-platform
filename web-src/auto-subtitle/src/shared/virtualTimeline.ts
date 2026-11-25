@@ -12,6 +12,7 @@
 import type { CutRange } from './ipc'
 import type { SubtitleLine, SubtitleWord } from './subtitles'
 import { displayTextFromSubtitleWords, visibleSubtitleWords } from './subtitles'
+import { editedCaptionOf, withCaption } from './captionSplit'
 import { SILENCE_PLACEHOLDER_TEXT } from './wordContract'
 import { mergeCutRanges, snapTimelineSec } from './timelineCollapse'
 
@@ -100,20 +101,21 @@ export function mergeWaveformPeaksStitchCutRanges(
 function rebuildLineMetaAfterWordsChange(line: SubtitleLine, newWords: SubtitleWord[]): SubtitleLine {
   const vis = visibleSubtitleWords(newWords)
   if (vis.length === 0) {
-    return {
+    return withCaption({
       ...line,
       words: newWords,
-      isDeleted: true,
-      text: displayTextFromSubtitleWords(newWords)
-    }
+      isDeleted: true
+    }, undefined)
   }
-  return {
+  // A chip deletion changes the source transcript, not an independently edited caption.
+  // Decide whether the row has a caption override before replacing its word list.
+  const caption = editedCaptionOf(line)
+  return withCaption({
     ...line,
     words: newWords,
     start: vis[0]!.start,
-    end: Math.max(vis[0]!.start + 0.1, vis[vis.length - 1]!.end),
-    text: displayTextFromSubtitleWords(newWords)
-  }
+    end: Math.max(vis[0]!.start + 0.1, vis[vis.length - 1]!.end)
+  }, caption)
 }
 
 export type SoftWordDeleteRippleResult = {

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { editSubtitleText } from './editSubtitleText'
+import { editWordTiming } from './wordTimingEdit'
+import { sentenceTokenTimelineToSubtitleLines, subtitleLinesToSentenceTokenTimeline } from './sentenceTokenTimelineAdapter'
 import {
   buildActiveBlocksSnapshotFromSubtitles,
   buildWordBlocksFromSubtitleLines,
@@ -16,6 +19,38 @@ import {
 } from './virtualTimeline'
 
   describe('virtualTimeline', () => {
+  it('keeps an AI-corrected caption after a waveform timing edit and chip deletion', () => {
+    const source = { start: 0, end: 2, text: '원래 자막', words: [
+      { id: 'a', start: 0, end: 1, word: '원래' },
+      { id: 'b', start: 1, end: 2, word: '자막' }
+    ] }
+    const corrected = editSubtitleText(source, '교정된 문구')
+    const timed = editWordTiming([corrected], { lineIndex: 0, wordIndex: 0 }, 0, 0.8, 3)
+    const deleted = subtitleLinesAfterSoftDeleteWordRange(timed, 0, 1, 2, [])!.lines
+    const [restored] = sentenceTokenTimelineToSubtitleLines(subtitleLinesToSentenceTokenTimeline(deleted))
+
+    expect(restored.text).toBe('교정된 문구')
+    expect(restored.captionText).toBe('교정된 문구')
+    expect(restored.words?.[1]?.isDeleted).toBe(true)
+    expect(restored.words?.[0]?.word).toBe('원래')
+  })
+
+  it('updates source-derived text on deletion and clears a fully deleted caption row', () => {
+    const source = { start: 0, end: 2, text: '원래 자막', words: [
+      { start: 0, end: 1, word: '원래' },
+      { start: 1, end: 2, word: '자막' }
+    ] }
+    const plain = subtitleLinesAfterSoftDeleteWordRange([source], 0, 1, 2, [])!.lines[0]!
+    expect(plain.text).toBe('원래')
+    expect(plain.captionText).toBeUndefined()
+
+    const corrected = editSubtitleText(source, '교정된 문구')
+    const removed = subtitleLinesAfterSoftDeleteWordRange([corrected], 0, 0, 2, [])!.lines[0]!
+    expect(removed.isDeleted).toBe(true)
+    expect(removed.text).toBe('')
+    expect(removed.captionText).toBeUndefined()
+  })
+
   it('retains the last deleted chip as an undoable audio cut and shortens playback', () => {
     const lines = [{ start: 24.264, end: 24.6, text: '빨간', words: [{ start: 24.264, end: 24.6, word: '빨간' }] }]
     const result = subtitleLinesAfterSoftDeleteWordRange(lines, 0, 0, 1, [])!
