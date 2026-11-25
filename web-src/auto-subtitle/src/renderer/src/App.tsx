@@ -21,6 +21,9 @@ import { prepareRealignBatches, mergeRealignedCue, reconcileRealignedGaps, prese
 import { ensureWordIdentities } from '../../shared/wordIdentity'
 import { setWordReading } from '../../shared/wordReading'
 import { subtitleLinesMeaningfullyChanged } from '../../shared/subtitleEditHistory'
+import { WordTimingEditor } from './components/WordTimingEditor'
+import { editWordTiming, resolveTimingWord, splitWordAt, type TimingIdentity, type TimingWordRef } from '../../shared/wordTimingEdit'
+import { materializeProjectCuts } from '../../shared/editableProjectTimeline'
 import { WordReadingEditor } from './components/WordReadingEditor'
 import { SubtitleFormatToolbar } from './components/SubtitleFormatToolbar'
 import { SiteTopbarLinks } from './components/SiteTopbarLinks'
@@ -57,7 +60,6 @@ import {
   deriveVisibleSubtitleLinesForUi,
   mergeDeletedMediaIntoTimeline,
   mergeWaveformPeaksStitchCutRanges,
-  mergedDeletedBlocksForProjectSave,
   subtitleLinesAfterSoftDeleteWordRange,
   type VirtualTimelineBlock,
   virtualTombstonesFromCutRanges
@@ -3580,6 +3582,33 @@ export default function App(): ReactElement {
 
   /** 행 layout 이펙트가 Peaks ref(useImperativeHandle)보다 먼저 돌 수 있어 맵은 여기서 동기 갱신 */
   const waveMountByLineRef = useRef<Map<number, HTMLDivElement>>(new Map())
+  const [timingTarget, setTimingTarget] = useState<TimingWordRef | null>(null)
+  /** Changes only when a chip is opened, so trims, splits and undo keep the same editor (play line, scroll). */
+  const [timingOpenSeq, setTimingOpenSeq] = useState(0)
+  const timingIdentityRef = useRef<TimingIdentity | null>(null)
+  // Edits, splits, undo and redo can move or replace the edited chip: follow it, or close when it is gone.
+  useEffect(() => {
+    if (!timingTarget) return
+    const identity = timingIdentityRef.current
+    const word = subtitles[timingTarget.lineIndex]?.words?.[timingTarget.wordIndex]
+    const mid = identity ? (identity.start + identity.end) / 2 : NaN
+    const same = !!word && !word.isDeleted && !!identity &&
+      (identity.id ? word.id === identity.id : word.start <= mid && word.end >= mid)
+    if (same) {
+      timingIdentityRef.current = { id: word.id, start: word.start, end: word.end }
+      return
+    }
+    const found = identity ? resolveTimingWord(subtitles, identity) : null
+    const foundWord = found ? subtitles[found.lineIndex]?.words?.[found.wordIndex] : undefined
+    if (!found || !foundWord) {
+      setTimingTarget(null)
+      return
+    }
+    timingIdentityRef.current = { id: foundWord.id, start: foundWord.start, end: foundWord.end }
+    setTimingTarget(found)
+  }, [subtitles, timingTarget])
+  useEffect(() => { setTimingTarget(null) }, [videoPath])
+
   const [waveformLineIndex, setWaveformLineIndex] = useState<number | null>(null)
   const [waveformWordId, setWaveformWordId] = useState<string | null>(null)
   const [peaksZoomViewRange, setPeaksZoomViewRange] = useState<PeaksZoomViewRange | null>(null)
@@ -3641,7 +3670,7 @@ export default function App(): ReactElement {
     (startSec: number, endSec: number) => {
       const s = snapTimelineSec(Math.max(0, Math.min(startSec, endSec)))
       const e = snapTimelineSec(Math.max(0, Math.max(startSec, endSec)))
-      if (!(e > s + 0.001)) {
+      if (!(e > s + 1e-9)) {
         timelineEditLog('waveform-cut', 'applyTimeRangeCut 스킵 — 구간 너무 짧음', { startSec, endSec })
         return
       }
@@ -5083,6 +5112,104 @@ export default function App(): ReactElement {
     finalizePlaybackStop('pausePlayback', { markUserPause: true })
   }, [clearOneShotSession, finalizePlaybackStop, isBuffering])
 
+  /** When a press outside closed the editor: the double click that press started only closes, it does not open. */
+  const timingOutsideCloseAtRef = useRef(-Infinity)
+  const openWordTiming = useCallback((lineIndex: number, wordIndex: number) => {
+    if (performance.now() - timingOutsideCloseAtRef.current < 500) return
+    pausePlayback('word-timing-open')
+    const word = subtitlesRef.current[lineIndex]?.words?.[wordIndex]
+    if (!word || word.isDeleted) return
+    timingIdentityRef.current = { id: word.id, start: word.start, end: word.end }
+    setTimingTarget({ lineIndex, wordIndex })
+    setTimingOpenSeq(n => n + 1)
+  }, [pausePlayback])
+
+  /** Both trim lines at once, applied when a trim line is released (one undo step). Throws when invalid. */
+  const applyWordTiming = useCallback((start: number, end: number) => {
+    if (!timingTarget) return
+    const snapshot = subtitlesRef.current
+    const result = editWordTiming(snapshot, timingTarget, start, end, timelineMediaEndHint)
+    const word = result[timingTarget.lineIndex]?.words?.[timingTarget.wordIndex]
+    if (word) timingIdentityRef.current = { id: word.id, start: word.start, end: word.end }
+    setGapFillWhenBuildingVrew(false)
+    applySubtitleChange(prev => prev.length === snapshot.length && prev.every((line, i) => line === snapshot[i])
+      ? result : editWordTiming(prev, timingTarget, start, end, timelineMediaEndHint))
+  }, [timingTarget, timelineMediaEndHint, applySubtitleChange])
+
+  /** Split the edited chip at the play line; the editor stays on the left piece. Caption text is unchanged. */
+  const splitTimingWord = useCallback((t: number) => {
+    if (!timingTarget) return
+    const snapshot = subtitlesRef.current
+    const result = splitWordAt(snapshot, timingTarget, t)
+    const word = snapshot[timingTarget.lineIndex]?.words?.[timingTarget.wordIndex]
+    timingIdentityRef.current = { id: result.leftId, start: word?.start ?? t, end: t }
+    setGapFillWhenBuildingVrew(false)
+    applySubtitleChange(prev => prev.length === snapshot.length && prev.every((line, i) => line === snapshot[i])
+      ? result.lines : splitWordAt(prev, timingTarget, t).lines)
+  }, [timingTarget, applySubtitleChange])
+
+  /**
+   * Real prepared-audio samples for the timing editor, read in one-second chunks (the agent caps one
+   * read at 6 s) and cached so reopening or editing nearby chips does not read the same audio again.
+   */
+  const timingPcmCacheRef = useRef<{ url: string; total: Promise<number | null>; chunks: Map<string, Promise<Int16Array | null>> } | null>(null)
+  const loadTimingPcm = useCallback(async (startSec: number, endSec: number): Promise<Int16Array | null> => {
+    const url = waveformMediaUrl
+    if (!url) return null
+    let cache = timingPcmCacheRef.current
+    if (!cache || cache.url !== url) {
+      cache = {
+        url,
+        total: window.api.readPreparedPcm(url, []).then(info => info.ok ? info.block.totalFrames : null, () => null),
+        chunks: new Map()
+      }
+      timingPcmCacheRef.current = cache
+    }
+    const key = `${startSec}:${endSec}`
+    let pending = cache.chunks.get(key)
+    if (!pending) {
+      const totalFrames = cache.total
+      pending = (async () => {
+        const total = await totalFrames
+        if (total == null) return null
+        const startFrame = Math.max(0, Math.floor(startSec * 48000))
+        const endFrame = Math.min(total, Math.ceil(endSec * 48000))
+        if (!(endFrame > startFrame)) return null
+        const result = await window.api.readPreparedPcm(url, [{ startFrame, frameCount: endFrame - startFrame }])
+        return result.ok ? new Int16Array(result.block.pcm) : null
+      })()
+      pending.then(samples => { if (!samples) cache!.chunks.delete(key) }, () => cache!.chunks.delete(key))
+      cache.chunks.set(key, pending)
+      // About a minute of audio (~11 MB) stays cached.
+      while (cache.chunks.size > 60) cache.chunks.delete(cache.chunks.keys().next().value!)
+    }
+    return pending
+  }, [waveformMediaUrl])
+
+  /** Undo is defined further down; the editor's button reaches it through this ref. */
+  const timingUndoRef = useRef<() => void>(() => {})
+  const onTimingUndo = useCallback(() => timingUndoRef.current(), [])
+
+  const timingEditor = useMemo(() => timingTarget ? {
+    lineIndex: timingTarget.lineIndex,
+    wordIndex: timingTarget.wordIndex,
+    content: <WordTimingEditor key={timingOpenSeq}
+      lines={subtitles} target={timingTarget} duration={timelineMediaEndHint}
+      onApply={applyWordTiming} onSplit={splitTimingWord} onUndo={onTimingUndo} loadPcm={loadTimingPcm}
+      chipElementId={`subtitle-word-${timingTarget.lineIndex}-${timingTarget.wordIndex}`}
+      onPause={() => pausePlayback('word-timing-loop')}
+      onClose={reason => {
+        if (reason === 'outside') timingOutsideCloseAtRef.current = performance.now()
+        setTimingTarget(null)
+      }}
+      onDelete={() => {
+        pausePlayback('word-timing-delete')
+        deleteWordRangeAt(timingTarget.lineIndex, timingTarget.wordIndex, timingTarget.wordIndex + 1)
+        setTimingTarget(null)
+      }} />
+  } : null, [timingTarget, timingOpenSeq, subtitles, timelineMediaEndHint, applyWordTiming, splitTimingWord,
+    onTimingUndo, pausePlayback, deleteWordRangeAt, loadTimingPcm])
+
   const navigateToWord = useCallback((startSec: number) => {
     pausePlayback('word-chip-click')
     seekToSubtitleStartFromUserInput(startSec)
@@ -5848,6 +5975,8 @@ export default function App(): ReactElement {
     setCutRanges(prev.cutRanges)
   }, [])
 
+  timingUndoRef.current = undoSubtitleChange
+
   const redoSubtitleChange = useCallback(() => {
     const next = redoStackRef.current.pop()
     if (!next) return
@@ -6417,7 +6546,8 @@ export default function App(): ReactElement {
     const mediaDurationForSave = binding.duration ?? (preparedMedia?.duration ?? 0)
     const mergedCuts = mergeCutRanges([...cutRanges])
     const activeSnap = buildActiveBlocksSnapshotFromSubtitles(subtitles, mergedCuts)
-    const mergedDeleted = mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts)
+    // Word tombstones are already stored in subtitles; never persist a second immutable copy.
+    const mergedDeleted = virtualTimelineDeleted
     const virtualTimeline = [...activeSnap, ...mergedDeleted]
     const payload: AutosubProjectFile = {
       format: AUTOSUB_FILE_FORMAT,
@@ -6491,13 +6621,11 @@ export default function App(): ReactElement {
       if (!r.canceled && generation === projectGenerationRef.current) {
         projectFilePathRef.current = r.path
         markSaved(savedSnap)
-        const mergedCuts = mergeCutRanges([...cutRanges])
-        setVirtualTimelineDeleted(mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts))
       }
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     } finally { setProjectIoBusy(false) }
-  }, [buildAutosubProjectJson, cutRanges, subtitles, virtualTimelineDeleted, markSaved])
+  }, [buildAutosubProjectJson, markSaved])
 
   const saveProject = useCallback(async () => {
     if (!projectFilePathRef.current) {
@@ -6514,13 +6642,11 @@ export default function App(): ReactElement {
       if (!res.ok) window.alert(res.reason)
       else if (generation === projectGenerationRef.current) {
         markSaved(savedSnap)
-        const mergedCuts = mergeCutRanges([...cutRanges])
-        setVirtualTimelineDeleted(mergedDeletedBlocksForProjectSave(virtualTimelineDeleted, subtitles, mergedCuts))
       }
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     } finally { setProjectIoBusy(false) }
-  }, [buildAutosubProjectJson, saveProjectAs, cutRanges, subtitles, virtualTimelineDeleted, markSaved])
+  }, [buildAutosubProjectJson, saveProjectAs, markSaved])
 
   useEffect(() => {
     if (!videoPath || pendingProjectCoverageRef.current !== videoPath || !preparedMedia || !(preparedMedia.duration > 0)) return
@@ -6572,17 +6698,15 @@ export default function App(): ReactElement {
     projectFilePathRef.current = projectPath
     pendingAutoTranscribeRef.current = null
     setVideoPath(playablePath)
-    setCutRanges(mergeCutRanges(d.cutRanges))
-    let tombstones = (d.virtualTimeline ?? []).filter((b) => b.isDeleted)
-    if (tombstones.length === 0 && mergeCutRanges(d.cutRanges).length > 0) {
-      tombstones = virtualTombstonesFromCutRanges(d.cutRanges)
-    }
-    setVirtualTimelineDeleted(tombstones)
+    const editableSubtitles = ensureWordIdentities(materializeProjectCuts(d.subtitles, d.cutRanges, d.virtualTimeline ?? []))
+    setCutRanges([])
+    setVirtualTimelineDeleted([])
+    setTimingTarget(null)
     pendingProjectCoverageRef.current = d.videoPath
-    const excluded = mergeWaveformPeaksStitchCutRanges(d.cutRanges, d.subtitles, tombstones)
-    const subtitleEnd = d.subtitles.reduce((end, line) => Math.max(end, line.end), 0)
+    const excluded = mergeWaveformPeaksStitchCutRanges([], editableSubtitles, [])
+    const subtitleEnd = editableSubtitles.reduce((end, line) => Math.max(end, line.end), 0)
     rebaselineNextRef.current = true
-    setSentenceTokenTimeline(subtitleLinesToSentenceTokenTimeline(completeMediaCoverage(d.subtitles, subtitleEnd, null, excluded)))
+    setSentenceTokenTimeline(subtitleLinesToSentenceTokenTimeline(completeMediaCoverage(editableSubtitles, subtitleEnd, null, excluded)))
     setGapFillWhenBuildingVrew(false)
     undoStackRef.current = []
     redoStackRef.current = []
@@ -7567,6 +7691,7 @@ export default function App(): ReactElement {
                 </div>
                 <p className="subtitle-panel-sub">
                   <span role="status">{alignmentNotice}</span>
+                  단어칩을 더블클릭하면 파형이 열립니다. 양 끝 트림을 끌어 경계를 바꾸고, 재생 라인 위치에서 칩을 나눌 수 있습니다.
                 </p>
                 {readingLineIndex !== null && subtitles[readingLineIndex] ? <WordReadingEditor
                   key={`${projectGenerationRef.current}:${readingLineIndex}`} line={subtitles[readingLineIndex]} lineIndex={readingLineIndex}
@@ -7668,6 +7793,8 @@ export default function App(): ReactElement {
                           mergeEmptySubtitleAt={mergeEmptySubtitleAt}
                           formatTimecode={formatEditedTimecode}
                           onTogglePlayback={dispatchTogglePlayIntent}
+                          timingEditor={timingEditor}
+                          onEditWordTiming={openWordTiming}
                           waveformEnabled={false}
                           registerWaveMount={registerWaveMount}
                           waveformExpandedLineIndex={waveformLineIndex}

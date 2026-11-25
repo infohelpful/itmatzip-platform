@@ -8,7 +8,7 @@ const EPS = 1e-9
 /** 컷 시그니처 — 디바운스 effect 의존성·로그용 */
 export function cutRangesSignature(cuts: readonly CutRange[]): string {
   return mergeCutRanges([...cuts])
-    .map((c) => `${c.start.toFixed(5)}-${c.end.toFixed(5)}`)
+    .map((c) => `${c.start.toFixed(6)}-${c.end.toFixed(6)}`)
     .join('|')
 }
 

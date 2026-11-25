@@ -20,10 +20,11 @@ describe('tombstoneSplitSubtitleWord', () => {
 })
 
 describe('applyProgramTimeRangeTombstoneCutToSubtitleLines', () => {
-  it('reverts when the cut would remove all visible words', () => {
+  it('retains deleted records when the cut removes all visible words', () => {
     const lines = [{ start: 0, end: 2, text: 'hi', words: [{ start: 0, end: 2, word: 'hi' }] }]
     const next = applyProgramTimeRangeTombstoneCutToSubtitleLines(lines, 0, 2)
-    expect(next).toEqual(lines)
+    expect(next[0].isDeleted).toBe(true)
+    expect(next[0].words![0].isDeleted).toBe(true)
   })
 
   it('tombstones one word and keeps another line', () => {
@@ -32,7 +33,8 @@ describe('applyProgramTimeRangeTombstoneCutToSubtitleLines', () => {
       { start: 5, end: 7, text: 'b', words: [{ start: 5, end: 7, word: 'b' }] }
     ]
     const next = applyProgramTimeRangeTombstoneCutToSubtitleLines(lines, 0, 2)
-    expect(next).toHaveLength(1)
-    expect(next[0]!.words!.some((w) => w.word === 'b')).toBe(true)
+    expect(next).toHaveLength(2)
+    expect(next[0].isDeleted).toBe(true)
+    expect(next[1]!.words!.some((w) => w.word === 'b')).toBe(true)
   })
 })

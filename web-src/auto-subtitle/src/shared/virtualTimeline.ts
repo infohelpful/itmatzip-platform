@@ -15,7 +15,7 @@ import { displayTextFromSubtitleWords, visibleSubtitleWords } from './subtitles'
 import { SILENCE_PLACEHOLDER_TEXT } from './wordContract'
 import { mergeCutRanges, snapTimelineSec } from './timelineCollapse'
 
-const DELETE_RANGE_MIN_SEC = 1e-5
+const DELETE_RANGE_MIN_SEC = 1e-9
 
 /**
  * 한 줄을 두 단어·두 카드로 나눈 뒤에도 타임스탬프가 예전 **통합 구간**처럼 겹치거나 한쪽이 옆 단어 구간까지 뻗은 경우,

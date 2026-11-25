@@ -1,0 +1,110 @@
+.word-timing-editor {
+  position: relative;
+  margin: 8px 0 12px;
+  padding: 6px 10px 10px;
+  border: 1px solid #2c3b4b;
+  border-radius: 10px;
+  background: #11161c;
+  color: #deebf5;
+  font-size: 12px;
+  min-width: 0;
+}
+.word-timing-editor :focus-visible { outline: 2px solid #7fd9ff; outline-offset: 2px; }
+
+/* Lines from the selected chip down to its trim lines. */
+.word-timing-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; z-index: 3; }
+.word-timing-links line { stroke: #8fa3b5; stroke-width: 1; }
+
+.word-timing-scroll { position: relative; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.word-timing-track { position: relative; touch-action: none; user-select: none; cursor: text; }
+.word-timing-canvas { position: sticky; left: 0; display: block; pointer-events: none; }
+
+.word-timing-box-label {
+  position: absolute; z-index: 1; font-size: 10px; line-height: 14px; color: #7f8fa0;
+  font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none;
+}
+.word-timing-box-label--current { color: #b9e6ff; }
+.word-timing-box-label--deleted { color: #c98790; }
+
+/* Trim handle: a solid bar centred on the boundary; its dark centre line is the exact trim time. */
+.word-timing-trim {
+  position: absolute; z-index: 3; width: 12px; transform: translateX(-50%); cursor: ew-resize; touch-action: none;
+  display: flex; align-items: center; justify-content: center; border-radius: 4px;
+  background: #d5dde6; box-shadow: 0 0 0 1px rgba(0, 0, 0, .45), 0 1px 4px rgba(0, 0, 0, .5);
+}
+.word-timing-knob { width: 3px; height: calc(100% - 14px); border-radius: 2px; background: #0b0f14; }
+.word-timing-trim:hover { background: #eef3f8; }
+.word-timing-trim:focus-visible { outline-offset: 1px; }
+/* While dragged the bar turns see-through so the waveform under it stays visible. */
+.word-timing-trim.word-timing-trim--dragging { background: rgba(213, 221, 230, .32); box-shadow: 0 0 0 1px rgba(213, 221, 230, .7); }
+.word-timing-trim--dragging .word-timing-knob { background: rgba(11, 15, 20, .85); }
+.word-timing-trim-time {
+  position: absolute; top: -18px; left: 50%; transform: translateX(-50%); padding: 1px 4px; border-radius: 3px;
+  background: #1d3a52; color: #d7f0ff; font-size: 10px; white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+/* Where the moved trim line was before this drag. */
+.word-timing-original {
+  position: absolute; z-index: 2; width: 0; border-left: 1.5px dashed #c9d3de; transform: translateX(-.75px);
+  pointer-events: none; opacity: .85;
+}
+
+/* The play line draws over the trim bars but only its bubble and its hit strip take the pointer. */
+.word-timing-playhead {
+  position: absolute; top: 0; z-index: 4; width: 0; border-left: 2px solid #23b8f0; pointer-events: none;
+  transform: translateX(-1px);
+}
+.word-timing-playhead-hit { position: absolute; z-index: 2; width: 12px; transform: translateX(-50%); cursor: pointer; }
+.word-timing-playhead::after {
+  content: ''; position: absolute; left: -6px; top: 18px;
+  border: 5px solid transparent; border-top: 7px solid #23b8f0;
+}
+.word-timing-playhead-bubble {
+  position: absolute; top: 0; left: 0; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
+  padding: 2px 6px; border-radius: 4px; background: #1aa6dd; color: #04131c; font-weight: 700; font-size: 11px;
+  line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; pointer-events: auto; cursor: pointer;
+}
+.word-timing-playhead-bubble em { font-style: normal; font-weight: 600; color: #08374a; }
+
+.word-timing-length {
+  position: absolute; z-index: 1; transform: translateX(-50%); padding: 1px 6px; border-radius: 4px;
+  background: #1c2e3d; color: #8fd6ff; font-size: 11px; font-weight: 700; white-space: nowrap; pointer-events: none;
+}
+
+/* Icon-only buttons centred under the selected chip; the name shows as a tooltip on hover. */
+.word-timing-actions {
+  position: absolute; z-index: 5; display: flex; gap: 8px; transform: translateX(-50%); cursor: default;
+}
+.word-timing-editor .word-timing-action {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border-radius: 50%;
+  border: 1px solid #3a4756; background: #1a222b; color: #d5e2ee; font: inherit; cursor: pointer;
+}
+.word-timing-editor .word-timing-action svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.word-timing-editor .word-timing-action--play svg { fill: currentColor; stroke: none; }
+.word-timing-editor .word-timing-action:hover:not(:disabled) { background: #243140; border-color: #5ec8f8; }
+.word-timing-editor .word-timing-action[aria-pressed='true'] { background: #1d4a66; border-color: #5ec8f8; color: #fff; }
+.word-timing-editor .word-timing-action:disabled { cursor: default; }
+.word-timing-editor .word-timing-action:disabled svg { opacity: .4; }
+.word-timing-action[data-tip]::after {
+  content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  padding: 3px 8px; border-radius: 4px; background: #e9f1f8; color: #10161d; font-size: 11px; font-weight: 600;
+  line-height: 16px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .12s;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .45);
+}
+.word-timing-action[data-tip]:hover::after, .word-timing-action[data-tip]:focus-visible::after { opacity: 1; transition-delay: .25s; }
+
+.word-timing-footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-height: 0; }
+.word-timing-message { flex: 1; margin: 0; text-align: center; color: #ffb1ba; }
+.word-timing-editor .word-timing-close {
+  position: absolute; right: 10px; bottom: 10px; z-index: 6; height: 26px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid #34414f; background: transparent; color: #9fb1c2; font: inherit; cursor: pointer;
+}
+.word-timing-editor .word-timing-close:hover { color: #fff; border-color: #5b6b7b; }
+
+/* The chip being edited in the chip row. */
+.subtitle-word-chip.subtitle-word-chip--timing { outline: 1.5px solid #5ec8f8; outline-offset: 1px; }
+
+@media (max-width: 700px) {
+  .word-timing-editor .word-timing-close { position: static; }
+}

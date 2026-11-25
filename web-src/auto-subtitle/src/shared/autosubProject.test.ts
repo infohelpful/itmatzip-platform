@@ -113,3 +113,17 @@ describe('project mediaDuration', () => {
     expect(bad.ok && bad.data.mediaDuration).toBeUndefined()
   })
 })
+
+describe('split chips in project files', () => {
+  it('keeps the joined-piece mark of split chips through save and reopen', () => {
+    const subtitles = [{ start: 0, end: 1, text: '설치나', words: [
+      { id: 'a~1', start: 0, end: .4, word: '설', splitChain: '1', manualEndLocked: true },
+      { id: 'a~2', start: .4, end: 1, word: '치나', splitChain: '2', joinPrev: true, manualStartLocked: true }
+    ] }]
+    const parsed = parseAutosubProjectFile({ ...projectFixture(), subtitles })
+    expect(parsed.ok && parsed.data.subtitles[0].words![1]!.joinPrev).toBe(true)
+    const reopened = parsed.ok ? parseAutosubProjectFile(JSON.parse(JSON.stringify(parsed.data))) : parsed
+    expect(reopened.ok && reopened.data.subtitles[0].words![1]!.joinPrev).toBe(true)
+    expect(reopened.ok && reopened.data.subtitles[0].text).toBe('설치나')
+  })
+})

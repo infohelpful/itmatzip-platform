@@ -129,7 +129,7 @@ function parseProjectSubtitles(raw: unknown, legacy: boolean): SubtitleLine[] | 
       for (const rawWord of item.words) {
         if (!isRecord(rawWord) || !time(rawWord.start) || !time(rawWord.end) || rawWord.end < rawWord.start || typeof rawWord.word !== 'string') return null
         const word: SubtitleWord = { start: rawWord.start, end: rawWord.end, word: rawWord.word }
-        for (const key of ['isSilence', 'isDeleted', 'mergedByEdgeTrim'] as const) {
+        for (const key of ['isSilence', 'isDeleted', 'mergedByEdgeTrim', 'joinPrev'] as const) {
           if (rawWord[key] === true) word[key] = true
         }
         if (typeof rawWord.splitChain === 'string' && /^[12]+$/.test(rawWord.splitChain)) word.splitChain = rawWord.splitChain

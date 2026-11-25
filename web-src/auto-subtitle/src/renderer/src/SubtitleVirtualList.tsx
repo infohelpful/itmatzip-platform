@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
   type CSSProperties,
   type KeyboardEvent,
   type MutableRefObject
@@ -92,6 +93,8 @@ function wordChipSlotStyle(w: { start: number; end: number }, tw: LineZoomWindow
 }
 
 export type SubtitleVirtualListProps = {
+  timingEditor?: { lineIndex: number; wordIndex: number; content: ReactNode } | null
+  onEditWordTiming?: (lineIndex: number, wordIndex: number) => void
   selectedRows: ReadonlySet<number>
   onSelectRow: (index: number, checked: boolean) => void
   /** Current Ctrl+F match; its row is highlighted and scrolled into view. */
@@ -147,6 +150,8 @@ export type SubtitleVirtualListProps = {
 
 /** `List` 의 `rowProps` — `index` / `style` / `ariaAttributes` 는 List가 주입 */
 export type SubtitleListRowProps = {
+  timingEditor?: SubtitleVirtualListProps['timingEditor']
+  onEditWordTiming?: SubtitleVirtualListProps['onEditWordTiming']
   selectedRows: ReadonlySet<number>
   onSelectRow: SubtitleVirtualListProps['onSelectRow']
   searchHitLine: number | null
@@ -1713,7 +1718,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
   }
 
   return (
-    <div style={style} className="subtitle-virtual-row">
+    // aria-posinset lets react-window map this element to its row index. Without it, a deleted
+    // (zero-height) row that has the attribute becomes the only row measured and every other row
+    // keeps a stale height, so an opened word timing editor was painted under the next rows.
+    <div {...props.ariaAttributes} style={style} className="subtitle-virtual-row">
       <article
         ref={articleRef}
         id={`subtitle-card-${index}`}
@@ -1898,7 +1906,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                       {...(chipWordId != null ? ({ 'data-word-id': String(chipWordId) } as const) : {})}
                       data-waveform-active-word-chip={isActiveWaveformChip ? '1' : undefined}
                       data-waveform-expanded-row-chip={waveformExpandedThisRow ? '1' : undefined}
-                      className={`subtitle-word-chip subtitle-word-chip--proportional${rw.isSilence ? ' subtitle-word-chip--silence' : ''}${emphasisByWord.has(storageWi) ? ' subtitle-word-chip--emphasis' : ''}`}
+                      className={`subtitle-word-chip subtitle-word-chip--proportional${props.timingEditor?.lineIndex === index && props.timingEditor.wordIndex === storageWi ? ' subtitle-word-chip--timing' : ''}${rw.isSilence ? ' subtitle-word-chip--silence' : ''}${emphasisByWord.has(storageWi) ? ' subtitle-word-chip--emphasis' : ''}`}
                       style={emphasisByWord.has(storageWi)
                         ? ({ '--chip-emphasis-color': emphasisByWord.get(storageWi) } as CSSProperties)
                         : undefined}
@@ -1978,6 +1986,12 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                         if (activeChipCloseTimerRef.current != null) {
                           clearTimeout(activeChipCloseTimerRef.current)
                           activeChipCloseTimerRef.current = null
+                        }
+                        if (props.onEditWordTiming) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          props.onEditWordTiming(index, storageWi)
+                          return
                         }
                         if (!waveformEnabled || !onWaveformWordDoubleClick) return
                         e.preventDefault()
@@ -2091,6 +2105,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         ) : null}
           </div>
         ) : null}
+        {props.timingEditor?.lineIndex === index ? props.timingEditor.content : null}
         <div className="subtitle-card-textarea-wrap">
         <textarea
           id={`subtitle-v-${index}`}
@@ -2169,6 +2184,8 @@ const subtitleVirtualRowAreEqual = (
 ): boolean => {
   if (prev.index !== next.index) return false
   if (prev.style !== next.style) return false
+  if ((prev.timingEditor?.lineIndex === prev.index || next.timingEditor?.lineIndex === next.index) &&
+      prev.timingEditor !== next.timingEditor) return false
   // 자기 row 의 핵심 데이터 비교
   if (prev.subtitles[prev.index] !== next.subtitles[next.index]) return false
   const prevVrew = prev.vrewRows?.[prev.index]
@@ -2188,6 +2205,7 @@ const subtitleVirtualRowAreEqual = (
   // 나머지 prop 은 reference 비교 (subtitles/vrewRows/펼침 관련은 위에서 처리)
   for (const key of Object.keys(next) as Array<keyof typeof next>) {
     if (
+      key === 'timingEditor' ||
       key === 'subtitles' ||
       key === 'vrewRows' ||
       key === 'index' ||
@@ -2367,6 +2385,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
   const rowProps = useMemo(
     () => ({
       subtitles,
+      timingEditor: props.timingEditor,
+      onEditWordTiming: props.onEditWordTiming,
       selectedRows: props.selectedRows,
       onSelectRow: props.onSelectRow,
       searchHitLine,
@@ -2417,6 +2437,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
     [
       subtitles,
       props.selectedRows,
+      props.timingEditor,
+      props.onEditWordTiming,
       props.onSelectRow,
       searchHitLine,
       props.activeSubtitleIndexRef,

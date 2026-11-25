@@ -27,7 +27,7 @@ export function buildScheduledMediaSegments(
   for (const clip of clips) {
     const segStart = Math.max(start, clip.mediaStart)
     const segEnd = Math.min(end, clip.mediaEnd)
-    if (segEnd <= segStart + 1e-4) continue
+    if (segEnd <= segStart + 1e-9) continue
     out.push({
       clipId: clip.id,
       startMediaSec: segStart,

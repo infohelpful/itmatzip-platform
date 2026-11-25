@@ -1,11 +1,11 @@
 import type { CutRange } from './ipc'
 
 /** cutRanges·IPC 로그에 쓸 초 단위 스냅 — 부동소수점 잡음(0.009583332…) 제거 */
-const SNAP_SEC = 1e-5
+const UNITS_PER_SEC = 1_000_000
 
 export function snapTimelineSec(t: number): number {
   if (!Number.isFinite(t)) return 0
-  return Math.round(t / SNAP_SEC) * SNAP_SEC
+  return Math.round(t * UNITS_PER_SEC) / UNITS_PER_SEC
 }
 
 /** 겹치는 구간 병합 — 재생 스킵·타임라인 접기 공통 */
@@ -20,7 +20,7 @@ export function mergeCutRanges(ranges: CutRange[]): CutRange[] {
   for (let i = 1; i < sorted.length; i += 1) {
     const cur = sorted[i]!
     const last = out[out.length - 1]!
-    if (cur.start <= last.end + 0.001) {
+    if (cur.start <= last.end + 1e-9) {
       last.end = Math.max(last.end, cur.end)
     } else {
       out.push({ ...cur })

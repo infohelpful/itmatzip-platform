@@ -40,6 +40,11 @@ type SubtitleWordCore = {
    *  값이 없으면 분할되지 않은 원본 단어 — 기존 ID 그대로 부여.
    */
   splitChain?: string
+  /**
+   * true: 칩 나누기로 생긴 오른쪽 조각 — 바로 앞 저장 슬롯의 조각이 보이는 동안 띄어쓰기 없이 붙여
+   *  자막 문자열·내보내기 조각을 만든다(칩만 나누고 자막 글자는 그대로 둔다).
+   */
+  joinPrev?: boolean
 }
 
 export type SubtitleLine = {
@@ -101,12 +106,7 @@ export function storageWordIndexFromVisibleNonDeletedIndex(
 export function displayTextFromSubtitleWords(
   words: readonly SubtitleWord[] | undefined
 ): string {
-  if (!words || words.length === 0) return ''
-  return visibleSubtitleWords(words)
-    .map((w) => scrubTimelineNoiseFromWordPiece(w.word))
-    .filter((piece) => piece.length > 0 && !shouldOmitFromSubtitleEditLineText(piece))
-    .join(' ')
-    .trim()
+  return subtitleWordPiecesForExport(words).map((p) => p.text).join(' ').trim()
 }
 
 /**
@@ -120,11 +120,20 @@ export function subtitleWordPiecesForExport(
 ): SubtitleWordPiece[] {
   if (!words || words.length === 0) return []
   const out: SubtitleWordPiece[] = []
-  for (const w of visibleSubtitleWords(words)) {
+  let lastPieceSlot = -2
+  words.forEach((w, slot) => {
+    if (w.isDeleted || w.isSilence) return
     const text = scrubTimelineNoiseFromWordPiece(w.word)
-    if (text.length === 0 || shouldOmitFromSubtitleEditLineText(text)) continue
-    out.push({ start: w.start, end: w.end, text })
-  }
+    if (text.length === 0 || shouldOmitFromSubtitleEditLineText(text)) return
+    const prev = out[out.length - 1]
+    // A split chip continues the word of the piece in the slot right before it (no space).
+    if (w.joinPrev === true && prev && lastPieceSlot === slot - 1) {
+      out[out.length - 1] = { start: prev.start, end: w.end, text: prev.text + text }
+    } else {
+      out.push({ start: w.start, end: w.end, text })
+    }
+    lastPieceSlot = slot
+  })
   return out
 }
 

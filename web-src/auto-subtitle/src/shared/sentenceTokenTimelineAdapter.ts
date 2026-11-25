@@ -62,6 +62,7 @@ function buildSentenceFromLine(line: SubtitleLine, li: number): TimelineSentence
       if (w.isSilence === true) t.isSilence = true
       if (w.gapKind === 'unclassified') t.gapKind = w.gapKind
       if (w.splitChain) t.splitChain = w.splitChain
+      if (w.joinPrev === true) t.joinPrev = true
       return t
     })
     const sentence: TimelineSentence = {
@@ -110,6 +111,7 @@ function buildLineFromSentence(sentence: TimelineSentence): SubtitleLine | null 
     if (t.isSilence === true) w.isSilence = true
     if (t.gapKind === 'unclassified') w.gapKind = t.gapKind
     if (t.splitChain) w.splitChain = t.splitChain
+    if (t.joinPrev === true) w.joinPrev = true
     return w
   })
   /** 인접 `--` 및 `…`/`--` 쇼트 런 정리 — 파형·SSOT 가 무음 구간을 한 칩으로 덮음 */

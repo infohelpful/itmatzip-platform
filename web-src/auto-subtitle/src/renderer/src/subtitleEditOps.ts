@@ -57,7 +57,9 @@ export function splitSubtitleAtWordBoundary(
 function wordIndexForPieceBoundary(words: readonly SubtitleWord[], count: number): number {
   let seen = 0
   for (let i = 0; i < words.length; i++) {
-    const n = sourcePieces([words[i]!]).length
+    // A split chip joined to the chip before it is part of that caption word, not a new piece.
+    const joined = words[i]!.joinPrev === true && i > 0 && sourcePieces([words[i - 1]!]).length > 0
+    const n = joined ? 0 : sourcePieces([words[i]!]).length
     if (n > 0 && seen >= count) return i
     seen += n
   }
