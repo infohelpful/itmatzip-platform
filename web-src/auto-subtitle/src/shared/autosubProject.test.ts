@@ -127,3 +127,34 @@ describe('split chips in project files', () => {
     expect(reopened.ok && reopened.data.subtitles[0].text).toBe('설치나')
   })
 })
+
+describe('project v3 media edits', () => {
+  const media = {
+    version: 1,
+    assets: [{ id: 'photo', kind: 'image', path: 'C:/photo.png', name: 'photo.png' }],
+    insertions: [{ id: 'clip', assetId: 'photo', at: { sourceTime: 1, wordId: 'one', edge: 'end' }, duration: 3,
+      sourceStart: 0, fit: 'contain', muted: false }],
+    overlays: [{ id: 'cover', assetId: 'photo', start: { sourceTime: 0 }, end: { sourceTime: 2 }, fit: 'cover' }]
+  }
+  it('keeps inserted clips and overlays through save and reopen as version 3', () => {
+    const parsed = parseAutosubProjectFile({ ...projectFixture(), version: 3, mediaEdits: media })
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.data.version).toBe(3)
+    expect(parsed.data.mediaEdits).toEqual(media)
+    const reopened = parseAutosubProjectFile(JSON.parse(JSON.stringify(parsed.data)))
+    expect(reopened.ok && reopened.data.mediaEdits).toEqual(media)
+  })
+  it('a version 2 file has no media edits; a version 3 file without any is written back as version 2', () => {
+    const v2 = parseAutosubProjectFile(projectFixture())
+    expect(v2.ok && v2.data.mediaEdits).toBeUndefined()
+    const empty = parseAutosubProjectFile({ ...projectFixture(), version: 3,
+      mediaEdits: { version: 1, assets: [], insertions: [], overlays: [] } })
+    expect(empty.ok && empty.data.version).toBe(2)
+  })
+  it('refuses damaged media edits instead of dropping them', () => {
+    const bad = parseAutosubProjectFile({ ...projectFixture(), version: 3,
+      mediaEdits: { ...media, insertions: [{ ...media.insertions[0], assetId: 'nope' }] } })
+    expect(bad.ok).toBe(false)
+  })
+})

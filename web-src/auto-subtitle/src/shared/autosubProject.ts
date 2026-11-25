@@ -7,11 +7,14 @@ import { parseVirtualTimeline, type VirtualTimelineBlock } from './virtualTimeli
 import { isEmphasisHexColor, parseCaptionEmphasis } from './captionEmphasis'
 import type { SubtitleBoxStyle } from './subtitleCapsule'
 import { MAX_DISPLAY_ADJ_SEC } from './subtitleDisplayTiming'
+import { parseMediaEdits, type MediaEdits } from './mediaComposition'
 
 export type { VirtualTimelineBlock }
 
 export const AUTOSUB_FILE_FORMAT = 'autosubtitle-project' as const
 export const AUTOSUB_VERSION = 2 as const
+/** Written only when the project has inserted clips or image overlays; older apps then refuse the file instead of dropping them. */
+export const AUTOSUB_MEDIA_VERSION = 3 as const
 
 /** `.autosub` JSON 내부 — 프리뷰 자막 스타일과 동일 의미 */
 export type AutosubProjectStyleV1 = {
@@ -36,7 +39,7 @@ export type AutosubProjectStyleV1 = {
 
 export type AutosubProjectFile = {
   format: typeof AUTOSUB_FILE_FORMAT
-  version: typeof AUTOSUB_VERSION
+  version: typeof AUTOSUB_VERSION | typeof AUTOSUB_MEDIA_VERSION
   savedAt: string
   videoPath: string | null
   mediaFingerprint: MediaFingerprint | null
@@ -47,6 +50,12 @@ export type AutosubProjectFile = {
   subtitles: SubtitleLine[]
   /** 가상 타임라인 블록(비파괴 삭제 tombstone + 활성 스냅샷) — 없으면 구버전 프로젝트 */
   virtualTimeline?: VirtualTimelineBlock[]
+  /** Inserted image/video clips and image overlays (version 3 only). */
+  mediaEdits?: MediaEdits
+}
+
+export function hasMediaEdits(edits: MediaEdits | null | undefined): edits is MediaEdits {
+  return !!edits && (edits.insertions.length > 0 || edits.overlays.length > 0)
 }
 
 function isRecord(x: unknown): x is Record<string, unknown> {
@@ -157,7 +166,7 @@ export function parseAutosubProjectFile(raw: unknown):
   | { ok: false; reason: string } {
   if (!isRecord(raw)) return { ok: false, reason: '루트가 객체가 아닙니다.' }
   if (raw.format !== AUTOSUB_FILE_FORMAT) return { ok: false, reason: 'format이 autosubtitle-project가 아닙니다.' }
-  if (raw.version !== 1 && raw.version !== AUTOSUB_VERSION) return { ok: false, reason: `지원하지 않는 버전: ${String(raw.version)}` }
+  if (raw.version !== 1 && raw.version !== AUTOSUB_VERSION && raw.version !== AUTOSUB_MEDIA_VERSION) return { ok: false, reason: `지원하지 않는 버전: ${String(raw.version)}` }
   const savedAt = typeof raw.savedAt === 'string' ? raw.savedAt : new Date().toISOString()
   const videoPath =
     raw.videoPath === null || raw.videoPath === undefined
@@ -179,9 +188,17 @@ export function parseAutosubProjectFile(raw: unknown):
   if (vtRaw != null && (!Array.isArray(vtRaw) || virtualTimelineParsed?.length !== vtRaw.length)) {
     return { ok: false, reason: '저장된 타임라인이 올바르지 않습니다.' }
   }
+  let mediaEdits: MediaEdits | undefined
+  if (raw.version === AUTOSUB_MEDIA_VERSION) {
+    try {
+      mediaEdits = parseMediaEdits(raw.mediaEdits)
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message : '미디어 편집 데이터가 올바르지 않습니다.' }
+    }
+  }
   const data: AutosubProjectFile = {
     format: AUTOSUB_FILE_FORMAT,
-    version: AUTOSUB_VERSION,
+    version: hasMediaEdits(mediaEdits) ? AUTOSUB_MEDIA_VERSION : AUTOSUB_VERSION,
     savedAt,
     videoPath,
     mediaFingerprint,
@@ -195,5 +212,6 @@ export function parseAutosubProjectFile(raw: unknown):
   if (virtualTimelineParsed && virtualTimelineParsed.length > 0) {
     data.virtualTimeline = virtualTimelineParsed
   }
+  if (hasMediaEdits(mediaEdits)) data.mediaEdits = mediaEdits
   return { ok: true, data, migrated: raw.version === 1 }
 }

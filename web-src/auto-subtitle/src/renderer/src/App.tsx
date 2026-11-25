@@ -44,10 +44,35 @@ import {
 } from '../../shared/subtitles'
 import {
   AUTOSUB_FILE_FORMAT,
+  AUTOSUB_MEDIA_VERSION,
   AUTOSUB_VERSION,
   type AutosubProjectFile,
+  hasMediaEdits,
   parseAutosubProjectFile
 } from '../../shared/autosubProject'
+import {
+  EMPTY_MEDIA_EDITS,
+  buildMediaComposition,
+  compositionPositionAt,
+  insertionGroups,
+  overlaySourceRanges,
+  parseMediaEdits,
+  pruneMediaAssets,
+  sourceBoundaryToProgram,
+  type ImageOverlay,
+  type InsertionGroup,
+  type MediaAsset,
+  type MediaEdits,
+  type MediaInsertion,
+  resolveMediaAnchor
+} from '../../shared/mediaComposition'
+import { insertionRows, moveOverlayEdge, overlayRowSpan, rowEndAnchor, rowStartAnchor } from '../../shared/mediaEditOps'
+import { pickCompositionAsset, registerCompositionAsset } from './platform/compositionClient'
+import { MediaPreviewLayer, type InsertSession } from './components/MediaPreviewLayer'
+import { InsertedClipCard, OverlayGutter, type ClipAddKind, type OverlayLane } from './components/MediaClipCards'
+import type { SubtitleRowMedia } from './SubtitleVirtualList'
+import { isRemovedSubtitleRow } from '../../shared/editorPlayback'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { SentenceTokenTimeline } from '../../shared/sentenceTokenTimeline'
 import {
   sentenceTokenTimelineToSubtitleLines,
@@ -1607,7 +1632,41 @@ export default function App(): ReactElement {
     subtitles: SubtitleLine[]
     virtualTimelineDeleted: VirtualTimelineBlock[]
     cutRanges: CutRange[]
+    /** Inserted clips and image overlays: Ctrl+Z restores them together with the captions. */
+    mediaEdits: MediaEdits
   }
+  const [mediaEdits, setMediaEditsState] = useState<MediaEdits>(EMPTY_MEDIA_EDITS)
+  const mediaEditsRef = useRef<MediaEdits>(EMPTY_MEDIA_EDITS)
+  const setMediaEdits = useCallback((next: MediaEdits) => {
+    mediaEditsRef.current = next
+    setMediaEditsState(next)
+  }, [])
+  /** Agent registration per media file: `ok` files are served to the preview; `missing` ones need reconnecting. */
+  const [mediaAssetState, setMediaAssetState] = useState<ReadonlyMap<string, 'ok' | 'missing'>>(() => new Map())
+  const [mediaNotice, setMediaNotice] = useState('')
+  /** Inserted clips playing or parked in the preview (the original video and its sound are stopped). */
+  const [insertSession, setInsertSessionState] = useState<InsertSession | null>(null)
+  const insertSessionRef = useRef<InsertSession | null>(null)
+  const setInsertSession = useCallback((next: InsertSession | null) => {
+    insertSessionRef.current = next
+    setInsertSessionState(next)
+  }, [])
+  /** Continuous playback stops at this group's boundary and plays it (set when the schedule is armed). */
+  const insertStopRef = useRef<InsertionGroup | null>(null)
+  const insertOffsetRef = useRef(0)
+  const insertSeqRef = useRef(0)
+  /** Late-bound session controls (playback callbacks are declared before the session handlers). */
+  const insertControlRef = useRef<{
+    close: () => void
+    toggle: () => void
+    reachStop: (group: InsertionGroup) => void
+    playLeadingIfAtStart: () => boolean
+  } | null>(null)
+  const enterInsertGroupRef = useRef<((group: InsertionGroup, offset: number, playing: boolean) => void) | null>(null)
+  const mediaOverlayUpdateRef = useRef<((sourceSec: number) => void) | null>(null)
+  const registerMediaOverlayUpdate = useCallback((update: ((sourceSec: number) => void) | null) => {
+    mediaOverlayUpdateRef.current = update
+  }, [])
   const undoStackRef = useRef<SubtitleHistoryEntry[]>([])
   const redoStackRef = useRef<SubtitleHistoryEntry[]>([])
   /** virtualTimelineDeleted 의 최신 값 ref — applySubtitleChange/undo/redo 가 동기 캡처 */
@@ -1859,10 +1918,49 @@ export default function App(): ReactElement {
     () => createTimelineMapping(mergedWaveformPeaksStitchCuts, timelineMediaEndHint, { masterMode: 'passthrough' }),
     [mergedWaveformPeaksStitchCuts, timelineMediaEndHint]
   )
-  const displayDurationSec = programDurationSec(displayTimelineMapping.clips)
+  const editedDurationSec = programDurationSec(displayTimelineMapping.clips)
+  /** Finished program: original portions (cuts removed) with the inserted clips between them. */
+  const mediaSourceDurationSec = preparedMedia?.duration ?? 0
+  const mediaComposition = useMemo(() => {
+    if (!hasMediaEdits(mediaEdits) || !(mediaSourceDurationSec > 0)) return null
+    try {
+      return buildMediaComposition(mediaSourceDurationSec, mergedWaveformPeaksStitchCuts, subtitles, mediaEdits)
+    } catch {
+      return null
+    }
+  }, [mediaEdits, mediaSourceDurationSec, mergedWaveformPeaksStitchCuts, subtitles])
+  const mediaGroups = useMemo(() => (mediaComposition ? insertionGroups(mediaComposition) : []), [mediaComposition])
+  const mediaCompositionRef = useRef(mediaComposition)
+  mediaCompositionRef.current = mediaComposition
+  const mediaGroupsRef = useRef(mediaGroups)
+  mediaGroupsRef.current = mediaGroups
+  const previewOverlays = useMemo(
+    () => (mediaEdits.overlays.length && mediaSourceDurationSec > 0
+      ? overlaySourceRanges(mediaEdits, subtitles, mediaSourceDurationSec) : []),
+    [mediaEdits, subtitles, mediaSourceDurationSec]
+  )
+  const displayDurationSec = mediaComposition ? mediaComposition.duration : editedDurationSec
+  /**
+   * Original time → finished-video time. A boundary with inserted clips has two positions; the
+   * original continues after them, except before the first original frame (a leading insert).
+   */
+  const programOfSource = useCallback((sourceSec: number): number => {
+    const plan = mediaComposition
+    if (!plan) return displayTimelineMapping.mediaToProgramSec(sourceSec)
+    const lead = mediaGroups[0]
+    const beforeLead = !!lead && lead.programStart === 0 && sourceSec <= (lead.resumeSource ?? 0) + 1e-3
+    return sourceBoundaryToProgram(plan, sourceSec, beforeLead ? 'before' : 'after')
+  }, [displayTimelineMapping, mediaComposition, mediaGroups])
+  const programOfSourceRef = useRef(programOfSource)
+  programOfSourceRef.current = programOfSource
+  const displayDurationSecRef = useRef(displayDurationSec)
+  displayDurationSecRef.current = displayDurationSec
   const formatEditedTimecode = useCallback(
-    (sourceSec: number) => formatTimecode(displayTimelineMapping.mediaToProgramSec(sourceSec)),
-    [displayTimelineMapping]
+    (sourceSec: number, edge?: 'start' | 'end') => {
+      return formatTimecode(mediaComposition && edge === 'end'
+        ? sourceBoundaryToProgram(mediaComposition, sourceSec, 'before') : programOfSource(sourceSec))
+    },
+    [programOfSource, mediaComposition]
   )
   const playbackTimelineMappingRef = useRef(playbackTimelineMapping)
   playbackTimelineMappingRef.current = playbackTimelineMapping
@@ -2002,6 +2100,19 @@ export default function App(): ReactElement {
 
   const waveformMediaDurationCapSec = durationSec > 0 ? durationSec : undefined
 
+  /** Time label and seek bar in finished-video time (also driven by an inserted clip's own clock). */
+  const paintProgramTime = useCallback((programSec: number) => {
+    const timeEl = previewCurrentTimeRef.current
+    if (timeEl) timeEl.textContent = formatClock(programSec)
+    const seekEl = previewSeekInputRef.current
+    if (seekEl) {
+      const d = displayDurationSecRef.current > 0 ? displayDurationSecRef.current : 0.001
+      seekEl.max = String(Math.max(d, 0.001))
+      seekEl.value = String(programSec)
+      seekEl.setAttribute('aria-valuenow', String(Math.round(programSec * 100) / 100))
+    }
+  }, [])
+
   /** 편집 타임라인 초를 ref·미리보기·자막 DOM·파형 재생선에 반영하는 단일 진입점 */
   const commitEditSecToUi = useCallback(
     (editSecRaw: number) => {
@@ -2018,20 +2129,15 @@ export default function App(): ReactElement {
       const ai = pickActiveEditorRow(subsNow, editSec)
       activeSubtitleIndexRef.current = ai
 
-      const timeEl = previewCurrentTimeRef.current
-      if (timeEl) timeEl.textContent = formatClock(displayTimelineMapping.mediaToProgramSec(editSec))
-
-      const seekEl = previewSeekInputRef.current
-      if (seekEl) {
-        const d = displayDurationSec > 0 ? displayDurationSec : 0.001
-        seekEl.max = String(Math.max(d, 0.001))
-        const v = displayTimelineMapping.mediaToProgramSec(editSec)
-        seekEl.value = String(v)
-        seekEl.setAttribute('aria-valuenow', String(Math.round(v * 100) / 100))
-      }
+      const overInsert = insertSessionRef.current !== null
+      mediaOverlayUpdateRef.current?.(editSec)
+      // While an inserted clip is shown, its own clock paints the time and no original caption is drawn.
+      if (!overInsert) paintProgramTime(programOfSourceRef.current(editSec))
 
       const previewTextEl = previewSubtitleTextRef.current
-      if (previewTextEl) {
+      if (previewTextEl && overInsert) {
+        previewTextEl.textContent = ''
+      } else if (previewTextEl) {
         renderPreviewSubtitleText(previewTextEl, subsNow, editSec, captionEmphasisColorRef.current, previewEmphasisCacheRef,
           previewWordHighlightRef.current)
       }
@@ -2502,7 +2608,17 @@ export default function App(): ReactElement {
        * `timelineMapping` 은 항등이라 컷 정보를 잃었다. EDL 세그먼트는 `playbackEdlClips`
        * (cut-aware) 또는 단어 기반 (storage media-axis) 으로 계산해 컷 구간을 자연 skip 한다.
        */
-      const segments = buildScheduledMediaSegments(playbackEdlClips, startMediaSec, endMediaSec)
+      // The original never plays through an inserted clip: continuous playback ends at its boundary.
+      let end = endMediaSec
+      insertStopRef.current = null
+      if (kind === 'continuous' && end == null) {
+        const group = mediaGroupsRef.current.find(g => g.stopSource > startMediaSec + 1e-4)
+        if (group) {
+          end = group.stopSource
+          insertStopRef.current = group
+        }
+      }
+      const segments = buildScheduledMediaSegments(playbackEdlClips, startMediaSec, end)
       activePlaybackScheduleRef.current = segments.length > 0 ? { kind, index: 0, segments } : null
       timelineEditLog('playback', 'EDL schedule armed', {
         kind,
@@ -2519,6 +2635,7 @@ export default function App(): ReactElement {
   )
 
   const clearPlaybackSchedule = useCallback((reason: string): void => {
+    insertStopRef.current = null
     if (!activePlaybackScheduleRef.current) return
     timelineEditLog('playback', `EDL schedule cleared(${reason})`, {
       kind: activePlaybackScheduleRef.current.kind,
@@ -2752,6 +2869,7 @@ export default function App(): ReactElement {
 
   const dispatchSeekIntent = useCallback(
     (startSec: number, basis: 'edit' | 'media', source: SeekIntentSource): void => {
+      if (source !== 'auto-focus' && insertSessionRef.current) insertControlRef.current?.close()
       const trustedByHardware =
         source === 'user-trusted' && performance.now() - lastHumanInteractionAtRef.current < 500
       const normalizedSource: SeekIntentSource =
@@ -3261,7 +3379,8 @@ export default function App(): ReactElement {
         undoStackRef.current.push({
           subtitles: prev,
           virtualTimelineDeleted: virtualTimelineDeletedRef.current,
-          cutRanges: cutRangesRef.current
+          cutRanges: cutRangesRef.current,
+          mediaEdits: mediaEditsRef.current
         })
         if (undoStackRef.current.length > 100) undoStackRef.current.shift()
         redoStackRef.current = []
@@ -3270,6 +3389,22 @@ export default function App(): ReactElement {
     },
     []
   )
+  /** Inserted clips / overlays change: one undo step; an invalid result is refused (throws). */
+  const applyMediaChange = useCallback((updater: (prev: MediaEdits) => MediaEdits) => {
+    const prev = mediaEditsRef.current
+    const next = pruneMediaAssets(updater(prev))
+    if (next === prev) return
+    parseMediaEdits(next)
+    undoStackRef.current.push({
+      subtitles: subtitlesRef.current,
+      virtualTimelineDeleted: virtualTimelineDeletedRef.current,
+      cutRanges: cutRangesRef.current,
+      mediaEdits: prev
+    })
+    if (undoStackRef.current.length > 100) undoStackRef.current.shift()
+    redoStackRef.current = []
+    setMediaEdits(next)
+  }, [setMediaEdits])
   /** WordEdgeDrag bridge 가 TDZ 회피용으로 참조하는 ref — applySubtitleChange 선언 이후 동기화 */
   useEffect(() => {
     applySubtitleChangeRef.current = applySubtitleChange
@@ -4586,6 +4721,15 @@ export default function App(): ReactElement {
         | { kind: 'playRange'; startSec: number; endSec: number }
         | { kind: 'togglePlay' }
     ): void => {
+      if (insertSessionRef.current) {
+        if (intent.kind === 'togglePlay') {
+          insertControlRef.current?.toggle()
+          return
+        }
+        insertControlRef.current?.close()
+      } else if (intent.kind === 'togglePlay' && insertControlRef.current?.playLeadingIfAtStart()) {
+        return
+      }
       const oneShot = oneShotSessionRef.current
       if (oneShot) {
         if (intent.kind === 'seek' || intent.kind === 'seekAndPlay') {
@@ -4750,6 +4894,7 @@ export default function App(): ReactElement {
   // 삭제 가드 중 들어온 사용자 의도(시크/재생)를 버리지 않고 가드 해제 즉시 재실행
   useEffect(() => {
     const id = window.setInterval(() => {
+      if (insertSessionRef.current) return
       if (isDeleteGuardActive()) return
       if (!isPlaybackMapperReady()) return
       if (isBuffering || isEdlSessionActive() || playbackEnginePhaseRef.current !== 'idle') return
@@ -5111,6 +5256,265 @@ export default function App(): ReactElement {
     clearOneShotSession('pausePlayback')
     finalizePlaybackStop('pausePlayback', { markUserPause: true })
   }, [clearOneShotSession, finalizePlaybackStop, isBuffering])
+
+  // ---- inserted clips in the preview ---------------------------------------------------------------
+  /** Show inserted clips (playing or parked); the original video and its WebAudio sound stop first. */
+  const enterInsertGroup = useCallback((group: InsertionGroup, offset: number, playing: boolean) => {
+    const clamped = Math.max(0, Math.min(group.duration, offset))
+    const next: InsertSession = { seq: ++insertSeqRef.current, group, offset: clamped, playing }
+    insertStopRef.current = null
+    // Set before stopping: the stop repaints the playhead and must not draw original captions now.
+    insertSessionRef.current = next
+    // Earlier queued play/seek requests are stale now; they must not fire when the clip ends.
+    pendingSeekAfterGuardRef.current = null
+    pendingSeekAndPlayAfterGuardRef.current = null
+    pendingPlayRangeAfterGuardRef.current = null
+    pendingPlayIntentRef.current = false
+    // The original parks exactly where it stopped for this group (not wherever its clock last read).
+    clearOneShotSession('insert-clip')
+    finalizePlaybackStop('insert-clip', { mediaSec: group.stopSource, markUserPause: true })
+    insertOffsetRef.current = clamped
+    setInsertSession(next)
+    commitEditSecToUi(playheadEditSecRef.current)
+    paintProgramTime(group.programStart + clamped)
+  }, [clearOneShotSession, finalizePlaybackStop, setInsertSession, commitEditSecToUi, paintProgramTime])
+  enterInsertGroupRef.current = enterInsertGroup
+
+  const closeInsertSession = useCallback(() => {
+    if (!insertSessionRef.current) return
+    setInsertSession(null)
+    commitEditSecToUi(playheadEditSecRef.current)
+  }, [setInsertSession, commitEditSecToUi])
+
+  const toggleInsertSession = useCallback(() => {
+    const cur = insertSessionRef.current
+    if (!cur) return
+    const offset = insertOffsetRef.current
+    const playing = !cur.playing
+    const restart = playing && offset >= cur.group.duration - 1e-3 ? 0 : offset
+    setInsertSession({ ...cur, seq: ++insertSeqRef.current, offset: restart, playing })
+  }, [setInsertSession])
+
+  const onInsertTime = useCallback((offset: number) => {
+    insertOffsetRef.current = offset
+    const cur = insertSessionRef.current
+    if (cur) paintProgramTime(cur.group.programStart + offset)
+  }, [paintProgramTime])
+
+  /** After the last inserted clip the original resumes where it stopped (or the video ends). */
+  const finishInsertSession = useCallback(() => {
+    const cur = insertSessionRef.current
+    if (!cur) return
+    setInsertSession(null)
+    const resume = cur.group.resumeSource
+    if (resume === null || !cur.playing) {
+      commitEditSecToUi(playheadEditSecRef.current)
+      if (resume === null) paintProgramTime(cur.group.programStart + cur.group.duration)
+      return
+    }
+    dispatchSeekAndPlayIntent(resume, 'media')
+  }, [setInsertSession, commitEditSecToUi, paintProgramTime, dispatchSeekAndPlayIntent])
+
+  insertControlRef.current = {
+    close: closeInsertSession,
+    toggle: toggleInsertSession,
+    reachStop: group => enterInsertGroup(group, 0, true),
+    playLeadingIfAtStart: () => {
+      const lead = mediaGroupsRef.current[0]
+      if (!lead || lead.programStart !== 0 || isPlayingRef.current) return false
+      if (playheadEditSecRef.current > (lead.resumeSource ?? 0) + 1e-3) return false
+      enterInsertGroup(lead, 0, true)
+      return true
+    }
+  }
+
+  // ---- adding and editing inserted clips / image overlays -------------------------------------------
+  const pickMediaAsset = useCallback(async (kind: MediaAsset['kind']): Promise<MediaAsset | null> => {
+    const generation = projectGenerationRef.current
+    try {
+      const asset = await pickCompositionAsset(kind)
+      if (!asset || generation !== projectGenerationRef.current) return null
+      setMediaAssetState(prev => new Map(prev).set(asset.id, 'ok'))
+      return asset
+    } catch (error) {
+      setMediaNotice(error instanceof Error ? error.message : String(error))
+      return null
+    }
+  }, [])
+
+  const runMediaChange = useCallback((updater: (prev: MediaEdits) => MediaEdits) => {
+    try {
+      applyMediaChange(updater)
+      setMediaNotice('')
+    } catch (error) {
+      setMediaNotice(error instanceof Error ? error.message : String(error))
+    }
+  }, [applyMediaChange])
+
+  /** Overlay range edge being dragged over the rows (preview only until release). */
+  const [overlayDrag, setOverlayDragState] = useState<{ id: string; edge: 'start' | 'end'; row: number } | null>(null)
+  const overlayDragRef = useRef(overlayDrag)
+  const setOverlayDrag = useCallback((next: { id: string; edge: 'start' | 'end'; row: number } | null) => {
+    overlayDragRef.current = next
+    setOverlayDragState(next)
+  }, [])
+  /** New range from a dragged edge: the edge goes to the row under the pointer, never past the other edge. */
+  const overlayWithEdgeAtRow = useCallback((overlay: ImageOverlay, edge: 'start' | 'end', row: number): ImageOverlay | null => {
+    const lines = subtitlesRef.current
+    const span = overlayRowSpan(lines, overlay, mediaSourceDurationSec)
+    const line = lines[row]
+    if (!span || !line || isRemovedSubtitleRow(line)) return null
+    return edge === 'start'
+      ? { ...overlay, start: rowStartAnchor(lines, Math.min(row, span.endRow)) }
+      : { ...overlay, end: rowEndAnchor(lines, Math.max(row, span.startRow)) }
+  }, [mediaSourceDurationSec])
+  const startOverlayDrag = useCallback((id: string, edge: 'start' | 'end', event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const overlay = mediaEditsRef.current.overlays.find(o => o.id === id)
+    const span = overlay ? overlayRowSpan(subtitlesRef.current, overlay, mediaSourceDurationSec) : null
+    if (!span) return
+    setOverlayDrag({ id, edge, row: edge === 'start' ? span.startRow : span.endRow })
+    const rowAt = (x: number, y: number): number | null => {
+      const card = document.elementFromPoint(x, y)?.closest('.subtitle-virtual-row')?.querySelector('article[id^="subtitle-card-"]')
+      const row = card ? Number(card.id.slice('subtitle-card-'.length)) : NaN
+      return Number.isInteger(row) ? row : null
+    }
+    const move = (ev: PointerEvent) => {
+      // Near the list's top/bottom edge the list scrolls so the range can reach rows out of view.
+      const list = document.querySelector<HTMLElement>('.subtitle-virtual-list')
+      const box = list?.getBoundingClientRect()
+      if (list && box) {
+        if (ev.clientY < box.top + 28) list.scrollTop -= 16
+        else if (ev.clientY > box.bottom - 28) list.scrollTop += 16
+      }
+      const listX = box ? Math.min(box.right - 40, Math.max(box.left + 80, ev.clientX)) : ev.clientX
+      const row = rowAt(listX, Math.min(box ? box.bottom - 2 : ev.clientY, Math.max(box ? box.top + 2 : ev.clientY, ev.clientY)))
+      const cur = overlayDragRef.current
+      if (row !== null && cur && cur.row !== row && !isRemovedSubtitleRow(subtitlesRef.current[row]!)) setOverlayDrag({ ...cur, row })
+    }
+    const finish = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      const drag = overlayDragRef.current
+      setOverlayDrag(null)
+      const current = drag && mediaEditsRef.current.overlays.find(o => o.id === drag.id)
+      const moved = current && overlayWithEdgeAtRow(current, drag.edge, drag.row)
+      if (moved && (moved.start !== current.start || moved.end !== current.end) &&
+          JSON.stringify([moved.start, moved.end]) !== JSON.stringify([current.start, current.end])) {
+        runMediaChange(prev => ({ ...prev, overlays: prev.overlays.map(o => (o.id === moved.id ? moved : o)) }))
+      }
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }, [mediaSourceDurationSec, setOverlayDrag, overlayWithEdgeAtRow, runMediaChange])
+
+  const selectedRowsRef = useRef(selectedSubtitleRows)
+  selectedRowsRef.current = selectedSubtitleRows
+
+  const addMediaClip = useCallback(async (row: number, kind: ClipAddKind, where: 'before' | 'after') => {
+    pausePlayback('media-add')
+    closeInsertSession()
+    if (!(mediaSourceDurationSec > 0)) {
+      setMediaNotice('원본 영상을 불러온 뒤에 클립을 추가할 수 있습니다.')
+      return
+    }
+    const asset = await pickMediaAsset(kind === 'video' ? 'video' : 'image')
+    if (!asset) return
+    const lines = subtitlesRef.current
+    runMediaChange(prev => {
+      const assets = [...prev.assets, asset]
+      if (kind === 'overlay') {
+        // Checked rows give the range (first to last); otherwise the row the clip was added at.
+        const checked = [...selectedRowsRef.current].filter(i => lines[i] && !isRemovedSubtitleRow(lines[i]!)).sort((a, b) => a - b)
+        const first = checked.length ? checked[0]! : row
+        const last = checked.length ? checked[checked.length - 1]! : row
+        return { ...prev, assets, overlays: [...prev.overlays, { id: `overlay-${crypto.randomUUID()}`, assetId: asset.id,
+          start: rowStartAnchor(lines, first), end: rowEndAnchor(lines, last), fit: 'cover' }] }
+      }
+      const insertion: MediaInsertion = { id: `clip-${crypto.randomUUID()}`, assetId: asset.id,
+        at: where === 'before' ? rowStartAnchor(lines, row) : rowEndAnchor(lines, row),
+        duration: asset.kind === 'video' ? asset.duration! : 3, sourceStart: 0, fit: 'contain', muted: false }
+      return { ...prev, assets, insertions: where === 'before' ? [insertion, ...prev.insertions] : [...prev.insertions, insertion] }
+    })
+  }, [pausePlayback, closeInsertSession, mediaSourceDurationSec, pickMediaAsset, runMediaChange])
+
+  const updateInsertion = useCallback((id: string, patch: Partial<MediaInsertion>) => {
+    runMediaChange(prev => ({ ...prev, insertions: prev.insertions.map(c => (c.id === id ? { ...c, ...patch } : c)) }))
+  }, [runMediaChange])
+  const removeInsertion = useCallback((id: string) => {
+    closeInsertSession()
+    runMediaChange(prev => ({ ...prev, insertions: prev.insertions.filter(c => c.id !== id) }))
+  }, [closeInsertSession, runMediaChange])
+  /** Swaps play order with the neighbouring clip inserted at the same point. */
+  const moveInsertion = useCallback((id: string, otherId: string) => {
+    runMediaChange(prev => {
+      const a = prev.insertions.findIndex(c => c.id === id), b = prev.insertions.findIndex(c => c.id === otherId)
+      if (a < 0 || b < 0) return prev
+      const insertions = [...prev.insertions]
+      ;[insertions[a], insertions[b]] = [insertions[b]!, insertions[a]!]
+      return { ...prev, insertions }
+    })
+  }, [runMediaChange])
+  const updateOverlay = useCallback((id: string, patch: Partial<ImageOverlay>) => {
+    runMediaChange(prev => ({ ...prev, overlays: prev.overlays.map(o => (o.id === id ? { ...o, ...patch } : o)) }))
+  }, [runMediaChange])
+  const removeOverlay = useCallback((id: string) => {
+    runMediaChange(prev => ({ ...prev, overlays: prev.overlays.filter(o => o.id !== id) }))
+  }, [runMediaChange])
+  const reorderOverlay = useCallback((id: string, step: -1 | 1) => {
+    runMediaChange(prev => {
+      const i = prev.overlays.findIndex(o => o.id === id), j = i + step
+      if (i < 0 || j < 0 || j >= prev.overlays.length) return prev
+      const overlays = [...prev.overlays]
+      ;[overlays[i], overlays[j]] = [overlays[j]!, overlays[i]!]
+      return { ...prev, overlays }
+    })
+  }, [runMediaChange])
+  const moveOverlayRange = useCallback((id: string, edge: 'start' | 'end', step: -1 | 1) => {
+    const overlay = mediaEditsRef.current.overlays.find(o => o.id === id)
+    if (!overlay) return
+    const moved = moveOverlayEdge(subtitlesRef.current, overlay, mediaSourceDurationSec, edge, step)
+    if (moved) updateOverlay(id, { start: moved.start, end: moved.end })
+  }, [mediaSourceDurationSec, updateOverlay])
+  /** New file for a clip or overlay; its range, length and settings stay (a video's range is clamped to the new file). */
+  const replaceMediaFile = useCallback(async (target: { insertion?: string; overlay?: string }) => {
+    pausePlayback('media-replace')
+    closeInsertSession()
+    const current = mediaEditsRef.current
+    const clip = target.insertion ? current.insertions.find(c => c.id === target.insertion) : undefined
+    const kind = clip ? current.assets.find(a => a.id === clip.assetId)?.kind ?? 'image' : 'image'
+    const asset = await pickMediaAsset(kind)
+    if (!asset) return
+    runMediaChange(prev => {
+      const assets = [...prev.assets, asset]
+      if (target.overlay) return { ...prev, assets, overlays: prev.overlays.map(o => (o.id === target.overlay ? { ...o, assetId: asset.id } : o)) }
+      return { ...prev, assets, insertions: prev.insertions.map(c => {
+        if (c.id !== target.insertion) return c
+        if (asset.kind !== 'video') return { ...c, assetId: asset.id, sourceStart: 0 }
+        const length = asset.duration!
+        const sourceStart = Math.min(c.sourceStart, Math.max(0, length - 0.1))
+        return { ...c, assetId: asset.id, sourceStart, duration: Math.min(c.duration, length - sourceStart) }
+      }) }
+    })
+  }, [pausePlayback, closeInsertSession, pickMediaAsset, runMediaChange])
+
+  const playInsertedClip = useCallback((id: string) => {
+    const group = mediaGroupsRef.current.find(g => g.clips.some(c => c.id === `insert:${id}`))
+    if (!group) {
+      setMediaNotice('원본 영상을 불러온 뒤에 재생할 수 있습니다.')
+      return
+    }
+    let offset = 0
+    for (const c of group.clips) {
+      if (c.id === `insert:${id}`) break
+      offset += c.duration
+    }
+    enterInsertGroup(group, offset, true)
+  }, [enterInsertGroup])
 
   /** When a press outside closed the editor: the double click that press started only closes, it does not open. */
   const timingOutsideCloseAtRef = useRef(-Infinity)
@@ -5587,6 +5991,12 @@ export default function App(): ReactElement {
       if (waEngine?.isPlaying()) {
         const cuts = mergedPlaybackSkipRangesRef.current
         const wm = waEngine.getCurrentMediaSec()
+        const stopGroup = insertStopRef.current
+        if (stopGroup && wm != null && wm >= stopGroup.stopSource - 0.003) {
+          insertControlRef.current?.reachStop(stopGroup)
+          rafPlayheadRef.current = null
+          return
+        }
         const previewEndWa = previewEndMediaSecRef.current
         if (wm != null && previewEndWa != null && wm >= previewEndWa - 0.01) {
           const oneShot = oneShotSessionRef.current
@@ -5644,6 +6054,13 @@ export default function App(): ReactElement {
 
       if (masterAudio.paused) {
         el.playbackRate = 1
+        // The WebAudio schedule ended on its own at an inserted clip's boundary.
+        const endedAtInsert = insertStopRef.current
+        if (endedAtInsert && !userPauseRequestedRef.current) {
+          insertControlRef.current?.reachStop(endedAtInsert)
+          rafPlayheadRef.current = null
+          return
+        }
         if (perfTick.active) {
           perfTick.branches['masterPaused'] =
             (perfTick.branches['masterPaused'] ?? 0) + 1
@@ -5807,6 +6224,12 @@ export default function App(): ReactElement {
               rafPlayheadRef.current = window.requestAnimationFrame(tick)
               return
             }
+            const htmlStop = insertStopRef.current
+            if (htmlStop) {
+              insertControlRef.current?.reachStop(htmlStop)
+              rafPlayheadRef.current = null
+              return
+            }
             if (activeSchedule.kind === 'continuous') {
               clearPlaybackSchedule('raf schedule finished')
             }
@@ -5919,7 +6342,20 @@ export default function App(): ReactElement {
     if (!el || !masterAudio) return
     const editV = Number(raw)
     if (!Number.isFinite(editV)) return
-    const editClamped = clampProgramEditSec(displayTimelineMapping.programToMediaSec(editV))
+    const plan = mediaCompositionRef.current
+    let sourceTarget = displayTimelineMapping.programToMediaSec(editV)
+    if (plan) {
+      const pos = compositionPositionAt(plan, editV)
+      if (pos.originalSourceTime === null) {
+        // Parked on an inserted clip: show its frame, the original stays stopped.
+        const group = mediaGroupsRef.current.find(g => editV >= g.programStart - 1e-6 && editV <= g.programStart + g.duration + 1e-6)
+        if (group) enterInsertGroupRef.current?.(group, editV - group.programStart, false)
+        return
+      }
+      if (insertSessionRef.current) insertControlRef.current?.close()
+      sourceTarget = pos.originalSourceTime
+    }
+    const editClamped = clampProgramEditSec(sourceTarget)
     const mediaT = toMediaSeekSec(editClamped, el)
     userPauseRequestedRef.current = true
     playbackEnginePhaseRef.current = 'idle'
@@ -5953,45 +6389,58 @@ export default function App(): ReactElement {
     (e: FormEvent<HTMLInputElement>) => {
       const editV = Number(e.currentTarget.value)
       if (!Number.isFinite(editV)) return
+      const plan = mediaCompositionRef.current
+      if (plan) {
+        // Dragging over inserted clips parks them; over the original it scrubs the original.
+        applySeekValue(String(editV))
+        return
+      }
       const editClamped = clampProgramEditSec(displayTimelineMapping.programToMediaSec(editV))
       scrubToVirtualMs(Math.round(editClamped * 1000))
     },
-    [clampProgramEditSec, scrubToVirtualMs, displayTimelineMapping]
+    [clampProgramEditSec, scrubToVirtualMs, displayTimelineMapping, applySeekValue]
   )
 
   const undoSubtitleChange = useCallback(() => {
     const prev = undoStackRef.current.pop()
     if (!prev) return
+    // Captured now: the timeline updater runs later, after setMediaEdits below has changed the ref.
+    const curMedia = mediaEditsRef.current
     setSentenceTokenTimeline((curTl) => {
       const curSubs = sentenceTokenTimelineToSubtitleLines(curTl)
       redoStackRef.current.push({
         subtitles: curSubs,
         virtualTimelineDeleted: virtualTimelineDeletedRef.current,
-        cutRanges: cutRangesRef.current
+        cutRanges: cutRangesRef.current,
+        mediaEdits: curMedia
       })
       return subtitleLinesToSentenceTokenTimeline(prev.subtitles)
     })
     setVirtualTimelineDeleted(prev.virtualTimelineDeleted)
     setCutRanges(prev.cutRanges)
-  }, [])
+    setMediaEdits(prev.mediaEdits)
+  }, [setMediaEdits])
 
   timingUndoRef.current = undoSubtitleChange
 
   const redoSubtitleChange = useCallback(() => {
     const next = redoStackRef.current.pop()
     if (!next) return
+    const curMedia = mediaEditsRef.current
     setSentenceTokenTimeline((curTl) => {
       const curSubs = sentenceTokenTimelineToSubtitleLines(curTl)
       undoStackRef.current.push({
         subtitles: curSubs,
         virtualTimelineDeleted: virtualTimelineDeletedRef.current,
-        cutRanges: cutRangesRef.current
+        cutRanges: cutRangesRef.current,
+        mediaEdits: curMedia
       })
       return subtitleLinesToSentenceTokenTimeline(next.subtitles)
     })
     setVirtualTimelineDeleted(next.virtualTimelineDeleted)
     setCutRanges(next.cutRanges)
-  }, [])
+    setMediaEdits(next.mediaEdits)
+  }, [setMediaEdits])
 
   useEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -6029,6 +6478,9 @@ export default function App(): ReactElement {
       setSentenceTokenTimeline([])
       setCutRanges([])
       setVirtualTimelineDeleted([])
+      setMediaEdits(EMPTY_MEDIA_EDITS)
+      setMediaAssetState(new Map())
+      setInsertSession(null)
       undoStackRef.current = []
       redoStackRef.current = []
       setProgress(0)
@@ -6426,11 +6878,29 @@ export default function App(): ReactElement {
       setExportNotice('내보낼 자막 글자가 없습니다. 자막 추출 여부를 확인해 주세요.')
       return
     }
+    // Inserted clips / overlays: the finished program goes to the export as one plan (captions stay in original time).
+    const composition = hasMediaEdits(mediaEdits) ? mediaComposition : null
+    if (hasMediaEdits(mediaEdits)) {
+      if (!composition) {
+        setExportNotice('삽입한 클립을 계산하지 못했습니다. 원본 영상이 열려 있는지 확인해 주세요.')
+        return
+      }
+      if (exportFormat === 'mp3' || exportFormat === 'wav') {
+        setExportNotice('삽입한 클립이 있는 프로젝트는 아직 오디오만 따로 내보낼 수 없습니다. 영상으로 내보내 주세요.')
+        return
+      }
+      const missing = mediaEdits.assets.find(a => mediaAssetState.get(a.id) !== 'ok')
+      if (missing) {
+        setExportNotice(`삽입한 파일을 찾을 수 없습니다: ${missing.name}. 「교체」로 다시 연결해 주세요.`)
+        return
+      }
+    }
     const request: ExportRequest = {
       inputPath: videoPath,
       format: exportFormat,
       subtitles: cues,
       cutRanges: mergedWaveformPeaksStitchCuts,
+      ...(composition ? { composition } : {}),
       subtitleStyle: {
         fontFamily: subtitleFontFamily,
         fontSize: subtitleFontSize,
@@ -6537,7 +7007,10 @@ export default function App(): ReactElement {
     videoPath,
     watermark,
     wordHighlightColor,
-    wordHighlightEnabled
+    wordHighlightEnabled,
+    mediaEdits,
+    mediaComposition,
+    mediaAssetState
   ])
 
   const buildAutosubProjectJson = useCallback(async (): Promise<string> => {
@@ -6549,9 +7022,10 @@ export default function App(): ReactElement {
     // Word tombstones are already stored in subtitles; never persist a second immutable copy.
     const mergedDeleted = virtualTimelineDeleted
     const virtualTimeline = [...activeSnap, ...mergedDeleted]
+    const withMedia = hasMediaEdits(mediaEdits)
     const payload: AutosubProjectFile = {
       format: AUTOSUB_FILE_FORMAT,
-      version: AUTOSUB_VERSION,
+      version: withMedia ? AUTOSUB_MEDIA_VERSION : AUTOSUB_VERSION,
       savedAt: new Date().toISOString(),
       videoPath: binding.path ?? videoPath,
       mediaFingerprint: binding.fingerprint,
@@ -6579,6 +7053,7 @@ export default function App(): ReactElement {
     if (virtualTimeline.length > 0) {
       payload.virtualTimeline = virtualTimeline
     }
+    if (withMedia) payload.mediaEdits = mediaEdits
     if (!payload.mediaFingerprint && mediaFingerprintPromiseRef.current) {
       const result = await mediaFingerprintPromiseRef.current
       if (!result.ok) throw new Error(`영상 확인에 실패했습니다: ${result.reason}`)
@@ -6607,7 +7082,8 @@ export default function App(): ReactElement {
     virtualTimelineDeleted,
     wordHighlightEnabled,
     wordHighlightColor,
-    preparedMedia
+    preparedMedia,
+    mediaEdits
   ])
 
   const saveProjectAs = useCallback(async () => {
@@ -6702,6 +7178,27 @@ export default function App(): ReactElement {
     setCutRanges([])
     setVirtualTimelineDeleted([])
     setTimingTarget(null)
+    const loadedMedia = d.mediaEdits ?? EMPTY_MEDIA_EDITS
+    setMediaEdits(loadedMedia)
+    setInsertSession(null)
+    setMediaAssetState(new Map())
+    setMediaNotice('')
+    // The agent serves a file only after it is registered again (its allow-list does not survive a restart).
+    void (async () => {
+      for (const asset of loadedMedia.assets) {
+        let state: 'ok' | 'missing' = 'missing'
+        try {
+          await registerCompositionAsset(asset.path, asset.kind)
+          state = 'ok'
+        } catch (error) {
+          if (generation === projectGenerationRef.current) {
+            setMediaNotice(`삽입한 파일을 열 수 없습니다: ${asset.name} — ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+        if (generation !== projectGenerationRef.current) return
+        setMediaAssetState(prev => new Map(prev).set(asset.id, state))
+      }
+    })()
     pendingProjectCoverageRef.current = d.videoPath
     const excluded = mergeWaveformPeaksStitchCutRanges([], editableSubtitles, [])
     const subtitleEnd = editableSubtitles.reduce((end, line) => Math.max(end, line.end), 0)
@@ -6731,16 +7228,96 @@ export default function App(): ReactElement {
     return true
   }, [commitEditSecToUi, pausePlayback])
 
+  const activeInsertIds = useMemo(
+    () => new Set(insertSession?.group.clips.map(c => c.id.slice('insert:'.length)) ?? []),
+    [insertSession]
+  )
+  const readyMediaAssets = useMemo(
+    () => new Set([...mediaAssetState].flatMap(([id, state]) => (state === 'ok' ? [id] : []))),
+    [mediaAssetState]
+  )
+  const rowMedia = useMemo(() => {
+    const map = new Map<number, SubtitleRowMedia>()
+    const lines = subtitlesForSubtitleVirtualList
+    const duration = mediaSourceDurationSec
+    if (!hasMediaEdits(mediaEdits) || !(duration > 0)) return map
+    const assets = new Map(mediaEdits.assets.map(a => [a.id, a]))
+    const clips = new Map(mediaEdits.insertions.map(c => [c.id, c]))
+    const programStarts = new Map((mediaComposition?.clips ?? []).flatMap(c =>
+      c.kind === 'source' ? [] : [[c.id.slice('insert:'.length), c.programStart] as const]))
+    const timeOf = (id: string) => resolveMediaAnchor(clips.get(id)!.at, lines, duration)
+    const cards = (ids: string[]) => ids.length ? <div className="media-row-slot">{ids.map((id, i) => {
+      const c = clips.get(id)!
+      const prevId = ids[i - 1], nextId = ids[i + 1]
+      const same = (other: string | undefined) => !!other && Math.abs(timeOf(other) - timeOf(id)) < 1e-6
+      return <InsertedClipCard key={id} insertion={c} asset={assets.get(c.assetId)}
+        ready={readyMediaAssets.has(c.assetId)} missing={mediaAssetState.get(c.assetId) === 'missing'}
+        programStart={programStarts.get(id) ?? null} active={activeInsertIds.has(id)} formatTime={formatTimecode}
+        canMoveUp={same(prevId)} canMoveDown={same(nextId)}
+        onChange={patch => updateInsertion(id, patch)}
+        onMove={step => { const other = step < 0 ? prevId : nextId; if (other) moveInsertion(id, other) }}
+        onRemove={() => removeInsertion(id)} onReplace={() => void replaceMediaFile({ insertion: id })}
+        onPlay={() => playInsertedClip(id)} />
+    })}</div> : undefined
+    for (const [row, slot] of insertionRows(lines, mediaEdits, duration)) {
+      map.set(row, { before: cards(slot.before), after: cards(slot.after) })
+    }
+    // Image overlays: a range line in the left gutter over the rows they cover (Vrew style).
+    const lanesByRow = new Map<number, OverlayLane[]>()
+    const taken = new Map<number, Set<number>>()
+    mediaEdits.overlays.forEach((saved, i) => {
+      const drag = overlayDrag?.id === saved.id ? overlayDrag : null
+      const o = (drag && overlayWithEdgeAtRow(saved, drag.edge, drag.row)) || saved
+      const span = overlayRowSpan(lines, o, duration)
+      if (!span) return
+      const rowsCovered: number[] = []
+      for (let r = span.startRow; r <= span.endRow; r++) if (!isRemovedSubtitleRow(lines[r]!)) rowsCovered.push(r)
+      if (!rowsCovered.length) return
+      // One lane per overlay across all its rows: the first lane free on every one of them.
+      let lane = 0
+      while (rowsCovered.some(r => taken.get(r)?.has(lane))) lane += 1
+      const can = (edge: 'start' | 'end', step: -1 | 1) => moveOverlayEdge(lines, saved, duration, edge, step) !== null
+      const base = {
+        overlay: saved, asset: assets.get(saved.assetId), ready: readyMediaAssets.has(saved.assetId),
+        missing: mediaAssetState.get(saved.assetId) === 'missing', rows: rowsCovered.length, lane, dragging: !!drag,
+        canMove: { startUp: can('start', -1), startDown: can('start', 1), endUp: can('end', -1), endDown: can('end', 1),
+          front: i < mediaEdits.overlays.length - 1, back: i > 0 },
+        onChange: (patch: Partial<ImageOverlay>) => updateOverlay(saved.id, patch),
+        onMoveEdge: (edge: 'start' | 'end', step: -1 | 1) => moveOverlayRange(saved.id, edge, step),
+        onReorder: (step: -1 | 1) => reorderOverlay(saved.id, step),
+        onRemove: () => removeOverlay(saved.id),
+        onReplace: () => void replaceMediaFile({ overlay: saved.id })
+      }
+      rowsCovered.forEach((r, k) => {
+        const used = taken.get(r) ?? new Set<number>()
+        used.add(lane)
+        taken.set(r, used)
+        const list = lanesByRow.get(r) ?? []
+        list.push({ ...base, isStart: k === 0, isEnd: k === rowsCovered.length - 1 })
+        lanesByRow.set(r, list)
+      })
+    })
+    for (const [row, lanes] of lanesByRow) {
+      map.set(row, { ...map.get(row), covered: true, gutter: <OverlayGutter lanes={lanes} onHandleDown={startOverlayDrag} /> })
+    }
+    return map
+  }, [subtitlesForSubtitleVirtualList, mediaSourceDurationSec, mediaEdits, mediaComposition, readyMediaAssets, mediaAssetState,
+    activeInsertIds, formatTimecode, updateInsertion, moveInsertion, removeInsertion, replaceMediaFile, playInsertedClip,
+    updateOverlay, moveOverlayRange, reorderOverlay, removeOverlay, overlayDrag, overlayWithEdgeAtRow, startOverlayDrag])
+  const onAddMediaClip = useCallback((row: number, kind: ClipAddKind, where: 'before' | 'after') => {
+    void addMediaClip(row, kind, where)
+  }, [addMediaClip])
+
   // 내보내기(같은 창 이동) 직전 편집 상태 저장용 — exportVideo 가 이 함수보다 위에 있어 ref 로 넘긴다.
   buildProjectJsonRef.current = buildAutosubProjectJson
 
   const projectStyleKey = useMemo(() => JSON.stringify([
     subtitleFontFamily, subtitleFontSize, subtitleFontWeight, subtitleTextColor, subtitleStrokeColor, subtitleStrokeWidth,
     subtitleBgColor, subtitleBgOpacity, subtitleBgPaddingPct, subtitleX, subtitleY, subtitleBoxStyle,
-    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges
+    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges, mediaEdits
   ]), [subtitleFontFamily, subtitleFontSize, subtitleFontWeight, subtitleTextColor, subtitleStrokeColor, subtitleStrokeWidth,
     subtitleBgColor, subtitleBgOpacity, subtitleBgPaddingPct, subtitleX, subtitleY, subtitleBoxStyle,
-    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges])
+    captionEmphasisColor, wordHighlightEnabled, wordHighlightColor, cutRanges, mediaEdits])
   currentSnapRef.current = { timeline: sentenceTokenTimeline, key: projectStyleKey }
   useEffect(() => {
     const cur = currentSnapRef.current
@@ -7260,8 +7837,13 @@ export default function App(): ReactElement {
     return numbers
   }, []), [subtitles])
 
+  const previewPlaying = insertSession ? insertSession.playing : isPlaying
   return (
     <div className={`app app--subtitle-only editor-tab-${editorTab}${isPlaying ? ' is-playing' : ''}`}>
+      {mediaNotice ? <div className="app-gpu-install-banner" role="alert" data-testid="media-notice">
+        <p className="app-gpu-install-banner-text">{mediaNotice}</p>
+        <button type="button" className="app-gpu-install-banner-dismiss" onClick={() => setMediaNotice('')}>닫기</button>
+      </div> : null}
       {projectMediaNotice ? <div className="app-gpu-install-banner" role="status" data-testid="project-media-notice">
         <p className="app-gpu-install-banner-text">{projectMediaNotice}</p>
         {!videoPath && projectMediaRef.current.path ? <button type="button" disabled={projectIoBusy} onClick={relinkProjectMedia}>원본 영상 연결</button> : null}
@@ -7344,6 +7926,16 @@ export default function App(): ReactElement {
                   <span className="word-hl-label">단어 강조</span>
                 </label>
               </div>
+              {subtitles.length > 0 && <div className="editor-tool-group" role="group" aria-label="이미지 덮기">
+                <button type="button" disabled={!preparedMedia || isExtracting || projectIoBusy}
+                  title="체크한 줄(여러 줄이면 첫 줄~마지막 줄)이 나오는 동안 화면에 이미지를 덮습니다. 체크가 없으면 지금 줄에 덮습니다. 왼쪽 범위선 끝을 끌어 범위를 바꿀 수 있습니다."
+                  onClick={() => {
+                    const checked = [...selectedSubtitleRows].sort((a, b) => a - b)
+                    void addMediaClip(checked[0] ?? activeSubtitleIndexRef.current ?? 0, 'overlay', 'after')
+                  }}>
+                  <EditorToolIcon name="watermark" /><span>이미지 덮기</span>
+                </button>
+              </div>}
               {subtitles.length > 0 && <div className="editor-ai-tools" role="group" aria-label="AI 교정">
                 <AiProofread
                   subtitles={subtitles}
@@ -7572,6 +8164,10 @@ export default function App(): ReactElement {
                     >
                       video를 재생할 수 없습니다.
                     </video>
+                    {mediaEdits.assets.length > 0 ? <MediaPreviewLayer assets={mediaEdits.assets} readyAssets={readyMediaAssets}
+                      overlays={previewOverlays} session={insertSession} volume={previewVolume} box={videoContentBox}
+                      registerOverlayUpdate={registerMediaOverlayUpdate} onInsertTime={onInsertTime}
+                      onInsertEnd={finishInsertSession} /> : null}
                     <div className="preview-frame-label" aria-hidden="true">{videoNaturalSize.width} × {videoNaturalSize.height}</div>
                     <div className="preview-subtitle-overlay" aria-live="polite" style={previewSubtitleOverlayStyle}>
                       <div style={previewSubtitleInnerStyle}>
@@ -7592,9 +8188,9 @@ export default function App(): ReactElement {
                     className="preview-play-btn"
                     disabled={!preparedMedia}
                     onClick={dispatchTogglePlayIntent}
-                    aria-label={isPlaying ? '일시정지' : '재생'}
+                    aria-label={previewPlaying ? '일시정지' : '재생'}
                   >
-                    {isPlaying ? (
+                    {previewPlaying ? (
                       <svg className="preview-play-icon" width="20" height="20" viewBox="0 0 24 24" aria-hidden>
                         <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
                         <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
@@ -7794,6 +8390,9 @@ export default function App(): ReactElement {
                           formatTimecode={formatEditedTimecode}
                           onTogglePlayback={dispatchTogglePlayIntent}
                           timingEditor={timingEditor}
+                          rowMedia={rowMedia}
+                          mediaGutter={mediaEdits.overlays.length > 0}
+                          onAddClip={preparedMedia ? onAddMediaClip : undefined}
                           onEditWordTiming={openWordTiming}
                           waveformEnabled={false}
                           registerWaveMount={registerWaveMount}

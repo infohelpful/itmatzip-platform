@@ -67,6 +67,8 @@ export type ExportVideoRequest = {
   cutRanges: CutRange[]
   /** Optional explicit source clip order; when present it replaces cutRanges. */
   clipPlan?: import('./clipPlan').ProgramClip[]
+  /** Full resolved media program; mutually exclusive with clipPlan. Source cues remain unshifted. */
+  composition?: import('./mediaComposition').MediaComposition
 }
 
 export type ExportSubtitleStyle = {

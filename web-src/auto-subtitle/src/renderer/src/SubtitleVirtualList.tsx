@@ -21,6 +21,7 @@ import { subtitleLineEditDisplayText, type SubtitleLine } from '../../shared/sub
 import { subtitlePresentationEnd, subtitlePresentationStart } from '../../shared/subtitlePresentation'
 import type { SubtitleDisplayTimingEdit } from '../../shared/subtitleDisplayTiming'
 import { SubtitleDisplayTimingControl } from './components/SubtitleDisplayTimingControl'
+import { ClipAddBar, type ClipAddKind } from './components/MediaClipCards'
 import {
   DISPLAY_CROSS_CARD_GAP_ABSORB_MS,
   DISPLAY_GAP_ABSORB_MS,
@@ -92,8 +93,17 @@ function wordChipSlotStyle(w: { start: number; end: number }, tw: LineZoomWindow
   }
 }
 
+/** Inserted clips listed before/after a caption row, overlay badges in its head, and whether an overlay covers it. */
+export type SubtitleRowMedia = { before?: ReactNode; after?: ReactNode; badges?: ReactNode; gutter?: ReactNode; covered?: boolean }
+
 export type SubtitleVirtualListProps = {
   timingEditor?: { lineIndex: number; wordIndex: number; content: ReactNode } | null
+  /** Media editing per caption row (inserted clips, image overlays). */
+  rowMedia?: ReadonlyMap<number, SubtitleRowMedia>
+  /** 「클립 추가」 between rows: `where` is relative to row `row`. */
+  onAddClip?: (row: number, kind: ClipAddKind, where: 'before' | 'after') => void
+  /** Reserve the left gutter for image overlay range lines. */
+  mediaGutter?: boolean
   onEditWordTiming?: (lineIndex: number, wordIndex: number) => void
   selectedRows: ReadonlySet<number>
   onSelectRow: (index: number, checked: boolean) => void
@@ -118,7 +128,8 @@ export type SubtitleVirtualListProps = {
   updateSubtitleAt: (index: number, text: string) => void
   splitSubtitleAt: (index: number, cursorPos: number) => void
   mergeEmptySubtitleAt: (index: number) => void
-  formatTimecode: (sec: number) => string
+  /** `edge: 'end'` — an end time at a boundary with inserted clips is shown before them. */
+  formatTimecode: (sec: number, edge?: 'start' | 'end') => string
   /** 일시정지 상태에서 현재 시점부터 재생 재개(위치 유지) */
   onTogglePlayback: () => void
   /** 단어별 파동(Peaks) — 자막 카드 안에 단어 아래·텍스트 위로 삽입 */
@@ -151,6 +162,8 @@ export type SubtitleVirtualListProps = {
 /** `List` 의 `rowProps` — `index` / `style` / `ariaAttributes` 는 List가 주입 */
 export type SubtitleListRowProps = {
   timingEditor?: SubtitleVirtualListProps['timingEditor']
+  rowMedia?: SubtitleVirtualListProps['rowMedia']
+  onAddClip?: SubtitleVirtualListProps['onAddClip']
   onEditWordTiming?: SubtitleVirtualListProps['onEditWordTiming']
   selectedRows: ReadonlySet<number>
   onSelectRow: SubtitleVirtualListProps['onSelectRow']
@@ -222,6 +235,8 @@ function markUserClickPause(): void {
 }
 
 function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) {
+  const media = props.rowMedia?.get(props.index)
+  const firstVisibleRow = props.rowNumbers[props.index] === 1 && (props.index === 0 || props.rowNumbers[props.index - 1] === 0)
   const {
     index,
     style,
@@ -1721,7 +1736,13 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
     // aria-posinset lets react-window map this element to its row index. Without it, a deleted
     // (zero-height) row that has the attribute becomes the only row measured and every other row
     // keeps a stale height, so an opened word timing editor was painted under the next rows.
-    <div {...props.ariaAttributes} style={style} className="subtitle-virtual-row">
+    <div {...props.ariaAttributes} style={style} className={`subtitle-virtual-row${media?.covered ? ' has-overlay' : ''}`}>
+      {props.onAddClip && firstVisibleRow ? (
+        <ClipAddBar label="맨 앞에 클립 추가" allowOverlay={false} edge="top"
+          onAdd={kind => props.onAddClip?.(index, kind, 'before')} />
+      ) : null}
+      {media?.gutter}
+      {media?.before}
       <article
         ref={articleRef}
         id={`subtitle-card-${index}`}
@@ -1804,6 +1825,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         </div>
         <div className="subtitle-card-head">
           <span className="subtitle-row-kind">▣ <span>영상 · 자막</span></span>
+          {media?.badges}
           {emphasisSel && onCaptionEmphasis && (emphasisCanAdd || emphasisCanRemove) ? (
             <CaptionEmphasisToolbar selection={emphasisSel} canAdd={emphasisCanAdd} canRemove={emphasisCanRemove}
               defaultColor={emphasisColor} onEmphasize={applyEmphasis} onRemove={removeEmphasis}
@@ -1812,7 +1834,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           <div className="subtitle-card-times" aria-label="자막 구간">
             <span className="subtitle-time">{formatTimecode(subtitlePresentationStart(subtitles, index))}</span>
             <span className="subtitle-time-sep">→</span>
-            <span className="subtitle-time">{formatTimecode(effectiveCardEndSec)}</span>
+            <span className="subtitle-time">{formatTimecode(effectiveCardEndSec, 'end')}</span>
           </div>
           {onDisplayTiming ? (
             <SubtitleDisplayTimingControl lines={subtitles} index={index} rowNumber={props.rowNumbers[index]}
@@ -2014,7 +2036,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
                           : DISPLAY_GAP_ABSORB_MS
                         const kind = row.words?.[storageWi]?.gapKind === 'unclassified' ? '자막이 없는 오디오 구간 · ' : rw.isSilence ? '무음 구간 · ' : ''
                         return `${kind}${formatTimecode(rw.start)} ~ ${formatTimecode(
-                          resolveDisplayEndSec(rw.end, nextBoundary, absorbMs)
+                          resolveDisplayEndSec(rw.end, nextBoundary, absorbMs), 'end'
                         )}`
                       })()}
                     >
@@ -2160,6 +2182,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           ranges={row.emphasis} defaultColor={emphasisColor} />
         </div>
       </article>
+      {media?.after}
+      {props.onAddClip ? (
+        <ClipAddBar allowOverlay edge="bottom" onAdd={kind => props.onAddClip?.(index, kind, 'after')} />
+      ) : null}
     </div>
   )
 }
@@ -2186,6 +2212,7 @@ const subtitleVirtualRowAreEqual = (
   if (prev.style !== next.style) return false
   if ((prev.timingEditor?.lineIndex === prev.index || next.timingEditor?.lineIndex === next.index) &&
       prev.timingEditor !== next.timingEditor) return false
+  if (prev.rowMedia?.get(prev.index) !== next.rowMedia?.get(next.index)) return false
   // 자기 row 의 핵심 데이터 비교
   if (prev.subtitles[prev.index] !== next.subtitles[next.index]) return false
   const prevVrew = prev.vrewRows?.[prev.index]
@@ -2206,6 +2233,7 @@ const subtitleVirtualRowAreEqual = (
   for (const key of Object.keys(next) as Array<keyof typeof next>) {
     if (
       key === 'timingEditor' ||
+      key === 'rowMedia' ||
       key === 'subtitles' ||
       key === 'vrewRows' ||
       key === 'index' ||
@@ -2386,6 +2414,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
     () => ({
       subtitles,
       timingEditor: props.timingEditor,
+      rowMedia: props.rowMedia,
+      onAddClip: props.onAddClip,
       onEditWordTiming: props.onEditWordTiming,
       selectedRows: props.selectedRows,
       onSelectRow: props.onSelectRow,
@@ -2438,6 +2468,8 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       subtitles,
       props.selectedRows,
       props.timingEditor,
+      props.rowMedia,
+      props.onAddClip,
       props.onEditWordTiming,
       props.onSelectRow,
       searchHitLine,
@@ -2512,7 +2544,7 @@ export function SubtitleVirtualList(props: SubtitleVirtualListProps) {
       {size.h > 0 && size.w > 0 && subtitles.length > 0 ? (
         <List
           listRef={listRef}
-          className="subtitle-virtual-list"
+          className={`subtitle-virtual-list${props.mediaGutter ? ' has-media-gutter' : ''}`}
           style={{ height: size.h, width: size.w }}
           rowCount={subtitles.length}
           rowHeight={rowHeight}

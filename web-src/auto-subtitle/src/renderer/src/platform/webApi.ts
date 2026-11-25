@@ -18,6 +18,8 @@ import type { PcmRange, PcmReadResult } from '../../../shared/pcmAudio'
 import { parseAutosubProjectFile } from '../../../shared/autosubProject'
 import { decodeTextBuffer } from '../../../shared/scriptImport'
 import { clipPlanFromCuts, mapSourceIntervalToProgram, programDuration, validateClipPlan } from '../../../shared/clipPlan'
+import { compositionSourceClips } from '../../../shared/mediaComposition'
+import { requireCompositionSupport } from './compositionClient'
 import { buildRenderSchedule } from '../../../shared/exportRenderSchedule'
 import { fillScheduleGaps } from '../../../shared/watermark'
 import type { ExportSubtitleUpdatePayload } from '../../../shared/ipc'
@@ -131,7 +133,9 @@ export function createWebApi(): SidecarApi {
     }
     // Same mapping as the desktop `export:by-format` handler.
     const cuts = normalizeCutRanges(Array.isArray(req.cutRanges) ? req.cutRanges : [])
-    const plan = req.clipPlan ? validateClipPlan(req.clipPlan, Math.max(...req.clipPlan.map((c) => c.sourceEnd))) : null
+    if (req.composition && req.clipPlan) throw new Error('클립 계획과 미디어 편집을 동시에 지정할 수 없습니다.')
+    const plan = req.composition ? compositionSourceClips(req.composition)
+      : req.clipPlan ? validateClipPlan(req.clipPlan, Math.max(...req.clipPlan.map((c) => c.sourceEnd))) : null
     const mapped = plan
       ? req.subtitles.flatMap((cue) => mapSourceIntervalToProgram(cue.start, cue.end, plan)
         .map((t) => ({ ...t, text: cue.text }))).sort((a, b) => a.start - b.start)
@@ -190,6 +194,11 @@ export function createWebApi(): SidecarApi {
   /** Video burn-in and MP3/WAV: the agent writes next to the media into a folder the user picks. */
   async function exportMediaFile(req: ExportRequest): Promise<ExportResult> {
     if (!Array.isArray(req.subtitles)) throw new Error('내보낼 자막 데이터가 없습니다.')
+    if (req.composition && req.clipPlan) throw new Error('클립 계획과 미디어 편집을 동시에 지정할 수 없습니다.')
+    if (req.composition) {
+      if (req.format !== 'video') throw new Error('삽입 클립이 있는 프로젝트의 오디오 단독 내보내기는 아직 지원하지 않습니다.')
+      await requireCompositionSupport()
+    }
     // 내보내기 페이지는 「다운로드」 폴더에 바로 저장한다(예전 에이전트면 폴더 선택으로 대신).
     const downloads = req.saveTo === 'downloads' ? await downloadsDir() : null
     const picked = downloads
@@ -212,13 +221,15 @@ export function createWebApi(): SidecarApi {
     try {
       // Same schedule and style defaults as the desktop `export:by-format` video branch.
       const cuts = Array.isArray(req.cutRanges) ? req.cutRanges : []
-      const clips = validateClipPlan(req.clipPlan ?? clipPlanFromCuts(job.duration, cuts), job.duration)
+      const clips = req.composition ? compositionSourceClips(req.composition)
+        : validateClipPlan(req.clipPlan ?? clipPlanFromCuts(job.duration, cuts), job.duration)
+      const outputDuration = req.composition?.duration ?? programDuration(clips)
       const highlightColor = sanitizeHexColor(req.subtitleStyle?.wordHighlightColor)
       const subtitleSchedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
       // 워터마크는 자막이 없는 구간에도 보여야 하므로 빈 구간을 텍스트 없는 상태로 채운다(에이전트와 같은 총 프레임 수).
       const watermark = req.watermark
       const schedule = watermark
-        ? fillScheduleGaps(subtitleSchedule, Math.max(1, Math.ceil(programDuration(clips) * job.fps - 1e-9)))
+        ? fillScheduleGaps(subtitleSchedule, Math.max(1, Math.ceil(outputDuration * job.fps - 1e-9)))
         : subtitleSchedule
       const st = req.subtitleStyle
       const base: Omit<ExportSubtitleUpdatePayload, 'text' | 'words' | 'activeIndex' | 'emphasis'> = {
@@ -244,7 +255,8 @@ export function createWebApi(): SidecarApi {
         renderer.dispose()
       }
       await api(`/export/video/${encodeURIComponent(job.jobId)}/encode`, {
-        schedule: schedule.map((s) => ({ startFrame: s.startFrame, endFrame: s.endFrame })), clips
+        schedule: schedule.map((s) => ({ startFrame: s.startFrame, endFrame: s.endFrame })),
+        ...(req.composition ? { composition: req.composition } : { clips })
       })
       return { canceled: false, outputPath: await pollExport(job.jobId, '자막 렌더·합성·인코딩 중…'), format }
     } catch (error) {

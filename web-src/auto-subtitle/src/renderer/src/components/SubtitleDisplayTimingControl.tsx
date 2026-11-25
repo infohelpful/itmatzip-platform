@@ -19,7 +19,7 @@ type Props = {
   lines: readonly SubtitleLine[]
   index: number
   rowNumber?: number
-  formatTimecode: (sec: number) => string
+  formatTimecode: (sec: number, edge?: 'start' | 'end') => string
   /** 미디어 축 현재 재생 위치(초) */
   playheadSecRef: MutableRefObject<number>
   onEdit: (index: number, edit: SubtitleDisplayTimingEdit) => void
@@ -104,7 +104,7 @@ export function SubtitleDisplayTimingControl(props: Props) {
         <span className="subtitle-display-timing-label">{label}</span>
         <button type="button" onClick={() => edit({ kind: 'nudge', edge, delta: -0.5 })} title={`${label} 0.5초 앞으로`}>−0.5</button>
         <button type="button" onClick={() => edit({ kind: 'nudge', edge, delta: -0.1 })} title={`${label} 0.1초 앞으로`}>−0.1</button>
-        <span className="subtitle-display-timing-value">{value === null ? '—' : formatTimecode(value)}</span>
+        <span className="subtitle-display-timing-value">{value === null ? '—' : formatTimecode(value, edge)}</span>
         <button type="button" onClick={() => edit({ kind: 'nudge', edge, delta: 0.1 })} title={`${label} 0.1초 뒤로`}>+0.1</button>
         <button type="button" onClick={() => edit({ kind: 'nudge', edge, delta: 0.5 })} title={`${label} 0.5초 뒤로`}>+0.5</button>
         <button type="button" className="subtitle-display-timing-here"
@@ -145,7 +145,7 @@ export function SubtitleDisplayTimingControl(props: Props) {
         <button type="button" className="subtitle-display-timing-close" aria-label="닫기" onClick={() => setOpen(false)}>×</button>
       </div>
       <p className="subtitle-display-timing-auto">
-        자동: {formatTimecode(auto.start)} → {formatTimecode(auto.end)}
+        자동: {formatTimecode(auto.start)} → {formatTimecode(auto.end, 'end')}
       </p>
       {edgeRow('start')}
       {edgeRow('end')}
@@ -175,7 +175,7 @@ export function SubtitleDisplayTimingControl(props: Props) {
         <span className="subtitle-display-timing-btn-label">자막{adjusted ? ' · 수동' : ''}</span>
         <span>{shown ? formatTimecode(shown.start) : '—'}</span>
         <span className="subtitle-time-sep">→</span>
-        <span>{shown ? formatTimecode(shown.end) : '—'}</span>
+        <span>{shown ? formatTimecode(shown.end, 'end') : '—'}</span>
       </button>
       {popup}
     </>

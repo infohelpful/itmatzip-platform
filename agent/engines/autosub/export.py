@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import media, paths
+from . import composition as media_composition, media, paths
 
 EXPORT_FPS = 30
 MAX_RENDER_W, MAX_RENDER_H = 1920, 1080
@@ -435,24 +435,34 @@ def _overlay_frames(job: dict[str, Any], ffmpeg: str, schedule: list[tuple[int, 
         if decoder:
             decoder.kill()
             decoder.wait()
+            if decoder.stdout:
+                decoder.stdout.close()
 
 
-def start_encode(job_id: str, schedule: list[dict[str, Any]], clips: list[dict[str, Any]]) -> None:
+def start_encode(job_id: str, schedule: list[dict[str, Any]], clips: list[dict[str, Any]],
+                 composition: dict[str, Any] | None = None) -> None:
     job = _job(job_id)
     if job["kind"] != "video" or job["state"] != "waiting":
         raise ValueError("인코딩을 시작할 수 있는 상태가 아닙니다.")
     timing = job["timing"]
-    plan = validate_clip_plan(clips, timing.duration)
+    if composition is not None and clips:
+        raise ValueError("클립 계획과 미디어 편집을 동시에 지정할 수 없습니다.")
+    resolved = media_composition.resolve_composition(composition, timing) if composition is not None else None
+    plan = [] if resolved else validate_clip_plan(clips, timing.duration)
+    duration = resolved.duration if resolved else program_duration(plan)
+    total_frames = max(1, math.ceil(duration * EXPORT_FPS - 1e-9))
     frames: list[tuple[int, int]] = []
     cursor = 0
     for i, item in enumerate(schedule):
         start, end = int(item["startFrame"]), int(item["endFrame"])
-        if start < cursor or end <= start:
+        if start < cursor or end <= start or end > total_frames:
             raise ValueError("자막 상태 구간이 올바르지 않습니다.")
         frames.append((start, end))
         cursor = end
     if len(frames) != job["states"]:
         raise ValueError(f"자막 이미지 {job['states']}장과 상태 {len(frames)}개가 맞지 않습니다.")
+    if resolved:
+        job["composition"] = resolved
     job["state"] = "running"
     threading.Thread(target=_encode, args=(job, frames, plan), name="autosub-export-video", daemon=True).start()
 
@@ -464,11 +474,15 @@ def _encode(job: dict[str, Any], frames: list[tuple[int, int]], plan: list[dict[
         ff = paths.ffmpeg_paths()
         if not ff:
             raise RuntimeError("ffmpeg 준비가 필요합니다.")
-        overlay_dur = program_duration(plan)
+        composition = job.get("composition")
+        overlay_dur = composition.duration if composition else program_duration(plan)
         total_frames = max(1, math.ceil(overlay_dur * EXPORT_FPS - 1e-9))
         rw, rh = job["render"]
         w, h = max(1, round(timing.width)), max(1, round(timing.height))
-        graph = (f"{build_clip_graph(plan, timing.duration, timing.source_origin_sec, timing.has_audio)};"
+        extra_inputs, base_graph = media_composition.build_composition_graph(composition, timing) if composition else (
+            [], build_clip_graph(plan, timing.duration, timing.source_origin_sec, timing.has_audio))
+        has_audio = True if composition else timing.has_audio
+        graph = (f"{base_graph};"
                  f"[vmain]scale={w}:{h}:flags=lanczos,setsar=1[display];"
                  f"[1:v]format=rgba,scale={w}:{h}:flags=bilinear,setsar=1[sub];"
                  f"[display][sub]overlay=0:0:eof_action=pass:repeatlast=0[vout]")
@@ -476,9 +490,9 @@ def _encode(job: dict[str, Any], frames: list[tuple[int, int]], plan: list[dict[
         def run(encoder: str) -> None:
             argv = [ff[0], "-y", "-hide_banner", "-copyts", "-dn", "-sn", "-i", str(job["source"]),
                     "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", f"{rw}x{rh}", "-framerate", str(EXPORT_FPS),
-                    "-i", "-", "-filter_complex", graph, "-map", "[vout]", *(["-map", "[amain]"] if timing.has_audio else []),
+                    "-i", "-", *extra_inputs, "-filter_complex", graph, "-map", "[vout]", *(["-map", "[amain]"] if has_audio else []),
                     *h264_encode_args(encoder), "-pix_fmt", "yuv420p", "-r", str(EXPORT_FPS),
-                    *(["-c:a", "aac", "-b:a", "192k"] if timing.has_audio else []),
+                    *(["-c:a", "aac", "-b:a", "192k"] if has_audio else []),
                     "-movflags", "+faststart", "-t", str(overlay_dur), "-progress", "pipe:2", "-nostats", str(pending)]
             proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                     creationflags=_NO_WINDOW)
@@ -503,6 +517,8 @@ def _encode(job: dict[str, Any], frames: list[tuple[int, int]], plan: list[dict[
                 _pump_progress(proc, job, overlay_dur, lambda p: min(99, 12 + round(p / 100 * 87)))
             finally:
                 feeder.join()
+                if proc.stderr:
+                    proc.stderr.close()
             if feed_error and not isinstance(feed_error[0], (BrokenPipeError, OSError)):
                 raise feed_error[0]
 
@@ -516,7 +532,7 @@ def _encode(job: dict[str, Any], frames: list[tuple[int, int]], plan: list[dict[
             job.update(label="CPU 인코더로 다시 시도 중…", encoderName=ENCODER_NAMES["libx264"], percent=12)
             run("libx264")
         out = media.probe_media_timing(ff[1], pending)
-        if abs(out.duration - overlay_dur) > 0.1 or out.has_audio != timing.has_audio:
+        if abs(out.duration - overlay_dur) > 0.1 or out.has_audio != has_audio:
             raise RuntimeError("출력 영상의 길이 또는 오디오 검증에 실패했습니다.")
         job.update(percent=99, label="출력 영상 전체를 검증하는 중…")
         validate_media_decode(ff[0], pending, cancel=job["cancel"])

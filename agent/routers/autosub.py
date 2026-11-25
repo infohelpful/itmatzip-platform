@@ -17,7 +17,7 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 
-from engines.autosub import ai_proofread, ai_settings, alignment, export, media, paths, service
+from engines.autosub import ai_proofread, ai_settings, alignment, composition, export, media, paths, service
 from engines import mcp_chat, mcp_registry
 
 router = APIRouter(prefix="/api/tools/auto-subtitle/v2", tags=["auto-subtitle"])
@@ -252,6 +252,19 @@ async def get_gpu_install() -> dict[str, Any]:
 
 
 # -- media -------------------------------------------------------------------------------
+@router.get("/composition/capabilities")
+async def get_composition_capabilities() -> dict[str, Any]:
+    return {"version": 1, "imageOverlay": True, "imageInsert": True, "videoInsert": True, "fps": composition.FPS}
+
+
+@router.post("/media/asset")
+async def post_media_asset(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    try:
+        return await run_in_threadpool(composition.inspect_asset, _str(body, "path"), _str(body, "kind"))
+    except (OSError, ValueError, RuntimeError) as error:
+        raise _bad(error) from error
+
+
 @router.post("/media/register")
 async def post_media_register(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Validate a path the user picked (dialog or project file) so it may be served."""
@@ -452,8 +465,8 @@ async def post_export_encode(job_id: str, body: dict[str, Any] = Body(...)) -> d
     schedule = body.get("schedule") if isinstance(body.get("schedule"), list) else []
     clips = body.get("clips") if isinstance(body.get("clips"), list) else []
     try:
-        await run_in_threadpool(export.start_encode, job_id, schedule, clips)
-    except (KeyError, ValueError, TypeError) as error:
+        await run_in_threadpool(export.start_encode, job_id, schedule, clips, body.get("composition"))
+    except (KeyError, ValueError, TypeError, OSError, RuntimeError) as error:
         raise _bad(error) from error
     return {"ok": True}
 
