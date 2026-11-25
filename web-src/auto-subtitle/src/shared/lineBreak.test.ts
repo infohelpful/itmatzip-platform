@@ -173,3 +173,32 @@ describe('partitionLineAtSpeechBoundaries', () => {
     expect(parts[1]!.start).toBe(0.5)
   })
 })
+
+describe('auto line break keeps AI-corrected captions', () => {
+  const corrected = (tokens: string[], caption: string): SubtitleLine => ({ ...lineOf(tokens, 0.05), text: caption, captionText: caption })
+  it('cuts the corrected text where the chips are cut', () => {
+    const line = corrected(['나만의', '개인', '클라우드', '엄브렐', 'OS', '관리', '대시보드', '화면입니다.'],
+      '나만의 개인 클라우드 Umbrel OS 관리 대시보드 화면입니다.')
+    const out = breakSubtitleLine(line, { maxUnits: 12 })
+    expect(out.length).toBeGreaterThan(1)
+    // Every row shows its part of the corrected caption (an override only where it differs from the chips).
+    expect(out.every(l => l.captionText === undefined || l.captionText === l.text)).toBe(true)
+    expect(out.map(l => l.text).join(' ')).toBe('나만의 개인 클라우드 Umbrel OS 관리 대시보드 화면입니다.')
+    expect(out.some(l => l.text.includes('Umbrel'))).toBe(true)
+    expect(out.some(l => l.text.includes('엄브렐'))).toBe(false)
+    // Chips are split exactly as before.
+    expect(out.map(l => (l.words ?? []).map(w => w.word).join(' ')).join(' ')).toBe('나만의 개인 클라우드 엄브렐 OS 관리 대시보드 화면입니다.')
+  })
+  it('a correction that changes the word count still splits sensibly', () => {
+    const line = corrected(['매달라가는', '구글', '드라이브나', '아이클라우드', '구독료가'],
+      '매달 나가는 구글 드라이브나 아이클라우드 구독료가')
+    const out = breakSubtitleLine(line, { maxUnits: 12 })
+    expect(out.length).toBeGreaterThan(1)
+    expect(out.map(l => l.text).join(' ')).toBe('매달 나가는 구글 드라이브나 아이클라우드 구독료가')
+    expect(out[0]!.text.startsWith('매달 나가는')).toBe(true)
+  })
+  it('rows without a corrected caption are unchanged by this', () => {
+    const out = breakSubtitleLine(lineOf(['하나', '둘', '셋', '넷', '다섯', '여섯', '일곱', '여덟'], 0.05), { maxUnits: 6 })
+    expect(out.every(l => l.captionText === undefined)).toBe(true)
+  })
+})

@@ -1,5 +1,6 @@
 import { displayTextFromSubtitleWords, type SubtitleLine, type SubtitleWord } from './subtitles'
 import { scrubTimelineNoiseFromWordPiece } from './wordContract'
+import { editedCaptionOf, sourcePieces, splitCaptionAtSourceBoundary, withCaption } from './captionSplit'
 
 /**
  * 자막 줄 자동 줄바꿈 — 단어 타임스탬프를 기준으로 너무 긴 줄을 여러 줄로 나눈다.
@@ -119,6 +120,26 @@ export function partitionLineAtSpeechBoundaries(
   }
   groups.push(words.slice(from))
 
+  // An edited (typed or AI-corrected) caption is cut where the chips are cut, matching caption words to
+  // chip labels, so every new row keeps its part of the corrected text instead of the raw chip text.
+  const edited = editedCaptionOf(line)
+  const captions: Array<string | undefined> = groups.map(() => undefined)
+  if (edited !== undefined) {
+    let rest = edited
+    let restPieces = sourcePieces(words)
+    groups.forEach((group, index) => {
+      const count = sourcePieces(group).length
+      if (index === groups.length - 1) {
+        captions[index] = rest
+        return
+      }
+      const [left, right] = splitCaptionAtSourceBoundary(rest, restPieces, count)
+      captions[index] = left
+      rest = right
+      restPieces = restPieces.slice(count)
+    })
+  }
+
   return groups.map((group, index) => {
     const alive = group.filter((w) => !w.isDeleted)
     let start = alive.length > 0 ? Math.min(...alive.map((w) => w.start)) : line.start
@@ -127,7 +148,7 @@ export function partitionLineAtSpeechBoundaries(
     if (index === 0) start = Math.min(start, line.start)
     if (index === groups.length - 1) end = Math.max(end, line.end)
     end = Math.max(end, start + MIN_WORD_SEC)
-    return {
+    const piece: SubtitleLine = {
       ...line,
       start,
       end,
@@ -135,6 +156,9 @@ export function partitionLineAtSpeechBoundaries(
       captionText: undefined,
       words: group
     }
+    // A row the caption split left empty keeps its chip text rather than showing nothing.
+    const caption = captions[index]?.trim()
+    return caption ? withCaption(piece, caption) : piece
   })
 }
 
