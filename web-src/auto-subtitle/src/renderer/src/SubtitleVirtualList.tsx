@@ -310,6 +310,8 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
   const subtitleTextareaRef = useRef<HTMLTextAreaElement | null>(null)
   const [subtitleTextDraft, setSubtitleTextDraft] = useState<string | null>(null)
   const textComposingRef = useRef(false)
+  /** Only an unfinished IME composition needs a blur commit; ordinary changes commit in onChange. */
+  const pendingCompositionTextRef = useRef<string | null>(null)
   const lineEditDisplay = useMemo(() => subtitleLineEditDisplayText(row), [row.text, row.captionText, row.words])
   const subtitleTextDisplay = subtitleTextDraft ?? lineEditDisplay
   /** 강조 글자가 들어 있는 단어 칩(저장 인덱스) → 테두리 색 */
@@ -1157,11 +1159,12 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
       e.preventDefault()
       e.stopPropagation()
       const ta = e.currentTarget
-      const live = subtitleTextDraft !== null ? subtitleTextDraft : ta.value
-      if (live !== row.text) {
+      const live = pendingCompositionTextRef.current
+      if (live !== null && live !== row.text) {
         flushSync(() => {
           updateSubtitleAt(index, live)
         })
+        pendingCompositionTextRef.current = null
       }
       const pos = ta.selectionStart
       splitSubtitleAt(index, pos)
@@ -2150,11 +2153,19 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           value={subtitleTextDisplay}
           onChange={(e) => {
             setSubtitleTextDraft(e.target.value)
-            if (!textComposingRef.current) updateSubtitleAt(index, e.target.value)
+            if (textComposingRef.current) pendingCompositionTextRef.current = e.target.value
+            else {
+              pendingCompositionTextRef.current = null
+              updateSubtitleAt(index, e.target.value)
+            }
           }}
-          onCompositionStart={() => { textComposingRef.current = true }}
+          onCompositionStart={() => {
+            textComposingRef.current = true
+            pendingCompositionTextRef.current = null
+          }}
           onCompositionEnd={(e) => {
             textComposingRef.current = false
+            pendingCompositionTextRef.current = null
             setSubtitleTextDraft(e.currentTarget.value)
             updateSubtitleAt(index, e.currentTarget.value)
           }}
@@ -2167,16 +2178,16 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             const ta = e.currentTarget
             // 클릭으로 들어온 경우 selectionStart 는 mouseup 뒤에 확정되므로 한 틱 뒤에 읽는다.
             window.setTimeout(() => seekToTextCaret(ta), 0)
+            pendingCompositionTextRef.current = null
             setSubtitleTextDraft(lineEditDisplay)
             setCaretVisible(false)
             setCaretBlink(false)
           }}
           onBlur={() => {
-            const el = subtitleTextareaRef.current
-            const cur = subtitleTextDraft !== null ? subtitleTextDraft : el?.value ?? lineEditDisplay
-            if (cur !== lineEditDisplay) {
-              updateSubtitleAt(index, cur)
-            }
+            const pending = pendingCompositionTextRef.current
+            pendingCompositionTextRef.current = null
+            textComposingRef.current = false
+            if (pending !== null) updateSubtitleAt(index, pending)
             setSubtitleTextDraft(null)
             // 강조 색상표를 쓰는 중이 아니면 카드 머리 강조 막대를 닫는다.
             if (!emphasisPaletteOpenRef.current) setEmphasisSel(null)

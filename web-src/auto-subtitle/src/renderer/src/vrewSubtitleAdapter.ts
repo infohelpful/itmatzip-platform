@@ -9,7 +9,6 @@ import { markWordEdited } from '../../shared/wordAlignmentMeta'
 import {
   DEFAULT_GAP_THRESHOLD_SEC,
   fillGapsInSubtitleWords,
-  lineEditDisplayFromVrewWordParts,
   validateSubtitleLineWords
 } from '../../shared/wordContract'
 import type { SubtitleRow } from './components/vrewPeaksEditor/types'
@@ -58,12 +57,10 @@ type VrewRowCacheEntry = {
 }
 const vrewRowCache: WeakMap<SubtitleLine, VrewRowCacheEntry> = new WeakMap()
 
-function vrewLineTextEditBuffer(
-  line: SubtitleLine,
-  vrewWords: readonly { text: string; isSilence?: boolean }[]
-): string {
-  if (vrewWords.length > 0) return lineEditDisplayFromVrewWordParts(vrewWords)
-  return subtitleLineEditDisplayText({ text: line.text })
+function vrewLineTextEditBuffer(line: SubtitleLine): string {
+  // The word chips are the source transcript. Caption edits (including AI corrections)
+  // live in line.text/captionText and must survive a timing-only Peaks round trip.
+  return subtitleLineEditDisplayText(line)
 }
 
 /** 한 줄 자막 ↔ Peaks 한 행 (단어 타임코드가 없으면 줄 전체를 한 단어로) */
@@ -148,7 +145,7 @@ function buildVrewRowFromLine(
           ...(x.isSilence ? { isSilence: true as const } : {})
         }))
       })
-      return { id: rowId, words, lineText: vrewLineTextEditBuffer(line, words) }
+      return { id: rowId, words, lineText: vrewLineTextEditBuffer(line) }
     }
 
     const nonSilent = visibleOnly.filter((w) => !w.isSilence)
@@ -188,7 +185,7 @@ function buildVrewRowFromLine(
         ...(w.isSilence ? ({ isSilence: true } as const) : {})
       }
     })
-    return { id: rowId, words, lineText: vrewLineTextEditBuffer(line, words) }
+    return { id: rowId, words, lineText: vrewLineTextEditBuffer(line) }
   }
 
   const lineProg = toProg(line.start, line.end)
@@ -212,7 +209,7 @@ function buildVrewRowFromLine(
   return {
     id: rowId,
     words: [fallback],
-    lineText: vrewLineTextEditBuffer(line, [fallback])
+    lineText: vrewLineTextEditBuffer(line)
   }
 }
 

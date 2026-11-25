@@ -1,7 +1,33 @@
 import { describe, expect, it } from 'vitest'
 import { mergeVrewRowsIntoSubtitleLines, subtitleLinesToVrewRows } from './vrewSubtitleAdapter'
+import { editSubtitleText } from '../../shared/editSubtitleText'
+import { subtitleLineEditDisplayText } from '../../shared/subtitles'
 
 describe('mergeVrewRowsIntoSubtitleLines', () => {
+  it.each([false, true])('keeps an edited caption after a waveform timing edit (gapFill: %s)', (gapFill) => {
+    const source = [{
+      start: 0,
+      end: 2,
+      text: '원래 자막',
+      words: [
+        { start: 0, end: 1, word: '원래' },
+        { start: 1, end: 2, word: '자막' }
+      ]
+    }]
+    const edited = [editSubtitleText(source[0]!, '교정된 문구')]
+    const rows = subtitleLinesToVrewRows(edited, { gapFill })
+    expect(rows[0]!.lineText).toBe('교정된 문구')
+    const dragged = rows.map(row => ({
+      ...row,
+      words: row.words.map((word, index) => index === 0 ? { ...word, end: 0.8 } : word)
+    }))
+    const [result] = mergeVrewRowsIntoSubtitleLines(edited, dragged)
+    expect(result.text).toBe('교정된 문구')
+    expect(result.captionText).toBe('교정된 문구')
+    expect(subtitleLineEditDisplayText(result)).toBe('교정된 문구')
+    expect(result.words?.map(word => word.word)).toEqual(['원래', '자막'])
+  })
+
   it('preserves isDeleted tombstones when Peaks edits visible words only', () => {
     const prev = [
       {
