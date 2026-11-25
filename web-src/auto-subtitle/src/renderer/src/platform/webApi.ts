@@ -19,6 +19,7 @@ import { parseAutosubProjectFile } from '../../../shared/autosubProject'
 import { decodeTextBuffer } from '../../../shared/scriptImport'
 import { clipPlanFromCuts, mapSourceIntervalToProgram, programDuration, validateClipPlan } from '../../../shared/clipPlan'
 import { compositionSourceClips } from '../../../shared/mediaComposition'
+import { cuesWithInsertCaptions, withInsertCaptions } from '../../../shared/insertCaptions'
 import { requireCompositionSupport } from './compositionClient'
 import { buildRenderSchedule } from '../../../shared/exportRenderSchedule'
 import { fillScheduleGaps } from '../../../shared/watermark'
@@ -137,8 +138,8 @@ export function createWebApi(): SidecarApi {
     const plan = req.composition ? compositionSourceClips(req.composition)
       : req.clipPlan ? validateClipPlan(req.clipPlan, Math.max(...req.clipPlan.map((c) => c.sourceEnd))) : null
     const mapped = plan
-      ? req.subtitles.flatMap((cue) => mapSourceIntervalToProgram(cue.start, cue.end, plan)
-        .map((t) => ({ ...t, text: cue.text }))).sort((a, b) => a.start - b.start)
+      ? cuesWithInsertCaptions(req.subtitles.flatMap((cue) => mapSourceIntervalToProgram(cue.start, cue.end, plan)
+        .map((t) => ({ ...t, text: cue.text }))), req.composition)
       : normalizeMappedSubtitles(buildMappedSubtitles(req.subtitles, cuts))
     // 변환 결과가 비면 빈 파일을 저장하지 않고 어느 단계에서 비었는지 알려 준다.
     if (mapped.length === 0) {
@@ -225,7 +226,10 @@ export function createWebApi(): SidecarApi {
         : validateClipPlan(req.clipPlan ?? clipPlanFromCuts(job.duration, cuts), job.duration)
       const outputDuration = req.composition?.duration ?? programDuration(clips)
       const highlightColor = sanitizeHexColor(req.subtitleStyle?.wordHighlightColor)
-      const subtitleSchedule = buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined })
+      // Captions written on inserted clips fill those clips' frames (original captions never show there).
+      const subtitleSchedule = withInsertCaptions(
+        buildRenderSchedule({ cues: req.subtitles, clips, fps: job.fps, highlightWords: highlightColor !== undefined }),
+        req.composition, job.fps)
       // 워터마크는 자막이 없는 구간에도 보여야 하므로 빈 구간을 텍스트 없는 상태로 채운다(에이전트와 같은 총 프레임 수).
       const watermark = req.watermark
       const schedule = watermark

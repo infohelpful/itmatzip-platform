@@ -25,6 +25,8 @@ export type MediaInsertion = {
   sourceStart: number
   fit: MediaFit
   muted: boolean
+  /** Caption shown over the inserted clip (preview and export); original captions never show there. */
+  caption?: string
 }
 export type ImageOverlay = {
   id: string
@@ -44,8 +46,8 @@ export type MediaEdits = {
 type ClipBase = { id: string; programStart: number; duration: number }
 export type CompositionClip = ClipBase & (
   | { kind: 'source'; sourceStart: number; sourceEnd: number }
-  | { kind: 'image'; assetId: string; fit: MediaFit }
-  | { kind: 'video'; assetId: string; sourceStart: number; sourceEnd: number; fit: MediaFit; muted: boolean }
+  | { kind: 'image'; assetId: string; fit: MediaFit; caption?: string }
+  | { kind: 'video'; assetId: string; sourceStart: number; sourceEnd: number; fit: MediaFit; muted: boolean; caption?: string }
 )
 export type CompositionOverlay = {
   id: string; assetId: string; start: number; end: number; fit: MediaFit
@@ -91,12 +93,14 @@ export function parseMediaEdits(raw: unknown): MediaEdits {
   const insertions: MediaInsertion[] = raw.insertions.map(c => {
     if (!record(c) || !unique(c.id) || !name(c.assetId) || !anchor(c.at) ||
         !finite(c.duration) || c.duration <= 0 || !nonnegative(c.sourceStart) ||
-        !fit(c.fit) || typeof c.muted !== 'boolean') throw new Error('삽입 클립 정보가 올바르지 않습니다.')
+        !fit(c.fit) || typeof c.muted !== 'boolean' ||
+        (c.caption !== undefined && (typeof c.caption !== 'string' || c.caption.length > 2000))) throw new Error('삽입 클립 정보가 올바르지 않습니다.')
     const asset = byId.get(c.assetId)
     if (!asset || (asset.kind === 'video' && c.sourceStart + c.duration > asset.duration! + 1e-6) ||
         (asset.kind === 'image' && c.sourceStart !== 0)) throw new Error('삽입 클립의 원본 구간이 올바르지 않습니다.')
     return { id: c.id, assetId: c.assetId, at: { ...c.at }, duration: c.duration,
-      sourceStart: c.sourceStart, fit: c.fit, muted: c.muted }
+      sourceStart: c.sourceStart, fit: c.fit, muted: c.muted,
+      ...(typeof c.caption === 'string' && c.caption.trim() ? { caption: c.caption } : {}) }
   })
   const overlays: ImageOverlay[] = raw.overlays.map(o => {
     if (!record(o) || !unique(o.id) || !name(o.assetId) || byId.get(o.assetId)?.kind !== 'image' ||
@@ -152,7 +156,8 @@ export function buildMediaComposition(sourceDuration: number, cuts: readonly Cut
   for (const c of insertions) {
     appendSource(c.time)
     const a = assets.get(c.assetId)!
-    const base = { id: `insert:${c.id}`, assetId: a.id, programStart, duration: c.duration, fit: c.fit }
+    const base = { id: `insert:${c.id}`, assetId: a.id, programStart, duration: c.duration, fit: c.fit,
+      ...(c.caption?.trim() ? { caption: c.caption.trim() } : {}) }
     clips.push(a.kind === 'image' ? { ...base, kind: 'image' } : { ...base, kind: 'video',
       sourceStart: c.sourceStart, sourceEnd: c.sourceStart + c.duration, muted: c.muted })
     programStart += c.duration
@@ -253,4 +258,10 @@ export function overlaySourceRanges(edits: MediaEdits, subtitles: readonly Subti
     const end = resolveMediaAnchor(o.end, subtitles, sourceDuration)
     return end > start ? [{ id: o.id, assetId: o.assetId, start, end, fit: o.fit }] : []
   })
+}
+
+/** Captions written on inserted clips, in finished-video time (they fill exactly their clip). */
+export function insertCaptionCues(plan: MediaComposition): Array<{ start: number; end: number; text: string }> {
+  return plan.clips.flatMap(c => c.kind !== 'source' && c.caption
+    ? [{ start: c.programStart, end: c.programStart + c.duration, text: c.caption }] : [])
 }

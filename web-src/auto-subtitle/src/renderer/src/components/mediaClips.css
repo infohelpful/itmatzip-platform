@@ -160,3 +160,9 @@
 .clip-row-toolbar-sep { width: 1px; height: 18px; margin: 0 5px; background: #3d4547; }
 .clip-row-toolbar .clip-fit button { height: 26px; }
 .subtitle-virtual-row:has(.clip-row-toolbar) { z-index: 50; overflow: visible !important; }
+.clip-row-caption-input {
+  flex: 1; min-width: 0; height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid #2f383a; background: #101415;
+  color: #e6edf0; font: inherit; font-size: 14px;
+}
+.clip-row-caption-input::placeholder { color: #56676b; }
+.clip-row-caption-input:focus { outline: none; border-color: #5ec8f8; }

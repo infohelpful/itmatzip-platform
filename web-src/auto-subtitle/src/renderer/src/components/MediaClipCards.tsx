@@ -69,6 +69,23 @@ function FitToggle(props: { value: MediaFit; onChange: (fit: MediaFit) => void }
   </div>
 }
 
+/** Caption shown over the clip; committed once (blur or Enter) so one edit is one undo step. */
+function ClipCaptionInput(props: { value: string; onCommit: (value: string) => void }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = () => {
+    if (draft === null) return
+    setDraft(null)
+    if (draft !== props.value) props.onCommit(draft)
+  }
+  return <input type="text" className="clip-row-caption-input" maxLength={2000} aria-label="클립 자막"
+    placeholder="클립 위에 표시할 자막을 입력하세요" value={draft ?? props.value}
+    onChange={e => setDraft(e.target.value)} onBlur={commit}
+    onKeyDown={e => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); e.currentTarget.blur() }
+      else if (e.key === 'Escape') { setDraft(null); e.currentTarget.blur() }
+    }} />
+}
+
 /** One chip per second of an inserted clip (the last one holds the remainder), as in Vrew. */
 export function clipSecondChips(duration: number): number[] {
   const out: number[] = []
@@ -130,6 +147,7 @@ export function InsertedClipRow(p: InsertedClipRowProps) {
     onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
     onKeyDown={e => {
       e.stopPropagation()
+      if ((e.target as HTMLElement).closest('input,textarea')) return
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const focused = (e.target as HTMLElement).dataset?.clipSecond
         e.preventDefault()
@@ -171,8 +189,9 @@ export function InsertedClipRow(p: InsertedClipRowProps) {
     {/* Bottom line: caption icon and an empty caption (inserted clips carry no original caption). */}
     <div className="clip-row-line clip-row-line--caption">
       <span className="clip-row-caption-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M7 11h6M15 11h2M7 14.5h3M12 14.5h5" /></svg></span>
-      <span className="clip-row-file" title={asset?.path}>{isVideo ? '비디오' : '이미지'} · {asset?.name ?? '알 수 없는 파일'}</span>
-      <button type="button" className="inserted-clip-thumb" onClick={p.onPlay} title="이 클립부터 재생">
+      <ClipCaptionInput value={c.caption ?? ''} onCommit={caption => p.onChange({ caption })} />
+      <button type="button" className="inserted-clip-thumb" onClick={p.onPlay}
+        title={`${isVideo ? '비디오' : '이미지'} · ${asset?.name ?? '알 수 없는 파일'} — 이 클립부터 재생`}>
         <AssetThumb asset={asset} ready={p.ready} />
       </button>
     </div>

@@ -2102,6 +2102,26 @@ export default function App(): ReactElement {
 
   const waveformMediaDurationCapSec = durationSec > 0 ? durationSec : undefined
 
+  /** Over an inserted clip the preview shows that clip's own caption (same place and style as burned-in captions). */
+  const paintInsertCaption = useCallback(() => {
+    const el = previewSubtitleTextRef.current
+    const cur = insertSessionRef.current
+    if (!el) return
+    let caption = ''
+    if (cur) {
+      const offset = insertOffsetRef.current
+      let acc = 0
+      for (const clip of cur.group.clips) {
+        if (offset < acc + clip.duration - 1e-6 || clip === cur.group.clips[cur.group.clips.length - 1]) {
+          caption = clip.caption ?? ''
+          break
+        }
+        acc += clip.duration
+      }
+    }
+    if (el.textContent !== caption) el.textContent = caption
+  }, [])
+
   /** Time label and seek bar in finished-video time (also driven by an inserted clip's own clock). */
   const paintProgramTime = useCallback((programSec: number) => {
     const timeEl = previewCurrentTimeRef.current
@@ -2138,7 +2158,7 @@ export default function App(): ReactElement {
 
       const previewTextEl = previewSubtitleTextRef.current
       if (previewTextEl && overInsert) {
-        previewTextEl.textContent = ''
+        paintInsertCaption()
       } else if (previewTextEl) {
         renderPreviewSubtitleText(previewTextEl, subsNow, editSec, captionEmphasisColorRef.current, previewEmphasisCacheRef,
           previewWordHighlightRef.current)
@@ -5303,8 +5323,10 @@ export default function App(): ReactElement {
   const onInsertTime = useCallback((offset: number) => {
     insertOffsetRef.current = offset
     const cur = insertSessionRef.current
-    if (cur) paintProgramTime(cur.group.programStart + offset)
-  }, [paintProgramTime])
+    if (!cur) return
+    paintProgramTime(cur.group.programStart + offset)
+    paintInsertCaption()
+  }, [paintProgramTime, paintInsertCaption])
 
   /** After the last inserted clip the original resumes where it stopped (or the video ends). */
   const finishInsertSession = useCallback(() => {

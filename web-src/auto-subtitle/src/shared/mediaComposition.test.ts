@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildMediaComposition, compositionPositionAt, compositionSourceClips, insertionGroups, overlaySourceRanges,
+import { buildMediaComposition, compositionPositionAt, compositionSourceClips, insertCaptionCues, insertionGroups, overlaySourceRanges,
   parseMediaEdits, pruneMediaAssets, sourceBoundaryToProgram, type MediaEdits } from './mediaComposition'
 import { buildRenderSchedule } from './exportRenderSchedule'
 import { mapSourceIntervalToProgram } from './clipPlan'
@@ -131,5 +131,22 @@ describe('preview helpers', () => {
     expect(pruneMediaAssets(edits).assets).toEqual([])
     const kept = fixture()
     expect(pruneMediaAssets(kept)).toBe(kept)
+  })
+})
+
+describe('captions on inserted clips', () => {
+  it('are kept through parsing and become cues in finished-video time', () => {
+    const edits = fixture()
+    edits.insertions[0] = { ...edits.insertions[0]!, caption: '  인트로 화면  ' }
+    expect(parseMediaEdits(edits).insertions[0]!.caption).toBe('  인트로 화면  ')
+    const plan = buildMediaComposition(10, [], lines, edits)
+    expect(insertCaptionCues(plan)).toEqual([{ start: 2, end: 5, text: '인트로 화면' }])
+  })
+  it('a blank caption is dropped and an oversized one is refused', () => {
+    const edits = fixture()
+    edits.insertions[0] = { ...edits.insertions[0]!, caption: '   ' }
+    expect(parseMediaEdits(edits).insertions[0]!.caption).toBeUndefined()
+    edits.insertions[0] = { ...edits.insertions[0]!, caption: 'x'.repeat(2001) }
+    expect(() => parseMediaEdits(edits)).toThrow()
   })
 })
