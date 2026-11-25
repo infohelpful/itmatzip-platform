@@ -1828,7 +1828,6 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
             onChange={e => props.onSelectRow(index, e.target.checked)} />
         </div>
         <div className="subtitle-card-head">
-          <span className="subtitle-row-kind">▣ <span>영상 · 자막</span></span>
           {media?.badges}
           {emphasisSel && onCaptionEmphasis && (emphasisCanAdd || emphasisCanRemove) ? (
             <CaptionEmphasisToolbar selection={emphasisSel} canAdd={emphasisCanAdd} canRemove={emphasisCanRemove}
@@ -1849,6 +1848,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         </div>
         {wordRail.length > 0 ? (
           <div className="subtitle-card-media-rail flex w-full min-w-0 flex-col">
+          {/* Vrew layout: 영상편집 on the word line, the caption icon on the caption line. */}
+          <span className="row-line-kind" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M3 6h13v12H3zM16 10.5l5-3v9l-5-3" /></svg>영상편집
+          </span>
           <div
             ref={wordRowOuterRef}
             className={`relative subtitle-word-row subtitle-word-row--wave-seamless ${
@@ -2132,6 +2135,10 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
           </div>
         ) : null}
         {props.timingEditor?.lineIndex === index ? props.timingEditor.content : null}
+        <div className="row-line row-line--caption">
+        <span className="row-line-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M7 11h6M15 11h2M7 14.5h3M12 14.5h5" /></svg>
+        </span>
         <div className="subtitle-card-textarea-wrap">
         <textarea
           id={`subtitle-v-${index}`}
@@ -2184,6 +2191,7 @@ function SubtitleVirtualRowImpl(props: RowComponentProps<SubtitleListRowProps>) 
         />
         <CaptionEmphasisOverlay textareaRef={subtitleTextareaRef} text={subtitleTextDisplay}
           ranges={row.emphasis} defaultColor={emphasisColor} />
+        </div>
         </div>
       </article>
       {media?.after}

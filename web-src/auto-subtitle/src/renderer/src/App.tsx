@@ -69,7 +69,7 @@ import {
 import { insertionRows, moveOverlayEdge, overlayRowSpan, rowEndAnchor, rowStartAnchor } from '../../shared/mediaEditOps'
 import { pickCompositionAsset, registerCompositionAsset } from './platform/compositionClient'
 import { MediaPreviewLayer, type InsertSession } from './components/MediaPreviewLayer'
-import { InsertedClipRow, OverlayGutter, clipSecondChips, type ClipAddKind, type OverlayLane } from './components/MediaClipCards'
+import { InsertedClipRow, OverlayGutter, clipSecondChips, insertedChipId, type ClipAddKind, type OverlayLane } from './components/MediaClipCards'
 import type { SubtitleRowMedia } from './SubtitleVirtualList'
 import { isRemovedSubtitleRow } from '../../shared/editorPlayback'
 import type { PointerEvent as ReactPointerEvent } from 'react'
@@ -2102,24 +2102,34 @@ export default function App(): ReactElement {
 
   const waveformMediaDurationCapSec = durationSec > 0 ? durationSec : undefined
 
+  const activeInsertChipRef = useRef<string | null>(null)
   /** Over an inserted clip the preview shows that clip's own caption (same place and style as burned-in captions). */
   const paintInsertCaption = useCallback(() => {
     const el = previewSubtitleTextRef.current
     const cur = insertSessionRef.current
     if (!el) return
     let caption = ''
+    let chipId: string | null = null
     if (cur) {
       const offset = insertOffsetRef.current
       let acc = 0
       for (const clip of cur.group.clips) {
         if (offset < acc + clip.duration - 1e-6 || clip === cur.group.clips[cur.group.clips.length - 1]) {
           caption = clip.caption ?? ''
+          const second = Math.max(0, Math.min(Math.ceil(clip.duration) - 1, Math.floor(offset - acc + 1e-6)))
+          chipId = insertedChipId(clip.id.slice('insert:'.length), second)
           break
         }
         acc += clip.duration
       }
     }
     if (el.textContent !== caption) el.textContent = caption
+    // The clip's chip for the second on screen is marked like the spoken word of a caption row.
+    if (activeInsertChipRef.current !== chipId) {
+      if (activeInsertChipRef.current) document.getElementById(activeInsertChipRef.current)?.classList.remove('subtitle-word-chip--active')
+      activeInsertChipRef.current = chipId
+    }
+    if (chipId) document.getElementById(chipId)?.classList.add('subtitle-word-chip--active')
   }, [])
 
   /** Time label and seek bar in finished-video time (also driven by an inserted clip's own clock). */
@@ -2157,6 +2167,10 @@ export default function App(): ReactElement {
       if (!overInsert) paintProgramTime(programOfSourceRef.current(editSec))
 
       const previewTextEl = previewSubtitleTextRef.current
+      if (!overInsert && activeInsertChipRef.current) {
+        document.getElementById(activeInsertChipRef.current)?.classList.remove('subtitle-word-chip--active')
+        activeInsertChipRef.current = null
+      }
       if (previewTextEl && overInsert) {
         paintInsertCaption()
       } else if (previewTextEl) {
@@ -5308,8 +5322,9 @@ export default function App(): ReactElement {
   const closeInsertSession = useCallback(() => {
     if (!insertSessionRef.current) return
     setInsertSession(null)
+    paintInsertCaption()
     commitEditSecToUi(playheadEditSecRef.current)
-  }, [setInsertSession, commitEditSecToUi])
+  }, [setInsertSession, commitEditSecToUi, paintInsertCaption])
 
   const toggleInsertSession = useCallback(() => {
     const cur = insertSessionRef.current
@@ -5359,6 +5374,24 @@ export default function App(): ReactElement {
       switchBack()
     }
   }, [setInsertSession, commitEditSecToUi, paintProgramTime, dispatchSeekAndPlayIntent])
+
+  // While an inserted clip plays or is parked, Space anywhere (not while typing) plays/pauses that clip,
+  // whatever row or caret has focus — the same as Space over the original.
+  const hasInsertSession = insertSession !== null
+  useEffect(() => {
+    if (!hasInsertSession) return
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.code !== 'Space' && event.key !== ' ') return
+      const target = event.target as HTMLElement | null
+      if (target?.closest?.('input,textarea,select,[contenteditable="true"]')) return
+      if (document.querySelector('.word-timing-editor')) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      if (!event.repeat) toggleInsertSession()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [hasInsertSession, toggleInsertSession])
 
   insertControlRef.current = {
     close: closeInsertSession,
@@ -5596,6 +5629,27 @@ export default function App(): ReactElement {
     })
   }, [pausePlayback, closeInsertSession, pickMediaAsset, runMediaChange])
 
+  /** Click on a clip chip/row: park the preview on that second of the clip (as clicking a word does). */
+  const seekInsertedClip = useCallback((id: string, second: number) => {
+    const group = mediaGroupsRef.current.find(g => g.clips.some(c => c.id === `insert:${id}`))
+    if (!group) {
+      setMediaNotice('원본 영상을 불러온 뒤에 이동할 수 있습니다.')
+      return
+    }
+    let offset = 0
+    for (const c of group.clips) {
+      if (c.id === `insert:${id}`) break
+      offset += c.duration
+    }
+    enterInsertGroup(group, offset + second, false)
+  }, [enterInsertGroup])
+  /** Space on a clip row: play/pause from where the preview is parked on this clip, else from its start. */
+  const toggleInsertedClip = useCallback((id: string) => {
+    const cur = insertSessionRef.current
+    if (cur && cur.group.clips.some(c => c.id === `insert:${id}`)) toggleInsertSession()
+    else playInsertedClipRef.current?.(id)
+  }, [toggleInsertSession])
+  const playInsertedClipRef = useRef<((id: string) => void) | null>(null)
   const playInsertedClip = useCallback((id: string) => {
     const group = mediaGroupsRef.current.find(g => g.clips.some(c => c.id === `insert:${id}`))
     if (!group) {
@@ -5609,6 +5663,7 @@ export default function App(): ReactElement {
     }
     enterInsertGroup(group, offset, true)
   }, [enterInsertGroup])
+  playInsertedClipRef.current = playInsertedClip
 
   /** When a press outside closed the editor: the double click that press started only closes, it does not open. */
   const timingOutsideCloseAtRef = useRef(-Infinity)
@@ -7385,7 +7440,8 @@ export default function App(): ReactElement {
         onDeleteSeconds={indices => deleteClipSeconds(id, indices)} onExtend={() => extendImageClip(id)}
         onMove={step => { const other = step < 0 ? prevId : nextId; if (other) moveInsertion(id, other) }}
         onRemove={() => removeInsertion(id)} onReplace={() => void replaceMediaFile({ insertion: id })}
-        onPlay={() => playInsertedClip(id)} />
+        onPlay={() => playInsertedClip(id)}
+        onSeekSecond={second => seekInsertedClip(id, second)} onTogglePlay={() => toggleInsertedClip(id)} />
     })}</div> : undefined
     const slots = insertionRows(lines, mediaEdits, duration)
     for (const [row, slot] of slots) {
@@ -7435,7 +7491,8 @@ export default function App(): ReactElement {
   }, [subtitlesForSubtitleVirtualList, mediaSourceDurationSec, mediaEdits, mediaComposition, readyMediaAssets, mediaAssetState,
     activeInsertIds, formatTimecode, updateInsertion, moveInsertion, removeInsertion, replaceMediaFile, playInsertedClip,
     updateOverlay, moveOverlayRange, reorderOverlay, removeOverlay, overlayDrag, overlayWithEdgeAtRow, startOverlayDrag,
-    rowBaseNumbers, rowNumberShift, selectedClipIds, selectClip, deleteClipSeconds, extendImageClip])
+    rowBaseNumbers, rowNumberShift, selectedClipIds, selectClip, deleteClipSeconds, extendImageClip,
+    seekInsertedClip, toggleInsertedClip])
   const onAddMediaClip = useCallback((row: number, kind: ClipAddKind, where: 'before' | 'after') => {
     void addMediaClip(row, kind, where)
   }, [addMediaClip])

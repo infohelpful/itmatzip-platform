@@ -1842,7 +1842,7 @@ const SubtitleWaveformPeaksImpl = forwardRef<SubtitleWaveformPeaksHandle, Subtit
         const t = e.target as HTMLElement | null
         if (t && t.closest('textarea, input, [contenteditable="true"]')) return
         // While a word chip's timing editor is open, Space loops that chip (the editor handles it).
-        if (document.querySelector('.word-timing-editor')) return
+        if (document.querySelector('.word-timing-editor, .media-insert-layer')) return
         e.preventDefault()
         e.stopPropagation()
         togglePlayFromCutLine()

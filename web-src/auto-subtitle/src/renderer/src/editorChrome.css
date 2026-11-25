@@ -173,3 +173,22 @@
 .subtitle-display-timing-adj.is-on { color: #f0c25a; }
 .subtitle-display-timing-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
 .subtitle-display-timing-note { margin: 8px 0 0; color: #72878d; font-size: 10px; line-height: 1.4; }
+
+/* ---- Vrew row layout for every row: 「영상편집」 + word chips, then caption icon + caption ---- */
+.app .subtitle-card--virtual { --row-label-w: 104px; }
+.app .subtitle-card--virtual .subtitle-card-media-rail { position: relative; padding-left: var(--row-label-w); }
+/* The opened line waveform keeps the card's full width. */
+.app .subtitle-card--virtual .subtitle-card-media-rail > .subtitle-waveform-accordion { margin-left: calc(-1 * var(--row-label-w)); width: calc(100% + var(--row-label-w)); }
+.row-line-kind, .clip-row-kind {
+  position: absolute; left: 0; top: 0; width: var(--row-label-w, 104px); height: 38px; box-sizing: border-box;
+  display: inline-flex; align-items: center; gap: 7px; color: #c9d4d6; font-size: 12px; font-weight: 700; pointer-events: none;
+}
+.row-line-kind svg, .clip-row-kind svg { width: 17px; height: 17px; fill: #9aa9ac; stroke: none; flex: none; }
+.subtitle-card--active .row-line-kind, .subtitle-card--selected .row-line-kind,
+.subtitle-card--active .clip-row-kind, .subtitle-card--selected .clip-row-kind { color: #e6f6fa; }
+.row-line--caption { display: flex; align-items: flex-start; min-width: 0; }
+.row-line--caption > .subtitle-card-textarea-wrap { flex: 1; width: auto; min-width: 0; }
+.row-line-icon, .clip-row-caption-icon {
+  flex: none; width: var(--row-label-w, 104px); box-sizing: border-box; display: flex; justify-content: flex-end; padding: 7px 14px 0 0;
+}
+.row-line-icon svg, .clip-row-caption-icon svg { width: 20px; height: 20px; fill: #7f8f93; stroke: #171b1c; stroke-width: 1.6; stroke-linecap: round; }

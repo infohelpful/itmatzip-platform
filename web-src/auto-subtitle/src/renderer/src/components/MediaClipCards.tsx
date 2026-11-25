@@ -116,12 +116,19 @@ export type InsertedClipRowProps = {
   onRemove: () => void
   onReplace: () => void
   onPlay: () => void
+  /** Click on a chip (or the row): park the preview on that second of the clip, like clicking a word. */
+  onSeekSecond: (second: number) => void
+  /** Space on the row: play/pause from where the preview is parked on this clip. */
+  onTogglePlay: () => void
 }
 
+/** DOM id of a clip's one-second chip (the preview marks the chip being played). */
+export const insertedChipId = (insertionId: string, second: number) => `inserted-chip-${insertionId}-${second}`
+
 /**
- * An inserted image/video clip listed as its own numbered row, like a caption row: `[??]` chips per
- * second (select and press Delete to cut seconds), and — when its checkbox is ticked — a toolbar above
- * it with play, mute, fit, replace, order and delete.
+ * An inserted image/video clip listed as its own numbered row with the same layout and keys as a caption
+ * row: 「영상편집」 + `[??]` chips per second (click = go to that second, Space = play/pause), the caption
+ * line below. Ctrl/Shift+click picks chips and Delete cuts them; the checkbox shows the clip toolbar.
  */
 export function InsertedClipRow(p: InsertedClipRowProps) {
   const { insertion: c, asset } = p
@@ -142,13 +149,22 @@ export function InsertedClipRow(p: InsertedClipRowProps) {
     p.onDeleteSeconds(indices)
   }
   const picks = [...picked].reduce((sum, i) => sum + (chips[i] ?? 0), 0)
-  return <article className={`subtitle-card subtitle-card--virtual inserted-clip-row${p.selected ? ' subtitle-card--selected' : ''}${p.active ? ' subtitle-card--active' : ''}`}
+  return <article tabIndex={0}
+    className={`subtitle-card subtitle-card--virtual inserted-clip-row${p.selected ? ' subtitle-card--selected' : ''}${p.active ? ' subtitle-card--active' : ''}`}
     data-waveform-no-dismiss="1" aria-label={`${p.number}번 ${isVideo ? '비디오' : '이미지'} 클립`}
-    onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}
+    onMouseDown={e => e.stopPropagation()}
+    onClick={e => {
+      e.stopPropagation()
+      // Like clicking a caption card: go to the clip's start (buttons and fields handle their own clicks).
+      if (!(e.target as HTMLElement).closest('button,input,textarea,label,.clip-row-toolbar')) p.onSeekSecond(0)
+    }}
     onKeyDown={e => {
       e.stopPropagation()
       if ((e.target as HTMLElement).closest('input,textarea')) return
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault()
+        if (!e.repeat) p.onTogglePlay()
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
         const focused = (e.target as HTMLElement).dataset?.clipSecond
         e.preventDefault()
         deletePicked(focused !== undefined ? Number(focused) : undefined)
@@ -168,26 +184,34 @@ export function InsertedClipRow(p: InsertedClipRowProps) {
       {p.canMoveDown ? <button type="button" aria-label="뒤 클립과 순서 바꾸기" onClick={() => p.onMove(1)}>↓</button> : null}
       <button type="button" className="is-danger" onClick={p.onRemove}>삭제</button>
     </div> : null}
-    <div className="subtitle-row-index" onKeyDown={e => e.stopPropagation()}>
+    <div className="subtitle-row-index" onKeyDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()}>
       <span>{p.number}</span>
       <input type="checkbox" aria-label={`${p.number}번 클립 선택`} checked={p.selected} onChange={e => p.onSelect(e.target.checked)} />
     </div>
-    {/* Top line: 영상편집 + one chip per second (Vrew). */}
-    <div className="clip-row-line">
-      <span className="clip-row-kind"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h13v12H3zM16 10.5l5-3v9l-5-3" /></svg>영상편집</span>
-      <div className="inserted-clip-chips" role="group" aria-label="1초 단위 칩 (선택 후 Delete로 지우기)">
-        {chips.map((len, i) => <button key={i} type="button" data-clip-second={i}
-          className={`subtitle-word-chip inserted-clip-chip${picked.has(i) ? ' is-picked' : ''}`}
-          title={`${i}~${(i + len).toFixed(1)}초`} onClick={() => toggleChip(i)}>{len >= 0.95 ? '[ ?? ]' : '[ ? ]'}</button>)}
-      </div>
-      {p.programStart !== null ? <div className="subtitle-card-times clip-row-times" aria-label="클립 구간">
+    <div className="subtitle-card-head">
+      {p.programStart !== null ? <div className="subtitle-card-times" aria-label="클립 구간">
         <span className="subtitle-time">{p.formatTime(p.programStart)}</span>
         <span className="subtitle-time-sep">→</span>
         <span className="subtitle-time">{p.formatTime(p.programStart + c.duration)}</span>
       </div> : null}
     </div>
-    {/* Bottom line: caption icon and an empty caption (inserted clips carry no original caption). */}
-    <div className="clip-row-line clip-row-line--caption">
+    {/* Same layout as a caption row: 영상편집 + chips, then the caption line. */}
+    <div className="clip-row-rail">
+      <span className="clip-row-kind" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 6h13v12H3zM16 10.5l5-3v9l-5-3" /></svg>영상편집</span>
+      <div className="inserted-clip-chips" role="group" aria-label="1초 단위 칩 (클릭: 이동, Ctrl/Shift+클릭: 선택, Delete: 지우기)">
+        {chips.map((len, i) => <button key={i} type="button" id={insertedChipId(c.id, i)} data-clip-second={i}
+          className={`subtitle-word-chip inserted-clip-chip${picked.has(i) ? ' is-picked' : ''}`}
+          title={`${i}~${(i + len).toFixed(1)}초`}
+          onClick={e => {
+            if (e.ctrlKey || e.metaKey || e.shiftKey) toggleChip(i)
+            else {
+              setPicked(new Set())
+              p.onSeekSecond(i)
+            }
+          }}>{len >= 0.95 ? '[ ?? ]' : '[ ? ]'}</button>)}
+      </div>
+    </div>
+    <div className="row-line row-line--caption">
       <span className="clip-row-caption-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="M7 11h6M15 11h2M7 14.5h3M12 14.5h5" /></svg></span>
       <ClipCaptionInput value={c.caption ?? ''} onCommit={caption => p.onChange({ caption })} />
       <button type="button" className="inserted-clip-thumb" onClick={p.onPlay}
