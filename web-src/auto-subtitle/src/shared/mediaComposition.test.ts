@@ -150,3 +150,23 @@ describe('captions on inserted clips', () => {
     expect(() => parseMediaEdits(edits)).toThrow()
   })
 })
+
+describe('frame guard before an inserted clip', () => {
+  it('ends the original one frame early and resumes it at the insertion point', () => {
+    const plan = buildMediaComposition(10, [], lines, fixture(), { frameGuardSec: 0.045 })
+    expect(plan.clips[0]).toMatchObject({ kind: 'source', sourceStart: 0, programStart: 0 })
+    expect(plan.clips[0]!.duration).toBeCloseTo(1.955, 9)
+    expect(plan.clips[3]).toMatchObject({ kind: 'source', sourceStart: 2 })
+    expect(plan.duration).toBeCloseTo(14.955, 9)
+    const groups = insertionGroups(plan)
+    expect(groups[0]!.stopSource).toBeCloseTo(1.955, 9)
+    expect(groups[0]!.resumeSource).toBe(2)
+  })
+  it('a leading insertion has nothing to cut', () => {
+    const edits = fixture()
+    edits.insertions = [{ ...edits.insertions[0]!, at: { sourceTime: 0 } }]
+    const plan = buildMediaComposition(10, [], lines, edits, { frameGuardSec: 0.045 })
+    expect(plan.clips.map(c => [c.kind, c.programStart])).toEqual([['image', 0], ['source', 3]])
+    expect(plan.duration).toBe(13)
+  })
+})

@@ -130,11 +130,20 @@ export function compositionSourceClips(plan: MediaComposition): ProgramClip[] {
     sourceStart: c.sourceStart, sourceEnd: c.sourceEnd, programStart: c.programStart }] : [])
 }
 
+/**
+ * The original part before an inserted clip ends this much before the insertion point. Word ends come
+ * from speech recognition and often fall a frame after a cut in the original, so the frame that holds
+ * the point can already be the next scene; ending one frame early (any rate from 23.976 fps up) keeps
+ * that frame out of both preview and export. The original still resumes at the insertion point.
+ */
+export const INSERT_FRAME_GUARD_SEC = 0.045
+
 /** Inserts survive source-word deletion, and inserts at the same boundary retain array order.
  * Overlays follow only original source portions, so they cannot cover an inserted clip.
  */
 export function buildMediaComposition(sourceDuration: number, cuts: readonly CutRange[],
-  subtitles: readonly SubtitleLine[], edits: MediaEdits): MediaComposition {
+  subtitles: readonly SubtitleLine[], edits: MediaEdits, options: { frameGuardSec?: number } = {}): MediaComposition {
+  const guard = Math.max(0, options.frameGuardSec ?? 0)
   const clean = parseMediaEdits(edits)
   const kept = clipPlanFromCuts(sourceDuration, cuts)
   const assets = new Map(clean.assets.map(a => [a.id, a]))
@@ -154,7 +163,9 @@ export function buildMediaComposition(sourceDuration: number, cuts: readonly Cut
     sourceCursor = end
   }
   for (const c of insertions) {
-    appendSource(c.time)
+    // The guard is dropped from the original (not played later); the original resumes at the point.
+    appendSource(Math.max(sourceCursor, c.time - guard))
+    sourceCursor = Math.max(sourceCursor, c.time)
     const a = assets.get(c.assetId)!
     const base = { id: `insert:${c.id}`, assetId: a.id, programStart, duration: c.duration, fit: c.fit,
       ...(c.caption?.trim() ? { caption: c.caption.trim() } : {}) }

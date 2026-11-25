@@ -52,6 +52,7 @@ import {
 } from '../../shared/autosubProject'
 import {
   EMPTY_MEDIA_EDITS,
+  INSERT_FRAME_GUARD_SEC,
   buildMediaComposition,
   compositionPositionAt,
   insertionGroups,
@@ -1926,7 +1927,8 @@ export default function App(): ReactElement {
   const mediaComposition = useMemo(() => {
     if (!hasMediaEdits(mediaEdits) || !(mediaSourceDurationSec > 0)) return null
     try {
-      return buildMediaComposition(mediaSourceDurationSec, mergedWaveformPeaksStitchCuts, subtitles, mediaEdits)
+      return buildMediaComposition(mediaSourceDurationSec, mergedWaveformPeaksStitchCuts, subtitles, mediaEdits,
+        { frameGuardSec: INSERT_FRAME_GUARD_SEC })
     } catch {
       return null
     }
