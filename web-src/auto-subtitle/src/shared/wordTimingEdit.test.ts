@@ -31,15 +31,15 @@ describe('precise word boundaries', () => {
     const restored=editWordTiming(result,{lineIndex:2,wordIndex:0},1.98,3,3)
     expect(ranges(restored)).toEqual([{start:.95,end:1.98}])
   })
-  it('trimming toward a deleted neighbour across a real ASR gap extends the cut; widening into the gap does not', () => {
+  it('a deleted chip takes the short gaps to its neighbours; trimming moves that edge, widening a live chip plays what it covers', () => {
     // 앞(0-1) 삭제(1.05-1.5) 틈(1.5-1.58) 뒤(1.58-2.2) 틈 끝(2.25-3)
     const lines=[row('앞',0,1),row('삭제',1.05,1.5),row('뒤',1.58,2.2),row('끝',2.25,3)]
     const deleted=subtitleLinesAfterSoftDeleteWordRange(lines,1,0,1,[])!.lines
-    expect(ranges(deleted)).toEqual([{start:1.05,end:1.5}])
+    expect(ranges(deleted)).toEqual([{start:1,end:1.58}])
     const trimmedHead=editWordTiming(deleted,{lineIndex:2,wordIndex:0},1.62,2.2,3)
-    expect(ranges(trimmedHead)).toEqual([{start:1.05,end:1.62}])
+    expect(ranges(trimmedHead)).toEqual([{start:1,end:1.62}])
     const widened=editWordTiming(deleted,{lineIndex:2,wordIndex:0},1.53,2.2,3)
-    expect(ranges(widened)).toEqual([{start:1.05,end:1.5}])
+    expect(ranges(widened)).toEqual([{start:1,end:1.53}])
     // The same rule on the other side: a deleted next neighbour follows an earlier end.
     const tailDeleted=subtitleLinesAfterSoftDeleteWordRange(lines,3,0,1,[])!.lines
     const trimmedTail=editWordTiming(tailDeleted,{lineIndex:2,wordIndex:0},1.58,2.1,3)

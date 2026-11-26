@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { applyProgramTimeRangeTombstoneCutToSubtitleLines } from './subtitleTombstoneCut'
+import type { SubtitleLine } from './subtitles'
 import { editSubtitleText } from './editSubtitleText'
 import { editWordTiming } from './wordTimingEdit'
 import { sentenceTokenTimelineToSubtitleLines, subtitleLinesToSentenceTokenTimeline } from './sentenceTokenTimelineAdapter'
@@ -384,5 +386,32 @@ import {
     expect(back[0]!.words![0]!.start).toBeCloseTo(0, 4)
     expect(back[0]!.words![1]!.start).toBeCloseTo(1.5, 4)
     expect(back[1]!.words![0]!.start).toBeCloseTo(5, 4)
+  })
+})
+
+describe('deleted chips also remove the short gaps around them', () => {
+  // Rows 186–187 of a real project: the repeated 「설치 전에」 take was deleted.
+  const lines: SubtitleLine[] = [
+    { start: 609.704, end: 610.11525, text: '있다면', words: [{ id: 'a', start: 609.704, end: 610.11525, word: '있다면' }] },
+    { start: 610.967, end: 611.467, text: '설치 전에', words: [
+      { id: 'b', start: 610.11525, end: 610.446, word: '설치', isDeleted: true },
+      { id: 'c', start: 610.506, end: 610.786, word: '전에', isDeleted: true },
+      { id: 'd', start: 610.967, end: 611.167, word: '설치' },
+      { id: 'e', start: 611.227, end: 611.467, word: '전에' }
+    ] }
+  ]
+  it('playback goes straight from the previous chip to the next live chip', () => {
+    expect(mergeWaveformPeaksStitchCutRanges([], lines, [])).toEqual([{ start: 610.11525, end: 610.967 }])
+  })
+  it('a long pause next to a deleted chip stays', () => {
+    const far: SubtitleLine[] = [{ start: 0, end: 4, text: 'x', words: [
+      { start: 0, end: 1, word: '앞' }, { start: 1.2, end: 2, word: '삭제', isDeleted: true }, { start: 3, end: 4, word: '뒤' }
+    ] }]
+    expect(mergeWaveformPeaksStitchCutRanges([], far, [])).toEqual([{ start: 1, end: 2 }])
+  })
+  it('an exact waveform range cut keeps its selected range', () => {
+    const cut = applyProgramTimeRangeTombstoneCutToSubtitleLines(
+      [{ start: 0, end: 3, text: '하나 둘', words: [{ id: 'x', start: 0, end: 1, word: '하나' }, { id: 'y', start: 1.2, end: 3, word: '둘' }] }], 1.5, 2)
+    expect(mergeWaveformPeaksStitchCutRanges([], cut, [])).toEqual([{ start: 1.5, end: 2 }])
   })
 })

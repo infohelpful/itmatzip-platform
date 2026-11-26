@@ -350,6 +350,7 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(
 ): VirtualTimelineBlock[] {
   void mergedCuts
   const blocks: VirtualTimelineBlock[] = []
+  const neighbours = timeOrderedCutNeighbours(lines)
   for (let li = 0; li < lines.length; li += 1) {
     const words = lines[li]?.words ?? []
     for (let wi = 0; wi < words.length; wi += 1) {
@@ -373,6 +374,15 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(
         ms = snapTimelineSec(Math.min(w.start, w.end))
         me = snapTimelineSec(Math.max(w.start, w.end))
       }
+      const around = neighbours.get(w)
+      if (around && !isPreciseRangeCut(w)) {
+        // A deleted chip takes the short unlabelled gap to the chip next to it as well, so the program jumps
+        // straight from the previous chip to the next one (ASR edges leave bits of the deleted speech there).
+        const before = around.previous ? ms - around.previous.end : Infinity
+        if (before > 1e-9 && before <= DELETED_CHIP_GAP_SEC) ms = snapTimelineSec(around.previous!.end)
+        const after = around.next ? around.next.start - me : Infinity
+        if (after > 1e-9 && after <= DELETED_CHIP_GAP_SEC) me = snapTimelineSec(around.next!.start)
+      }
       if (!(me > ms + 1e-9)) continue
       blocks.push({
         id: `softdel:${li}:${wi}:${snapTimelineSec(ms)}:${snapTimelineSec(me)}`,
@@ -385,6 +395,26 @@ export function tombstoneBlocksFromSoftDeletedSubtitleWords(
     }
   }
   return blocks
+}
+
+/** Longest unlabelled gap a deleted chip also removes toward its neighbouring chip. */
+export const DELETED_CHIP_GAP_SEC = 0.5
+
+/** Pieces of a waveform range cut (and hidden-audio rows) keep their exact selected range. */
+function isPreciseRangeCut(word: SubtitleWord): boolean {
+  if (word.reviewReasons?.includes('time_range_cut')) return true
+  return word.manualStartLocked === true && word.manualEndLocked === true && (word.splitChain !== undefined || word.word === '')
+}
+
+/** Each chip's previous and next chip on the source timeline, across caption rows (trim-absorbed chips excluded). */
+function timeOrderedCutNeighbours(lines: readonly SubtitleLine[]): Map<SubtitleWord, { previous?: SubtitleWord; next?: SubtitleWord }> {
+  const ordered = lines.flatMap(line => (line.words ?? []).filter(w => !(w.isDeleted === true && w.mergedByEdgeTrim === true)))
+    .sort((a, b) => a.start - b.start || a.end - b.end)
+  const out = new Map<SubtitleWord, { previous?: SubtitleWord; next?: SubtitleWord }>()
+  ordered.forEach((word, i) => {
+    if (word.isDeleted === true) out.set(word, { previous: ordered[i - 1], next: ordered[i + 1] })
+  })
+  return out
 }
 
 /**
